@@ -4,44 +4,42 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** The wake's step from one agent to the next (ADR 0162). */
 export const WAKE_STEP_MS = 70;
-/** A pill lights this long after its agent wakes. */
-export const LIGHT_AFTER_MS = 60;
-/** The calm loop: the next pill works this often. */
+/** The calm loop: the next agent says what it does this often. */
 const WORK_EVERY_MS = 2500;
 
 /** The engine's key for an agent of a card's drawing (its reactions, its seed). */
 export const sceneAgentKey = (kind: PurposeKind, i: number) => `purpose-${kind}-${i}`;
 
 /**
- * What a purpose card's agents and pills are doing (ADR 0162), shared by its drawing (`PurposeScene`) and its cluster
- * of pills. Nothing here changes a size or a place: only who is awake, which pill is pointed at, which one works.
+ * What a purpose drawing's agents are doing (ADR 0162), read by the drawing (`PurposeScene`). Nothing here changes a
+ * size or a place: only who is awake, which agent is pointed at, which one is at work.
  */
 export interface PurposeLife {
-  /** The wake is running: each pill lights a beat after its agent, z's pop off the agents. */
+  /** The wake is running: z's pop off the agents. */
   waking: boolean;
   awake: (agent: number) => boolean;
-  /** The agent pointed at, through its pill or itself. */
+  /** The agent pointed at. */
   hot: number | null;
-  /** The agent whose pill shows the work sweep, the agent bobbing. */
+  /** The agent at work: it bobs and, in the onboarding, says what it does. */
   working: number | null;
-  hasPill: (agent: number) => boolean;
+  /** The agent has something it does (`SCENE_ACTIVITIES`): pointing at it wakes it. */
+  hasActivity: (agent: number) => boolean;
   /** An agent's place in the wake. */
   wakeOrder: (agent: number) => number;
   point: (agent: number | null) => void;
 }
 
-/** The wake's order: the pills' agents as they light up, then the drawing's other agents. */
+/** The wake's order: the agents with something they do, in their order, then the drawing's other agents. */
 function wakeOrderOf(kind: PurposeKind): number[] {
-  const pills = SCENE_ACTIVITIES[kind].map((a) => a.agent);
-  const rest = SCENE_FACES[kind].flatMap((f, i) => ("look" in f && !pills.includes(i) ? [i] : []));
-  return [...pills, ...rest];
+  const busy = SCENE_ACTIVITIES[kind].map((a) => a.agent);
+  const rest = SCENE_FACES[kind].flatMap((f, i) => ("look" in f && !busy.includes(i) ? [i] : []));
+  return [...busy, ...rest];
 }
 
 /**
- * At rest the agents doze. Pointing at a pill (or its agent) wakes that agent with one hop. Choosing the card wakes them
- * in a quick wave (a hop each, `WAKE_STEP_MS` apart) while the pills light in place; then one pill at a time works,
- * every `WORK_EVERY_MS`, waiting while one is pointed at. Unchosen, they doze again. Reduced motion: no wave, no
- * hops, no loop; chosen is simply awake and lit.
+ * At rest the agents doze. Pointing at an agent wakes it with one hop. Choosing the answer wakes them in a quick wave
+ * (a hop each, `WAKE_STEP_MS` apart); then one agent at a time is at work, every `WORK_EVERY_MS`, waiting while one is
+ * pointed at. Unchosen, they doze again. Reduced motion: no wave, no hops, no loop; chosen is simply awake.
  */
 export function usePurposeLife(kind: PurposeKind, chosen: boolean): PurposeLife {
   const order = useMemo(() => wakeOrderOf(kind), [kind]);
@@ -49,7 +47,7 @@ export function usePurposeLife(kind: PurposeKind, chosen: boolean): PurposeLife 
   const [waking, setWaking] = useState(false);
   const [hot, setHot] = useState<number | null>(null);
   const [working, setWorking] = useState<number | null>(null);
-  // The wake starts in the same render as the choice, so each pill's light keeps its delay.
+  // The wake starts in the same render as the choice, so each z keeps its delay.
   const [seen, setSeen] = useState(chosen);
   if (seen !== chosen) {
     setSeen(chosen);
@@ -80,12 +78,12 @@ export function usePurposeLife(kind: PurposeKind, chosen: boolean): PurposeLife 
           }, n * WAKE_STEP_MS),
         );
       });
-      timers.push(setTimeout(() => setWaking(false), LIGHT_AFTER_MS + order.length * WAKE_STEP_MS + 500));
+      timers.push(setTimeout(() => setWaking(false), order.length * WAKE_STEP_MS + 500));
     }
-    const pills = SCENE_ACTIVITIES[kind];
+    const busy = SCENE_ACTIVITIES[kind];
     let n = 0;
     const loop = setInterval(() => {
-      if (hotNow.current === null) setWorking(pills[n++ % pills.length]?.agent ?? null);
+      if (hotNow.current === null) setWorking(busy[n++ % busy.length]?.agent ?? null);
     }, WORK_EVERY_MS);
     return () => {
       for (const t of timers) clearTimeout(t);
@@ -105,7 +103,7 @@ export function usePurposeLife(kind: PurposeKind, chosen: boolean): PurposeLife 
       awake: (agent: number) => (chosen && woken.has(agent)) || hot === agent,
       hot,
       working: chosen ? working : null,
-      hasPill: (agent: number) => SCENE_ACTIVITIES[kind].some((a) => a.agent === agent),
+      hasActivity: (agent: number) => SCENE_ACTIVITIES[kind].some((a) => a.agent === agent),
       wakeOrder: (agent: number) => Math.max(0, order.indexOf(agent)),
       point,
     }),

@@ -36,6 +36,7 @@ import { Route as OrgOrgIdRouteImport } from './routes/org.$orgId'
 import { Route as OrgOrgIdIndexRouteImport } from './routes/org.$orgId.index'
 import { Route as OrgOrgIdApprovalsRouteImport } from './routes/org.$orgId.approvals'
 import { Route as OrgOrgIdCalendarRouteImport } from './routes/org.$orgId.calendar'
+import { Route as OrgOrgIdConnectorsRouteImport } from './routes/org.$orgId.connectors'
 import { Route as OrgOrgIdDriveRouteImport } from './routes/org.$orgId.drive'
 import { Route as OrgOrgIdHomeRouteImport } from './routes/org.$orgId.home'
 import { Route as OrgOrgIdMembersRouteImport } from './routes/org.$orgId.members'
@@ -51,6 +52,8 @@ import { Route as OrgOrgIdWaitingRouteImport } from './routes/org.$orgId.waiting
 import { Route as OrgOrgIdWikiRouteImport } from './routes/org.$orgId.wiki'
 import { Route as OrgOrgIdAgentsNewRouteImport } from './routes/org.$orgId.agents.new'
 import { Route as OrgOrgIdCChannelIdRouteImport } from './routes/org.$orgId.c.$channelId'
+import { Route as OrgOrgIdCodeIndexRouteImport } from './routes/org.$orgId.code.index'
+import { Route as OrgOrgIdCodeSessionIdRouteImport } from './routes/org.$orgId.code.$sessionId'
 import { Route as OrgOrgIdDashboardsIndexRouteImport } from './routes/org.$orgId.dashboards.index'
 import { Route as OrgOrgIdDashboardsDashboardIdRouteImport } from './routes/org.$orgId.dashboards.$dashboardId'
 import { Route as OrgOrgIdDriveFileIdRouteImport } from './routes/org.$orgId.drive_.$fileId'
@@ -206,6 +209,11 @@ const OrgOrgIdCalendarRoute = OrgOrgIdCalendarRouteImport.update({
   path: '/calendar',
   getParentRoute: () => OrgOrgIdRoute,
 } as any)
+const OrgOrgIdConnectorsRoute = OrgOrgIdConnectorsRouteImport.update({
+  id: '/connectors',
+  path: '/connectors',
+  getParentRoute: () => OrgOrgIdRoute,
+} as any)
 const OrgOrgIdDriveRoute = OrgOrgIdDriveRouteImport.update({
   id: '/drive',
   path: '/drive',
@@ -279,6 +287,16 @@ const OrgOrgIdAgentsNewRoute = OrgOrgIdAgentsNewRouteImport.update({
 const OrgOrgIdCChannelIdRoute = OrgOrgIdCChannelIdRouteImport.update({
   id: '/c/$channelId',
   path: '/c/$channelId',
+  getParentRoute: () => OrgOrgIdRoute,
+} as any)
+const OrgOrgIdCodeIndexRoute = OrgOrgIdCodeIndexRouteImport.update({
+  id: '/code/',
+  path: '/code/',
+  getParentRoute: () => OrgOrgIdRoute,
+} as any)
+const OrgOrgIdCodeSessionIdRoute = OrgOrgIdCodeSessionIdRouteImport.update({
+  id: '/code/$sessionId',
+  path: '/code/$sessionId',
   getParentRoute: () => OrgOrgIdRoute,
 } as any)
 const OrgOrgIdDashboardsIndexRoute = OrgOrgIdDashboardsIndexRouteImport.update({
@@ -413,6 +431,7 @@ export interface FileRoutesByFullPath {
   '/org/$orgId': typeof OrgOrgIdRouteWithChildren
   '/org/$orgId/approvals': typeof OrgOrgIdApprovalsRoute
   '/org/$orgId/calendar': typeof OrgOrgIdCalendarRoute
+  '/org/$orgId/connectors': typeof OrgOrgIdConnectorsRoute
   '/org/$orgId/drive': typeof OrgOrgIdDriveRoute
   '/org/$orgId/home': typeof OrgOrgIdHomeRoute
   '/org/$orgId/members': typeof OrgOrgIdMembersRoute
@@ -429,12 +448,14 @@ export interface FileRoutesByFullPath {
   '/org/$orgId/': typeof OrgOrgIdIndexRoute
   '/org/$orgId/agents/new': typeof OrgOrgIdAgentsNewRoute
   '/org/$orgId/c/$channelId': typeof OrgOrgIdCChannelIdRoute
+  '/org/$orgId/code/$sessionId': typeof OrgOrgIdCodeSessionIdRoute
   '/org/$orgId/dashboards/$dashboardId': typeof OrgOrgIdDashboardsDashboardIdRoute
   '/org/$orgId/drive/$fileId': typeof OrgOrgIdDriveFileIdRoute
   '/org/$orgId/issues/$number': typeof OrgOrgIdIssuesNumberRoute
   '/org/$orgId/settings/$section': typeof OrgOrgIdSettingsSectionRoute
   '/org/$orgId/threads/$threadId': typeof OrgOrgIdThreadsThreadIdRoute
   '/org/$orgId/wiki/$slug': typeof OrgOrgIdWikiSlugRoute
+  '/org/$orgId/code/': typeof OrgOrgIdCodeIndexRoute
   '/org/$orgId/dashboards/': typeof OrgOrgIdDashboardsIndexRoute
   '/org/$orgId/issues/': typeof OrgOrgIdIssuesIndexRoute
   '/org/$orgId/threads/': typeof OrgOrgIdThreadsIndexRoute
@@ -475,6 +496,7 @@ export interface FileRoutesByTo {
   '/invite/$token': typeof InviteTokenRoute
   '/org/$orgId/approvals': typeof OrgOrgIdApprovalsRoute
   '/org/$orgId/calendar': typeof OrgOrgIdCalendarRoute
+  '/org/$orgId/connectors': typeof OrgOrgIdConnectorsRoute
   '/org/$orgId/drive': typeof OrgOrgIdDriveRoute
   '/org/$orgId/home': typeof OrgOrgIdHomeRoute
   '/org/$orgId/members': typeof OrgOrgIdMembersRoute
@@ -491,12 +513,14 @@ export interface FileRoutesByTo {
   '/org/$orgId': typeof OrgOrgIdIndexRoute
   '/org/$orgId/agents/new': typeof OrgOrgIdAgentsNewRoute
   '/org/$orgId/c/$channelId': typeof OrgOrgIdCChannelIdRoute
+  '/org/$orgId/code/$sessionId': typeof OrgOrgIdCodeSessionIdRoute
   '/org/$orgId/dashboards/$dashboardId': typeof OrgOrgIdDashboardsDashboardIdRoute
   '/org/$orgId/drive/$fileId': typeof OrgOrgIdDriveFileIdRoute
   '/org/$orgId/issues/$number': typeof OrgOrgIdIssuesNumberRoute
   '/org/$orgId/settings/$section': typeof OrgOrgIdSettingsSectionRoute
   '/org/$orgId/threads/$threadId': typeof OrgOrgIdThreadsThreadIdRoute
   '/org/$orgId/wiki/$slug': typeof OrgOrgIdWikiSlugRoute
+  '/org/$orgId/code': typeof OrgOrgIdCodeIndexRoute
   '/org/$orgId/dashboards': typeof OrgOrgIdDashboardsIndexRoute
   '/org/$orgId/issues': typeof OrgOrgIdIssuesIndexRoute
   '/org/$orgId/threads': typeof OrgOrgIdThreadsIndexRoute
@@ -539,6 +563,7 @@ export interface FileRoutesById {
   '/org/$orgId': typeof OrgOrgIdRouteWithChildren
   '/org/$orgId/approvals': typeof OrgOrgIdApprovalsRoute
   '/org/$orgId/calendar': typeof OrgOrgIdCalendarRoute
+  '/org/$orgId/connectors': typeof OrgOrgIdConnectorsRoute
   '/org/$orgId/drive': typeof OrgOrgIdDriveRoute
   '/org/$orgId/home': typeof OrgOrgIdHomeRoute
   '/org/$orgId/members': typeof OrgOrgIdMembersRoute
@@ -555,12 +580,14 @@ export interface FileRoutesById {
   '/org/$orgId/': typeof OrgOrgIdIndexRoute
   '/org/$orgId/agents/new': typeof OrgOrgIdAgentsNewRoute
   '/org/$orgId/c/$channelId': typeof OrgOrgIdCChannelIdRoute
+  '/org/$orgId/code/$sessionId': typeof OrgOrgIdCodeSessionIdRoute
   '/org/$orgId/dashboards/$dashboardId': typeof OrgOrgIdDashboardsDashboardIdRoute
   '/org/$orgId/drive_/$fileId': typeof OrgOrgIdDriveFileIdRoute
   '/org/$orgId/issues/$number': typeof OrgOrgIdIssuesNumberRoute
   '/org/$orgId/settings_/$section': typeof OrgOrgIdSettingsSectionRoute
   '/org/$orgId/threads/$threadId': typeof OrgOrgIdThreadsThreadIdRoute
   '/org/$orgId/wiki_/$slug': typeof OrgOrgIdWikiSlugRoute
+  '/org/$orgId/code/': typeof OrgOrgIdCodeIndexRoute
   '/org/$orgId/dashboards/': typeof OrgOrgIdDashboardsIndexRoute
   '/org/$orgId/issues/': typeof OrgOrgIdIssuesIndexRoute
   '/org/$orgId/threads/': typeof OrgOrgIdThreadsIndexRoute
@@ -604,6 +631,7 @@ export interface FileRouteTypes {
     | '/org/$orgId'
     | '/org/$orgId/approvals'
     | '/org/$orgId/calendar'
+    | '/org/$orgId/connectors'
     | '/org/$orgId/drive'
     | '/org/$orgId/home'
     | '/org/$orgId/members'
@@ -620,12 +648,14 @@ export interface FileRouteTypes {
     | '/org/$orgId/'
     | '/org/$orgId/agents/new'
     | '/org/$orgId/c/$channelId'
+    | '/org/$orgId/code/$sessionId'
     | '/org/$orgId/dashboards/$dashboardId'
     | '/org/$orgId/drive/$fileId'
     | '/org/$orgId/issues/$number'
     | '/org/$orgId/settings/$section'
     | '/org/$orgId/threads/$threadId'
     | '/org/$orgId/wiki/$slug'
+    | '/org/$orgId/code/'
     | '/org/$orgId/dashboards/'
     | '/org/$orgId/issues/'
     | '/org/$orgId/threads/'
@@ -666,6 +696,7 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/org/$orgId/approvals'
     | '/org/$orgId/calendar'
+    | '/org/$orgId/connectors'
     | '/org/$orgId/drive'
     | '/org/$orgId/home'
     | '/org/$orgId/members'
@@ -682,12 +713,14 @@ export interface FileRouteTypes {
     | '/org/$orgId'
     | '/org/$orgId/agents/new'
     | '/org/$orgId/c/$channelId'
+    | '/org/$orgId/code/$sessionId'
     | '/org/$orgId/dashboards/$dashboardId'
     | '/org/$orgId/drive/$fileId'
     | '/org/$orgId/issues/$number'
     | '/org/$orgId/settings/$section'
     | '/org/$orgId/threads/$threadId'
     | '/org/$orgId/wiki/$slug'
+    | '/org/$orgId/code'
     | '/org/$orgId/dashboards'
     | '/org/$orgId/issues'
     | '/org/$orgId/threads'
@@ -729,6 +762,7 @@ export interface FileRouteTypes {
     | '/org/$orgId'
     | '/org/$orgId/approvals'
     | '/org/$orgId/calendar'
+    | '/org/$orgId/connectors'
     | '/org/$orgId/drive'
     | '/org/$orgId/home'
     | '/org/$orgId/members'
@@ -745,12 +779,14 @@ export interface FileRouteTypes {
     | '/org/$orgId/'
     | '/org/$orgId/agents/new'
     | '/org/$orgId/c/$channelId'
+    | '/org/$orgId/code/$sessionId'
     | '/org/$orgId/dashboards/$dashboardId'
     | '/org/$orgId/drive_/$fileId'
     | '/org/$orgId/issues/$number'
     | '/org/$orgId/settings_/$section'
     | '/org/$orgId/threads/$threadId'
     | '/org/$orgId/wiki_/$slug'
+    | '/org/$orgId/code/'
     | '/org/$orgId/dashboards/'
     | '/org/$orgId/issues/'
     | '/org/$orgId/threads/'
@@ -984,6 +1020,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgOrgIdCalendarRouteImport
       parentRoute: typeof OrgOrgIdRoute
     }
+    '/org/$orgId/connectors': {
+      id: '/org/$orgId/connectors'
+      path: '/connectors'
+      fullPath: '/org/$orgId/connectors'
+      preLoaderRoute: typeof OrgOrgIdConnectorsRouteImport
+      parentRoute: typeof OrgOrgIdRoute
+    }
     '/org/$orgId/drive': {
       id: '/org/$orgId/drive'
       path: '/drive'
@@ -1087,6 +1130,20 @@ declare module '@tanstack/react-router' {
       path: '/c/$channelId'
       fullPath: '/org/$orgId/c/$channelId'
       preLoaderRoute: typeof OrgOrgIdCChannelIdRouteImport
+      parentRoute: typeof OrgOrgIdRoute
+    }
+    '/org/$orgId/code/': {
+      id: '/org/$orgId/code/'
+      path: '/code'
+      fullPath: '/org/$orgId/code/'
+      preLoaderRoute: typeof OrgOrgIdCodeIndexRouteImport
+      parentRoute: typeof OrgOrgIdRoute
+    }
+    '/org/$orgId/code/$sessionId': {
+      id: '/org/$orgId/code/$sessionId'
+      path: '/code/$sessionId'
+      fullPath: '/org/$orgId/code/$sessionId'
+      preLoaderRoute: typeof OrgOrgIdCodeSessionIdRouteImport
       parentRoute: typeof OrgOrgIdRoute
     }
     '/org/$orgId/dashboards/': {
@@ -1228,6 +1285,7 @@ declare module '@tanstack/react-router' {
 interface OrgOrgIdRouteChildren {
   OrgOrgIdApprovalsRoute: typeof OrgOrgIdApprovalsRoute
   OrgOrgIdCalendarRoute: typeof OrgOrgIdCalendarRoute
+  OrgOrgIdConnectorsRoute: typeof OrgOrgIdConnectorsRoute
   OrgOrgIdDriveRoute: typeof OrgOrgIdDriveRoute
   OrgOrgIdHomeRoute: typeof OrgOrgIdHomeRoute
   OrgOrgIdMembersRoute: typeof OrgOrgIdMembersRoute
@@ -1244,12 +1302,14 @@ interface OrgOrgIdRouteChildren {
   OrgOrgIdIndexRoute: typeof OrgOrgIdIndexRoute
   OrgOrgIdAgentsNewRoute: typeof OrgOrgIdAgentsNewRoute
   OrgOrgIdCChannelIdRoute: typeof OrgOrgIdCChannelIdRoute
+  OrgOrgIdCodeSessionIdRoute: typeof OrgOrgIdCodeSessionIdRoute
   OrgOrgIdDashboardsDashboardIdRoute: typeof OrgOrgIdDashboardsDashboardIdRoute
   OrgOrgIdDriveFileIdRoute: typeof OrgOrgIdDriveFileIdRoute
   OrgOrgIdIssuesNumberRoute: typeof OrgOrgIdIssuesNumberRoute
   OrgOrgIdSettingsSectionRoute: typeof OrgOrgIdSettingsSectionRoute
   OrgOrgIdThreadsThreadIdRoute: typeof OrgOrgIdThreadsThreadIdRoute
   OrgOrgIdWikiSlugRoute: typeof OrgOrgIdWikiSlugRoute
+  OrgOrgIdCodeIndexRoute: typeof OrgOrgIdCodeIndexRoute
   OrgOrgIdDashboardsIndexRoute: typeof OrgOrgIdDashboardsIndexRoute
   OrgOrgIdIssuesIndexRoute: typeof OrgOrgIdIssuesIndexRoute
   OrgOrgIdThreadsIndexRoute: typeof OrgOrgIdThreadsIndexRoute
@@ -1268,6 +1328,7 @@ interface OrgOrgIdRouteChildren {
 const OrgOrgIdRouteChildren: OrgOrgIdRouteChildren = {
   OrgOrgIdApprovalsRoute: OrgOrgIdApprovalsRoute,
   OrgOrgIdCalendarRoute: OrgOrgIdCalendarRoute,
+  OrgOrgIdConnectorsRoute: OrgOrgIdConnectorsRoute,
   OrgOrgIdDriveRoute: OrgOrgIdDriveRoute,
   OrgOrgIdHomeRoute: OrgOrgIdHomeRoute,
   OrgOrgIdMembersRoute: OrgOrgIdMembersRoute,
@@ -1284,12 +1345,14 @@ const OrgOrgIdRouteChildren: OrgOrgIdRouteChildren = {
   OrgOrgIdIndexRoute: OrgOrgIdIndexRoute,
   OrgOrgIdAgentsNewRoute: OrgOrgIdAgentsNewRoute,
   OrgOrgIdCChannelIdRoute: OrgOrgIdCChannelIdRoute,
+  OrgOrgIdCodeSessionIdRoute: OrgOrgIdCodeSessionIdRoute,
   OrgOrgIdDashboardsDashboardIdRoute: OrgOrgIdDashboardsDashboardIdRoute,
   OrgOrgIdDriveFileIdRoute: OrgOrgIdDriveFileIdRoute,
   OrgOrgIdIssuesNumberRoute: OrgOrgIdIssuesNumberRoute,
   OrgOrgIdSettingsSectionRoute: OrgOrgIdSettingsSectionRoute,
   OrgOrgIdThreadsThreadIdRoute: OrgOrgIdThreadsThreadIdRoute,
   OrgOrgIdWikiSlugRoute: OrgOrgIdWikiSlugRoute,
+  OrgOrgIdCodeIndexRoute: OrgOrgIdCodeIndexRoute,
   OrgOrgIdDashboardsIndexRoute: OrgOrgIdDashboardsIndexRoute,
   OrgOrgIdIssuesIndexRoute: OrgOrgIdIssuesIndexRoute,
   OrgOrgIdThreadsIndexRoute: OrgOrgIdThreadsIndexRoute,

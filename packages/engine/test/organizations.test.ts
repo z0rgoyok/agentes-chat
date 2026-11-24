@@ -87,6 +87,7 @@ describe("permissions", () => {
         orgAccent: null,
         standing: { state: "active", reason: null, notice: "shown", deletionDueAt: null },
         start: { page: "home", channelId: null },
+        paysPlan: false,
         showActivity: false,
         agentStyle: null,
         chatPrefs: {},

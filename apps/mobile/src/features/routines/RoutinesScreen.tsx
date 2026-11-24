@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { RefreshControl, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 import { useOrg } from "@/providers/org";
+import { useRealtime } from "@/providers/realtime";
 import {
   Button,
   EmptyState,
@@ -47,6 +48,8 @@ import { RoutineHorizon } from "./RoutineHorizon";
 
 /** While a run works (or waits), the list is asked again this often: its state and its next run move on. */
 const WORKING_POLL_MS = 15_000;
+/** The same with the socket open, which brings every run's queueing, start and end (`routine.runs`). */
+const WORKING_POLL_LIVE_MS = 60_000;
 /** Sections whose agent's face moves (a long list stays light). */
 const LIVE_SECTIONS = 6;
 
@@ -92,11 +95,12 @@ export function RoutinesScreen() {
   );
   const working = list.some(isAtWork);
   const { refetch } = routines;
+  const socketOpen = useRealtime().status === "open";
   useEffect(() => {
     if (!working) return;
-    const timer = setInterval(() => void refetch(), WORKING_POLL_MS);
+    const timer = setInterval(() => void refetch(), socketOpen ? WORKING_POLL_LIVE_MS : WORKING_POLL_MS);
     return () => clearInterval(timer);
-  }, [working, refetch]);
+  }, [working, socketOpen, refetch]);
   const openNew = () => router.push("/routines/new");
   const clear = () => {
     setQ("");

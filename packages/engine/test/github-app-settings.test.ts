@@ -192,7 +192,8 @@ describe("GitHub's manifest flow", () => {
       members: "read",
       organization_projects: "write",
     });
-    // What agents hear on GitHub: comments, reviews and items on what they worked on, or naming the app.
+    // What agents hear on GitHub: comments, reviews and items on what they worked on, or naming the app, and checks
+    // that fail on their own branches.
     expect(manifest.default_events).toEqual([
       "issues",
       "issue_comment",
@@ -202,6 +203,7 @@ describe("GitHub's manifest flow", () => {
       "pull_request_review_thread",
       "discussion",
       "discussion_comment",
+      "check_run",
     ]);
     // GitHub can't deliver to plain http; a long host keeps the name within GitHub's 34 characters.
     expect(githubAppManifest("http://192.168.0.10:3000").hook_attributes.active).toBe(false);

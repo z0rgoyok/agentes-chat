@@ -8,6 +8,7 @@ import type {
   Person,
   RowHolders,
 } from "@agenteschat/client";
+import { hasAgentOwner } from "@agenteschat/client/lib/agent-owner";
 import { audienceAdmits, audienceOf, audiencePatch, modeOf } from "@agenteschat/client/lib/audience";
 import { accessInput, accessOf } from "@agenteschat/client/lib/channel-access";
 import { namesText } from "@agenteschat/client/lib/format";
@@ -488,7 +489,10 @@ export function agentTicked(role: OrgRole, agent: Agent) {
   return mode === "everyone" || (!isEveryone(role) && mode === "people" && audienceOf(agent).roleIds.includes(role.id));
 }
 
-/** Who talks to an agent, under its name: "Todos falam", "Só Suporte e Ana", "Só Ana". */
+/**
+ * Who talks to an agent, under its name: "Todos falam", "Só Suporte e Ana", "Só Ana", "Só quem tem Tecnologia" (a
+ * role that answers for it, ADR 0085, addendum of 2026-11-21).
+ */
 export function agentAudienceLine(
   t: TFunction,
   agent: Agent,
@@ -497,14 +501,16 @@ export function agentAudienceLine(
 ) {
   const mode = modeOf(agent);
   if (mode === "everyone") return t("mobile.roles.agents.everyone");
+  const ownerRole = agent.ownerRoleId ? roles.find((r) => r.id === agent.ownerRoleId) : undefined;
+  const onlyOwner = ownerRole ? t("audience.mode.ownerRole", { role: ownerRole.name }) : t("audience.mode.owner");
   const owner = agent.ownerUserId ? nameOf(agent.ownerUserId) : undefined;
-  if (mode === "owner") return owner ? t("mobile.roles.only", { names: owner }) : t("audience.mode.owner");
+  if (mode === "owner") return owner ? t("mobile.roles.only", { names: owner }) : onlyOwner;
   const a = audienceOf(agent);
   const named = [
     ...sortRoles(roles.filter((r) => a.roleIds.includes(r.id))).map((r) => r.name),
     ...a.userIds.flatMap((id) => nameOf(id) ?? []),
   ];
-  return named.length ? t("mobile.roles.only", { names: namesText(t, named, 2) }) : t("audience.mode.owner");
+  return named.length ? t("mobile.roles.only", { names: namesText(t, named, 2) }) : onlyOwner;
 }
 
 /** What a tap on an agent does on a cargo's Agentes (Todos' own as any cargo's). */
@@ -538,7 +544,7 @@ export function agentIntent(role: OrgRole, agent: Agent, roles: readonly OrgRole
   if (a.roleIds.includes(role.id)) {
     const roleIds = a.roleIds.filter((id) => id !== role.id);
     if (roleIds.length === 0 && a.userIds.length === 0)
-      return agent.ownerUserId
+      return hasAgentOwner(agent)
         ? { kind: "save", audience: to("owner") }
         : { kind: "who", start: to("people", roleIds) };
     return { kind: "save", audience: to("people", roleIds, a.userIds) };
@@ -550,10 +556,13 @@ export function agentIntent(role: OrgRole, agent: Agent, roles: readonly OrgRole
 export const agentWhoPatch = (who: AgentAudience, saved: Pick<AgentAudience, "consultable">) =>
   audiencePatch({ ...who, consultable: saved.consultable });
 
-/** A people audience needs someone in it (the owner always talks to it); everyone and only the owner don't. */
-export const audienceValid = (a: AgentAudience, agent: Pick<Agent, "ownerUserId">) =>
+/**
+ * A people audience needs someone in it (the owner always talks to it); everyone and only the owner don't, but "only
+ * the owner" needs one: a person, or a role (ADR 0085, addendum of 2026-11-21).
+ */
+export const audienceValid = (a: AgentAudience, agent: Pick<Agent, "ownerUserId" | "ownerRoleId">) =>
   a.mode === "everyone" ||
-  (a.mode === "owner" ? Boolean(agent.ownerUserId) : a.userIds.length + (a.roleIds?.length ?? 0) > 0);
+  (a.mode === "owner" ? hasAgentOwner(agent) : a.userIds.length + (a.roleIds?.length ?? 0) > 0);
 
 /** Who stops talking to the agent with `next` ("Deixam de falar com Max: Carla e mais 2."), or "Ninguém perde.". */
 export function agentLosingLine(

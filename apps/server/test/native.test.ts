@@ -143,7 +143,18 @@ test("a new folder: it starts, migrates and answers only on its own loopback add
     pglite: PGLITE_VERSION,
     pgMajor: PG_MAJOR,
   });
-  expect(readFileSync(join(data, "logs", "server.log"), "utf8")).toContain('"msg":"listening"');
+  // The log is written in batches, within a quarter of a second (waited for longer: a busy machine fires timers late).
+  const log = async (text: string) => {
+    for (let i = 0; i < 200 && !readFileSync(join(data, "logs", "server.log"), "utf8").includes(text); i++)
+      await Bun.sleep(50);
+    return readFileSync(join(data, "logs", "server.log"), "utf8");
+  };
+  expect(await log('"msg":"listening"')).toContain('"msg":"listening"');
+  // Its jobs share one event loop and the built-in database: 16 at once, 4 of them for quick jobs.
+  const slots = (await log('"msg":"job slots"'))
+    .split("\n")
+    .flatMap((line) => (line.includes('"msg":"job slots"') ? [JSON.parse(line.slice(line.indexOf("{")))] : []));
+  expect(slots[0]?.start).toEqual({ quick: 4, long: 12 });
 
   expect((await getWithHost(`127.0.0.1:${port}`)).status).toBe(200);
   expect((await getWithHost(`localhost:${port}`)).status).toBe(200);

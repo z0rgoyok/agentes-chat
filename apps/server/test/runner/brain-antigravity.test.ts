@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { accountCodeAad } from "@agenteschat/adapters/machine-protocol";
+import { accountCodeAad, CLI_HOME_ONLY } from "@agenteschat/adapters/machine-protocol";
 import { cutAtWord } from "@agenteschat/adapters/redact";
 import { sealSecret } from "@agenteschat/adapters/secret-box";
 import {
@@ -43,7 +43,8 @@ import {
   parseAgyError,
 } from "../../runner/brain-antigravity";
 import type { CodexBrainEvent } from "../../runner/brain-codex";
-import { detectExecutors, parseAgyModels } from "../../runner/executors";
+import { detectExecutors, inHomeDirs, parseAgyModels } from "../../runner/executors";
+import { addUsualDirs } from "../../runner/login-path";
 import { CODEX_MCP_SERVER } from "../../runner/mcp";
 import { antigravityUsage, resetFromWords } from "../../runner/plan-usage";
 import type { Spawn } from "../../runner/scope-gate";
@@ -77,8 +78,11 @@ test("command line: headless stream-json in the sandbox; work takes edits, plan 
   expect(work.slice(0, 4)).toEqual(["-p", "oi", "--output-format", "stream-json"]);
   expect(work.join(" ")).toContain("--sandbox --disable-slash-commands --mode accept-edits");
   expect(work.join(" ")).toContain("--model gemini-4-argon-high");
-  // A slug names its thinking level: no `--effort` beside it.
+  // A slug names its thinking level: no `--effort` beside it, the extra one (`xhigh`) included.
   expect(work).not.toContain("--effort");
+  const extra = antigravityTurnArgs({ prompt: "oi", model: "gemini-4-neon-xhigh", chat: FIRST, effort: "max" });
+  expect(extra.join(" ")).toContain("--model gemini-4-neon-xhigh");
+  expect(extra).not.toContain("--effort");
   expect(work.join(" ")).toContain(`--conversation ${FIRST}`);
   expect(antigravityTurnArgs({ prompt: "oi", effort: "xhigh" }).join(" ")).toContain("--effort high");
   const plan = antigravityTurnArgs({ prompt: "oi", profile: "plan" }).join(" ");
@@ -316,6 +320,36 @@ test.skipIf(!posix)("detection: the CLI's version line and the models it lists",
   });
 });
 
+test.skipIf(!posix)(
+  "detection: in system mode, an agy only in root's own folders is there but out of the agents' reach",
+  async () => {
+    const none = () => ({ status: 127, stdout: "" });
+    const rootOnly = (bin: string) => bin === "agy";
+    const { found } = await detectExecutors(none, {}, {}, undefined, () => [], rootOnly);
+    expect(found.antigravity).toBeUndefined();
+    expect(found.broken).toEqual({ antigravity: CLI_HOME_ONLY });
+    // One the agents run wins, and a CLI that is nowhere stays missing.
+    const run = (command: string, args: string[]) =>
+      command === "agy" && args[0] === "--version" ? { status: 0, stdout: "agy 1.5.14\n" } : none();
+    expect((await detectExecutors(run, {}, {}, undefined, () => [], rootOnly)).found.broken).toBeUndefined();
+    expect((await detectExecutors(none, {}, {}, undefined, () => [])).found.broken).toBeUndefined();
+  },
+);
+
+test("the install folders under a home: ~/.local/bin and the like, never the computer's own", () => {
+  const there = new Set(["/root/.local/bin/agy", "/usr/local/bin/grok"]);
+  expect(inHomeDirs("agy", "/root", (f) => there.has(f))).toBe("/root/.local/bin/agy");
+  expect(inHomeDirs("grok", "/root", (f) => there.has(f))).toBeNull();
+});
+
+test("a service's PATH gets the usual folders that exist, after its own", () => {
+  const env: NodeJS.ProcessEnv = { PATH: "/usr/bin:/bin" };
+  addUsualDirs(env, "/home/ana", (d) => d === "/home/ana/.local/bin" || d === "/usr/local/bin");
+  expect(env.PATH).toBe("/usr/bin:/bin:/home/ana/.local/bin:/usr/local/bin");
+  addUsualDirs(env, "/home/ana", () => true);
+  expect(env.PATH?.split(":").filter((d) => d === "/home/ana/.local/bin")).toHaveLength(1);
+});
+
 function turnContext(root: string) {
   const ws = path.join(root, "ws");
   const home = path.join(root, "home");
@@ -522,6 +556,50 @@ test.skipIf(!posix)(
     await expect(win.begin("antigravity", "0193eeee-0000-7000-8000-0000000000d3")).rejects.toMatchObject({
       code: "bad_request",
     });
+  },
+  20_000,
+);
+
+test.skipIf(!posix)(
+  "the computer's models are what its signed-in accounts list, every account's once, kept for a restart",
+  async () => {
+    const home = tempDir("agy-accounts-");
+    dirs.push(home);
+    const root = path.join(home, "accounts");
+    // Another account here, on a plan with more models, listed them at its last look.
+    const other = "0193eeee-0000-7000-8000-0000000000d4";
+    mkdirSync(path.join(root, "antigravity", other), { recursive: true });
+    const paid = [
+      { id: "gemini-4-neon-high", label: "Gemini 4 Neon (High)" },
+      { id: "gemini-4-neon-xhigh", label: "Gemini 4 Neon (XHigh)" },
+      { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)" },
+    ];
+    writeFileSync(path.join(root, "agy-models.json"), JSON.stringify({ [other]: paid }));
+    const m = new AccountManager({
+      root,
+      orgId: () => ORG,
+      platform: "linux",
+      commands: { antigravity: [process.execPath, FAKE] },
+    });
+    managers.push(m);
+    expect(m.listedModels("antigravity")).toEqual(paid);
+    const id = "0193eeee-0000-7000-8000-0000000000d5";
+    const begun = await m.begin("antigravity", id);
+    const aad = accountCodeAad(id, ORG);
+    await m.code(id, aad, await sealSecret(begun.publicKey as string, "4/0AbCdEf-code", aad));
+    await waitFor(() => m.status(id).state === "done", 5000);
+    // Its own look lists fewer: the longer list leads, then what only the new account lists.
+    const flash = { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" };
+    expect(m.listedModels("antigravity")).toEqual([...paid, flash]);
+    const again = new AccountManager({ root });
+    managers.push(again);
+    expect(again.listedModels("antigravity")).toEqual([...paid, flash]);
+    // A removed account's models go with its folder.
+    rmSync(path.join(root, "antigravity", other), { recursive: true, force: true });
+    expect(again.listedModels("antigravity")).toEqual([
+      { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)" },
+      flash,
+    ]);
   },
   20_000,
 );

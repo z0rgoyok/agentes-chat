@@ -26,9 +26,13 @@ async function app() {
       <div className="settings page-split">
         {/* The nav's head and a section's head as the app's, so the geometry check measures a real page top. */}
         <nav className="settings__nav" data-scroll-restoration-id="settings-nav">
-          <div className="settings__head">
-            <h1 className="settings__title">Configurações</h1>
-          </div>
+          <header className="ac-pagehead settings__head">
+            <div className="ac-pagehead__row">
+              <div className="ac-pagehead__text">
+                <h1 className="ac-pagehead__title">Configurações</h1>
+              </div>
+            </div>
+          </header>
         </nav>
         <div className="settings__body" data-scroll-restoration-id="settings-section">
           <header className="ac-pagehead">
@@ -150,7 +154,7 @@ describe("page column scroll", () => {
 // The router hands a scrolled element's place to whatever sits at the same spot in the next page's DOM, unless the
 // element names itself: every column of a split does, so its scroll stays on its own page.
 describe("a split's columns name their scroll", () => {
-  for (const path of ["approvals", "proposals", "settings/account"])
+  for (const path of ["proposals", "settings/account"])
     test(path, async () => {
       await renderApp(`/org/${ORG_ID}/${path}`, { api: createFakeApi(seedState()) });
       await settle(4);

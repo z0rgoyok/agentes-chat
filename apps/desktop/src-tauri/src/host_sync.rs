@@ -3,19 +3,23 @@
 //! connection per organization the server serves here, written as homes in `~/.agentes-runner/orgs/<orgId>`
 //! (`managedBy: "host"`, pointing at the loopback address) without starting anything. The app then runs each
 //! home's runner itself, as it runs every home (`Runners::rescan`). It syncs when the server answers, every
-//! minute, at once when the site reports a new organization, and with `--rotate` for a home whose token the
+//! five minutes, at once when the site reports a new organization, and with `--rotate` for a home whose token the
 //! server refused. A new home gets the app's first tools from the popover (`host://new`).
 
 use std::process::Command;
 use std::sync::{Condvar, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::Value;
 use tauri::{AppHandle, Emitter, Manager};
 
 use crate::local_server;
 
-const EVERY: Duration = Duration::from_secs(60);
+/// Besides the syncs something asks for (the server came up, the site has a new organization, a token was refused):
+/// each one runs the runner, a whole Bun process.
+const EVERY: Duration = Duration::from_secs(5 * 60);
+/// How often Tailscale's state is checked while reach is on.
+const TAILNET_EVERY: Duration = Duration::from_secs(60);
 /// `host --once` answers in a second or two: past this it is stuck (it holds the sync's lock meanwhile), and the
 /// next minute's sync tries again.
 const SYNC_WAIT: Duration = Duration::from_secs(60);
@@ -29,16 +33,21 @@ pub struct HostSync {
     running: Mutex<()>,
 }
 
-/// This computer's name for the server (Settings › Computers): the Mac's own, else its host name.
+/// This computer's name for the server (Settings › Computers): the Mac's own, else its host name. Read once: every sync
+/// sends it, and a rename reaches the server when the app opens again.
 pub(crate) fn computer_name() -> Option<String> {
-    #[cfg(target_os = "macos")]
-    {
-        let out = Command::new("scutil").args(["--get", "ComputerName"]).output().ok()?;
-        let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        (!name.is_empty() && name.chars().count() <= 64).then_some(name)
-    }
-    #[cfg(not(target_os = "macos"))]
-    None
+    static NAME: std::sync::OnceLock<Option<String>> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| {
+        #[cfg(target_os = "macos")]
+        {
+            let out = Command::new("scutil").args(["--get", "ComputerName"]).output().ok()?;
+            let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            (!name.is_empty() && name.chars().count() <= 64).then_some(name)
+        }
+        #[cfg(not(target_os = "macos"))]
+        None
+    })
+    .clone()
 }
 
 /// The one JSON line of `host --once`: the homes written (`new`: made now) and the organizations gone.
@@ -105,27 +114,33 @@ pub fn trigger(app: &AppHandle) {
     sync.ring.notify_one();
 }
 
-/// Every minute, or sooner when woken, for as long as the app runs (and Tailscale shares the server here again
-/// once it can, with reach on).
+/// Every `EVERY`, or sooner when woken, for as long as the app runs; and every minute, with reach on, Tailscale's
+/// state, so the server here is shared again as soon as it can be.
 pub fn start(app: &AppHandle) {
     let app = app.clone();
-    std::thread::spawn(move || loop {
-        {
-            let sync = app.state::<HostSync>();
-            let woken = sync.wake.lock().unwrap_or_else(|e| e.into_inner());
-            let (mut woken, _) = sync
-                .ring
-                .wait_timeout_while(woken, EVERY, |w| !*w)
-                .unwrap_or_else(|e| e.into_inner());
-            *woken = false;
+    std::thread::spawn(move || {
+        let mut synced: Option<Instant> = None;
+        loop {
+            let woken = {
+                let sync = app.state::<HostSync>();
+                let woken = sync.wake.lock().unwrap_or_else(|e| e.into_inner());
+                let (mut woken, _) = sync
+                    .ring
+                    .wait_timeout_while(woken, TAILNET_EVERY, |w| !*w)
+                    .unwrap_or_else(|e| e.into_inner());
+                std::mem::take(&mut *woken)
+            };
+            if app.state::<crate::runners::Runners>().is_quitting() {
+                return;
+            }
+            // Tailscale turned off here since: its line says nobody else reaches it, until it is shared again.
+            local_server::check_tailnet(&app);
+            local_server::ensure_served(&app);
+            if woken || synced.is_none_or(|at| at.elapsed() >= EVERY) {
+                sync_now(&app, &[]);
+                synced = Some(Instant::now());
+            }
         }
-        if app.state::<crate::runners::Runners>().is_quitting() {
-            return;
-        }
-        // Tailscale turned off here since: its line says nobody else reaches it, until it is shared again.
-        local_server::check_tailnet(&app);
-        local_server::ensure_served(&app);
-        sync_now(&app, &[]);
     });
 }
 

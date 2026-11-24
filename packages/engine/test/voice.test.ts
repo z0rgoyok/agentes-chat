@@ -379,7 +379,15 @@ describe("typed text and files beside the take", () => {
     const message = await messageOf(clipId);
     expect(message?.body).toBe(`${typed}\n\ne o deploy de ontem`);
     expect(voiceOf(message?.meta)?.text).toBe(typed);
-    expect(message?.meta.artifacts).toEqual([{ id: shot.id, version: 1, title: "tela.png" }]);
+    expect(message?.meta.artifacts).toEqual([
+      expect.objectContaining({
+        id: shot.id,
+        version: 1,
+        title: "tela.png",
+        name: "tela.png",
+        contentType: "image/png",
+      }),
+    ]);
     // The typed mention wakes the agent, as a typed message's does.
     expect(message?.mentionedAgentIds).toEqual([f.agent.id]);
     const rows = await f.db.select().from(messages).where(eq(messages.channelId, f.general.id));

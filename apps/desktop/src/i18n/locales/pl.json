@@ -162,8 +162,8 @@
     "cloudText": "Zawsze włączony. Zajmujemy się wszystkim, ty tylko korzystasz.",
     "here": "Na tym urządzeniu ({{device}})",
     "hereText": "Twoi agenci pracują, dopóki aplikacja jest otwarta.",
-    "box": "Na komputerze, który jest zawsze włączony",
-    "boxText": "Mac mini albo komputer w biurze, zainstalowany raz.",
+    "box": "Na serwerze lub VPS",
+    "boxText": "Zawsze włączony, nawet gdy ta aplikacja jest zamknięta. Instalujesz raz.",
     "goCloud": "Dalej w chmurze",
     "goHere": "Przygotuj to urządzenie ({{device}})",
     "goBox": "Zobacz, jak zainstalować",
@@ -171,15 +171,15 @@
     "haveOneLink": "Zaloguj się adresem"
   },
   "install": {
-    "title": "Instalacja na komputerze zawsze włączonym",
+    "title": "Instalacja na serwerze lub VPS",
     "lead": "Robi się to raz. Potem działa sam, nawet gdy ta aplikacja jest zamknięta.",
-    "step1": "Na komputerze, który zostaje włączony, otwórz Terminal i wklej to",
+    "step1": "Na serwerze otwórz Terminal (lub połącz się przez SSH) i wklej to",
     "step2": "Na końcu pojawi się link. Otwórz go tutaj i gotowe.",
     "noLink": "Nie masz linku?",
     "someoneElse": "Zainstaluje ktoś inny?",
     "copy": "Kopiuj instrukcje",
     "copied": "Instrukcje skopiowane",
-    "text": "Aby zainstalować agentes.chat na komputerze, który jest zawsze włączony (Mac mini, komputer w biurze lub serwer):\n\n1. Na tym komputerze otwórz Terminal i wklej to:\n{{command}}\n\n2. Na końcu pojawi się link. Wyślij mi go: otwiera workspace w aplikacji."
+    "text": "Aby zainstalować agentes.chat na serwerze lub VPS (albo na komputerze, który jest zawsze włączony, jak Mac mini):\n\n1. Na serwerze otwórz Terminal (lub połącz się przez SSH) i wklej to:\n{{command}}\n\n2. Na końcu pojawi się link. Wyślij mi go: otwiera workspace w aplikacji."
   },
   "connect": {
     "title": "Zaloguj się do istniejącego workspace'u",

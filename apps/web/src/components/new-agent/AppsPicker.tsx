@@ -5,7 +5,8 @@ import { connectorDescription, connectorName } from "@agenteschat/client/lib/sco
 import { Button, Dialog, DialogBody, DialogFooter, GroupHeading, Icon, SearchField } from "@agenteschat/ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ConnectorIcon, searchCatalog } from "@/components/ConnectorCatalog";
+import { searchCatalog } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import "./new-agent-card.css";
 
 /**

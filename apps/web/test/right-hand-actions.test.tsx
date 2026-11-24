@@ -385,7 +385,9 @@ describe("a change in the workspace that names all it does", () => {
     };
     await renderApp(`/org/${ORG_ID}/notifications`, { api });
     await settle(8);
-    const row = () => document.querySelector('[data-n="n-invite"]') as HTMLElement;
+    // The list's row opens the item beside it (ADR 0218): the card is read and decided there.
+    await click(document.querySelector('.ib-list [data-n="n-invite"]') as HTMLElement);
+    const row = () => document.querySelector(".ib-read") as HTMLElement;
     expect(row().querySelector(".rq__wt small")?.textContent).toBe("Com o cargo Vendas.");
     await click(within(row()).getByRole("button", { name: "Aplicar" }));
     // Refused, and the card is read again from the server: it names the role it would now give.

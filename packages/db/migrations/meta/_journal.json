@@ -2129,6 +2129,209 @@
       "when": 1795061928914,
       "tag": "0308_machine_disconnects",
       "breakpoints": true
+    },
+    {
+      "idx": 306,
+      "version": "7",
+      "when": 1795215601286,
+      "tag": "0309_live_activity_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 307,
+      "version": "7",
+      "when": 1795219383867,
+      "tag": "0310_move_learned_sections",
+      "breakpoints": true
+    },
+    {
+      "idx": 308,
+      "version": "7",
+      "when": 1795280060278,
+      "tag": "0311_provider_outage_wait_index",
+      "breakpoints": true
+    },
+    {
+      "idx": 309,
+      "version": "7",
+      "when": 1795282927263,
+      "tag": "0312_file_access",
+      "breakpoints": true
+    },
+    {
+      "idx": 310,
+      "version": "7",
+      "when": 1795292927263,
+      "tag": "0313_agent_owner_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 311,
+      "version": "7",
+      "when": 1795299112482,
+      "tag": "0314_reply_in_threads",
+      "breakpoints": true
+    },
+    {
+      "idx": 312,
+      "version": "7",
+      "when": 1795305895422,
+      "tag": "0315_telegram_updates",
+      "breakpoints": true
+    },
+    {
+      "idx": 313,
+      "version": "7",
+      "when": 1795313515258,
+      "tag": "0316_connector_spend",
+      "breakpoints": true
+    },
+    {
+      "idx": 314,
+      "version": "7",
+      "when": 1795315046665,
+      "tag": "0317_routine_hook_group_by",
+      "breakpoints": true
+    },
+    {
+      "idx": 315,
+      "version": "7",
+      "when": 1795359714826,
+      "tag": "0318_sweep_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 316,
+      "version": "7",
+      "when": 1795369719064,
+      "tag": "0319_own_oauth_clients",
+      "breakpoints": true
+    },
+    {
+      "idx": 317,
+      "version": "7",
+      "when": 1795376935126,
+      "tag": "0320_brain_model_of_its_plan",
+      "breakpoints": true
+    },
+    {
+      "idx": 318,
+      "version": "7",
+      "when": 1795379566183,
+      "tag": "0321_code_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 319,
+      "version": "7",
+      "when": 1795383445167,
+      "tag": "0322_run_cli",
+      "breakpoints": true
+    },
+    {
+      "idx": 320,
+      "version": "7",
+      "when": 1795477389986,
+      "tag": "0323_server_processes",
+      "breakpoints": true
+    },
+    {
+      "idx": 321,
+      "version": "7",
+      "when": 1795495329302,
+      "tag": "0324_account_permissions",
+      "breakpoints": true
+    },
+    {
+      "idx": 322,
+      "version": "7",
+      "when": 1795495393705,
+      "tag": "0325_channels_reply_in_threads_by_default",
+      "breakpoints": true
+    },
+    {
+      "idx": 323,
+      "version": "7",
+      "when": 1795495438746,
+      "tag": "0326_unused_agent_columns",
+      "breakpoints": true
+    },
+    {
+      "idx": 324,
+      "version": "7",
+      "when": 1795511295066,
+      "tag": "0327_open_wake_and_platform_spend_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 325,
+      "version": "7",
+      "when": 1795511330961,
+      "tag": "0328_server_tasks",
+      "breakpoints": true
+    },
+    {
+      "idx": 326,
+      "version": "7",
+      "when": 1795511351995,
+      "tag": "0329_outbox_dedupe",
+      "breakpoints": true
+    },
+    {
+      "idx": 327,
+      "version": "7",
+      "when": 1795511411972,
+      "tag": "0330_sweep_storage",
+      "breakpoints": true
+    },
+    {
+      "idx": 328,
+      "version": "7",
+      "when": 1795511434657,
+      "tag": "0331_run_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 329,
+      "version": "7",
+      "when": 1795511446031,
+      "tag": "0332_run_lookup_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 330,
+      "version": "7",
+      "when": 1795511477131,
+      "tag": "0333_server_process_routes",
+      "breakpoints": true
+    },
+    {
+      "idx": 331,
+      "version": "7",
+      "when": 1795511505366,
+      "tag": "0334_shared_presence_limits",
+      "breakpoints": true
+    },
+    {
+      "idx": 332,
+      "version": "7",
+      "when": 1795511527150,
+      "tag": "0335_open_notification_kinds",
+      "breakpoints": true
+    },
+    {
+      "idx": 333,
+      "version": "7",
+      "when": 1795511607122,
+      "tag": "0336_client_vitals",
+      "breakpoints": true
+    },
+    {
+      "idx": 334,
+      "version": "7",
+      "when": 1795521607122,
+      "tag": "0337_proposal_review",
+      "breakpoints": true
     }
   ]
 }

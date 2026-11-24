@@ -22,6 +22,7 @@ import { useColors, useNow, usePullRefresh } from "../shared/hooks";
 import { showActionSheet } from "../shared/PickerSheet";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { BottomBar, copyText, type HeaderWordAction, MONO, PushedHeader, successHaptic } from "../shared/parts";
+import { useSplitGuard } from "../shared/SplitPanes";
 
 /**
  * What the workspace's settings screens share (each one a screen pushed with the platform's push, as Você's): the
@@ -183,19 +184,23 @@ function CompactPage({
 
 /**
  * Leaving a form with changes not saved asks first (back, the edge swipe, a replace), as editing an agent does: the
- * changes go only when the person says so. Returns `leave`, which a finished save calls before it goes on, so it isn't
+ * changes go only when the person says so. In a split's detail pane (ADR 0212) another row of the list replacing the
+ * form asks the same (`useSplitGuard`). Returns `leave`, which a finished save calls before it goes on, so it isn't
  * asked about what it just saved.
  */
 export function useUnsavedGuard(dirty: boolean): () => void {
   const { t } = useTranslation();
   const leaving = useRef(false);
-  usePreventRemove(dirty, ({ repeat }) => {
-    if (leaving.current) return repeat();
+  const ask = (repeat: () => void) =>
     Alert.alert(t("mobile.agentEdit.discardTitle"), t("mobile.agentEdit.discardText"), [
       { text: t("mobile.agentEdit.keepEditing"), style: "cancel" },
       { text: t("mobile.agentEdit.discard"), style: "destructive", onPress: repeat },
     ]);
+  usePreventRemove(dirty, ({ repeat }) => {
+    if (leaving.current) return repeat();
+    ask(repeat);
   });
+  useSplitGuard(dirty ? (go) => (leaving.current ? go() : ask(go)) : null);
   return () => {
     leaving.current = true;
   };

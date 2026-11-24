@@ -54,6 +54,18 @@ describe("a shared computer's line on the phone", () => {
     );
   });
 
+  test("a row keeps its words' room: the stop is its square on a plate, on the first line, and the time never breaks", async () => {
+    const sheet = await Bun.file(new URL("../../src/features/queue/QueueSheet.tsx", import.meta.url)).text();
+    const active = sheet.slice(sheet.indexOf("function ActiveLine"), sheet.indexOf("function WorkingRow"));
+    expect(active).toContain("<StopButton\n            compact");
+    expect(sheet).toContain('active: { flexDirection: "row", alignItems: "flex-start", gap: 4 },');
+    expect(sheet).toContain('.replaceAll(" ", NBSP);');
+    // What fills the computer sits beside "Working now", never on a line of its own over the rows.
+    expect(sheet).toContain(
+      '<GroupHead title={t("queue.workingNow", { n: view.working.length })} aside={fill || null} />',
+    );
+  });
+
   test("the computer the conversation's agents share: the first one that has one", () => {
     const machines = [
       { id: "m1", agents: [{ id: "nova" }, { id: "rio" }] },

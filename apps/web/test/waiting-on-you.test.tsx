@@ -4,7 +4,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import type { AppNotification } from "@agenteschat/client";
-import { cleanup, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { notification } from "./fakes/notifications";
 import { renderApp, screen, settle } from "./render";
@@ -55,46 +55,65 @@ function inbox(): AppNotification[] {
 }
 
 const nav = () => document.getElementById("app-nav") as HTMLElement;
+/** The inbox's entry in the sidebar: what was "Esperando você" (ADR 0218). */
+const entry = () => within(nav()).getByRole("link", { name: /Caixa de entrada/ });
+const rowIds = () => [...document.querySelectorAll<HTMLElement>(".ib-list [data-n]")].map((r) => r.dataset.n);
 
 describe("Esperando você", () => {
-  test("the sidebar's entry comes into the list with its count while something waits, and opens the list", async () => {
+  test("the sidebar's entry is the inbox, with the count of what waits: the notifications", async () => {
+    // Two notifications wait; the seed's two proposals add nothing, as nobody decides them (ADR 0219).
     await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(seedState({ notifications: inbox() })) });
     await settle(8);
-    const row = within(nav()).getByRole("link", { name: /Esperando você/ });
-    expect(row.getAttribute("href")).toBe(`/org/${ORG_ID}/waiting`);
+    const row = entry();
+    expect(row.getAttribute("href")).toBe(`/org/${ORG_ID}/notifications`);
     expect(row.closest(".sidebar__tools")).toBeTruthy();
     const count = row.querySelector(".ac-count") as HTMLElement;
     expect(count.textContent).toBe("2");
     expect(count.getAttribute("aria-label")).toBe("2 coisas esperando você");
     // A count of things, not the red of a mention.
     expect(count.classList.contains("sidebar__unread")).toBe(false);
+    // Marked while something in it is unread.
+    expect(row.getAttribute("data-unread")).toBe("true");
+    // One entry: no page of its own for what waits.
+    expect(nav().querySelector(`a[href="/org/${ORG_ID}/waiting"]`)).toBeNull();
   });
 
-  test("nothing waiting: the entry waits in More, and the page says so in one sentence", async () => {
-    await renderApp(`/org/${ORG_ID}/waiting`, { api: createFakeApi(seedState({ notifications: [] })) });
+  test("nothing waiting: the entry stays in sight with no count, and the filter says so in one sentence", async () => {
+    const state = seedState({ notifications: [], proposals: [] });
+    const { router } = await renderApp(`/org/${ORG_ID}/waiting`, { api: createFakeApi(state) });
     await settle(8);
-    expect(nav().querySelector(`.sidebar__tools > a[href="/org/${ORG_ID}/waiting"]`)).toBeNull();
-    expect(screen().getByRole("heading", { level: 1, name: "Esperando você" })).toBeTruthy();
-    expect(document.querySelector(".nt")?.textContent).toContain("Ninguém está esperando você.");
+    expect(entry().closest(".sidebar__tools")).toBeTruthy();
+    expect(entry().querySelector(".ac-count")).toBeNull();
+    expect(entry().getAttribute("data-unread")).toBe("false");
+    // The page it once had opens the inbox on what waits.
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/notifications`);
+    expect(router.state.location.search).toEqual({ filter: "waiting" });
+    expect(screen().getByRole("heading", { level: 1, name: "Caixa de entrada" })).toBeTruthy();
+    expect(document.querySelector(".ib-filter")?.textContent).toBe("Esperando você");
+    expect(document.querySelector(".ib-list .ac-empty")?.textContent).toBe("Ninguém está esperando você.");
   });
 
-  test("the page: only what waits, each as its own card with the question whole, no filters and nothing to mark read", async () => {
-    await renderApp(`/org/${ORG_ID}/waiting`, { api: createFakeApi(seedState({ notifications: inbox() })) });
+  test("the inbox on Esperando você: only what waits, the first open beside the list with the question whole", async () => {
+    const state = seedState({ notifications: inbox(), proposals: [] });
+    await renderApp(`/org/${ORG_ID}/waiting`, { api: createFakeApi(state) });
     await settle(8);
-    const title = screen().getByRole("heading", { level: 1, name: "Esperando você" });
-    // What waits is the line under the title, as on the Approvals page: not beside it.
+    const title = screen().getByRole("heading", { level: 1, name: "Caixa de entrada" });
+    // What waits is the line under the title.
     expect(title.nextElementSibling?.className).toBe("ac-pagehead__meta");
     expect(title.nextElementSibling?.textContent).toContain("2 coisas esperando você");
-    expect(document.title).toBe("Esperando você");
-    expect(screen().queryByRole("radiogroup", { name: "Filtrar notificações" })).toBeNull();
-    expect(screen().queryByRole("button", { name: "Marcar tudo como lido" })).toBeNull();
+    expect(document.querySelector(".ib-filter")?.textContent).toBe("Esperando você");
     const list = screen().getByRole("region", { name: "Esperando você" });
-    // The title already says it: no second heading over the cards.
-    expect(list.querySelector(".ac-grouphead")).toBeNull();
-    expect(list.querySelectorAll("[data-n]")).toHaveLength(2);
-    expect(list.textContent).toContain(LONG);
+    expect(list.querySelector(".ac-grouphead")?.textContent).toBe("Esperando você2");
+    // The mention waits on nobody: it is not here.
+    expect(rowIds().sort()).toEqual(["n-new", "n-old"]);
+    expect(document.querySelector(".ib")?.textContent).not.toContain("viu isso?");
     expect(list.textContent).toContain("Senha do painel");
-    expect(document.querySelector(".nt")?.textContent).not.toContain("viu isso?");
+    // What waits first is open beside the list. A row keeps one line; open, the question reads whole.
+    expect(document.querySelectorAll(".ib-list .is-on")).toHaveLength(1);
+    await act(async () => fireEvent.click(document.querySelector('.ib-list [data-n="n-old"]') as HTMLElement));
+    await settle(4);
+    expect(document.querySelector(".ib-list .is-on")?.getAttribute("data-n")).toBe("n-old");
+    expect(document.querySelector("section.ib-read .rq__lead")?.textContent).toBe(LONG);
   });
 
   test("in the conversation: a quiet line above the composer counts what waits on me there out of the loaded messages, and Ver goes to the oldest", async () => {

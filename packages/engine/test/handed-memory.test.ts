@@ -444,15 +444,15 @@ describe("it follows the handed work, not the note", () => {
 });
 
 describe("what it keeps, and what it leaves out", () => {
-  test("a heads-up is news, not a request: not in it", async () => {
-    const { memory } = await handedToAda();
+  test("a heads-up is news, not a request: in it as news, for the agent's next turn", async () => {
+    const { ada } = await handedToAda();
     const [c] = await notes();
     // As `tell_agent` with `heads_up` writes its note.
     await f.db
       .update(schema.messages)
       .set({ meta: { agentNote: { runId: c?.askerRunId, headsUp: true } } })
       .where(eq(schema.messages.id, c?.messageId ?? ""));
-    expect(await memory()).toEqual([]);
+    expect((await handedFor(f.db, f.org.id, ada.id, f.owner.id)).map((h) => h.headsUp)).toEqual([true]);
   });
 
   test("the person's own come back among many newer hand-offs for someone else", async () => {

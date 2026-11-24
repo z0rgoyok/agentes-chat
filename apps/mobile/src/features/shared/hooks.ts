@@ -3,6 +3,7 @@ import {
   type Edition,
   type FormerAgent,
   type Member,
+  type OrgRole,
   type RealtimeConnection,
   useAllAgents,
   useAuthConfig,
@@ -11,7 +12,9 @@ import {
   useMachines,
   useMe,
   useMembers,
+  useRoles,
 } from "@agenteschat/client";
+import { type AgentOwnerLike, ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { computerEdition } from "@agenteschat/client/lib/computer";
 import { formerById } from "@agenteschat/client/lib/directory";
 import { errorText } from "@agenteschat/client/lib/errors";
@@ -24,7 +27,9 @@ import { AppState, type AppStateStatus } from "react-native";
 import { useOrgId } from "@/providers/org";
 import { useRealtime } from "@/providers/realtime";
 import { haptics, rememberAgentLooks, useTheme, useToast } from "@/ui";
+import { usePane } from "@/ui/pane";
 import { agentLook, daysAgo, type PacedClock, pacedClock, whenKind } from "./logic";
+import { roleIdsOf } from "./owner";
 
 /** The current organization's id, from its own context: a change of `me` doesn't draw its readers again. */
 export { useOrgId };
@@ -147,6 +152,29 @@ export function useDirectory(): Directory {
   );
 }
 
+/** The signed-in person's roles (their member row's), for `ownsAgentAs`; none while they load. */
+export function useMyRoleIds(): readonly string[] {
+  return roleIdsOf(useDirectory().memberById, useMeId());
+}
+
+/**
+ * Whether I answer for an agent: its owner, or holding the role that answers for it (the server's `ownsAgent`, ADR
+ * 0085, addendum of 2026-11-21).
+ */
+export function useOwnsAgent() {
+  const meId = useMeId();
+  const roleIds = useMyRoleIds();
+  return useCallback(
+    (a: AgentOwnerLike | null | undefined) => Boolean(a && meId && ownsAgentAs(a, meId, roleIds)),
+    [meId, roleIds],
+  );
+}
+
+/** The workspace's roles, for the name and mark of a role that answers for an agent (undefined while they load). */
+export function useOwnerRoles(): OrgRole[] | undefined {
+  return useRoles(useOrgId()).data?.roles;
+}
+
 /** Toasts and other places that only know an agent's id draw it from these looks (once, at the app's root). */
 export function useRememberAgentLooks() {
   const agents = useAllAgents(useOrgId());
@@ -155,7 +183,7 @@ export function useRememberAgentLooks() {
   }, [agents.data]);
 }
 
-/** The organization's WebSocket (null until it opens). */
+/** The organization's WebSocket (null without one; stopped while the app is in the background). */
 export function useConnection(): RealtimeConnection | null {
   return useRealtime().connection;
 }
@@ -300,11 +328,12 @@ type TransitionEvents = { addListener(event: "transitionEnd", listener: () => vo
 /**
  * False until the screen's push has ended (its stack's `transitionEnd`): what moves on it (a sky, a living face) starts
  * then, so the slide has the threads to itself. A screen shown without a slide, or outside a stack, starts after
- * `PUSH_END_MAX_MS` at the latest.
+ * `PUSH_END_MAX_MS` at the latest; one in a split's pane (ADR 0212), which nothing slides in, at once.
  */
 export function usePushEnded(): boolean {
   const navigation = useContext(NavigationContext) as unknown as TransitionEvents | undefined;
-  const [ended, setEnded] = useState(false);
+  const inPane = usePane() !== null;
+  const [ended, setEnded] = useState(inPane);
   useEffect(() => {
     if (ended) return;
     const end = () => setEnded(true);

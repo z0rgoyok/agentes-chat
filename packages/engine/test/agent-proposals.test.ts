@@ -270,7 +270,7 @@ describe("propose_agent", () => {
     for (const [app, says] of [
       ["github", "is connected already"],
       ["nope-app", 'No app "nope-app" in the catalog'],
-      ["meta-ads", "can't be connected yet"],
+      ["asana", "can't be connected yet"],
     ] as const) {
       const bad = await propose(f, ctx, { ...ADA, connect_later: [app] });
       expect(bad.isError).toBe(true);

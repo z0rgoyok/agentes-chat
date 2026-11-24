@@ -22,6 +22,7 @@ export const SOUNDS = [
   "stop",
   "mention",
   "discard",
+  "record",
 ] as const;
 export type SoundName = (typeof SOUNDS)[number];
 
@@ -280,6 +281,13 @@ const POST: Record<SoundStyle, (x: Float32Array) => Float32Array> = {
   pixel: (x) => biquad(x, "lp", 3600),
 };
 
+/** Played right before a recording starts (`record`): no room, whose tail the microphone would take into the take. */
+const DRY: ReadonlySet<SoundName> = new Set(["record"]);
+const POST_DRY: Record<SoundStyle, (x: Float32Array) => Float32Array> = {
+  ...POST,
+  sky: (x) => biquad(x, "lp", 9000),
+};
+
 type Score = (out: Float32Array, v: Voice, style: SoundStyle) => void;
 
 /** Each sound: its peak (how loud it is next to the others) and its notes; clicks differ per style. */
@@ -384,6 +392,24 @@ const SCORE: Record<SoundName, [peak: number, score: Score]> = {
       }
     },
   ],
+  // A voice message starts recording (the phone's hold on the microphone): a short pick-up rising where `discard`
+  // falls, quiet, and over in under 0.1 s, since the recorder starts once it has rung (ADR 0100).
+  record: [
+    0.5,
+    (o, v, s) => {
+      if (s === "tactile") {
+        noise(o, { d: 0.012, g: 0.4, type: "bp", fc: 2400, q: 2.5 });
+        v(o, 0.002, "B5", { d: 0.08, g: 0.45 });
+        v(o, 0.03, "E6", { d: 0.1, g: 0.5 });
+      } else if (s === "sky") {
+        v(o, 0, "B5", { d: 0.05, g: 0.4, from: 0.9, glide: 0.03 });
+        v(o, 0.03, "E6", { d: 0.06, g: 0.45 });
+      } else {
+        v(o, 0, "B5", { d: 0.06, g: 0.6 });
+        v(o, 0.03, "E6", { d: 0.08, g: 0.6 });
+      }
+    },
+  ],
 };
 
 /** One sound's samples (mono, `SAMPLE_RATE`, peak under 0.9). */
@@ -391,7 +417,7 @@ export function renderSound(style: SoundStyle, name: SoundName): Float32Array {
   const [peak, score] = SCORE[name];
   const out = new Float32Array(Math.ceil(1.8 * SR));
   score(out, VOICE[style], style);
-  return finish(POST[style](out), peak);
+  return finish((DRY.has(name) ? POST_DRY : POST)[style](out), peak);
 }
 
 /** Samples as a 16-bit mono WAV file. */

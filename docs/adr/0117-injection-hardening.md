@@ -65,7 +65,10 @@ Four ways out stayed open after ADR 0109:
    - `outbound.private_text`: 24 characters in a row of the decoded query or fragment (whitespace collapsed, case
      folded) found in any tool result of this run except `web_search` and `web_fetch`. The gateway hands the check
      each tool's whole output (`recordRead`, per process); run steps keep only the first 4000 characters, which is
-     all a run resumed on another replica checks.
+     all a run resumed on another replica checks. The run keeps fingerprints of what it read, not the text
+     (`TextPrints`: winnowed 20-character grams in Bloom filters, at most `RUN_BYTES` a run, `CACHED_BYTES` across
+     runs): every 24 characters in a row are still caught, a shared 20 or a filter's false match at times too, and a
+     run that read past its bound refuses more, never less.
    - Each refusal says how to finish the job (search, or open the link as it appeared) and comes back as a tool
      error with `data.code`. The run's reads are cached per run and read again only past the last step seen.
    - Where: `web_fetch` before its GET; the browser's `open` steps (`browser_open`, `browser_do`) and
@@ -107,6 +110,15 @@ Four ways out stayed open after ADR 0109:
    instructions (from the checkout; data about this codebase)", for every turn without settings files (plan turns
    gain it). The `personalMcp` turn (the owner's own computer and settings) is unchanged. Agents may still edit
    `.claude/` and CLAUDE.md when that is the job: those files just don't configure our turns.
+   There is no switch to load `project` settings for an agent: a checkout's hooks, `env`, `apiKeyHelper` and allow
+   rules would run around our prompt tool and command rules (approvals, secret reads), on a sign-in that may be lent to
+   other agents, from a repository anyone could have written. A repository's own setup belongs in its CLAUDE.md or
+   AGENTS.md (read as above) or in the agent's skills.
+   Claude Code's auto memory is off too (`CLAUDE_CODE_DISABLE_AUTO_MEMORY=1`) on every turn and task but the
+   `personalMcp` turn: the workspace's memory is the agent's memory. Claude Code's lived in the sign-in's folder, which
+   the agent's own tools can't list (ADR 0057), and never left that computer. Measured on 2.1.329 (`--setting-sources
+   ""`, no tools, haiku): about 780 fewer prompt tokens a request, and a session in a new folder reads 2,627 tokens
+   from the cache and writes 416, where with auto memory on it read 649 and wrote 3,138.
 
 ## Consequences (egress)
 

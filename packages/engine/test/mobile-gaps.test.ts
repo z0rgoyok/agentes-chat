@@ -103,6 +103,26 @@ describe("channel list: unread and last message", () => {
     expect(dms.find((d) => d.channelId === dm.id)?.lastMessage?.id).toBe(said.id);
   });
 
+  test("each DM's preview is its own newest message, and the DMs sort by them", async () => {
+    f = await setup();
+    const bia = await addMember(f.db, f.org.id, "member", "bia");
+    const caio = await addMember(f.db, f.org.id, "member", "caio");
+    const withBia = await openDm(f.db, f.owner.id, f.org.id, { userId: bia.id });
+    const withCaio = await openDm(f.db, f.owner.id, f.org.id, { userId: caio.id });
+    await post(f.owner.id, withBia.id, "first to bia");
+    await nextMillisecond();
+    await post(caio.id, withCaio.id, "from caio");
+    await nextMillisecond();
+    const newest = await post(bia.id, withBia.id, "bia again");
+    const dms = (await listDms(f.db, f.owner.id, f.org.id)).filter((d) => d.with.type === "person");
+    expect(dms.map((d) => [d.channelId, d.lastMessage?.body])).toEqual([
+      [withBia.id, "bia again"],
+      [withCaio.id, "from caio"],
+    ]);
+    expect(dms[0]?.lastMessage).toMatchObject({ id: newest.id, authorType: "person" });
+    expect(dms[0]?.lastMessage?.createdAt).toBeInstanceOf(Date);
+  });
+
   test("a thread reply counts only in a thread I follow (wrote there, or followed; muting wins)", async () => {
     f = await setup();
     const bia = await withBia();

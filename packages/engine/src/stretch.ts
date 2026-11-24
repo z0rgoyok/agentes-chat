@@ -1,7 +1,7 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, gt, inArray, isNull, rowsOf, schema, sql } from "@agenteschat/db";
 import { getAgentCached } from "./agents";
-import { managesAgent, REACH_COLUMNS } from "./audience";
+import { managesAgent, ownsAgent, REACH_COLUMNS } from "./audience";
 import { recordAudit } from "./audit";
 import { messageRoot } from "./authority";
 import { routineBriefOfRun } from "./background";
@@ -143,6 +143,8 @@ export interface StretchHold {
    * (the card says whose money it is; Continuar still wakes the agent that was refused).
    */
   stoppedAgentId?: string;
+  /** The run the wake-up goes on from: Continuar starts it where that run answered (`placeAfter`, ADR 0214). */
+  after?: Pick<AgentRun, "threadRootId" | "replyInThread">;
 }
 
 /** Holds a wake-up: the card job, once per stretch, message (or refused run) and agent. */
@@ -170,6 +172,7 @@ export async function holdOf(
   agentId: string,
   trigger: RunTrigger,
   stop: StretchStop,
+  after?: Pick<AgentRun, "threadRootId" | "replyInThread">,
 ): Promise<StretchHold> {
   const hold: StretchHold = {
     stretchId: stretchOf(message),
@@ -182,6 +185,7 @@ export async function holdOf(
     messageId: message.id,
     trigger,
     stop,
+    ...(after ? { after } : {}),
   };
   const [channel] = await tx
     .select({ kind: channels.kind, dmKey: channels.dmKey })
@@ -208,7 +212,16 @@ export async function holdOf(
 
 type ToolRun = Pick<
   AgentRun,
-  "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "hop" | "stretchId" | "background"
+  | "id"
+  | "orgId"
+  | "agentId"
+  | "channelId"
+  | "threadRootId"
+  | "triggerMessageId"
+  | "replyInThread"
+  | "hop"
+  | "stretchId"
+  | "background"
 >;
 
 /**
@@ -234,8 +247,10 @@ export async function refusedAtLimit(db: Database, run: ToolRun, wakes: string):
     trigger: "mention",
     stop,
     ...(stop.reason === "spend" ? { stoppedAgentId: wakes } : {}),
+    // Continuar wakes it again where it answered; a routine's run, where the routine reports.
+    ...(report ? {} : { after: { threadRootId: at.threadRootId, replyInThread: at.replyInThread } }),
   });
-  return { content: STRETCH_REFUSAL, isError: true };
+  return { content: STRETCH_REFUSAL, isError: true, data: { code: "stretch.limit" } };
 }
 
 /**
@@ -286,7 +301,14 @@ export interface StretchCard {
   agentIds: string[];
   /** What Continuar starts: each agent on the message that would have woken it (null: on this card). */
   /** `threadId` (when `messageId` is null): the thread of the card's channel it was held in (null: the timeline). */
-  held: { agentId: string; messageId: string | null; threadId?: string | null; trigger: RunTrigger }[];
+  held: {
+    agentId: string;
+    messageId: string | null;
+    threadId?: string | null;
+    trigger: RunTrigger;
+    /** The run it goes on from, whose place it starts in (`StretchHold.after`). */
+    after?: Pick<AgentRun, "threadRootId" | "replyInThread">;
+  }[];
   continuedByUserId: string | null;
   continuedAt: string | null;
 }
@@ -357,6 +379,7 @@ export async function postStretchCard(deps: { db: Database; pubsub?: PubSub }, o
     messageId: hold.messageId,
     ...(hold.messageId ? {} : { threadId: hold.threadId }),
     trigger: hold.trigger,
+    ...(hold.after ? { after: hold.after } : {}),
   };
   const stopped = hold.stoppedAgentId ?? hold.agentId;
   const card = await db.transaction(async (tx) => {
@@ -370,9 +393,11 @@ export async function postStretchCard(deps: { db: Database; pubsub?: PubSub }, o
         and(
           eq(messages.orgId, orgId),
           hold.messageId
-            ? sql`(${messages.channelId} = ${hold.channelId}::uuid or ${messages.channelId} in (
-            select distinct ${agentRuns.channelId} from ${agentRuns}
-            where ${agentRuns.orgId} = ${orgId}::uuid and ${agentRuns.stretchId} = ${hold.stretchId}::uuid))`
+            ? // One list of channels, not `channel = x or channel in (…)`: the planner can't take an OR into the
+              // channel index, and read every message of the week instead.
+              sql`${messages.channelId} in (select ${hold.channelId}::uuid union
+            select ${agentRuns.channelId} from ${agentRuns}
+            where ${agentRuns.orgId} = ${orgId}::uuid and ${agentRuns.stretchId} = ${hold.stretchId}::uuid)`
             : eq(messages.channelId, hold.channelId),
           gt(messages.createdAt, new Date(Date.now() - 7 * 86_400_000)),
           isNull(messages.deletedAt),
@@ -488,7 +513,7 @@ export async function continueStretch(
     .where(and(eq(agents.orgId, message.orgId), inArray(agents.id, card.agentIds)));
   const manages =
     owners.length === 0 ? can(membership, "manage_agents") : owners.every((a) => managesAgent(a, userId, membership));
-  if (card.forUserId !== userId && !owners.some((a) => a.ownerUserId === userId) && !manages)
+  if (card.forUserId !== userId && !owners.some((a) => ownsAgent(a, userId, membership.roleIds)) && !manages)
     throw new ForbiddenError("Only who asked, the agents' owners or an admin can do this", "run.answer_forbidden");
   const stretchId = Bun.randomUUIDv7();
   const done = await db.transaction(async (tx) => {
@@ -526,7 +551,10 @@ export async function continueStretch(
       if (!trigger || trigger.deletedAt) continue;
       const [active] = await eligibleChannelAgents(tx, message.orgId, trigger.channelId, [h.agentId]);
       if (!active) continue;
-      const out = await startOrJoinRun(tx, trigger, h.agentId, h.trigger, { granted: stretchId });
+      const out = await startOrJoinRun(tx, trigger, h.agentId, h.trigger, {
+        granted: stretchId,
+        ...(h.after ? { after: h.after } : {}),
+      });
       if (!out) continue;
       // A question or a note the stretch held is answered by the run that takes it now (ADR 0095).
       await takeConsultation(

@@ -235,60 +235,7 @@
     animation: none;
   }
 }
-/*
- * The handle that sizes it (`TalkGrip`), over the 8 between the page's card and the conversation's (the work area
- * keeps the conversation's width plus 16 on its right; the panel stands 8 from its edge): 12 wide, centered there.
- * Nothing shows until the pointer is on it; then a bar of ink down the gap, whole while it moves or holds the keys
- * (the issue table's column handle). It takes the touch for itself, so a finger sizes instead of scrolling.
- */
-.lf-talk-grip {
-  position: absolute;
-  z-index: var(--z-raised);
-  top: var(--space-2);
-  bottom: var(--space-2);
-  right: calc(var(--lf-talk-w) + 6px);
-  width: var(--space-3);
-  cursor: col-resize;
-  touch-action: none;
-}
-.lf-talk-grip::after {
-  content: "";
-  position: absolute;
-  inset-block: var(--space-6);
-  left: calc(50% - 1.5px);
-  width: 3px;
-  border-radius: var(--radius-full);
-  background: transparent;
-}
-.lf-talk-grip:hover::after {
-  background: color-mix(in srgb, var(--ink) 30%, transparent);
-}
-.lf-talk-grip[data-active]::after {
-  background: var(--ink);
-}
-html:not([data-pointer]) .lf-talk-grip:focus-visible {
-  outline: none;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--focus-ring);
-}
-html:not([data-pointer]) .lf-talk-grip:focus-visible::after {
-  background: var(--ink);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .lf-talk-grip::after {
-    transition: background-color var(--dur-fast);
-  }
-}
-/* Under a finger there is no hover to find it by: the bar always shows, faint, in a wider place to press. */
-@media (hover: none) {
-  .lf-talk-grip {
-    right: var(--lf-talk-w);
-    width: var(--space-6);
-  }
-  .lf-talk-grip::after {
-    background: color-mix(in srgb, var(--ink) 18%, transparent);
-  }
-}
+/* The handle that sizes it: talk-grip.css (`TalkGrip`, shared with the viewer's comments). */
 /* The conversation's toggle on a narrow header: its glyph and count, closer. */
 .ac-btn.lf-talk-toggle--glyph:not(.ac-btn--icon) {
   gap: var(--space-1);

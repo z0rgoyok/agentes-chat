@@ -42,6 +42,23 @@ describe("loadConfig", () => {
     expect(config.EMAIL_FROM).toBeUndefined();
   });
 
+  test("OUTBOUND_ALLOW_HOSTS and OUTBOUND_ALLOW_CIDRS are lists of names and ranges", () => {
+    const unset = loadConfig(valid);
+    expect(unset.OUTBOUND_ALLOW_HOSTS).toEqual([]);
+    expect(unset.OUTBOUND_ALLOW_CIDRS).toEqual([]);
+    const set = loadConfig({
+      ...valid,
+      OUTBOUND_ALLOW_HOSTS: " *.Tail1234.ts.net , nas.example.com,",
+      OUTBOUND_ALLOW_CIDRS: "100.64.0.0/10, fd7a:115c:a1e0::/48,192.168.1.20",
+    });
+    expect(set.OUTBOUND_ALLOW_HOSTS).toEqual(["*.tail1234.ts.net", "nas.example.com"]);
+    expect(set.OUTBOUND_ALLOW_CIDRS).toEqual(["100.64.0.0/10", "fd7a:115c:a1e0::/48", "192.168.1.20"]);
+    for (const hosts of ["*", "*.net*", "10.0.0.5", "https://nas.example.com", "*.com"])
+      expect(() => loadConfig({ ...valid, OUTBOUND_ALLOW_HOSTS: hosts })).toThrow(/OUTBOUND_ALLOW_HOSTS/);
+    for (const cidrs of ["100.64.0.0/33", "fd7a::/129", "tailnet", "100.64.0.0/", "10.0.0.0/8x"])
+      expect(() => loadConfig({ ...valid, OUTBOUND_ALLOW_CIDRS: cidrs })).toThrow(/OUTBOUND_ALLOW_CIDRS/);
+  });
+
   test("FILES_DIR must be absolute; SMTP_URL must be smtp:// or smtps://", () => {
     expect(loadConfig({ ...valid, FILES_DIR: "/data/files" }).FILES_DIR).toBe("/data/files");
     expect(() => loadConfig({ ...valid, FILES_DIR: "data/files" })).toThrow(/FILES_DIR/);

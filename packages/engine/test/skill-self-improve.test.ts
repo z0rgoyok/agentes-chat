@@ -23,7 +23,7 @@ import {
   undoAgentAction,
   undoSkillUpdate,
 } from "../src";
-import { addMember, type Fixture, setup } from "./fixtures";
+import { addMember, type Fixture, queuedReviews, settleQueued, setup, withReview } from "./fixtures";
 
 let f: Fixture;
 afterEach(async () => {
@@ -114,6 +114,15 @@ const fileText = async (fx: Fixture, s: SkillDetail, path: string) => {
 
 const proposals = () => f.db.select().from(schema.contextProposals).where(eq(schema.contextProposals.orgId, f.org.id));
 
+/** Who has an inbox row of this kind. */
+const inbox = async (kind: string) =>
+  (
+    await f.db
+      .select({ userId: schema.notifications.userId })
+      .from(schema.notifications)
+      .where(and(eq(schema.notifications.orgId, f.org.id), eq(schema.notifications.kind, kind)))
+  ).map((n) => n.userId);
+
 describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
   test("on by default: a person's skill changes at once, body and text files, with history, Desfazer and its author told once", async () => {
     f = await setup({ skillTools: true });
@@ -201,8 +210,8 @@ describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
     expect(await fileText(f, back, "references/guide.md")).toBe("Old guide.");
   });
 
-  test("a script is never changed directly: it waits as a proposal who manages agents applies", async () => {
-    f = await setup({ skillTools: true });
+  test("a script is never changed directly: the review applies it, as someone who manages agents", async () => {
+    f = await setup({ skillTools: true, reply: withReview({ apply: true, why: "Fixes the deploy step." }) });
     const { skill } = await personSkill(f);
     const run = await personRun(f);
     await usedSkill(run);
@@ -214,7 +223,7 @@ describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
       ],
     });
     expect(out.content).toContain("Updated deploy (v2).");
-    expect(out.content).toContain("scripts/run.sh runs as code, so that change waits");
+    expect(out.content).toContain("scripts/run.sh runs as code, so that change goes through a quick review");
     const v2 = await getSkill(f.db, f.owner.id, f.org.id, skill.id);
     expect(await fileText(f, v2, "scripts/run.sh")).toBe("echo old");
     const [p] = await proposals();
@@ -239,14 +248,20 @@ describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
     await expect(decideProposal(f.db, member.id, f.org.id, p?.id ?? "", "accept")).rejects.toBeInstanceOf(
       ForbiddenError,
     );
-    await decideProposal(f.db, f.owner.id, f.org.id, p?.id ?? "", "accept", { blobs: f.artifactDeps.blobs });
+    expect((await queuedReviews(f)).map((r) => r.ids)).toEqual([[p?.id ?? ""]]);
+    expect((await settleQueued(f)).applied).toEqual([p?.id ?? ""]);
+    const [audit] = await f.db
+      .select()
+      .from(schema.auditLog)
+      .where(and(eq(schema.auditLog.orgId, f.org.id), eq(schema.auditLog.action, "proposal.accepted")));
+    expect([audit?.actorId, audit?.onBehalfOfUserId]).toEqual([f.agent.id, f.owner.id]);
     const v3 = await getSkill(f.db, f.owner.id, f.org.id, skill.id);
     expect(v3.version).toBe(3);
     expect(await fileText(f, v3, "scripts/run.sh")).toBe("echo new && curl https://example.com");
     expect(await fileText(f, v3, "references/guide.md")).toBe("New guide.");
   });
 
-  test("off for the workspace: today's proposals; a skill's own switch wins; only who manages agents changes them", async () => {
+  test("off for the workspace: agents leave a person's skill alone; a skill's own switch wins; only who manages agents changes them", async () => {
     f = await setup({ skillTools: true });
     const { skill } = await personSkill(f);
     const member = await addMember(f.db, f.org.id, "member");
@@ -266,14 +281,11 @@ describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
       body: "# deploy\n1. Build twice.",
       files: [{ path: "references/guide.md", content: "New guide." }],
     });
-    expect(out.content).toContain("Agents don't change this skill by themselves here, so the change is a proposal");
-    expect(out.data?.memoryUpdate).toMatchObject({
-      action: "proposed",
-      canDecide: false,
-      requestedByUserId: member.id,
-    });
+    expect(out).toMatchObject({ isError: true });
+    expect(out.content).toContain("Agents don't change this skill on their own");
+    expect(out.data?.memoryUpdate).toBeUndefined();
     expect((await getSkill(f.db, f.owner.id, f.org.id, skill.id)).version).toBe(1);
-    expect((await proposals()).map((p) => p.skillPath).sort()).toEqual(["references/guide.md", null].sort());
+    expect(await proposals()).toEqual([]);
 
     // The skill's own switch on: it changes at once again.
     const on = await setSkillAgentsImprove(f.db, f.owner.id, f.org.id, skill.id, true);
@@ -320,8 +332,8 @@ describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
     });
   });
 
-  test("a proposal reaches people: a card under the reply, and an inbox row for other deciders", async () => {
-    f = await setup({ skillTools: true });
+  test("a proposal is a card under the reply, the review applies it, and other deciders hear it was applied", async () => {
+    f = await setup({ skillTools: true, reply: withReview({ apply: true, why: "Builds twice, as the team does." }) });
     await personSkill(f);
     const admin = await addMember(f.db, f.org.id, "admin");
     const run = await personRun(f);
@@ -331,16 +343,17 @@ describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
     const [proposal] = await proposals();
     expect(out.data?.memoryUpdate).toMatchObject({ action: "proposed", proposalIds: [proposal?.id] });
     expect(proposal).toMatchObject({ requestedByUserId: f.owner.id, proposedByAgentId: f.agent.id });
-    const rows = await f.db
-      .select()
-      .from(schema.notifications)
-      .where(eq(schema.notifications.kind, "proposal_waiting"));
-    expect(rows.map((n) => n.userId)).toContain(admin.id);
-    expect(rows.map((n) => n.userId)).not.toContain(f.owner.id);
+    // Nobody is asked to decide it: the review weighs it, knowing the run read outside content.
+    expect(await inbox("proposal_waiting")).toEqual([]);
+    expect(await queuedReviews(f)).toEqual([{ ids: [proposal?.id ?? ""], origin: "outside" }]);
+    expect((await settleQueued(f)).applied).toEqual([proposal?.id ?? ""]);
+    const applied = await inbox("proposal_applied");
+    expect(applied).toContain(admin.id);
+    expect(applied).not.toContain(f.owner.id);
   });
 
-  test("in a room the person doesn't read (a hand-off in the agents' DM), they get the inbox row", async () => {
-    f = await setup({ skillTools: true });
+  test("in a room the person doesn't read (a hand-off in the agents' DM), there is no card, and they hear it once applied", async () => {
+    f = await setup({ skillTools: true, reply: withReview({ apply: true, why: "Builds twice, as the team does." }) });
     await personSkill(f);
     const run = await personRun(f);
     const bia = await addMember(f.db, f.org.id, "member", "Bia");
@@ -353,26 +366,25 @@ describe("agents improve skills by themselves (ADR 0120, ADR 0020)", () => {
     expect(out.data?.memoryUpdate).toBeUndefined();
     const [proposal] = await proposals();
     expect(proposal?.requestedByUserId).toBeNull();
-    const rows = await f.db
-      .select()
-      .from(schema.notifications)
-      .where(eq(schema.notifications.kind, "proposal_waiting"));
-    expect(rows.map((n) => n.userId)).toContain(f.owner.id);
+    expect(await inbox("proposal_waiting")).toEqual([]);
+    expect((await queuedReviews(f)).map((r) => r.ids)).toEqual([[proposal?.id ?? ""]]);
+    await settleQueued(f);
+    expect(await inbox("proposal_applied")).toContain(f.owner.id);
   });
 
-  test("with nobody behind the run there is no card, and who decides has the inbox row", async () => {
-    f = await setup({ skillTools: true });
+  test("with nobody behind the run there is no card, and who decides hears it once applied", async () => {
+    f = await setup({ skillTools: true, reply: withReview({ apply: true, why: "Builds twice, as the team does." }) });
     await personSkill(f);
     const run = await personRun(f);
     await f.db.update(schema.agentRuns).set({ background: true }).where(eq(schema.agentRuns.id, run.id));
     await usedSkill(run);
     const out = await invoke(run, "update_skill", { name: "deploy", body: "# deploy\n1. Build twice." });
     expect(out.data?.memoryUpdate).toBeUndefined();
-    const rows = await f.db
-      .select()
-      .from(schema.notifications)
-      .where(eq(schema.notifications.kind, "proposal_waiting"));
-    expect(rows.map((n) => n.userId)).toContain(f.owner.id);
+    const [proposal] = await proposals();
+    expect(await inbox("proposal_waiting")).toEqual([]);
+    expect((await queuedReviews(f)).map((r) => r.ids)).toEqual([[proposal?.id ?? ""]]);
+    await settleQueued(f);
+    expect(await inbox("proposal_applied")).toContain(f.owner.id);
   });
 
   test("after outside content, nothing applies at once: a proposal, whatever the setting", async () => {

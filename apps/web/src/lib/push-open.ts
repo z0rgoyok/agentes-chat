@@ -80,10 +80,26 @@ export function pushOpenOf(path: string): { orgId: string; notificationId: strin
   return { orgId: match[1], notificationId: id };
 }
 
-/** The `open` search value of the inbox's route (`validateSearch`): an id, or nothing. */
-export function notificationsSearch(search: Record<string, unknown>): { open?: string } {
+/** The inbox's filters a link may start on (`InboxFilter`, pages/NotificationsPage.tsx). */
+const INBOX_LINK_FILTERS = ["all", "mentions", "waiting", "unread", "reactions", "requests", "done"] as const;
+export type InboxLinkFilter = (typeof INBOX_LINK_FILTERS)[number];
+
+/**
+ * The inbox's route search (`validateSearch`): `open`, a notification to open where the inbox would; `filter`, the
+ * filter it starts on; `approval`, a request to open in it. Anything else is dropped.
+ */
+export function notificationsSearch(search: Record<string, unknown>): {
+  open?: string;
+  filter?: InboxLinkFilter;
+  approval?: string;
+} {
   const value = search[PUSH_OPEN_PARAM];
-  return isId(value) ? { open: value } : {};
+  const filter = INBOX_LINK_FILTERS.find((f) => f === search.filter);
+  return {
+    ...(isId(value) ? { open: value } : {}),
+    ...(filter ? { filter } : {}),
+    ...(isId(search.approval) ? { approval: search.approval } : {}),
+  };
 }
 
 /** A click the service worker passed to an open tab: where to go, and the push's data when it had any. */

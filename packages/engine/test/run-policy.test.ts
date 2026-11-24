@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { ASK_AGAIN } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
 import {
   addChannelMember,
@@ -387,6 +388,46 @@ const call = (ctx: ToolContext, name: string, input: Record<string, unknown>) =>
 const requiresWhy = (t: ToolDefinition | undefined) =>
   Array.isArray(t?.inputSchema.required) && ((t?.inputSchema.required ?? []) as string[]).includes("why");
 
+type Ran = { input: Record<string, unknown>; approved: boolean };
+/** A computer tool like run_code: the computer holds a push to main for a person and runs anything else. */
+function heldComputer() {
+  const ran: Ran[] = [];
+  const computer: ToolSource = {
+    name: "computer",
+    tools: async () => [
+      {
+        name: "run_code",
+        description: "Run code on the computer.",
+        inputSchema: {
+          type: "object",
+          properties: { code: { type: "string" }, why: { type: "string" } },
+          required: ["code"],
+          additionalProperties: false,
+        },
+        scope: "sandbox:run",
+        whyAsks: true,
+        describe: (input) => ({ title: "Run bash code", detail: String(input.code) }),
+        execute: async (input, c) => {
+          ran.push({ input, approved: c.approved === true });
+          if (String(input.code).includes("git push") && !c.approved) {
+            const content = `Not run: This push goes to the default branch main: a person approves it first. ${ASK_AGAIN}`;
+            return { content, isError: true, data: { code: "command.approval_needed" } };
+          }
+          return { content: "ran" };
+        },
+      },
+    ],
+  };
+  const gateway = createToolGateway({ sources: [computer] });
+  const run = (ctx: ToolContext, code: string, why?: string) =>
+    gateway.invoke(ctx, {
+      toolUseId: `tu_${crypto.randomUUID()}`,
+      name: "run_code",
+      input: { code, ...(why ? { why } : {}) },
+    });
+  return { ran, gateway, run };
+}
+
 describe("the gateway applies the run policy", () => {
   test("a connector cannot shadow a built-in with the same name", async () => {
     await gatewaySetup();
@@ -551,39 +592,14 @@ describe("the gateway applies the run policy", () => {
   test("a command the computer held asks in the chat the same way for a routine: with why, where it reports, with its origin", async () => {
     await gatewaySetup();
     await grantScopes(f.db, f.org.id, f.agent.id, [{ connectionId: null, scope: "sandbox:run" }]);
-    const ran: { input: Record<string, unknown>; approved: boolean }[] = [];
-    // A computer tool like run_code: a call that says why asks a person first.
-    const computer: ToolSource = {
-      name: "computer",
-      tools: async () => [
-        {
-          name: "run_code",
-          description: "Run code on the computer.",
-          inputSchema: {
-            type: "object",
-            properties: { code: { type: "string" }, why: { type: "string" } },
-            required: ["code"],
-            additionalProperties: false,
-          },
-          scope: "sandbox:run",
-          whyAsks: true,
-          describe: (input) => ({ title: "Run bash code", detail: String(input.code) }),
-          execute: async (input, c) => {
-            ran.push({ input, approved: c.approved === true });
-            return { content: "ran" };
-          },
-        },
-      ],
-    };
-    const gateway = createToolGateway({ sources: [computer] });
-    const push = (ctx: ToolContext, why?: string) =>
-      gateway.invoke(ctx, {
-        toolUseId: `tu_${crypto.randomUUID()}`,
-        name: "run_code",
-        input: { code: "git push origin main", ...(why ? { why } : {}) },
-      });
+    const { ran, gateway, run } = heldComputer();
+    const push = (ctx: ToolContext, why?: string) => run(ctx, "git push origin main", why);
     const { ctx, brief } = await runAs("act");
-    expect(await push(ctx)).toMatchObject({ type: "result", output: { content: "ran" } });
+    const unexplained = await push(ctx);
+    if (unexplained.type !== "approval") throw new Error(`expected an approval, got ${JSON.stringify(unexplained)}`);
+    expect(unexplained.approval.why).toBe(
+      "This push goes to the default branch main, so the computer waits for a person's approval before running it.",
+    );
     const result = await push(ctx, WHY);
     if (result.type !== "approval") throw new Error(`expected an approval, got ${JSON.stringify(result)}`);
     expect(result.approval).toMatchObject({
@@ -592,12 +608,43 @@ describe("the gateway applies the run policy", () => {
       channelId: f.general.id,
       origin: { kind: "routine", routineId: brief?.routineId, routineName: "Pedidos do dia" },
     });
-    expect(ran).toEqual([{ input: { code: "git push origin main" }, approved: false }]);
+    expect(ran).toEqual([
+      { input: { code: "git push origin main" }, approved: false },
+      { input: { code: "git push origin main", why: WHY }, approved: false },
+    ]);
     await gateway.executeApproved(ctx, { ...result.approval, status: "approved" });
     expect(ran.at(-1)).toEqual({ input: { code: "git push origin main", why: WHY }, approved: true });
     // A routine stored as only reading runs commands too (ADR 0109).
     const read = await runAs("read");
-    expect(await push(read.ctx)).toMatchObject({ type: "result", output: { content: "ran" } });
+    expect(await run(read.ctx, "ls -l")).toMatchObject({ type: "result", output: { content: "ran" } });
+  });
+
+  test("at the default level the command decides, never the why: the same command gets the same answer with and without it", async () => {
+    await gatewaySetup();
+    await grantScopes(f.db, f.org.id, f.agent.id, [{ connectionId: null, scope: "sandbox:run" }]);
+    const { run } = heldComputer();
+    const commands = [
+      "sha256sum /tmp/report.csv",
+      "ls -l",
+      "mkdir -p /tmp/work && echo ok > /tmp/work/note.txt",
+      "curl -s https://example.com",
+      "python3 /tmp/work/sum.py",
+      "git push origin main",
+    ];
+    for (const kind of ["person", "unattended", "act"] as const) {
+      const { ctx } = await runAs(kind);
+      for (const code of commands) {
+        const without = await run(ctx, code);
+        const withWhy = await run(ctx, code, WHY);
+        expect({ kind, code, decided: withWhy.type }).toEqual({ kind, code, decided: without.type });
+        expect({ kind, code, decided: without.type }).toEqual({
+          kind,
+          code,
+          decided: code.startsWith("git push") ? "approval" : "result",
+        });
+        if (withWhy.type === "approval") expect(withWhy.approval.why).toBe(WHY);
+      }
+    }
   });
 
   test("unattended: it lists what a person's run lists and works as the agent itself", async () => {

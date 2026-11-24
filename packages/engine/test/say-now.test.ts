@@ -42,6 +42,7 @@ import {
   withoutSaidNow,
 } from "../src";
 import { AGENT_MEDIA_JOB, replySkip } from "../src/agent-media";
+import { renderSteered, SAY_HOW_YOU_TAKE_IT } from "../src/live-steer";
 import { type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
 
@@ -228,6 +229,19 @@ async function places() {
   await f.db
     .insert(schema.confidentialThreads)
     .values({ orgId: f.org.id, channelId: f.general.id, rootMessageId: sealedRoot.id });
+  const [task, file] = await f.db
+    .insert(schema.channels)
+    .values(
+      (["task", "file"] as const).map((kind) => ({
+        orgId: f.org.id,
+        name: `${kind}-1234abcd`,
+        kind,
+        visibility: "private" as const,
+        createdByUserId: f.owner.id,
+      })),
+    )
+    .returning();
+  if (!task || !file) throw new Error("no conversations");
   const working = await runOver(dm.id);
   const moved = await moveToBackground(deps(), working.id, {
     how: "agent",
@@ -244,6 +258,9 @@ async function places() {
     agentsDm: await runOver(agentsDm.id, { by: qa.id }),
     mission: await runOver(f.general.id, { threadId: missionRoot.id }),
     confidential: await runOver(f.general.id, { threadId: sealedRoot.id }),
+    task: await runOver(task.id),
+    file: await runOver(file.id),
+    taskHanded: await runOver(task.id, { by: qa.id }),
   };
 }
 
@@ -386,6 +403,73 @@ describe("the tool", () => {
     expect((await lines()).map((m) => m.body)).toEqual([LINE, "Bora! Vou abrir o navegador."]);
   });
 
+  test("one more line for a message they send meanwhile that corrects or adds to the task, then none", async () => {
+    f = await setup({ sayNow: true });
+    const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
+    const run = await runOver(dm.id);
+    expect((await sayNow(run, LINE)).isError).toBeFalsy();
+    // The triage wasn't sure, or it was a quick question: no line of the agent's own for it.
+    const asked = await byPerson(dm.id, "tá indo?");
+    await addRunStep(f.db, run, "context", {
+      steerTriage: { messageId: asked.id, sure: true, line: false },
+      reason: "answer",
+    });
+    expect((await sayNow(run, "Tá indo sim.")).content).toStartWith("Already told them");
+    // A correction the triage was sure of, read by now: the agent says how it takes it.
+    const fixed = await byPerson(dm.id, "na verdade, é o de setembro");
+    await addRunStep(f.db, run, "context", {
+      steerTriage: { messageId: fixed.id, sure: true, line: true },
+      reason: "interrupt",
+    });
+    const took = "Boa, troco para setembro então.";
+    const output = await sayNow(run, took);
+    expect(output.isError).toBeFalsy();
+    expect(output.data).toMatchObject({ saidNow: { text: took } });
+    const said = await lines();
+    expect(said.map((m) => m.body)).toEqual([LINE, took]);
+    expect(said[1]?.meta.sayNow).toEqual({ runId: run.id, took: [fixed.id] });
+    // That line was for that message: the next call says so again.
+    const again = await sayNow(run, "Quase lá.");
+    expect(again.content).toStartWith(`Already told them: "${took}"`);
+    expect((await lines()).map((m) => m.body)).toEqual([LINE, took]);
+  });
+
+  test("the message the agent may answer with a line reaches it with a word saying so; the others as they were", async () => {
+    f = await setup({ sayNow: true });
+    const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
+    const run = await runOver(dm.id);
+    const fixed = await byPerson(dm.id, "na verdade, é o de setembro");
+    const asked = await byPerson(dm.id, "tá indo?");
+    await addRunStep(f.db, run, "context", {
+      steerTriage: { messageId: fixed.id, sure: true, line: true },
+      reason: "interrupt",
+    });
+    await addRunStep(f.db, run, "context", {
+      steerTriage: { messageId: asked.id, sure: true, line: false },
+      reason: "answer",
+    });
+    const read = await renderSteered(f.db, f.org.id, [fixed.id, asked.id], { runId: run.id });
+    expect(read.map((r) => r.text.endsWith(`\n${SAY_HOW_YOU_TAKE_IT}`))).toEqual([true, false]);
+    // Another run's triage says nothing for this one, and without the run nothing is added.
+    const other = await runOver(dm.id);
+    expect((await renderSteered(f.db, f.org.id, [fixed.id], { runId: other.id }))[0]?.text).not.toContain("say_now");
+    expect((await renderSteered(f.db, f.org.id, [fixed.id]))[0]?.text).not.toContain("say_now");
+  });
+
+  test("a run's first line takes in what they sent before it: no second line for the same message", async () => {
+    f = await setup({ sayNow: true });
+    const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
+    const run = await runOver(dm.id);
+    const added = await byPerson(dm.id, "inclui o gráfico por região");
+    await addRunStep(f.db, run, "context", {
+      steerTriage: { messageId: added.id, sure: true, line: true },
+      reason: "add",
+    });
+    expect((await sayNow(run, LINE)).isError).toBeFalsy();
+    expect((await sayNow(run, "Incluo o gráfico também.")).content).toStartWith("Already told them");
+    expect((await lines()).map((m) => m.body)).toEqual([LINE]);
+  });
+
   test("words for a person only: code, a tool's name, a path on a computer or the silence word post nothing", async () => {
     f = await setup({ sayNow: true });
     const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
@@ -449,26 +533,30 @@ describe("the tool", () => {
       agentsDm: false,
       mission: false,
       confidential: false,
+      // A task's or a file's conversation, when a person wrote the message it answers; work handed there by an
+      // agent has no reader.
+      task: true,
+      file: true,
+      taskHanded: false,
     });
   });
 
-  test("elsewhere it says why and posts nothing; a routine's run doesn't list it at all", async () => {
+  test("elsewhere it says why and posts nothing; a routine's run and one between agents don't list it at all", async () => {
     f = await setup({ sayNow: true });
     const at = await places();
     const listed = async (run: AgentRun) => (await tools().list(ctxOf(run))).some((t) => t.name === SAY_NOW_TOOL);
-    // Listed in every run with an id, so the list stays the same from run to run; never in a background one.
+    // Listed in every run with an id, so the list stays the same from run to run; never in a background one, nor
+    // in a conversation between agents (a lean wake: nobody reads it).
     expect(await listed(at.dm)).toBe(true);
-    expect(await listed(at.agentsDm)).toBe(true);
+    expect(await listed(at.agentsDm)).toBe(false);
     expect(await listed(at.work)).toBe(true);
     expect(await listed(at.routine)).toBe(false);
     // Nor for a mission task's call through the bridge, which has no run of its own.
     expect(await createSayNowToolSource({}).tools({ ...ctxOf(at.dm), runId: "" })).toEqual([]);
-    for (const run of [at.agentsDm, at.mission]) {
-      expect(await sayNow(run, LINE)).toMatchObject({
-        isError: true,
-        content: expect.stringContaining("Nobody reads this conversation as it goes"),
-      });
-    }
+    expect(await sayNow(at.mission, LINE)).toMatchObject({
+      isError: true,
+      content: expect.stringContaining("Nobody reads this conversation as it goes"),
+    });
     expect(await sayNow(at.work, LINE)).toMatchObject({
       isError: true,
       content: expect.stringContaining("post_update"),

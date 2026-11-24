@@ -177,7 +177,7 @@ describe("a list that didn't load is not an empty one", () => {
     };
     before("chats/ThreadsScreen.tsx", "list.failed", "<TeamSkyEmpty");
     before("chats/ConversationListScreen.tsx", "list.failed", "<FirstUse {...firstStep}");
-    before("activity/ActivityScreen.tsx", "list.isError && !list.data", "<AllClear />");
+    before("activity/ActivityScreen.tsx", "list.isError && !list.data", "<AllClear cheer={cheer} />");
     before("team/TeamScreen.tsx", "!groups.data ? null", "title={t(noSectors.title)}");
   });
 });

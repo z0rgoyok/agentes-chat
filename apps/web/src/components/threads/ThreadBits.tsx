@@ -108,14 +108,19 @@ export function useThreadControls() {
   };
 
   const run = async (threads: ThreadInfo[], action: ThreadAction, options: { undo?: boolean } = {}) => {
-    const done: ThreadInfo[] = [];
-    for (const thread of threads) {
-      try {
-        done.push((await mutation.mutateAsync({ type: "action", thread, action })) ?? thread);
-      } catch (error) {
-        toast.show(errorText(t, error), "error");
-      }
-    }
+    // All at once: each thread shows its change as it is asked, not after the one before it answered.
+    const answers = await Promise.all(
+      threads.map((thread) =>
+        mutation.mutateAsync({ type: "action", thread, action }).then(
+          (saved) => saved ?? thread,
+          (error: unknown) => {
+            toast.show(errorText(t, error), "error");
+            return null;
+          },
+        ),
+      ),
+    );
+    const done = answers.filter((x): x is ThreadInfo => x !== null);
     if (done.length === 0 || options.undo === false) return done;
     const one = done.length === 1 ? done[0] : undefined;
     const back = UNDO[action];

@@ -19,6 +19,7 @@ import { memo } from "react";
 import { Text as RNText, StyleSheet, View } from "react-native";
 import Svg, { G, Line, Path, Rect } from "react-native-svg";
 import { Icon, useTheme } from "@/ui";
+import { RADIUS } from "@/ui/radius";
 
 /**
  * A live file drawn small (ADR 0196 §7), from the preview its card carries (never the whole document): a
@@ -96,7 +97,8 @@ export const DocumentCover = memo(function DocumentCover({ content }: { content:
             style={[
               heading ? styles.docHeading : styles.docText,
               { color: heading ? c.ink : c.ink2 },
-              block.type === "blockquote" && [styles.docQuote, { borderLeftColor: c.line2 }],
+              // A quote on a plate, never a bar at its left edge.
+              block.type === "blockquote" && [styles.docQuote, { backgroundColor: c.plate }],
             ]}
           >
             {listed ? (block.list === "ordered" ? "1. " : "• ") : ""}
@@ -510,7 +512,8 @@ const styles = StyleSheet.create({
   docPage: { paddingHorizontal: 12, paddingTop: 10, gap: 4 },
   docHeading: { fontSize: 12, fontWeight: "700" },
   docText: { fontSize: 9.5, lineHeight: 13 },
-  docQuote: { borderLeftWidth: 2, paddingLeft: 6 },
+  // The cover is the page drawn small: its quote's plate at the scale's smallest corner, its room in step.
+  docQuote: { paddingHorizontal: 6, paddingVertical: 4, borderRadius: RADIUS.xs },
   docPicture: { height: 28, borderRadius: 3 },
   docTable: { height: 22, borderWidth: StyleSheet.hairlineWidth, borderRadius: 3 },
   docRule: { height: StyleSheet.hairlineWidth },

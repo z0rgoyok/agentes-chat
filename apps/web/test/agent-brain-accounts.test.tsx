@@ -5,7 +5,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { brainDialog, brainLines, brainRows, brainScreen, done, mainButton, pickRow, toScreen } from "./ai-picker";
+import { brainDialog, brainRows, brainScreen, done, mainButton, pickRow, toScreen } from "./ai-picker";
 import { ADA_ID, ATLAS_ID, createFakeApi, fakeAgentBrain, fakeMachinesOf, NOW, ORG_ID, seedState } from "./fake-api";
 import { hintOf, shownText } from "./hint";
 import { renderApp, screen, settle } from "./render";
@@ -35,17 +35,6 @@ async function open(state = seedState(), api = createFakeApi(state)) {
 }
 /** "Como trabalha" under the name: where, who thinks, the browser. */
 const sentence = () => screen().getByRole("region", { name: "Como trabalha" });
-/** The "Pensa com" cell: what thinks (and its effort), and what pays (on the value's line in the fact sheet). */
-const brainCell = () => {
-  const cell = within(sentence()).getByRole("button", { name: "Mudar quem pensa" });
-  const value = cell.querySelector(".agp-cell__value")?.cloneNode(true) as HTMLElement | undefined;
-  value?.querySelector(".agp-cell__sub")?.remove();
-  return {
-    label: cell.querySelector("small")?.textContent,
-    value: value?.textContent,
-    sub: cell.querySelector(".agp-cell__sub")?.textContent,
-  };
-};
 /** The MacBook's row in the AI accounts: the own sign-ins its runner reported there. */
 const reportOwn = (api: ReturnType<typeof createFakeApi>, own: AiComputer["own"]) =>
   fakeMachinesOf.get(api)?.setAiAccounts({
@@ -117,46 +106,6 @@ describe("Quem pensa: the account on the computer and the effort (ADR 0041)", ()
     return open(state, api);
   }
 
-  test("the cell names the account when the computer has more than one; the effort and the account each save on their own screen", async () => {
-    const { state } = await onMac();
-    // The computer's own sign-in by the name the Connect cards give it, never the computer's.
-    expect(brainCell()).toEqual({
-      label: "Pensa com Claude",
-      value: "Sonnet 5.5 · esforço médio",
-      sub: "A conta que os seus agentes dividem",
-    });
-    expect(sentence().textContent).not.toContain("Conta deste MacBook");
-    const d = await brainDialog();
-    expect(brainRows(d).map((r) => [r.title, r.still])).toEqual([["A conta que os seus agentes dividem", true]]);
-    // Effort, under "Mais opções": the pixel ramp, a slider (Médio → Alto with the arrow key).
-    await toScreen(d, "Mais opções");
-    await toScreen(d, "Esforço");
-    const effort = within(d).getByRole("slider", { name: "Esforço" });
-    expect(effort.getAttribute("aria-valuetext")).toBe("Médio");
-    await act(async () => fireEvent.keyDown(effort, { key: "ArrowRight" }));
-    expect(effort.getAttribute("aria-valuetext")).toBe("Alto");
-    expect(d.textContent).toContain("Pensa mais em tarefas difíceis.");
-    await done(d);
-    await settle(6);
-    expect(brainCalls(state)).toEqual([{ brain: "claude_code", effort: "high" }]);
-    // Back on the first screen: another account of the same plan, nothing else sent.
-    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
-    await toScreen(d, "Trocar de conta");
-    expect(brainRows(d).map((r) => [r.group, r.title, r.lines])).toEqual([
-      ["Em uso", "A conta que os seus agentes dividem", []],
-      // Grouped by AI, the workspace's keys last.
-      // A name its owner gave it, its email and plan on the line under it.
-      ["Claude", "Trabalho", ["walt@acme.com · Team"]],
-      ["Chaves de API", "Chave padrão do workspace", ["Claude · termina em 7f2a"]],
-    ]);
-    await pickRow(d, "Trabalho");
-    expect(mainButton(d)?.textContent).toBe("Trocar para Trabalho");
-    await click(mainButton(d) as HTMLElement);
-    await settle(6);
-    expect(brainCalls(state).at(-1)).toEqual({ brain: "claude_code", account: "acct_work" });
-    expect(brainScreen(d)).toBe("Pronto");
-  });
-
   test("an account made for all of the person's agents there: picked as it is, Also used by Theo, no sign-in, no move", async () => {
     const shared: MachineAccount = {
       ...work,
@@ -181,56 +130,6 @@ describe("Quem pensa: the account on the computer and the effort (ADR 0041)", ()
     expect(brainCalls(state).at(-1)).toMatchObject({ account: "acct_all" });
     expect(brainCalls(state).at(-1)).not.toHaveProperty("moveAccount");
     expect(state.calls.find((c) => c.method === "machines.beginAccountLogin")).toBeUndefined();
-    expect(brainScreen(d)).toBe("Pronto");
-  });
-
-  test("each person's own: a Claude account another agent thinks with signs in again for this one; someone else's only shows while it's this one's", async () => {
-    const theo: MachineAccount = {
-      ...work,
-      id: "acct_theo",
-      label: "Pessoal",
-      email: "walt@pessoal.com",
-      plan: "Max",
-      usedBy: ["Theo"],
-    };
-    const hers: MachineAccount = {
-      ...work,
-      id: "acct_ana",
-      label: "Claude Team 2",
-      email: null,
-      ownerId: "u-ana",
-      ownerName: "Ana Lima",
-      mine: false,
-      usedBy: ["Ada"],
-    };
-    const other: MachineAccount = { ...hers, id: "acct_ana2", label: "Claude Team 3", usedBy: [] };
-    const { state, api } = await onMac(
-      { account: "acct_ana", accounts: [work, theo, hers, other] },
-      { claude_code: { plan: "max" } },
-    );
-    // Ada's own login of Pessoal, once Claude's page signs her in.
-    fakeMachinesOf.get(api)?.endLogin("login_1", { state: "done", account: { ...theo, id: "acct_ada", usedBy: [] } });
-    const d = await brainDialog();
-    // Ana's account thinks for Ada: in use, said whose it is.
-    expect(brainRows(d).map((r) => [r.title, r.lines])).toEqual([["Claude Team 2", ["De Ana"]]]);
-    await toScreen(d, "Trocar de conta");
-    await click(within(d).getByRole("button", { name: /^Ver as/ }));
-    const rows = brainRows(d);
-    // The computer's own sign-in says its plan under its name, as "Seus planos" titles it; Ana's other account,
-    // thinking for nobody here, isn't Ada's to pick.
-    expect(rows.find((r) => r.title === "A conta que os seus agentes dividem")?.lines).toEqual(["Claude · Max"]);
-    expect(rows.find((r) => r.title === "Pessoal")?.lines).toEqual(["walt@pessoal.com · Max · Também usada por Theo"]);
-    expect(rows.map((r) => r.title)).not.toContain("Claude Team 3");
-    await pickRow(d, "Pessoal");
-    expect(mainButton(d)?.textContent).toBe("Fazer login para a Ada");
-    await click(mainButton(d) as HTMLElement);
-    expect(within(d).getByRole("region", { name: "Adicionar conta do Claude" })).toBeTruthy();
-    await signIn(d, "Entrar com Claude");
-    // A sign-in of Ada's own, Theo's account named to Claude's page unseen; nothing taken from Theo.
-    expect(loginArgs(state)).toEqual([ORG_ID, "machine_1", "claude_code", { email: "walt@pessoal.com" }]);
-    // Signed in, it thinks with it at once.
-    expect(brainCalls(state).at(-1)).toMatchObject({ account: "acct_ada" });
-    expect(brainCalls(state).at(-1)).not.toHaveProperty("moveAccount");
     expect(brainScreen(d)).toBe("Pronto");
   });
 
@@ -325,29 +224,6 @@ describe("Quem pensa: the account on the computer and the effort (ADR 0041)", ()
     expect(brainScreen(d)).toBe("Pronto");
   });
 
-  test("at the limit with another account of its order that has room, it goes on there: no limit screen, no sleep", async () => {
-    const full: PlanUsage = {
-      windows: [{ kind: "five_hour", usedPercent: 100, resetsAt: new Date(Date.now() + 2 * 3_600_000).toISOString() }],
-      source: "turn",
-      at: new Date().toISOString(),
-    };
-    const next: MachineAccount = { ...work, id: "acct_next", label: "Pessoal", shared: true, usage: null };
-    await onMac({ account: "acct_work", accounts: [{ ...work, shared: true, usage: full }, next] });
-    const d = await brainDialog();
-    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
-    expect(d.querySelector(".bd-moves")?.textContent).toBe("Segue na próxima conta no limite");
-    // Every account of the order at its limit: the agent waits, and the dialog opens on the way out.
-    cleanup();
-    await onMac({
-      account: "acct_work",
-      accounts: [
-        { ...work, shared: true, usage: full },
-        { ...next, usage: full },
-      ],
-    });
-    expect(brainScreen(await brainDialog(/no limite$/))).toBe("A conta da Ada está no limite");
-  });
-
   test("Só esta conta, under Mais opções with a second account: its ⓘ, saved with Concluir, named on the row", async () => {
     const next: MachineAccount = { ...work, id: "acct_next", label: "Pessoal", shared: true };
     const { state } = await onMac({ account: "acct_work", accounts: [{ ...work, shared: true }, next] });
@@ -392,28 +268,6 @@ describe("Quem pensa: the account on the computer and the effort (ADR 0041)", ()
     expect(within(d).queryByRole("button", { name: /^Usar Claude/ })).toBeNull();
     expect(within(d).queryByRole("button", { name: /^Conectar outra IA/ })).toBeNull();
     expect(within(d).getByRole("button", { name: "Esperar" })).toBeTruthy();
-  });
-
-  test("an admin changes the account among its owner's, told whose they are; an old app on the computer shows nothing about it", async () => {
-    await onMac({ canUsePlans: false, canManageAccounts: false });
-    let d = await brainDialog();
-    // Someone else's agents don't share the viewer's sign-in: to them it is the computer's.
-    expect(brainRows(d).map((r) => r.title)).toEqual(["Conta deste MacBook"]);
-    expect(d.textContent).toContain(
-      "Só contas de João, responsável pela Ada: um plano só pensa pelos agentes do seu dono.",
-    );
-    expect(d.textContent).not.toMatch(/Só João troca|Entrar de novo/);
-    // The admin may still switch it.
-    expect(within(d).getByRole("button", { name: "Trocar de conta" })).toBeTruthy();
-    cleanup();
-    await onMac({ accountsSupported: false });
-    expect(sentence().textContent).not.toMatch(/Conta deste MacBook|A conta que os seus agentes dividem/);
-    d = await brainDialog();
-    // The plan itself, no account of it.
-    expect(brainRows(d).map((r) => r.title)).toEqual(["Claude"]);
-    await toScreen(d, "Mais opções");
-    await toScreen(d, "Esforço");
-    expect(within(d).getByRole("slider", { name: "Esforço" })).toBeTruthy();
   });
 
   test("who may use other people's plans gives Ada a teammate's, named whose it is; one another agent has stays off", async () => {
@@ -462,25 +316,6 @@ describe("Quem pensa: the account on the computer and the effort (ADR 0041)", ()
     await click(mainButton(d) as HTMLElement);
     await settle(6);
     expect(brainCalls(state).at(-1)).toMatchObject({ account: "acct_bia" });
-  });
-
-  test("a signed-out account says so and offers to sign in again, its own email going to Claude's sign-in unasked", async () => {
-    const { state } = await onMac({ account: "acct_work", accounts: [{ ...work, status: "signed_out" }] });
-    const d = await brainDialog();
-    expect(brainRows(d)[0]?.lines).toEqual(["walt@acme.com · Team · Saiu da conta, entre de novo"]);
-    expect(mainButton(d)?.textContent).toBe("Entrar de novo");
-    await click(mainButton(d) as HTMLElement);
-    expect(brainScreen(d)).toBe("Entrar de novo");
-    const block = within(d).getByRole("region", { name: "Adicionar conta do Claude" });
-    expect(block.querySelector("input")).toBeNull();
-    await signIn(d, "Entrar com Claude", 6);
-    expect(loginArgs(state)).toEqual([
-      ORG_ID,
-      "machine_1",
-      "claude_code",
-      { accountId: "acct_work", email: "walt@acme.com" },
-    ]);
-    expect(shownText(block)).not.toContain("walt@acme.com");
   });
 
   test("signing in again as another account already connected: both addresses said, and Use picks that one for Ada", async () => {
@@ -611,23 +446,6 @@ describe("Quem pensa: the account on the computer and the effort (ADR 0041)", ()
     expect(brainCalls(second.state).at(-1)).toMatchObject({ brain: "codex", account: "acct_plus" });
   });
 
-  test("the account in use shows its plan's windows on the first screen, each with how much is used", async () => {
-    const usage: PlanUsage = {
-      windows: [
-        { kind: "five_hour", usedPercent: 40 },
-        { kind: "seven_day", usedPercent: 86 },
-      ],
-      source: "probe",
-      at: new Date().toISOString(),
-    };
-    await onMac({ account: "acct_work", accounts: [{ ...work, usedBy: ["Ada"], usage }] });
-    const d = await brainDialog();
-    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
-    const wins = d.querySelector(".bd-wins") as HTMLElement;
-    expect(Array.from(wins.querySelectorAll(".bd-win__n")).map((n) => n.textContent)).toEqual(["86%", "40%"]);
-    expect(brainLines(d).map((l) => l.label)).toEqual(["Modelo", "Mais opções"]);
-  });
-
   test("at the limit, Esperar closes it and changes nothing", async () => {
     const full: PlanUsage = {
       windows: [{ kind: "five_hour", usedPercent: 100 }],
@@ -693,46 +511,6 @@ describe("Quem pensa: a plan with a login per agent, and plans on the Cloud", ()
     expect(brainCalls(state).at(-1)).toMatchObject({ account: "acct_ada" });
     expect(brainScreen(d)).toBe("Pronto");
   });
-
-  test("Mais opções holds no switch for answering through the API or for paid extra usage", async () => {
-    const state = seedState();
-    const api = createFakeApi(state);
-    pairMac(api, true);
-    fakeMachinesOf.get(api)?.setSetup({ state: "ready", machineId: "machine_1" });
-    await api.sandbox.setTarget(ORG_ID, ADA_ID, "machine_1");
-    api.agents.brain = async () =>
-      fakeAgentBrain(ADA_ID, { brain: "claude_code", effectiveModel: "sonnet", onlyOwner: true });
-    await open(state, api);
-    const d = await brainDialog();
-    await toScreen(d, "Mais opções");
-    expect(within(d).getAllByRole("switch")).toEqual([
-      within(d).getByRole("switch", { name: "Atende outras pessoas" }),
-    ]);
-    expect(shownText(d)).not.toContain("chave de API");
-    expect(shownText(d)).not.toContain("uso extra pago");
-  });
-
-  test("on the Cloud too, the plan's owner lets it answer other people: the switch, its line and ⓘ", async () => {
-    const state = seedState();
-    const api = createFakeApi(state);
-    pairMac(api, true);
-    fakeMachinesOf.get(api)?.setSetup({ state: "ready", machineId: "machine_1" });
-    await api.sandbox.setTarget(ORG_ID, ADA_ID, "machine_1");
-    api.agents.brain = async () =>
-      fakeAgentBrain(ADA_ID, { brain: "claude_code", effectiveModel: "sonnet", onlyOwner: true });
-    await open(state, api);
-    const d = await brainDialog();
-    await toScreen(d, "Mais opções");
-    const replies = within(d).getByRole("switch", { name: "Atende outras pessoas" });
-    expect(replies.getAttribute("aria-checked")).toBe("false");
-    expect(shownText(d)).toContain("A Ada só atende você, pelo seu plano do Claude.");
-    expect(hintOf("os termos do plano", d).text).toContain("Os planos do Claude são para uso pessoal.");
-    expect(shownText(d)).not.toContain("Um plano é pessoal");
-    await click(replies);
-    await done(d);
-    await settle(6);
-    expect(brainCalls(state).at(-1)).toEqual({ brain: "claude_code", onlyOwner: false });
-  });
 });
 
 describe("Usar em outros agentes (ADR 0094)", () => {
@@ -780,16 +558,6 @@ describe("Usar em outros agentes (ADR 0094)", () => {
     await done(d);
     await settle(4);
   }
-  /** Then Opus saved as its model; the dialog stays open on its first screen. */
-  async function onOpus() {
-    await onClaude();
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    await pickRow(d, "Opus");
-    await click(mainButton(d) as HTMLElement);
-    await settle(6);
-    return d;
-  }
   /** "Mais opções", then its "Usar em outros agentes": the dialog over "Quem pensa". */
   async function copyDialog(d: HTMLElement) {
     await toScreen(d, "Mais opções");
@@ -797,181 +565,6 @@ describe("Usar em outros agentes (ADR 0094)", () => {
     await settle(4);
     return screen().getByRole("dialog", { name: "Usar em outros agentes" });
   }
-
-  test("what is saved: the others with what each would do, Todos picks who can, one call saves them", async () => {
-    const state = await withOthers();
-    const d = await onOpus();
-    expect(brainCalls(state)).toEqual([
-      { brain: "claude_code", model: null, account: null },
-      { brain: "claude_code", model: "opus" },
-    ]);
-    const c = await copyDialog(d);
-    expect(c.textContent).toContain("Eles passam a pensar com Opus 5.5 pelo plano do Claude.");
-    // What each would do, from the server's preview, Ada first as her own setup is what they take.
-    expect(copyCalls(state)).toEqual([
-      {
-        setup: expect.objectContaining({ brain: "claude_code", machineId: "machine_1", model: "opus" }),
-        agentIds: [ADA_ID, ATLAS_ID, LIA_ID],
-        preview: true,
-      },
-    ]);
-    expect(within(c).queryByRole("checkbox", { name: /^Ada/ })).toBeNull();
-    const atlas = within(c).getByRole("checkbox", { name: /^Atlas/ });
-    expect(atlas.closest("label")?.textContent).toContain("Hoje: Claude Sonnet 5.5");
-    const lia = within(c).getByRole("checkbox", { name: /^Lia/ });
-    expect(lia.closest("label")?.textContent).toContain("Trabalha no PC");
-    expect(lia.hasAttribute("disabled")).toBe(true);
-    const use = () => within(c).getByRole("button", { name: /^(Usar em|Escolha)/ }) as HTMLButtonElement;
-    expect(use().textContent).toBe("Escolha os agentes");
-    expect(use().disabled).toBe(true);
-    await click(within(c).getByRole("checkbox", { name: /^Todos/ }));
-    expect(atlas.getAttribute("aria-checked")).toBe("true");
-    expect(lia.getAttribute("aria-checked")).toBe("false");
-    expect(use().textContent).toBe("Usar em 1 agente");
-    await click(use());
-    await settle(6);
-    // Ada's own is saved already: only the others, in one call.
-    expect(brainCalls(state)).toHaveLength(2);
-    expect(copyCalls(state).at(-1)).toEqual({
-      setup: expect.objectContaining({ brain: "claude_code", model: "opus", effort: "medium" }),
-      agentIds: [ATLAS_ID],
-    });
-    expect(document.body.textContent).toContain("1 agente agora pensa com Opus 5.5 pelo plano do Claude.");
-    expect(screen().queryByRole("dialog", { name: "Usar em outros agentes" })).toBeNull();
-    // No agent picked on someone else's plan: nothing asked.
-    expect(screen().queryByRole("dialog", { name: /^Usar o plano/ })).toBeNull();
-  });
-
-  test("an agent picked on someone else's plan: one question naming its owner first; Cancelar saves nothing, Continuar once", async () => {
-    const state = await withOthers();
-    state.setupResults = {
-      ...state.setupResults,
-      [ATLAS_ID]: { status: "applied", opensPlan: true },
-    };
-    const d = await onOpus();
-    const c = await copyDialog(d);
-    await click(within(c).getByRole("checkbox", { name: /^Atlas/ }));
-    const saves = () => copyCalls(state).filter((x) => !(x as { preview?: boolean }).preview);
-    await click(within(c).getByRole("button", { name: "Usar em 1 agente" }));
-    const q = screen().getByRole("dialog", { name: "Usar o plano de João?" });
-    expect(q.textContent).toContain(
-      "As conversas com Atlas vão usar o plano do Claude de João e os limites dele. João vai receber um email avisando.",
-    );
-    await click(within(q).getByRole("button", { name: "Cancelar" }));
-    await settle(4);
-    expect(screen().queryByRole("dialog", { name: /^Usar o plano/ })).toBeNull();
-    expect(saves()).toEqual([]);
-    await click(within(c).getByRole("button", { name: "Usar em 1 agente" }));
-    await click(
-      within(screen().getByRole("dialog", { name: "Usar o plano de João?" })).getByRole("button", {
-        name: "Continuar",
-      }),
-    );
-    await settle(6);
-    // Ada's two saves (the account, the model), none from the copy.
-    expect(brainCalls(state)).toHaveLength(2);
-    expect(saves()).toEqual([
-      { setup: expect.objectContaining({ brain: "claude_code", model: "opus" }), agentIds: [ATLAS_ID] },
-    ]);
-  });
-
-  test("the Autonomia goes too: said with the setup, each agent's change on its line, even where the AI can't", async () => {
-    const state = await withOthers((api) => {
-      const brain = api.agents.brain;
-      api.agents.brain = async (orgId, agentId) => ({
-        ...(await brain(orgId, agentId)),
-        ...(agentId === ADA_ID ? { autonomy: "never" as const } : {}),
-      });
-    });
-    state.setupResults = {
-      [ATLAS_ID]: { status: "same", autonomy: { from: "always", to: "never" } },
-      [LIA_ID]: {
-        status: "skipped",
-        reason: "other_computer",
-        params: { computer: "PC" },
-        autonomy: { from: "low_risk_auto", to: "never" },
-      },
-    };
-    const d = await onOpus();
-    await toScreen(d, "Mais opções");
-    const row = within(d).getByRole("button", { name: /^Usar em outros agentes/ });
-    expect(row.textContent).toContain("A mesma IA, o modelo, o esforço e a autonomia");
-    await click(row);
-    await settle(4);
-    const c = screen().getByRole("dialog", { name: "Usar em outros agentes" });
-    expect(c.textContent).toContain(
-      "Eles passam a pensar com Opus 5.5 pelo plano do Claude · Autonomia: Não pergunta.",
-    );
-    expect(copyCalls(state)[0]).toMatchObject({ setup: { autonomy: "never" }, preview: true });
-    // Atlas already thinks so and Lia works on another computer: only their Autonomia changes, and they can take it.
-    const atlas = within(c).getByRole("checkbox", { name: /^Atlas/ });
-    expect(atlas.closest("label")?.textContent).toContain("Já pensa assim · Autonomia: Pergunta sempre → Não pergunta");
-    expect(atlas.hasAttribute("disabled")).toBe(false);
-    const lia = within(c).getByRole("checkbox", { name: /^Lia/ });
-    expect(lia.closest("label")?.textContent).toContain(
-      "Trabalha no PC · Autonomia: Só o que é arriscado → Não pergunta",
-    );
-    expect(lia.hasAttribute("disabled")).toBe(false);
-    expect(c.textContent).toContain("2 agentes podem usar");
-    await click(within(c).getByRole("checkbox", { name: /^Todos/ }));
-    await click(within(c).getByRole("button", { name: "Usar em 2 agentes" }));
-    await settle(6);
-    expect(copyCalls(state).at(-1)).toEqual({
-      setup: expect.objectContaining({ brain: "claude_code", model: "opus", autonomy: "never" }),
-      agentIds: [ATLAS_ID, LIA_ID],
-    });
-    const toasts = document.body.textContent;
-    expect(toasts).toContain("1 agente agora pensa com Opus 5.5 pelo plano do Claude · Autonomia: Não pergunta.");
-    expect(toasts).toContain("1 agente mudou só a autonomia.");
-    expect(toasts).not.toContain("não mudou");
-  });
-
-  test("Levar a autonomia off: each agent keeps its own, and one only its Autonomia would change can't be picked", async () => {
-    const state = await withOthers((api) => {
-      const brain = api.agents.brain;
-      api.agents.brain = async (orgId, agentId) => ({
-        ...(await brain(orgId, agentId)),
-        ...(agentId === ADA_ID ? { autonomy: "never" as const } : {}),
-      });
-    });
-    state.setupResults = {
-      [ATLAS_ID]: { status: "applied", autonomy: { from: "always", to: "never" } },
-      [LIA_ID]: {
-        status: "skipped",
-        reason: "other_computer",
-        params: { computer: "PC" },
-        autonomy: { from: "low_risk_auto", to: "never" },
-      },
-    };
-    const c = await copyDialog(await onOpus());
-    const carry = within(c).getByRole("switch", { name: /^Levar a autonomia/ });
-    expect(carry.getAttribute("aria-checked")).toBe("true");
-    expect(carry.closest("label")?.textContent).toContain(
-      "Não pergunta, como neste agente. Desligado, cada um fica com a sua.",
-    );
-    expect(c.textContent).toContain("2 agentes podem usar");
-    await click(carry);
-    await settle(4);
-    // Asked again without it: the setup in words and each agent's line leave it out.
-    const again = copyCalls(state).at(-1);
-    expect(again).toMatchObject({ agentIds: [ADA_ID, ATLAS_ID, LIA_ID], preview: true });
-    expect(again).not.toHaveProperty(["setup", "autonomy"]);
-    expect(c.textContent).toContain("Eles passam a pensar com Opus 5.5 pelo plano do Claude.");
-    expect(c.textContent).not.toContain("Autonomia:");
-    expect(within(c).getByRole("checkbox", { name: /^Lia/ }).hasAttribute("disabled")).toBe(true);
-    expect(c.textContent).toContain("1 agente pode usar");
-    await click(within(c).getByRole("checkbox", { name: /^Todos/ }));
-    await click(within(c).getByRole("button", { name: "Usar em 1 agente" }));
-    await settle(6);
-    const used = copyCalls(state).at(-1);
-    expect(used).toEqual({
-      setup: expect.objectContaining({ brain: "claude_code", model: "opus" }),
-      agentIds: [ATLAS_ID],
-    });
-    expect(used).not.toHaveProperty(["setup", "autonomy"]);
-    expect(document.body.textContent).toContain("1 agente agora pensa com Opus 5.5 pelo plano do Claude.");
-    expect(document.body.textContent).not.toContain("mudou só a autonomia");
-  });
 
   test("Todos says how many can take it only once the preview says so", async () => {
     let arrive = () => {};

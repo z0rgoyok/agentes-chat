@@ -1,15 +1,17 @@
 import { and, type Database, type Executor, eq, rowsOf, schema, sql } from "@agenteschat/db";
-import { type ArtifactDeps, fileRefOf, isLiveArtifactKind, type LiveArtifactKind, liveFileAccess } from "../artifacts";
+import { type ArtifactDeps, fileRefOf, type LiveArtifactKind, liveFileAccess } from "../artifacts";
 import { caches } from "../cache";
 import { NotFoundError, ValidationError } from "../errors";
+import { clockOf } from "../format";
 import { quietNoticeSql } from "../notices";
 import { fileConversationReaderSql } from "../task-access";
 import { neutralizeUntrusted, untrustedBlock } from "../untrusted";
+import { isMediaKind, type MediaKind, mediaOfType, talkKindOf } from "./media";
 
 const { artifacts, channels, channelMembers, messages, users, agents } = schema;
 
 /**
- * A live file's conversation (ADR 0199), the task's (ADR 0145) for a file: a channel of kind `file` of its own, read by
+ * A file's conversation (ADR 0199; pictures, videos and PDFs too, ADR 0208), the task's (ADR 0145) for a file: a channel of kind `file` of its own, read by
  * whoever reads the file, and one thread in it, whose root (`meta.fileConversation`) stands for the file and is never
  * shown; the conversation is that thread's replies, so posting, mentions, runs, receipts, reactions and the thread's
  * screens are the chat's. A message there may point at what its writer had selected in the file (`meta.liveRef`).
@@ -37,7 +39,9 @@ export interface FileConversationRef {
 /**
  * What a person had selected in the file when they wrote (`meta.liveRef.selection`), as the apps describe it: a range
  * of a sheet, a slide, canvas shapes, a point on the canvas (a comment pinned there, in world units), a quote of a
- * document and its block.
+ * document and its block; on a picture, a video or a PDF (ADR 0208) a mark (a point or an area, in fractions of the
+ * picture, the video's frame or the page), the video's moment, the PDF's page, the version it was made on and the
+ * two pictures the app took of it.
  */
 export interface LiveAskSelection {
   /** How it reads: "Sheet 1!B2:C9", "slide 3", "2 images". */
@@ -52,6 +56,46 @@ export interface LiveAskSelection {
   text?: string;
   /** A document's block id. */
   block?: string;
+  /** A point (`w` and `h` absent) or an area of a picture, a video's frame or a PDF's page, in fractions (0 to 1). */
+  mark?: { x: number; y: number; w?: number; h?: number };
+  /** A video's moment, in seconds. */
+  time?: number;
+  /** A PDF's page, from 1. */
+  page?: number;
+  /** The file's version the mark was made on. */
+  version?: number;
+  /** The app's picture of what was marked, readable size (a picture of the file, `putMarkPicture`). */
+  crop?: string;
+  /** The app's picture of the whole picture, frame or page with the mark drawn, small. */
+  frame?: string;
+}
+
+/** The longest video a moment points into: a day. */
+const MAX_TIME_S = 86_400;
+const UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A fraction of a side (0 to 1), rounded to a ten-thousandth; null otherwise. */
+const fraction = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1
+    ? Math.round(value * 10_000) / 10_000
+    : null;
+
+/** A mark as stored: a point, or an area inside the picture (a side of zero is a point). */
+function cleanMark(raw: unknown): LiveAskSelection["mark"] | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const m = raw as Record<string, unknown>;
+  const x = fraction(m.x);
+  const y = fraction(m.y);
+  if (x === null || y === null) return undefined;
+  const w = fraction(m.w);
+  const h = fraction(m.h);
+  if (w === null || h === null || w === 0 || h === 0) return { x, y };
+  return {
+    x,
+    y,
+    w: Math.min(w, Math.round((1 - x) * 10_000) / 10_000),
+    h: Math.min(h, Math.round((1 - y) * 10_000) / 10_000),
+  };
 }
 
 /** `meta.liveRef`: the file a message is about and what was selected in it. */
@@ -95,8 +139,21 @@ export function cleanSelection(raw: LiveAskSelection | undefined): LiveAskSelect
   const text = textOf(raw.text, 200);
   if (text) out.text = text;
   if (typeof raw.block === "string" && ID.test(raw.block)) out.block = raw.block;
+  const mark = cleanMark(raw.mark);
+  if (mark) out.mark = mark;
+  if (typeof raw.time === "number" && Number.isFinite(raw.time) && raw.time >= 0 && raw.time <= MAX_TIME_S) {
+    out.time = Math.round(raw.time * 10) / 10;
+  }
+  if (Number.isInteger(raw.page) && (raw.page as number) >= 1 && (raw.page as number) <= 100_000) out.page = raw.page;
+  if (Number.isInteger(raw.version) && (raw.version as number) >= 1) out.version = raw.version;
+  if (typeof raw.crop === "string" && UUID_ID.test(raw.crop)) out.crop = raw.crop.toLowerCase();
+  if (typeof raw.frame === "string" && UUID_ID.test(raw.frame)) out.frame = raw.frame.toLowerCase();
   return out;
 }
+
+/** A comment that points at a place in a picture, a video or a PDF (ADR 0208): it has a pin there. */
+export const isPinned = (s: LiveAskSelection | undefined) =>
+  Boolean(s && (s.mark || s.time !== undefined || s.page !== undefined));
 
 /** `meta.liveRef` when it reads right (what the apps and the agent's context read of it); null otherwise. */
 export function liveRefOf(meta: Record<string, unknown> | null | undefined): LiveRef | null {
@@ -127,15 +184,19 @@ export async function liveRefFor(
     throw new ValidationError("A message can only point at its own conversation's file", "message.live_ref");
   }
   const selection = cleanSelection(raw.selection);
-  return { artifactId: file.id, kind: file.kind, title: file.title, ...(selection ? { selection } : {}) };
+  const kind = (await talkKindOf(db, file)) ?? file.kind;
+  return { artifactId: file.id, kind, title: file.title, ...(selection ? { selection } : {}) };
 }
 
-/** A live file in words, as the agent reads it. */
+/** A file in words, as the agent reads it. */
 const KIND_WORD: Record<string, string> = {
   spreadsheet: "spreadsheet",
   slides: "presentation",
   canvas: "canvas",
   document: "document",
+  image: "image",
+  video: "video",
+  pdf: "PDF",
 };
 /** The tools that read and change each kind (the agent's own, ADR 0196 §6). */
 const KIND_TOOLS: Record<string, { read: string; edit: string }> = {
@@ -145,6 +206,27 @@ const KIND_TOOLS: Record<string, { read: string; edit: string }> = {
   document: { read: "read_document", edit: "edit_document" },
 };
 const kindWord = (kind: string) => KIND_WORD[kind] ?? "file";
+/** A fraction as a percentage, as the agent reads a mark. */
+const pct = (v: number) => `${Math.round(v * 1000) / 10}%`;
+
+/** Where a comment points in a picture, a video or a PDF, in the agent's words (ADR 0208). */
+export function markWords(kind: string, s: LiveAskSelection): string {
+  const where = kind === "pdf" ? "of the page" : kind === "video" ? "of the frame" : "of the picture";
+  const m = s.mark;
+  const mark = !m
+    ? ""
+    : m.w !== undefined && m.h !== undefined
+      ? `an area ${where} from ${pct(m.x)} to ${pct(m.x + m.w)} across and ${pct(m.y)} to ${pct(m.y + m.h)} down`
+      : `a point ${where} at ${pct(m.x)} across and ${pct(m.y)} down`;
+  return [
+    s.page !== undefined ? `page ${s.page}` : "",
+    s.time !== undefined ? `the moment ${clockOf(s.time)}` : "",
+    mark,
+    s.version !== undefined ? `on version ${s.version}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+}
 /** A sheet's or a slide's id, or an A1 range (`$B$2:C9`), as written; anything else undefined. */
 const placeWord = (value: string | undefined) => (value && /^[A-Za-z0-9_$:-]{1,100}$/.test(value) ? value : undefined);
 /** A file's title as the agent reads it: people write it, so neutralized as other titles are (`neutralizeUntrusted`). */
@@ -177,17 +259,32 @@ export function liveRefLine(meta: Record<string, unknown> | null | undefined): s
     s.shapes?.length ? `shapes ${s.shapes.slice(0, 20).join(", ")}` : "",
     s.point ? `a comment pinned at x ${s.point.x}, y ${s.point.y}` : "",
     s.block ? `block ${s.block}` : "",
+    isMediaKind(ref.kind) && isPinned(s) ? markWords(ref.kind, s) : "",
   ].filter(Boolean);
   const label = untrustedBlock("what the person selected, as their app names it", s.label, 200);
   const quote = s.text ? `\nThe words they selected:\n${untrustedBlock("the file's words", s.text, 200)}` : "";
-  return `\n(about what they selected in ${file}${parts.length ? `: ${parts.join("; ")}` : ""})\n${label}${quote}`;
+  // The app's pictures of the place: the agent sees them with one call, as it sees a file (ADR 0208).
+  const pictures =
+    s.crop || s.frame
+      ? `\nTo see the place they marked, call look_at_comment with comment "${s.crop ?? s.frame}".`
+      : "";
+  return `\n(about what they selected in ${file}${parts.length ? `: ${parts.join("; ")}` : ""})\n${label}${quote}${pictures}`;
 }
 
 // ── The conversation ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 type FileRow = Pick<
   typeof artifacts.$inferSelect,
-  "id" | "orgId" | "kind" | "title" | "channelId" | "threadId" | "createdByType" | "createdById" | "deletedAt"
+  | "id"
+  | "orgId"
+  | "kind"
+  | "title"
+  | "channelId"
+  | "threadId"
+  | "createdByType"
+  | "createdById"
+  | "deletedAt"
+  | "currentVersion"
 >;
 
 /** The live file whose conversation `channelId` is, or null for any other channel. */
@@ -203,6 +300,7 @@ export async function fileOfConversation(db: Executor, orgId: string, channelId:
       createdByType: artifacts.createdByType,
       createdById: artifacts.createdById,
       deletedAt: artifacts.deletedAt,
+      currentVersion: artifacts.currentVersion,
     })
     .from(artifacts)
     .where(and(eq(artifacts.orgId, orgId), eq(artifacts.conversationChannelId, channelId)));
@@ -211,7 +309,7 @@ export async function fileOfConversation(db: Executor, orgId: string, channelId:
 
 /**
  * The file's conversation, made on first use: its channel, the root and the agent that made the file as a member.
- * Taken under the file's row lock, so two first uses make one. Only a live file has one.
+ * Taken under the file's row lock, so two first uses make one. Only a live file, a picture, a video or a PDF has one.
  */
 export async function ensureFileConversation(db: Database, artifactId: string): Promise<FileConversationRef> {
   return db.transaction(async (tx) => {
@@ -220,8 +318,12 @@ export async function ensureFileConversation(db: Database, artifactId: string): 
     if (file.conversationChannelId && file.conversationRootId) {
       return { channelId: file.conversationChannelId, rootId: file.conversationRootId };
     }
-    if (!isLiveArtifactKind(file.kind)) {
-      throw new ValidationError("Only a live file has a conversation of its own", "artifact.no_conversation");
+    const kind = await talkKindOf(tx, file);
+    if (!kind) {
+      throw new ValidationError(
+        "Only a live file, a picture, a video or a PDF has a conversation of its own",
+        "artifact.no_conversation",
+      );
     }
     // The maker's account may be gone (deleted): the root and the channel then have no author.
     const creator = file.createdByType === "person" ? await liveUser(tx, file.createdById) : null;
@@ -249,7 +351,7 @@ export async function ensureFileConversation(db: Database, artifactId: string): 
         authorUserId: creator,
         authorAgentId: maker,
         body: `File: ${file.title}`.slice(0, 2_000),
-        meta: { fileConversation: { artifactId: file.id, kind: file.kind, title: file.title } },
+        meta: { fileConversation: { artifactId: file.id, kind, title: file.title } },
       })
       .returning({ id: messages.id });
     if (!root) throw new Error("root insert returned nothing");
@@ -286,10 +388,21 @@ export async function openFileConversation(
 ): Promise<FileConversationRef> {
   const access = await liveFileAccess(deps, { type: "person", userId }, orgId, artifactId);
   if (!access) {
-    if (await fileRefOf(deps.db, userId, orgId, artifactId)) {
-      throw new ValidationError("Only a live file has a conversation of its own", "artifact.no_conversation");
+    const ref = await fileRefOf(deps.db, userId, orgId, artifactId);
+    if (!ref) throw new NotFoundError("Artifact not found", "artifact.not_found");
+    // A picture, a video or a PDF (ADR 0208): whoever reads it talks about it, as a live file's readers do.
+    if (ref.artifactKind !== "file" || !mediaOfType(ref.contentType)) {
+      throw new ValidationError(
+        "Only a live file, a picture, a video or a PDF has a conversation of its own",
+        "artifact.no_conversation",
+      );
     }
-    throw new NotFoundError("Artifact not found", "artifact.not_found");
+    const [row] = await deps.db
+      .select({ deletedAt: artifacts.deletedAt })
+      .from(artifacts)
+      .where(and(eq(artifacts.orgId, orgId), eq(artifacts.id, artifactId)));
+    if (!row || row.deletedAt) throw new NotFoundError("Artifact not found", "artifact.not_found");
+    return ensureFileConversation(deps.db, artifactId);
   }
   if (access.artifact.deletedAt) throw new NotFoundError("Artifact not found", "artifact.not_found");
   return ensureFileConversation(deps.db, artifactId);
@@ -431,9 +544,10 @@ export async function fileConversationBrief(
     .from(artifacts)
     .where(and(eq(artifacts.orgId, orgId), eq(artifacts.id, ref.artifactId)));
   if (!file) return null;
+  const mine = file.createdByType === "agent" && file.createdById === agentId;
+  if (isMediaKind(ref.kind)) return mediaBrief(ref.kind, file, mine);
   const word = kindWord(file.kind);
   const tools = KIND_TOOLS[file.kind];
-  const mine = file.createdByType === "agent" && file.createdById === agentId;
   return [
     `# This conversation: the ${word} "${titleWords(file.title)}"`,
     `This is the conversation of the live ${word} "${titleWords(file.title)}" (artifact ${file.id}), the file in focus here${mine ? ", which you made" : ""}. Everyone who reads the file reads and writes here, and your replies land here, next to the file.`,
@@ -443,6 +557,38 @@ export async function fileConversationBrief(
         ? `Read it with \`${tools.read}\` before you answer about it, and change it with \`${tools.edit}\`: here both act on this file when you name no other. People see your changes as you make them.`
         : "",
     'A message may say what its writer had selected in the file ("about what they selected"): that is what it is about.',
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
+ * The brief of a picture's, a video's or a PDF's conversation (ADR 0208): the file, how to see it, and the comments
+ * that point at a place in it (a numbered pin), which the agent sees, makes and resolves with its own tools.
+ */
+function mediaBrief(
+  kind: MediaKind,
+  file: { id: string; title: string; deletedAt: Date | null },
+  mine: boolean,
+): string {
+  const word = kindWord(kind);
+  const title = titleWords(file.title);
+  const place =
+    kind === "image"
+      ? "an area or a point of it"
+      : kind === "video"
+        ? "a moment of it (and maybe an area of that frame)"
+        : "a page of it (and maybe an area of that page)";
+  return [
+    `# This conversation: the ${word} "${title}"`,
+    `This is the conversation of the ${word} "${title}" (artifact ${file.id}), the file in focus here${mine ? ", which you made" : ""}. Everyone who reads the file reads and writes here, and your replies land here, next to the file.`,
+    file.deletedAt
+      ? "The file is in the Drive's trash now: say so if asked about it; a person can restore it."
+      : kind === "video"
+        ? "No AI here watches videos: what you see of it is what people mark (the frame at that moment, with `look_at_comment`)."
+        : `See the whole ${word} with \`read_artifact\`.`,
+    `People comment on ${place}: each such comment has a numbered pin on the file, and its message says where it points. \`look_at_comment\` shows you the pictures their app took of that place (what they marked, and the whole with the mark drawn): look before you answer about it.`,
+    `To point at a place yourself, use \`comment_on_file\`: it posts your words with a pin there, as your answer. When what a comment asked is done, mark it with \`resolve_comment\` (its pin leaves the file; the comment stays here).`,
   ]
     .filter(Boolean)
     .join("\n");

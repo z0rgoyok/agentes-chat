@@ -104,7 +104,6 @@ describe("Run agentes.chat on this Mac", () => {
   test("the title, one sentence, the two fields alone, two one-line switches with their ⓘ, and Start", () =>
     firstRun("first", async ({ el, press, until, button }) => {
       await press("On this Mac");
-      await press("Get this Mac ready");
       // Tailscale connected: the reach row has nothing under its label.
       await until(() => el.querySelector("form.dk-fr__here") && switchRows(el)[0]?.line === null);
       const form = el.querySelector("form.dk-fr__here") as HTMLElement;
@@ -155,7 +154,6 @@ describe("Run agentes.chat on this Mac", () => {
       "here",
       async ({ el, press, until }) => {
         await press("On this Mac");
-        await press("Get this Mac ready");
         await until(() => el.querySelector("form.dk-fr__here"));
         expect(el.querySelector(".dk-lead")?.textContent).toBe(
           "It ran here before, and its data is still in ~/.agentes.",
@@ -253,7 +251,6 @@ describe("Run agentes.chat on this Mac", () => {
   test("running here already: one sentence, never its address", () =>
     firstRun("here", async ({ el, press, until }) => {
       await press("On this Mac");
-      await press("Get this Mac ready");
       await until(() => el.querySelector("h1")?.textContent === "agentes.chat already runs on this Mac");
       expect(el.querySelector(".dk-lead")?.textContent).toBe("This app runs it. Open it to sign in.");
     }));
@@ -263,7 +260,6 @@ describe("Run agentes.chat on this Mac", () => {
       "first",
       async ({ el, press, until, tailscale }) => {
         await press("On this Mac");
-        await press("Get this Mac ready");
         await until(() => switchRows(el)[0]?.line?.startsWith("Needs"));
         const [reach] = switchRows(el);
         expect(reach?.line).toBe("Needs Tailscale, which is free. Get Tailscale");
@@ -278,7 +274,6 @@ describe("Run agentes.chat on this Mac", () => {
       "first",
       async ({ el, press, until, tailscale }) => {
         await press("On this Mac");
-        await press("Get this Mac ready");
         await until(() => switchRows(el)[0]?.line?.startsWith("Tailscale"));
         expect(switchRows(el)[0]?.line).toBe("Tailscale isn't connected. Open Tailscale");
         await press("Open Tailscale");
@@ -290,7 +285,6 @@ describe("Run agentes.chat on this Mac", () => {
       "linux",
       async ({ el, press, until }) => {
         await press("On this computer");
-        await press("Get this computer ready");
         await until(() => switchRows(el)[0]?.line?.startsWith("Tailscale"));
         const row = el.querySelector(".dk-card > .dk-crow");
         expect(row?.querySelector("small")?.textContent?.trim()).toBe(
@@ -306,7 +300,6 @@ describe("Run agentes.chat on this Mac", () => {
       "first",
       async ({ el, press, until }) => {
         await press("On this Mac");
-        await press("Get this Mac ready");
         await until(() => switchRows(el)[0]?.line?.startsWith("Tailscale"));
         const row = el.querySelector(".dk-card > .dk-crow");
         expect(row?.querySelector("small")?.textContent?.trim()).toBe(
@@ -326,7 +319,6 @@ describe("Run agentes.chat on this Mac", () => {
       "windows",
       async ({ el, press, until }) => {
         await press("On this PC");
-        await press("Get this PC ready");
         await until(() => switchRows(el)[0]?.line?.startsWith("Tailscale"));
         const line = el.querySelector(".dk-card > .dk-crow small");
         expect(line?.textContent).toBe("Tailscale isn't connected. Connect it from its icon by the clock.");
@@ -345,7 +337,6 @@ describe("Run here, while Tailscale is read", () => {
       "first",
       async ({ el, press, until }) => {
         await press("On this Mac");
-        await press("Get this Mac ready");
         await until(() => el.querySelector("form.dk-fr__here"));
         expect(switchRows(el)[0]?.line).toBe("Checking whether Tailscale is connected…");
         expect(el.textContent).not.toContain("Needs Tailscale");
@@ -366,31 +357,35 @@ describe("Run here, while Tailscale is read", () => {
 });
 
 describe("Where will your workspace live?", () => {
-  test("the cloud chosen and recommended, this Mac and an always-on computer beside it; the drawing and the button follow the choice", () => {
+  test("the cloud recommended, this Mac and a server or VPS beside it, each a row that goes on by itself; the drawing follows the row pointed at or focused", () => {
     const chosen: (string | undefined)[] = [];
     return firstRun(
       "first",
-      async ({ el, press, button }) => {
+      async ({ el, press }) => {
         expect(el.querySelector("h1")?.textContent).toBe("Where will your workspace live?");
-        const options = [...el.querySelectorAll<HTMLElement>('[role="radio"]')];
-        expect(options.map((c) => c.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
-        // Recommended in words after the cloud's name, never a pill; nothing says "free" or "server".
-        expect(options[0]?.querySelector(".dk-choose__rec")?.textContent).toBe("Recommended");
+        // No pick, then a button: each place is the way on, a chevron at its end.
+        expect(el.querySelector('[role="radio"]')).toBeNull();
+        expect(el.querySelector(".dk-choose__list ~ button.dk-btn-lg")).toBeNull();
+        const rows = [...el.querySelectorAll<HTMLButtonElement>("button.dk-choose__place")];
+        expect(rows.map((r) => r.querySelector(".ac-optrow__title")?.textContent)).toEqual([
+          "In the agentes.chat cloudRecommended",
+          "On this Mac",
+          "On a server or VPS",
+        ]);
+        expect(rows.every((r) => r.querySelector(".dk-choose__chev"))).toBe(true);
+        // Recommended in words after the cloud's name, never a pill; nothing says "free".
+        expect(rows[0]?.querySelector(".dk-choose__rec")?.textContent).toBe("Recommended");
         expect(el.querySelector(".ac-chip")).toBeNull();
         expect(el.textContent).not.toContain("Free");
-        expect(el.textContent).not.toContain("server");
         const place = () => el.querySelector(".ac-place")?.getAttribute("data-place");
         expect(place()).toBe("cloud");
-        await press("On this Mac");
+        await act(async () => rows[1]?.focus());
         expect(place()).toBe("here");
         expect(el.querySelector(".ac-place canvas.ac-computer")?.getAttribute("data-kind")).toBe("mac");
-        expect(button("Get this Mac ready")).toBeDefined();
-        await press("On a computer that's always on");
+        await act(async () => rows[2]?.focus());
         expect(place()).toBe("box");
         expect(el.querySelector(".ac-place canvas.ac-computer")?.getAttribute("data-kind")).toBe("linux");
-        expect(button("See how to install")).toBeDefined();
         await press("In the agentes.chat cloud");
-        await press("Continue in the cloud");
         expect(chosen).toEqual(["/login"]);
       },
       {
@@ -404,11 +399,15 @@ describe("Where will your workspace live?", () => {
     );
   });
 
-  test("on Windows, this PC by its own words and drawing", () =>
-    firstRun("windows", async ({ el, press, button }) => {
-      await press("On this PC");
+  test("on Windows, this PC by its own words and drawing, and its row goes to getting it ready", () =>
+    firstRun("windows", async ({ el, press }) => {
+      const pc = [...el.querySelectorAll<HTMLButtonElement>("button.dk-choose__place")].find((r) =>
+        r.textContent?.includes("On this PC"),
+      );
+      await act(async () => pc?.focus());
       expect(el.querySelector(".ac-place canvas.ac-computer")?.getAttribute("data-kind")).toBe("windows");
-      expect(button("Get this PC ready")).toBeDefined();
+      await press("On this PC");
+      expect(el.querySelector("h1")?.textContent).toBe("Let's get this PC ready");
     }));
 
   test("Have one already? signs in by its address, and back comes to the choice", () =>
@@ -420,7 +419,7 @@ describe("Where will your workspace live?", () => {
     }));
 });
 
-describe("Install on a computer that's always on", () => {
+describe("Install on a server or VPS", () => {
   test("two steps with the command, and the words to send to whoever installs it", async () => {
     const copied: string[] = [];
     const clipboard = Object.getOwnPropertyDescriptor(window.navigator, "clipboard");
@@ -434,11 +433,10 @@ describe("Install on a computer that's always on", () => {
     });
     try {
       await firstRun("first", async ({ el, press, until, button }) => {
-        await press("On a computer that's always on");
-        await press("See how to install");
-        expect(el.querySelector("h1")?.textContent).toBe("Install on a computer that's always on");
+        await press("On a server or VPS");
+        expect(el.querySelector("h1")?.textContent).toBe("Install on a server or VPS");
         expect([...el.querySelectorAll(".dk-fr__ways > li b")].map((b) => b.textContent)).toEqual([
-          "On the computer that stays on, open the Terminal and paste this",
+          "On the server, open the Terminal (or connect over SSH) and paste this",
           "At the end a link shows up. Open it here and that's it.",
         ]);
         expect(el.querySelector(".dk-fr__ways code")?.textContent).toBe("curl -fsSL https://agentes.chat/install | sh");
@@ -460,7 +458,7 @@ describe("Install on a computer that's always on", () => {
     firstRun("first", async ({ el, press }) => {
       await press("Sign in by its address");
       await press("See how to install");
-      expect(el.querySelector("h1")?.textContent).toBe("Install on a computer that's always on");
+      expect(el.querySelector("h1")?.textContent).toBe("Install on a server or VPS");
     }));
 });
 
@@ -477,10 +475,9 @@ const pressEscape = () =>
 /** Run here's form with an email typed in, then Start (in the window's language). */
 async function startSetup(
   { el, press, until }: ReturnType<typeof screenOf>,
-  words = { place: "On this Mac", go: "Get this Mac ready", start: "Start" },
+  words = { place: "On this Mac", start: "Start" },
 ) {
   await press(words.place);
-  await press(words.go);
   await until(() => el.querySelector("form.dk-fr__here"));
   await act(async () => typeInto(el.querySelector('input[type="email"]'), "ana@example.com"));
   await press(words.start);
@@ -621,7 +618,6 @@ describe("Setting it up here", () => {
         async (screen) => {
           const { el, until, button, press } = screen;
           await press("On this Mac");
-          await press("Get this Mac ready");
           await until(() => el.querySelector("#here-reach:not([disabled])"));
           await act(async () => typeInto(el.querySelector('input[type="email"]'), "ana@example.com"));
           await act(async () => (el.querySelector("#here-reach") as HTMLElement).click());
@@ -676,7 +672,6 @@ describe("Setting it up here", () => {
         "first",
         async ({ el, until, button, press }) => {
           await press("On this Mac");
-          await press("Get this Mac ready");
           await until(() => el.querySelector("#here-reach:not([disabled])"));
           await act(async () => typeInto(el.querySelector('input[type="email"]'), "ana@example.com"));
           await act(async () => (el.querySelector("#here-reach") as HTMLElement).click());
@@ -707,7 +702,6 @@ describe("Setting it up here", () => {
         const { el, until, button, press } = screen;
         const switchOn = (id: string) => el.querySelector(`#${id}`)?.getAttribute("aria-checked");
         await press("On this Mac");
-        await press("Get this Mac ready");
         await until(() => el.querySelector("#here-reach:not([disabled])"));
         await act(async () => typeInto(el.querySelector('input[type="email"]'), "ana@example.com"));
         await act(async () => (el.querySelector("#here-reach") as HTMLElement).click());
@@ -846,7 +840,7 @@ describe("Setting it up here", () => {
       "windows",
       async (screen) => {
         const { el, until } = screen;
-        await startSetup(screen, { place: "On this PC", go: "Get this PC ready", start: "Start" });
+        await startSetup(screen, { place: "On this PC", start: "Start" });
         await until(() => stepOf(el, "Creating your account")?.dataset.state === "active");
         expect(el.querySelector(".dk-fr__setup canvas.ac-computer")?.getAttribute("data-kind")).toBe("windows");
         expect(el.querySelector(".dk-fr__setup h1")?.textContent).toBe("Getting everything ready");
@@ -858,7 +852,7 @@ describe("Setting it up here", () => {
       "first",
       async (screen) => {
         const { el, until } = screen;
-        await startSetup(screen, { place: "Neste Mac", go: "Preparar este Mac", start: "Começar" });
+        await startSetup(screen, { place: "Neste Mac", start: "Começar" });
         await until(() => stepOf(el, "Criando a sua conta")?.dataset.state === "active");
         expect(el.querySelector(".dk-fr__setup h1")?.textContent).toBe("Preparando tudo");
         expect(runButtons(el)).toEqual(["Cancelar"]);
@@ -879,13 +873,13 @@ describe("Add a workspace", () => {
     host.hideWindow = async () => {};
   };
 
-  test("not signed in to agentes.chat: signing in (the workspaces you have) is the big one, a new one the line", () => {
+  test("not signed in to agentes.chat: the cloud's row signs in (the workspaces you have), a new one is the line", () => {
     const chosen: (string | undefined)[] = [];
     return firstRun(
       "first",
       async ({ press, until, button }) => {
         await until(() => button("Want a new workspace?") || button("Create one"));
-        await press("Continue in the cloud");
+        await press("In the agentes.chat cloud");
         await press("Create one");
         expect(chosen).toEqual(["/login", "/onboarding"]);
         expect(button("Create an account")).toBeUndefined();
@@ -894,7 +888,7 @@ describe("Add a workspace", () => {
     );
   });
 
-  test("signed in to agentes.chat here already: a new workspace is the big one", () => {
+  test("signed in to agentes.chat here already: the cloud's row makes a new workspace", () => {
     const chosen: (string | undefined)[] = [];
     return firstRun(
       "first",

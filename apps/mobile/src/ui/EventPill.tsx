@@ -245,10 +245,10 @@ const UNDER_SLOP = {
   right: UNDER_SLOP_X,
 };
 
-/** The text an `EventPill` opens, under its frame: the conversation's quiet rule on its left. */
+/** The text an `EventPill` opens, under its frame: on a plate a step off the conversation (no bar at its left edge). */
 export function EventPillText({ children }: { children: ReactNode }) {
   const { colors: c } = useTheme();
-  return <View style={[styles.text, { borderLeftColor: c.line }]}>{children}</View>;
+  return <View style={[styles.text, { backgroundColor: c.plate }]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
@@ -297,5 +297,6 @@ const styles = StyleSheet.create({
   spinner: { transform: [{ scale: 0.7 }] },
   dim: { opacity: 0.6 },
   turned: { transform: [{ rotate: "90deg" }] },
-  text: { marginLeft: 10, paddingLeft: 12, borderLeftWidth: 2 },
+  // A plate under the pill: the plates' room and the scale's item corner (the pill's own `RADIUS` is the same 10).
+  text: { marginLeft: 10, paddingHorizontal: 12, paddingVertical: 10, borderRadius: RADIUS },
 });

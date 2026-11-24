@@ -322,6 +322,37 @@ test.skipIf(!posix)("stdio MCP server → local socket → bridge → server, en
   expect(frames.filter((f) => f.type === "mcp.call")).toHaveLength(1);
 });
 
+test("a request whose handling fails is still answered: Claude Code never waits on it for good", async () => {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  const lines: string[] = [];
+  output.on("data", (chunk: Buffer) => lines.push(...chunk.toString().split("\n").filter(Boolean)));
+  const server = runMcpServer({
+    taskId: TASK,
+    socketPath: "/nonexistent.sock",
+    token: "tok-123456789",
+    input,
+    output,
+    context: {},
+    ipc: () => Promise.reject(new Error("bridge gone")),
+  });
+  const send = (msg: Record<string, unknown>) => input.write(`${JSON.stringify({ jsonrpc: "2.0", ...msg })}\n`);
+  send({ id: 1, method: "tools/call", params: { name: "update_plan", arguments: { items: [] } } });
+  send({
+    id: 2,
+    method: "tools/call",
+    params: { name: "permission_prompt", arguments: { tool_name: "Bash", input: { command: "npm test" } } },
+  });
+  input.end();
+  expect(await server).toBe(0);
+  const parsed = lines.map(
+    (l) => JSON.parse(l) as { id: unknown; result?: { content: { text: string }[] }; error?: unknown },
+  );
+  expect(parsed.find((m) => m.id === 1)?.error).toMatchObject({ code: -32603, message: "Error: bridge gone" });
+  const prompt = parsed.find((m) => m.id === 2);
+  expect(JSON.parse(prompt?.result?.content[0]?.text ?? "{}")).toMatchObject({ behavior: "deny" });
+});
+
 test("executor arguments: Claude Code gets our MCP config, our tools allowed and the rules; quoting is safe", () => {
   expect(cleanRules("Don't merge! Use `x` & 100% $HOME")).toBe("Don t merge Use x 100 HOME");
   const args = missionExecutorArgs(
@@ -821,6 +852,71 @@ test.skipIf(!posix)(
     expect(asked).toBe(2);
     input.end();
     expect(await server).toBe(0);
+  },
+  10_000,
+);
+
+test.skipIf(!posix)(
+  "a brain process started before its turn (a warm start) is told the turn's tools as soon as the turn begins",
+  async () => {
+    const home = tempDir("mcp-");
+    dirs.push(home);
+    const socketPath = path.join(home, "mcp.sock");
+    const info: McpTaskInfo = { token: "tok-123456789", missionId: "", running: false, idle: true, agentId: "a1" };
+    const next: McpTaskInfo = { token: "tok-987654321", missionId: "", running: false, idle: true, agentId: "a1" };
+    const other: McpTaskInfo = { ...next, agentId: "a2" };
+    const tasks: Record<string, McpTaskInfo> = { [TASK]: info, next, other };
+    const b = new McpBridge({ socketPath, task: (id) => tasks[id] ?? null, callTimeoutMs: 2000 });
+    closers.push(() => b.close());
+    await b.listen();
+    const tool = (name: string) => ({ name, description: name, inputSchema: { type: "object", properties: {} } });
+    b.attach((f) => {
+      if (f.type !== "mcp.list") return;
+      queueMicrotask(() =>
+        b.tools({ type: "mcp.tools", callId: f.callId, ok: true, tools: [tool("find_tools"), tool("use_tool")] }),
+      );
+    });
+    const input = new PassThrough();
+    const output = new PassThrough();
+    const lines: Record<string, unknown>[] = [];
+    output.on("data", (chunk: Buffer) => {
+      for (const l of chunk.toString().split("\n").filter(Boolean)) lines.push(JSON.parse(l));
+    });
+    const server = runMcpServer({
+      taskId: TASK,
+      socketPath,
+      token: "tok-123456789",
+      input,
+      output,
+      refreshMs: 60_000,
+      pollMs: 20,
+    });
+    const send = (msg: Record<string, unknown>) => input.write(`${JSON.stringify({ jsonrpc: "2.0", ...msg })}\n`);
+    const listed = async (id: number) => {
+      send({ id, method: "tools/list" });
+      await waitFor(() => lines.some((l) => l.id === id));
+      const reply = lines.find((l) => l.id === id) as { result: { tools: { name: string }[] } };
+      return reply.result.tools.map((t) => t.name);
+    };
+    // Started with no turn yet: the executor lists at its start, before any run is there to ask for.
+    send({ id: 1, method: "initialize", params: {} });
+    await listed(2);
+    // The turn comes: told at once, and the list it reads again is the run's.
+    Object.assign(info, {
+      running: true,
+      idle: false,
+      runId: "0193aaaa-0000-7000-8000-0000000000b1",
+      serverToken: SERVER_TOKEN,
+    });
+    await waitFor(() => lines.some((l) => l.method === "notifications/tools/list_changed"), 2000);
+    expect(await listed(3)).toEqual(["find_tools", "use_tool"]);
+    input.end();
+    expect(await server).toBe(0);
+    // The agent's next process, started before its turn, lists what the agent's last run had; another agent's doesn't.
+    const ask = (taskId: string, token: string) => b.handle({ taskId, token, tool: "", args: {}, kind: "list" });
+    const names = (r: Awaited<ReturnType<typeof ask>>) => (r.ok ? (r.tools ?? []).map((t) => t.name) : r.error);
+    expect(names(await ask("next", "tok-987654321"))).toEqual(["find_tools", "use_tool"]);
+    expect(await ask("other", "tok-987654321")).toMatchObject({ ok: false, idle: true });
   },
   10_000,
 );

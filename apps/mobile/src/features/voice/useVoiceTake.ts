@@ -16,8 +16,9 @@ import { useTranslation } from "react-i18next";
 import { AccessibilityInfo, Alert, AppState, Linking } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { appAudio, voiceAudio } from "@/lib/audio-mode";
+import { allowFeedbackWhileRecording } from "@/lib/voice-session";
 import { haptics, useToast } from "@/ui";
-import { levelOf, peaksOf, secondsLeft, takeBack } from "./logic";
+import { levelOf, peaksOf, START_SOUND_MS, secondsLeft, takeBack } from "./logic";
 import { joinM4a } from "./m4a";
 import { flushVoice, queueVoice, type VoiceRefusal, type VoiceSend } from "./outbox";
 import { playingId, seekPlayback, startPlayback, stopPlayback } from "./playback";
@@ -35,6 +36,7 @@ const TICK_MS = 50;
 const REVIEW_ID = "voice-take";
 /** How much of the wave's height is drawn while recording. */
 export const LIVE_WAVE = 24;
+const wait = (ms: number) => new Promise<void>((done) => setTimeout(done, ms));
 
 /**
  * `hold`: the finger is down. `locked`: hands free. `paused`: stopped, can listen, go on, send or delete. `sending`: it
@@ -389,6 +391,8 @@ export function useVoiceTake(target: VoiceTarget) {
         await voiceAudio(true);
         await recorder.prepareToRecordAsync();
       }
+      // Again after the recorder set the session up itself: the take's haptics reach the hand.
+      allowFeedbackWhileRecording();
       recorder.record();
       progress.value = 1;
       timer.current = setInterval(tick, TICK_MS);
@@ -454,8 +458,11 @@ export function useVoiceTake(target: VoiceTarget) {
       }
       stopPlayback();
       haptics.medium();
+      playSound("record");
       setPhase("hold");
-      await record(warmed ? await warmed : false);
+      // The recorder starts once the sound has rung (ready by then: it got ready while the finger was down).
+      const [ready] = await Promise.all([warmed ?? false, wait(START_SOUND_MS)]);
+      await record(ready);
       // Deleted while the recorder was starting (`cancel` found nothing to stop yet): it stops here, not never.
       if (phaseRef.current === "idle") return void (await cancel(false));
       if (released.current) await send();

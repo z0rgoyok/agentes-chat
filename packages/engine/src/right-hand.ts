@@ -4,6 +4,8 @@ import { serverText } from "@agenteschat/i18n";
 import { appLocale } from "@agenteschat/i18n/locale";
 import { AUTO_MODEL } from "@agenteschat/providers";
 import type { Agent } from "./agents";
+import { accountOrderSql } from "./ai-accounts/chain";
+import { accountServesSql } from "./ai-accounts/serves";
 import { recordAudit } from "./audit";
 import { accountablePerson, fedByRoutine, personOfMessage, runAuthorityById } from "./authority";
 import type { BrainUnavailability, ModelScope } from "./brains/select";
@@ -51,6 +53,10 @@ export const RIGHT_HAND_AUTO = {
   instructions:
     "Sets the team up with people through short questions and cards, and follows its work. A status, a greeting or a short question: the smallest tier and low effort. Handing work to an agent, following it up or reporting what came of it: the medium tier. More only when the person asks for something long or complex.",
 } as const;
+
+/** How the router describes it among a channel's agents (`routeMessage`): what fits it, and what is theirs. */
+export const RIGHT_HAND_ROUTING_ABOUT =
+  "Built into the workspace. Fits setting the team up (agents, people, roles, channels, routines, apps, AI accounts, settings), how the app and the workspace work, and which agent should take something. Real work in a channel agent's field is that agent's, not this one's.";
 
 /**
  * What it holds whatever its grant rows say (`loadScopeKeys` adds the rows on top: apps, mailboxes, databases, a
@@ -356,12 +362,13 @@ export async function servingPlanFor(
     if (key) return null;
   } else if (agent.brainAccountId) {
     const [workspace] = await db
-      .select({ serves: machineAccounts.serves, ownerId: machineAccounts.createdBy })
+      .select({ serves: accountServesSql(person) })
       .from(machineAccounts)
       .where(and(eq(machineAccounts.orgId, agent.orgId), eq(machineAccounts.id, agent.brainAccountId)));
-    if (!workspace || workspace.serves === "everyone" || (person && workspace.ownerId === person)) return null;
+    if (!workspace || workspace.serves) return null;
   }
-  const [best] = await servingPlans(db, agent.orgId, person);
+  const plans = await servingPlans(db, agent.orgId, person);
+  const best = plans.find((p) => p.room > 0) ?? plans[0];
   return best ? planBrain(best) : null;
 }
 
@@ -374,11 +381,10 @@ const planBrain = (p: { kind: string; id: string }) => ({
 });
 
 /**
- * The signed-in plans that may think for `person` (null: for work nobody is behind, those that serve everyone), best
- * first: on the workspace's own computer (in Cloud the always-on one, so a plan signed in there thinks for the right
- * hand without anyone choosing it), then on a computer online now, then their own, then the most room left in its
- * tightest window. `exclude`: a plan that can't think now; `room`: only those with room left (`online`: and whose
- * computer says it is online).
+ * The signed-in plans that may think for `person` (`accountServesSql`; null: for work nobody is behind, those everyone
+ * uses), in the one order of use (`accountOrderSql`: theirs first, then by place, oldest first). `exclude`: a plan that
+ * can't think now; `room`: only those with room left (`online`: and whose computer says it is online). Room and being
+ * online are filters, never a re-sort.
  */
 export async function servingPlans(
   db: Executor,
@@ -387,70 +393,56 @@ export async function servingPlans(
   options: { exclude?: string | null; room?: boolean; online?: boolean } = {},
 ) {
   const { machines } = schema;
-  const { workspaceHomeId } = await import("./agents");
   const { machineOnline } = await import("./machines");
   const { planRoom } = await import("./machine-accounts");
-  const [rows, home] = await Promise.all([
-    db
-      .select({
-        id: machineAccounts.id,
-        kind: machineAccounts.kind,
-        label: machineAccounts.label,
-        usage: machineAccounts.usage,
-        ownerId: machineAccounts.createdBy,
-        machineId: machineAccounts.machineId,
-        online: machines.online,
-        lastSeenAt: machines.lastSeenAt,
-        deletedAt: machines.deletedAt,
-      })
-      .from(machineAccounts)
-      .innerJoin(
-        organizationMembers,
-        and(
-          eq(organizationMembers.orgId, machineAccounts.orgId),
-          eq(organizationMembers.userId, machineAccounts.createdBy),
-        ),
-      )
-      .innerJoin(
-        machines,
-        and(
-          eq(machines.orgId, machineAccounts.orgId),
-          eq(machines.id, machineAccounts.machineId),
-          isNull(machines.deletedAt),
-        ),
-      )
-      .where(
-        and(
-          eq(machineAccounts.orgId, orgId),
-          eq(machineAccounts.status, "active"),
-          person
-            ? sql`(${machineAccounts.serves} = 'everyone' or ${machineAccounts.createdBy} = ${person})`
-            : eq(machineAccounts.serves, "everyone"),
-          options.exclude ? sql`${machineAccounts.id} <> ${options.exclude}::uuid` : undefined,
-          // A login made for one agent thinks for that one only (as `setPersonalBrain` keeps it).
-          sql`(${machineAccounts.shared} or not exists (select 1 from ${agents} where ${agents.orgId} = ${machineAccounts.orgId} and ${agents.brainAccountId} = ${machineAccounts.id} and ${agents.archivedAt} is null and ${agents.builtin} is distinct from ${RIGHT_HAND}))`,
-        ),
-      )
-      .orderBy(machineAccounts.createdAt),
-    workspaceHomeId(db, orgId),
-  ]);
+  const rows = await db
+    .select({
+      id: machineAccounts.id,
+      kind: machineAccounts.kind,
+      label: machineAccounts.label,
+      usage: machineAccounts.usage,
+      ownerId: machineAccounts.createdBy,
+      machineId: machineAccounts.machineId,
+      online: machines.online,
+      lastSeenAt: machines.lastSeenAt,
+      deletedAt: machines.deletedAt,
+    })
+    .from(machineAccounts)
+    .innerJoin(
+      organizationMembers,
+      and(
+        eq(organizationMembers.orgId, machineAccounts.orgId),
+        eq(organizationMembers.userId, machineAccounts.createdBy),
+      ),
+    )
+    .innerJoin(
+      machines,
+      and(
+        eq(machines.orgId, machineAccounts.orgId),
+        eq(machines.id, machineAccounts.machineId),
+        isNull(machines.deletedAt),
+      ),
+    )
+    .where(
+      and(
+        eq(machineAccounts.orgId, orgId),
+        eq(machineAccounts.status, "active"),
+        accountServesSql(person),
+        options.exclude ? sql`${machineAccounts.id} <> ${options.exclude}::uuid` : undefined,
+        // A login made for one agent thinks for that one only (as `setPersonalBrain` keeps it).
+        sql`(${machineAccounts.shared} or not exists (select 1 from ${agents} where ${agents.orgId} = ${machineAccounts.orgId} and ${agents.brainAccountId} = ${machineAccounts.id} and ${agents.archivedAt} is null and ${agents.builtin} is distinct from ${RIGHT_HAND}))`,
+      ),
+    )
+    .orderBy(...accountOrderSql(person));
   const now = Date.now();
   return rows
     .map((r) => ({
       ...r,
-      home: r.machineId === home,
       online: machineOnline(r, new Date(now)),
       mine: person !== null && r.ownerId === person,
       room: planRoom(r.usage as Parameters<typeof planRoom>[0], now),
     }))
-    .filter((r) => (!options.room || r.room > 0) && (!options.online || r.online))
-    .sort(
-      (a, b) =>
-        Number(b.home) - Number(a.home) ||
-        Number(b.online) - Number(a.online) ||
-        Number(b.mine) - Number(a.mine) ||
-        b.room - a.room,
-    );
+    .filter((r) => (!options.room || r.room > 0) && (!options.online || r.online));
 }
 
 /**
@@ -598,8 +590,9 @@ export async function withPersonalBrain<T extends ThinkingAgent>(
  * An agent as its brain sees it. The right hand is on no computer and its owner is the workspace's (`followOwner`):
  * on a plan it thinks on the computer where that plan's account is signed in, and the plan is its owner's (who pays,
  * as for any agent, ADR 0059 §3). With no account it has no computer, unless a person's own AI is their computer's
- * own sign-in. `person`: whose DM the run answers; their own AI (§11) thinks for them in place of the workspace's. A plan thinks for someone else's DM (`planForOthers`) while it
- * serves everyone in the workspace (`machine_accounts.serves`). Every other agent is itself.
+ * own sign-in. `person`: whose DM the run answers; their own AI (§11) thinks for them in place of the workspace's. A
+ * plan thinks for someone else's DM (`planForOthers`) while it serves them (`accountServesSql`). Every other agent is
+ * itself.
  */
 export async function thinkingAgent<T extends ThinkingAgent>(
   db: Executor,
@@ -607,7 +600,7 @@ export async function thinkingAgent<T extends ThinkingAgent>(
   person?: string | null,
 ): Promise<T> {
   if (!isRightHand(agent)) return agent;
-  const { agent: base, own, signedInOn } = await withPersonalBrain(db, agent, person);
+  const { agent: base, signedInOn } = await withPersonalBrain(db, agent, person);
   // The plan the person's own computer is signed in to: theirs, on that computer, as for any agent they own.
   if (signedInOn) return { ...base, machineId: signedInOn, ownerUserId: person ?? null, planForOthers: true };
   const [plan] = base.brainAccountId
@@ -615,18 +608,17 @@ export async function thinkingAgent<T extends ThinkingAgent>(
         .select({
           machineId: machineAccounts.machineId,
           ownerId: machineAccounts.createdBy,
-          serves: machineAccounts.serves,
+          // Whether the plan thinks for this person (`accountServesSql`; nobody behind the run: one everyone uses).
+          serves: accountServesSql(person ?? null),
         })
         .from(machineAccounts)
         .where(and(eq(machineAccounts.orgId, agent.orgId), eq(machineAccounts.id, base.brainAccountId)))
     : [];
-  const ownerUserId = plan?.ownerId ?? null;
-  const everyone = plan?.serves === "everyone";
   return {
     ...base,
     machineId: plan?.machineId ?? null,
-    ownerUserId,
-    ...(own ? { planForOthers: everyone || ownerUserId === person } : plan ? { planForOthers: everyone } : {}),
+    ownerUserId: plan?.ownerId ?? null,
+    ...(plan ? { planForOthers: plan.serves === true } : {}),
   };
 }
 

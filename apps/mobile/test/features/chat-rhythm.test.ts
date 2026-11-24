@@ -114,20 +114,16 @@ describe("one rhythm, the web's numbers (chat-rhythm-css.test.ts holds them to t
     expect(styleOf(row, "replied")).toContain("marginTop: 0");
   });
 
-  test("the agents' line runs across the conversation, the pair on its middle, under the list's gap", async () => {
-    const group = await read("chat/ConsultGroup.tsx");
-    expect(group).toContain("marginTop: gap ?? rhythm.turn");
-    expect(group.match(/<View style=\{\[styles\.rule/g)).toHaveLength(2);
-    expect(styleOf(group, "rule")).toContain("flex: 1");
-    expect(group).not.toContain("marginBottom: -6");
-    // Inside a message, between turns too: the body's part gap and the line's own room make the turn's.
-    expect(group).toContain("marginTop: gap ?? rhythm.turn - rhythm.part,");
-    expect(group).toContain("marginBottom: rhythm.turn - rhythm.part,");
-    // Two in a row stack at the part gap, as the list's quiet lines: the room under the first, the list's gap and the
-    // second's margin add up to it.
+  test("the agents' talk is quoted in the reply, or on its own at the turn's gap; on a reach line, the list's", async () => {
+    const row = await read("chat/MessageRow.tsx");
+    // On its own it stands on the bubbles' column in a conversation of bubbles, as wide as one (`plateInset`).
+    expect(row).toContain("<View style={[plateInset(look, aboveInset(look)), { marginTop: rhythm.turn }]}>");
+    const event = await read("chat/EventLine.tsx");
+    expect(event).toContain("<View style={[plateInset(look, inset), { marginTop: gap }]}>");
+    // Two on a reach line stack at the list's gap, as its other rows.
     const reach = await read("chat/ReachLines.tsx");
     expect(reach).toContain("list: { gap: LIST_GAP }");
-    expect(reach).toContain("gap={talkAbove ? rhythm.part - (rhythm.turn - rhythm.part) - LIST_GAP : undefined}");
+    expect(reach).not.toContain("talkAbove");
   });
 });
 

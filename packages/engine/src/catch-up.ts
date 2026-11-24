@@ -37,7 +37,10 @@ export const isCatchUp = (
  */
 export async function catchUpText(
   db: Executor,
-  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "pendingMessageIds"> &
+  run: Pick<
+    AgentRun,
+    "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "pendingMessageIds"
+  > &
     Partial<Pick<AgentRun, "transcript">>,
   trigger: { createdAt: Date },
   w: {

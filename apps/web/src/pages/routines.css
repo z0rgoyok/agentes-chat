@@ -818,6 +818,15 @@ html:not([data-pointer]) .routine-row__title:focus-visible {
   flex-wrap: wrap;
   gap: 8px;
 }
+.routine-hook__group {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+.routine-hook__group .ac-input {
+  flex: 1;
+  min-width: 0;
+}
 .routine-hook__confirm {
   display: flex;
   flex-direction: column;

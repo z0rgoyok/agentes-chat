@@ -13,7 +13,6 @@ import {
   consultLineState,
   consultLineTarget,
   consultNoticeFolds,
-  consultOriginKey,
   consultPair,
   consultSeconds,
   consultsForLine,
@@ -89,13 +88,9 @@ describe("the words of a block, by what its run asked or handed off (ADR 0095)",
     expect(consultLineKey("failed", note())).toBe("chat.consultation.failedNote");
     expect(consultLineKey("failed", q())).toBe("chat.consultation.failed");
   });
-  test("what was asked or handed, and where it came from", () => {
+  test("what was asked or handed", () => {
     expect(consultAskedKey(note())).toBe("chat.consultation.wrote");
     expect(consultAskedKey(q())).toBe("chat.consultation.asked");
-    expect(consultOriginKey(note(), true)).toBe("chat.consultPanel.originNote");
-    expect(consultOriginKey(note(), false)).toBe("chat.consultPanel.originNoteDm");
-    expect(consultOriginKey(q(), true)).toBe("chat.consultPanel.origin");
-    expect(consultOriginKey(q(), false)).toBe("chat.consultPanel.originDm");
   });
 });
 

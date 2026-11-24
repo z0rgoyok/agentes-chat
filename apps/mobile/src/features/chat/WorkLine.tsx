@@ -1,10 +1,12 @@
 import { type Channel, channelsQuery, type Issue, type Message, useApi, type WorkView } from "@agenteschat/client";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { relativeTime } from "@agenteschat/client/lib/format";
+import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { heldBack } from "@agenteschat/client/lib/issues";
 import {
   blockedText,
   handedLine,
+  workIsOver,
   workLine,
   workPlanProgress,
   workWaitsOnPerson,
@@ -16,14 +18,27 @@ import { createContext, type ReactNode, useCallback, useContext } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { Pressable, type StyleProp, StyleSheet, View, type ViewStyle } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, haptics, LineIcon, PixelOrbit, Text, textLineOf, useToast } from "@/ui";
+import {
+  Button,
+  haptics,
+  Icon,
+  IconButton,
+  LineIcon,
+  MESSAGE_CARD_X,
+  PixelOrbit,
+  Text,
+  textLineOf,
+  useToast,
+} from "@/ui";
 import { router } from "@/ui/navigation";
 import { useFontScale } from "@/ui/text-scale";
-import { chatHref } from "../links/logic";
+import { chatHref, consultationHref } from "../links/logic";
 import { useBubblePart } from "../shared/bubble-part";
+import { AgentFace } from "../shared/Face";
 import { useColors, useNow, useOrgId } from "../shared/hooks";
+import { ownsIn } from "../shared/owner";
 import { tapHaptic, useSurface } from "../shared/parts";
-import { RowPartContext, useCardTop } from "./look";
+import { RowPartContext, useCardTop, useMessageCardFrame } from "./look";
 import { useRowDirectory, useRowMeId } from "./row-data";
 
 /** The conversation's list scrolls to one of its messages (false: it doesn't show it). */
@@ -59,7 +74,8 @@ function useLine(work: WorkView, inUpdatesThread = false) {
     agentName: agent?.name ?? "",
     nameOf: (id: string) => dir.memberById.get(id)?.name ?? null,
     agentNameOf: (id: string) => dir.anyAgent(id)?.name,
-    canStop: managesAgent(agent) || agent?.ownerUserId === meId || work.requestedByUserId === meId,
+    // Its owner, or one who holds the role that answers for it (ADR 0085, addendum of 2026-11-21).
+    canStop: managesAgent(agent) || ownsIn(dir.memberById, meId, agent) || work.requestedByUserId === meId,
     inUpdatesThread,
   };
   const view = workLine(t, work, context);
@@ -84,12 +100,15 @@ const MAX_ACTIONS = 3;
 function Line({
   work,
   onThread,
+  onSee,
   below,
   inUpdatesThread,
   handed: asHanded,
 }: {
   work: WorkView;
   onThread?: () => void;
+  /** "Ver" on a hand-off still out: the two agents' talk, as the working line's. */
+  onSee?: () => void;
   below?: ReactNode;
   inUpdatesThread?: boolean;
   /** Under the reply that handed it: "Handed to Atlas · working on it · step 3 of 5 · 2 min", Stop or the result. */
@@ -99,6 +118,7 @@ function Line({
   const surface = useSurface();
   const part = useBubblePart();
   const cardTop = useCardTop();
+  const card = useMessageCardFrame();
   const fontScale = useFontScale();
   const inBody = useContext(RowPartContext) !== null;
   const line = useLine(work, inUpdatesThread);
@@ -123,6 +143,7 @@ function Line({
   // Priority when more than MAX_ACTIONS apply: stopping, then the result, the task, the thread; shown in reading order.
   const all: (WorkAction & { rank: number })[] = [];
   if (onThread && view.threadId) all.push({ key: "thread", rank: 3, label: t("work.openThread"), onPress: onThread });
+  if (onSee) all.push({ key: "see", rank: 1, label: t("run.strip.see"), onPress: onSee });
   if (view.task) {
     const number = view.task.number;
     all.push({ key: "task", rank: 2, label: view.task.label, onPress: () => router.push(`/issues/${number}`) });
@@ -169,7 +190,7 @@ function Line({
     ) : (
       view.text
     );
-  const markOf = (variant: "small" | "caption", size: number) =>
+  const markOf = (variant: "small" | "footnote" | "caption", size: number) =>
     view.tone === "working" ? (
       <LineIcon variant={variant} size={size} mark>
         <PixelOrbit color="sky" size={size - 2} />
@@ -177,6 +198,63 @@ function Line({
     ) : (
       <LineIcon variant={variant} name={mark.icon} size={size} color={mark.color} />
     );
+  if (inBody && h) {
+    // Handed over, under the reply that handed it: a second bubble of the turn (the message's fill, joined to it; the
+    // conversation's card in the other looks) with the agent that took it, "Passado para o Atlas", and under it how it
+    // stands in its color with the way to it ("Pronto em 1 min · Ver resultado"). Loose words under the bubble read
+    // as small print; the bubble says it is part of what the agent said. "Parar" ends it while it works.
+    const go = actions.filter((a) => !a.danger).sort((a, b) => a.rank - b.rank)[0];
+    const halt = actions.find((a) => a.danger);
+    const g = agentGrammar(line.agentName);
+    const tone =
+      view.tone === "done"
+        ? c.ok
+        : h.tone === "working"
+          ? c.agent
+          : h.tone === "waiting"
+            ? c.warn
+            : view.tone === "failed"
+              ? c.danger
+              : c.muted;
+    const state = [upFirst(h.state), ...h.facts, go?.label].filter(Boolean).join(" · ");
+    const frame = [styles.handed, card.style];
+    return (
+      <View style={cardTop}>
+        <Pressable
+          onPress={go?.onPress}
+          disabled={!go}
+          accessibilityRole={go ? "button" : "summary"}
+          {...(go ? { accessibilityHint: go.label } : {})}
+          style={({ pressed }) => [frame, pressed && go && styles.pressed]}
+        >
+          <AgentFace
+            agentId={work.agentId}
+            size={HANDED_FACE}
+            live={false}
+            mode={h.tone === "working" ? "think" : "idle"}
+          />
+          <View style={styles.handedWords}>
+            <Text variant="cardTitle" numberOfLines={1}>
+              {t("mobile.chat.handedTo", { name: g.name, context: g.context })}
+            </Text>
+            <View style={styles.handedState}>
+              {markOf("footnote", HANDED_MARK)}
+              <Text variant="footnote" numberOfLines={1} style={[styles.bold, styles.shrink, { color: tone }]}>
+                {state}
+              </Text>
+            </View>
+          </View>
+          {halt ? (
+            // Stop as the kit's round button with the stop square, centred on the bubble's row: a word there took the
+            // room the state's words needed and sat off their middle.
+            <IconButton icon="stop" small label={halt.label} disabled={halt.disabled} onPress={halt.onPress} />
+          ) : go ? (
+            <Icon name="right" size={16} color={c.faint} />
+          ) : null}
+        </Pressable>
+      </View>
+    );
+  }
   if (inBody) {
     // In a message: a quiet line under it, in the conversation's working line's words (a card under the bubble read
     // as a dialog in the chat). The way to the work (its result, its task or its thread) is its words' tap, said after
@@ -285,6 +363,12 @@ interface WorkAction {
 /** The status mark beside the line, on its first line's middle; in a message's quiet line, the caption's size. */
 const MARK = 16;
 const QUIET_MARK = 14;
+/** A handed work's bubble: the agent's face, and its state's mark. */
+const HANDED_FACE = 32;
+const HANDED_MARK = 13;
+
+/** A state's words opening a line ("pronto em 1 min" → "Pronto em 1 min"). */
+const upFirst = (text: string) => (text ? text.charAt(0).toLocaleUpperCase() + text.slice(1) : text);
 
 /** One action in words, on a task's screen: neutral, the stop in the danger color. */
 function Action({ action: a }: { action: WorkAction }) {
@@ -327,9 +411,11 @@ export function HandedWorkLines({ message }: { message: Message }) {
   if (works.length === 0) return null;
   return (
     <>
-      {works.map((w) => (
-        <Line key={w.id} work={w} handed />
-      ))}
+      {works.map((w) => {
+        const talk = w.handedBy?.consultationId;
+        const onSee = talk && !workIsOver(w) ? () => router.push(consultationHref(talk, message.channelId)) : undefined;
+        return <Line key={w.id} work={w} handed onSee={onSee} />;
+      })}
     </>
   );
 }
@@ -358,7 +444,7 @@ export function IssueWorkLine({ issue, style }: { issue: Issue; style?: StylePro
           below={
             progress ? (
               <View style={styles.plan}>
-                <Text variant="caption" tone="faint" style={styles.bold}>
+                <Text variant="cardKind">
                   {t("work.plan")} · {t("work.planProgress", progress)}
                 </Text>
                 {work.plan.map((p) => (
@@ -398,10 +484,8 @@ function HandedWork({ work, style }: { work: WorkView; style?: StyleProp<ViewSty
     const when = relativeTime(t, i18n.language, work.finishedAt ?? work.startedAt);
     return (
       <View style={[style, styles.done, surface]}>
-        <Text variant="small" tone="ink" style={styles.bold}>
-          {t("issues.work.finishedTitle", { name })}
-        </Text>
-        <Text variant="caption" tone="muted">
+        <Text variant="cardTitle">{t("issues.work.finishedTitle", { name })}</Text>
+        <Text variant="footnote" tone="muted">
           {by ? t("issues.work.finishedMeta", { when, name: by }) : when}
         </Text>
         {work.result ? (
@@ -489,6 +573,24 @@ const styles = StyleSheet.create({
   },
   // Under a bubble: its mark where the bubble's words start.
   quietInBubble: { paddingLeft: 14 },
+  // A handed work's bubble: the face, its two lines and the chevron on one row, as wide as the column allows.
+  handed: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    alignSelf: "flex-start",
+    maxWidth: "100%",
+    minWidth: 240,
+    paddingVertical: 10,
+    paddingHorizontal: MESSAGE_CARD_X,
+    // Outside a bubble group, the cards' hairline (the frame takes it off in one).
+    borderWidth: StyleSheet.hairlineWidth,
+  },
+  // As wide as its words (the bubble grows with them up to the column), shrinking only when the column runs out: with
+  // no width of its own (`flex: 1`) the bubble stayed at its least and cut the words that had room.
+  handedWords: { flexShrink: 1, minWidth: 0, gap: 1 },
+  handedState: { flexDirection: "row", alignItems: "center", gap: 4 },
+  shrink: { flexShrink: 1 },
   quietMark: { width: QUIET_MARK, alignItems: "center" },
   quietWords: { flexShrink: 1, minWidth: 0, gap: 2 },
   // The rule and "Parar" on the words' first line.

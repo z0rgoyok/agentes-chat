@@ -196,7 +196,11 @@ export function PrefRow({
         name
       )}
       {status && (
-        <span className="settings-row__status" id={`${id}-status`}>
+        <span
+          className="settings-row__status"
+          id={`${id}-status`}
+          title={onOpen && typeof status === "string" ? status : undefined}
+        >
           {status}
         </span>
       )}

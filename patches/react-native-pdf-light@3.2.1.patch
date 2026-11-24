@@ -1,0 +1,12 @@
+diff --git a/ios/PdfView.mm b/ios/PdfView.mm
+index ef32c49..8368fa7 100644
+--- a/ios/PdfView.mm
++++ b/ios/PdfView.mm
+@@ -1,4 +1,7 @@
+ #import "PdfView.h"
++// agentes: the generated Swift header below names RCTPromiseResolveBlock and nothing before it here declares it;
++// with Xcode 27 the iOS build failed in this file. React's bridge types come first.
++#import <React/RCTBridgeModule.h>
+ 
+ #if __has_include(<react_native_pdf_light/react_native_pdf_light-Swift.h>)
+ #import <react_native_pdf_light/react_native_pdf_light-Swift.h>

@@ -6,7 +6,17 @@
 import type { AppNotification, NotificationEvent, NotificationKind } from "../api/types";
 
 /** Same names as `SOUNDS` in `@agenteschat/ui/sfx`. */
-export type SoundName = "send" | "reply" | "done" | "attention" | "approved" | "error" | "stop" | "mention" | "discard";
+export type SoundName =
+  | "send"
+  | "reply"
+  | "done"
+  | "attention"
+  | "approved"
+  | "error"
+  | "stop"
+  | "mention"
+  | "discard"
+  | "record";
 
 let player: ((name: SoundName) => void) | null = null;
 
@@ -37,6 +47,7 @@ const BY_KIND: Partial<Record<NotificationKind, SoundName>> = {
   invitation_accepted: "done",
   approval_cover: "done",
   right_hand_decided: "done",
+  proposal_applied: "done",
   right_hand_paused: "attention",
   app_created: "done",
   mention: "mention",

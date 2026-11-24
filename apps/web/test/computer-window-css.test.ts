@@ -79,24 +79,15 @@ test("the window ships on a whole pixel where the browser can round: its width e
   );
 });
 
-test("the head's controls ship on the name's capitals, full screen's bar's in its middle, the raised ones with their room", async () => {
+test("the head ships as one centred block: as much room over it as under it, the controls on its middle, the raised ones with their room", async () => {
   const head = await ships(COMPUTER, `src/${COMPUTER}`, ".cmp-dialog :is(.ac-dialog__acts, .ac-dialog__close)");
-  expect(head).toContain("margin-top:calc((24px-var(--cmp-button))/2-var(--title-cap-mid,var(--cap-mid)))");
-  const bar = await ships(
-    COMPUTER,
-    `src/${COMPUTER}`,
-    ".cmp-dialog.is-screen-only :is(.ac-dialog__acts, .ac-dialog__close)",
+  expect(head).toContain("align-self:center");
+  expect(head.some((d) => d.startsWith("margin-top"))).toBe(false);
+  expect(await ships(COMPUTER, `src/${COMPUTER}`, ".cmp-dialog .ac-dialog__head")).toContain(
+    "padding-block:var(--space-4)",
   );
-  expect(bar).toContain("margin-top:calc((24px+18px-var(--cmp-button))/2)");
   expect(await ships(COMPUTER, `src/${COMPUTER}`, ".cmp-acts > .cmp-take", undefined, ["--lead-rise"])).toContain(
     "margin-inline:1.5px",
-  );
-  // On the full-screen sheet they stand as far under its edge as its sides are in (the dialog's inset, a phone's 16):
-  // the head's top holds the half of them that rises past the name's 24 px line and the capitals' lift.
-  const sheet = ".cmp-dialog:not(.is-screen-only) .ac-dialog__head";
-  const lift = "(var(--cmp-button)-24px)/2+var(--title-cap-mid,var(--cap-mid))";
-  expect(await ships(COMPUTER, `src/${COMPUTER}`, sheet, PHONE)).toContain(
-    `padding-top:calc(var(--dialog-pad)+${lift})`,
   );
 });
 

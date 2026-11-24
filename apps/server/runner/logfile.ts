@@ -71,6 +71,29 @@ export class RotatingFile {
   }
 }
 
+/**
+ * Text appended in batches: at most every `ms`, at once when `bytes` wait, and whatever is left on `flush` (call it
+ * as the process exits). A synchronous file write per line stalls the event loop under a chatty log.
+ */
+export function batchedAppend(append: (text: string) => void, { ms = 250, bytes = 64 * 1024 } = {}) {
+  let pending = "";
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const flush = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    if (!pending) return;
+    const text = pending;
+    pending = "";
+    append(text);
+  };
+  const write = (text: string) => {
+    pending += text;
+    if (pending.length >= bytes) flush();
+    else timer ??= setTimeout(flush, ms);
+  };
+  return { write, flush };
+}
+
 /** A duration as the log says it, to the hundredth of a second ("0.42 s"). */
 export const seconds = (ms: number) => `${(ms / 1000).toFixed(2)} s`;
 

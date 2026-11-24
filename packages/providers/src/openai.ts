@@ -6,7 +6,7 @@ import type {
   ResponseOutputItem,
   ResponseStreamEvent,
 } from "openai/resources/responses/responses";
-import { MODEL_CATALOG } from "./catalog";
+import { effortWithin, MODEL_CATALOG } from "./catalog";
 import {
   decodeImage,
   type ImageRequest,
@@ -77,7 +77,7 @@ export function createOpenAIProvider(
         outputChars: 0,
       };
       const info = MODEL_CATALOG[request.model];
-      const effort = request.effort === "none" && info?.leastThinking !== "off" ? "low" : request.effort;
+      const effort = request.effort === "none" && info?.leastThinking !== "off" ? "low" : effortWithin(request.effort);
       try {
         const stream = client(apiKey, organization, project).responses.stream(
           {

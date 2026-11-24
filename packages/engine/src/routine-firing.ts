@@ -179,7 +179,8 @@ export async function routineRunWaitingForComputer(
  *   (`superseded`; its approvals expire); a newer wait keeps it and the slot is `previous_waiting`;
  * - handed off already: its report is out, so the turn left of it holds nothing, and neither does a
  *   run that stopped moving (`ROUTINE_STALL_MS`: it is let go as `stalled`).
- * An event run never replaces another: it waits for the one working to end (gathered again).
+ * An event run never replaces another: it waits for the one working to end (gathered again). It only
+ * waits on its own line (`event.line`, ADR 0106's grouped calls): other lines run beside it.
  * Returns null when the run may start, else the code it was skipped with (or `gathered`).
  */
 export async function makeWayForRun(
@@ -189,6 +190,8 @@ export async function makeWayForRun(
   now = new Date(),
 ): Promise<string | null> {
   const { db } = deps;
+  const event = run.trigger === "event";
+  const line = typeof run.event?.line === "string" ? run.event.line : "";
   const earlier = await db
     .select({ rr: routineRuns, ar: agentRuns, alive: routineJobAlive(routineRuns.id), work: lastWork })
     .from(routineRuns)
@@ -200,10 +203,10 @@ export async function makeWayForRun(
         inArray(routineRuns.status, ["queued", "starting", "started", "reported"]),
         isNull(routineRuns.finishedAt),
         sql`(${routineRuns.createdAt}, ${routineRuns.id}) < (${run.createdAt.toISOString()}::timestamptz, ${run.id}::uuid)`,
+        event ? sql`coalesce(${routineRuns.event}->>'line', '') = ${line}` : undefined,
       ),
     )
     .orderBy(routineRuns.createdAt);
-  const event = run.trigger === "event";
   const blocked = async (code: string) => {
     if (!event) return code;
     await deferEventRun(deps, run);

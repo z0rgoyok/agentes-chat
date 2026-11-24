@@ -1,5 +1,5 @@
 import { and, type Executor, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
-import { answersOthers, audienceChanged, audienceOf, canTalkTo, managesAgent, speakerOf } from "./audience";
+import { answersOthers, audienceChanged, audienceOf, canTalkTo, managesAgent, ownsAgent, speakerOf } from "./audience";
 import { isComputerBrain } from "./brains/types";
 import { caches } from "./cache";
 import { ValidationError } from "./errors";
@@ -170,7 +170,9 @@ async function agentOk(
 ) {
   if (a.audienceMode === "everyone") return true;
   if (a.audienceMode === "people" && a.audienceRoleIds.some((r) => roleIds.includes(r))) return true;
-  if (!giver || giverId === null || !(managesAgent(a, giverId, giver) || a.ownerUserId === giverId)) return false;
+  if (!giver || giverId === null || !(managesAgent(a, giverId, giver) || ownsAgent(a, giverId, giver.roleIds))) {
+    return false;
+  }
   if (keepsPlan(a)) return false;
   return (await foreignMailboxes(db, orgId, a.id, giverId)).length === 0;
 }

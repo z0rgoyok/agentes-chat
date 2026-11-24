@@ -12,6 +12,12 @@ mock.module("expo-secure-store", () => ({
   deleteItemAsync: async (key: string) => void kept.delete(key),
 }));
 mock.module("expo-constants", () => ({ default: {} }));
+// What the take needs of iOS's session (a native module, which needs React Native): nothing here.
+mock.module("../../src/lib/voice-session", () => ({
+  allowFeedbackWhileRecording: () => undefined,
+  playSystemSound: () => false,
+  systemSounds: false,
+}));
 // The app's one shared player, counting the speeds it is given. A test moves its clock (`currentTime`, of a 9 s clip)
 // and can hold its seeks until it lets them land.
 const rates: number[] = [];

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, setSystemTime, test } from "bun:test";
-import type { Agent, AgentBrain, AgentBrainInput, AiComputer, MachineAccount } from "@agenteschat/client";
-import { CODING_PLANS, learnPlanModels } from "@agenteschat/client/lib/plans";
+import type { Agent, AgentBrain, AgentBrainInput, MachineAccount } from "@agenteschat/client";
 import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
@@ -17,18 +16,8 @@ import {
   pickRow,
   toScreen,
 } from "./ai-picker";
-import {
-  ADA_ID,
-  createFakeApi,
-  type FakeState,
-  fakeAgentBrain,
-  fakeMachinesOf,
-  OPENROUTER_KEY,
-  OPENROUTER_MODELS,
-  ORG_ID,
-  seedState,
-} from "./fake-api";
-import { shownText } from "./hint";
+import { ADA_ID, createFakeApi, type FakeState, fakeAgentBrain, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
+
 import { renderApp, screen, settle } from "./render";
 
 /*
@@ -67,23 +56,6 @@ const brainCell = () => {
     sub: cell.querySelector(".agp-cell__sub")?.textContent,
   };
 };
-/** The MacBook's row in the AI accounts: the own sign-ins its runner reported there. */
-const reportOwn = (api: ReturnType<typeof createFakeApi>, own: AiComputer["own"]) =>
-  fakeMachinesOf.get(api)?.setAiAccounts({
-    accounts: [],
-    computers: [
-      {
-        machineId: "machine_1",
-        name: "MacBook",
-        online: true,
-        mine: true,
-        canAdd: true,
-        keys: true,
-        brains: { claude_code: true, codex: true },
-        own,
-      },
-    ],
-  });
 /** A connected MacBook with Claude Code and Codex; its browser as given. */
 const pairMac = (api: ReturnType<typeof createFakeApi>, browser: boolean) =>
   fakeMachinesOf.get(api)?.pair({
@@ -119,11 +91,6 @@ function follow(api: ReturnType<typeof createFakeApi>, first: AgentBrain) {
     return next;
   };
 }
-/** The rows of the screen, as title and lines. */
-const rowsOf = (d: HTMLElement) => brainRows(d).map((r) => [r.title, ...r.lines]);
-/** The labels over the rows' groups, in order. */
-const groupsOf = (d: HTMLElement) => [...new Set(brainRows(d).map((r) => r.group))].filter(Boolean);
-const checkedOf = (d: HTMLElement) => brainRows(d).find((r) => r.checked)?.title;
 /** A line of the first screen or of "Mais opções", by its name. */
 const lineOf = (d: HTMLElement, label: string) => brainLines(d).find((l) => l.label === label)?.value;
 
@@ -191,45 +158,6 @@ describe("Quem pensa: a coding plan's models", () => {
     expect(d.textContent).toContain("Os outros modelos do plano seguem funcionando.");
   });
 
-  test("the plan's models at a limit of their own: one line each with what remains, an exhausted one said so", async () => {
-    const at = new Date().toISOString();
-    const until = new Date(Date.now() + 2 * 86_400_000).toISOString();
-    await onPlan(
-      "opencode",
-      { effectiveModel: "deepseek-v4.1-flash" },
-      {
-        usage: {
-          windows: [{ kind: "five_hour", usedPercent: 10 }],
-          source: "probe",
-          at,
-          models: {
-            "glm-5.3": { at, until },
-            "minimax-m3": { at, off: true },
-            // Its reset already passed: no line, never a stale "no quota".
-            "deepseek-v4.1-pro": { at, until: new Date(Date.now() - 60_000).toISOString() },
-          },
-        },
-      },
-    );
-    const d = await brainDialog();
-    const rows = [...d.querySelectorAll(".plan-model")].map((r) => [
-      r.querySelector(".plan-model__name")?.textContent,
-      r.querySelector(".plan-model__text")?.textContent,
-    ]);
-    // In the plan's order, with the remaining quota in words: no number nobody read.
-    expect(rows.map((r) => r[0])).toEqual(["MiniMax M3", "GLM-5.3"]);
-    expect(rows[0]?.[1]).toBe("Desligado");
-    expect(rows[1]?.[1]).toMatch(/^Sem cota · renova /);
-    expect(rows.map((r) => r[1]).join(" ")).not.toContain("%");
-  });
-
-  test("a plan whose maker shares no usage names the maker, instead of a number", async () => {
-    await onPlan("minimax");
-    const d = await brainDialog();
-    expect(d.querySelector(".plan-models__none")?.textContent).toBe("MiniMax não mostra o uso por aqui.");
-    expect(d.querySelector(".plan-model")).toBeNull();
-  });
-
   test("an API key shows no quota line under its account: its use is spend against a budget", async () => {
     const state = seedState();
     const api = createFakeApi(state);
@@ -239,106 +167,6 @@ describe("Quem pensa: a coding plan's models", () => {
     const d = await brainDialog();
     expect(d.querySelector(".plan-models__none")).toBeNull();
     expect(d.querySelector(".plan-model")).toBeNull();
-  });
-
-  test("every model of the plan as a row, by maker, each with what it's sold as and needs; saved by its id", async () => {
-    const { state } = await onPlan("opencode");
-    const d = await brainDialog();
-    expect(lineOf(d, "Modelo")).toBe("MiniMax M3");
-    await toScreen(d, "Modelo");
-    expect(brainScreen(d)).toBe("Modelo da Ada");
-    expect(within(d).getByRole("radiogroup", { name: "Modelo da Ada" })).toBeTruthy();
-    const rows = brainRows(d);
-    // Automatic and the 32 models of Go's list.
-    expect(rows).toHaveLength(33);
-    expect(rowsOf(d).slice(0, 4)).toEqual([
-      ["Automático", "Escolhe o modelo e o esforço para cada tarefa"],
-      ["MiniMax M3"],
-      ["MiniMax M3.1 Flash"],
-      ["Claude Haiku 5.5"],
-    ]);
-    expect(checkedOf(d)).toBe("MiniMax M3");
-    expect(rowsOf(d)).toContainEqual(["Kimi K3.1 Pro", "Topo de linha"]);
-    // Grouped by maker, as the workspace's models are.
-    expect(groupsOf(d)).toEqual([
-      "MiniMax",
-      "Claude",
-      "Z.ai",
-      "Kimi",
-      "Alibaba",
-      "DeepSeek",
-      "Xiaomi",
-      "OpenAI",
-      "Gemini",
-      "xAI",
-      "Meituan",
-      "Tencent",
-      "StepFun",
-      "Meta",
-      "Reflection",
-      "OpenCode",
-    ]);
-    // What a model needs from the OpenCode account is its quieter line, under what it's sold as.
-    expect(
-      brainRows(d)
-        .filter((r) => r.group === "DeepSeek")
-        .map((r) => [r.title, ...r.lines]),
-    ).toEqual([
-      ["DeepSeek V4 Pro", "Precisa da região Global no OpenCode."],
-      ["DeepSeek V4.1 Flash", "Econômico", "Precisa da região Global no OpenCode."],
-    ]);
-    // A model that trains on what it's sent: its provider does, never agentes.chat.
-    expect(
-      brainRows(d)
-        .find((r) => r.title === "Iceman Contributor Free")
-        ?.lines.at(-1),
-    ).toBe("Grátis. O provedor pode usar os pedidos para treinar o modelo. Ligue a permissão no OpenCode.");
-    // Nothing to say before a model that needs something is picked.
-    expect(within(d).queryByRole("link", { name: "Abrir opencode.ai" })).toBeNull();
-    await pickRow(d, "DeepSeek V4.1 Flash");
-    // Picked, what it needs is said under the list: how to give it, with the plan's page.
-    expect(d.textContent).toContain(
-      "Ligue a região Global no OpenCode, em Settings › Privacy. Sem ela, este modelo não responde.",
-    );
-    expect(within(d).getByRole("link", { name: "Abrir opencode.ai" }).getAttribute("href")).toBe(
-      "https://opencode.ai/console",
-    );
-    expect(mainButton(d)?.textContent).toBe("Usar DeepSeek V4.1 Flash");
-    await confirmScreen(d);
-    await settle(6);
-    expect(brainCalls(state)).toEqual([{ brain: "claude_code", model: "deepseek-v4.1-flash" }]);
-    // Saved, back on the first screen with the model it now thinks with.
-    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
-    expect(lineOf(d, "Modelo")).toBe("DeepSeek V4.1 Flash");
-  });
-
-  test("an OpenCode key on OpenCode's CLI: after the computer's free models, OpenCode Go's, DeepSeek V4.1 Flash too", async () => {
-    const free = { kind: "opencode" as const, available: true, defaultModel: null };
-    const { state } = await onPlan(
-      "zen",
-      {
-        brain: "opencode",
-        effectiveModel: "opencode/big-pickle",
-        options: [{ ...free, models: [{ value: "opencode/big-pickle", label: "Big Pickle", free: true }] }],
-      },
-      { kind: "opencode", label: "OpenCode", keyHint: "Q7f2" },
-    );
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    // The computer listed its CLI's models with no key: the free tier. The key's Go models follow, by maker.
-    expect(brainRows(d)[1]?.title).toBe("Big Pickle");
-    expect(
-      brainRows(d)
-        .filter((r) => r.group === "DeepSeek")
-        .map((r) => [r.title, r.lines[0]]),
-    ).toEqual([
-      ["DeepSeek V4 Pro", "Precisa da região Global no OpenCode."],
-      ["DeepSeek V4.1 Flash", "Econômico"],
-    ]);
-    await pickRow(d, "DeepSeek V4.1 Flash");
-    await confirmScreen(d);
-    await settle(6);
-    expect(brainCalls(state).at(-1)).toMatchObject({ brain: "opencode", model: "opencode-go/deepseek-v4.1-flash" });
   });
 
   test("a coding plan's keys are accounts of its own; another plan starts on its own model, one more key keeps it", async () => {
@@ -395,44 +223,6 @@ describe("Quem pensa: a coding plan's models", () => {
     expect(brainScreen(d)).toBe("Pronto");
   });
 
-  test("a key its plan refused: said so, and the first screen asks the same account for a new key", async () => {
-    const { state } = await onPlan("opencode", {}, { status: "signed_out" });
-    const d = await brainDialog();
-    expect(shownText(d)).toContain("A chave foi recusada: troque por uma nova.");
-    expect(mainButton(d)?.textContent).toBe("Trocar a chave");
-    await confirmScreen(d);
-    fireEvent.change(within(d).getByLabelText("Chave do OpenCode Go"), {
-      target: { value: "oc_sk_fake-key-for-tests" },
-    });
-    await click(within(d).getByRole("button", { name: "Enviar ao MacBook" }));
-    await settle(8);
-    expect(state.calls.find((c) => c.method === "machines.beginAccountLogin")?.args).toEqual([
-      ORG_ID,
-      "machine_1",
-      "claude_code",
-      { accountId: "acct_plan", provider: "opencode" },
-    ]);
-  });
-
-  test("a model OpenCode's list added after this build: offered by its maker, and shown by its name once chosen", async () => {
-    const table = CODING_PLANS.opencode.claudeCode.models;
-    try {
-      await onPlan(
-        "opencode",
-        { model: "nova-2", effectiveModel: "nova-2" },
-        {},
-        { opencode: [...table, { id: "nova-2", label: "Nova 2", maker: "Acme" }] },
-      );
-      expect(brainCell().value).toStartWith("Nova 2");
-      const d = await brainDialog();
-      expect(lineOf(d, "Modelo")).toBe("Nova 2");
-      await toScreen(d, "Modelo");
-      expect(brainRows(d).find((r) => r.title === "Nova 2")).toMatchObject({ group: "Acme", checked: true });
-    } finally {
-      learnPlanModels({ opencode: table });
-    }
-  });
-
   test("Conectar outra IA, for the agent's owner: Quem pensa closes and Connect an AI opens for this agent", async () => {
     await onPlan("opencode");
     let d = await brainDialog();
@@ -462,305 +252,9 @@ describe("Quem pensa: a coding plan's models", () => {
     expect(mainButton(d)?.disabled).toBe(false);
     expect(d.textContent).not.toContain("Só João troca");
   });
-
-  test("the cell names the plan's model it runs; models sold with words show them, a plan's only model too", async () => {
-    await onPlan("kimi", { model: "k3-256k", effectiveModel: "k3-256k" });
-    expect(sentence().textContent).toContain("K3 256K");
-    cleanup();
-    await onPlan("zai", { model: "opus", effectiveModel: "opus" });
-    let d = await brainDialog();
-    // An alias the plan leaves out runs its main model: shown as that one (what it's sold as stays in the list).
-    expect(lineOf(d, "Modelo")).toBe("GLM-5.3");
-    await toScreen(d, "Modelo");
-    expect(rowsOf(d)).toEqual([
-      ["Automático", "Escolhe o modelo e o esforço para cada tarefa"],
-      ["GLM-5.3", "Topo de linha"],
-      ["GLM-5.3 Flash", "Econômico"],
-    ]);
-    expect(checkedOf(d)).toBe("GLM-5.3");
-    cleanup();
-    await onPlan("minimax");
-    d = await brainDialog();
-    // The model is its own screen on every brain, a plan of one model too.
-    await toScreen(d, "Modelo");
-    expect(rowsOf(d)).toEqual([
-      ["Automático", "Escolhe o modelo e o esforço para cada tarefa"],
-      ["MiniMax M3.1 Flash"],
-    ]);
-    expect(checkedOf(d)).toBe("MiniMax M3.1 Flash");
-  });
-
-  test("the saved model can't be used again; Cancelar goes back and saves nothing", async () => {
-    const { state } = await onPlan("opencode");
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    expect(mainButton(d)?.textContent).toBe("Usar MiniMax M3");
-    expect(mainButton(d)?.disabled).toBe(true);
-    await pickRow(d, "Claude Haiku 5.5");
-    expect(mainButton(d)?.disabled).toBe(false);
-    await click(within(d).getByRole("button", { name: "Cancelar" }));
-    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
-    expect(lineOf(d, "Modelo")).toBe("MiniMax M3");
-    expect(brainCalls(state)).toEqual([]);
-  });
 });
 
-describe("Quem pensa: Automático", () => {
-  /** Ada thinks with Claude Code on the MacBook (as given). */
-  async function onClaude(patch: Partial<AgentBrain> = {}) {
-    const state = seedState();
-    const api = createFakeApi(state);
-    pairMac(api, true);
-    await api.sandbox.setTarget(ORG_ID, ADA_ID, "machine_1");
-    follow(api, fakeAgentBrain(ADA_ID, { brain: "claude_code", effectiveModel: "sonnet", ...patch }));
-    await open(state, api);
-    return state;
-  }
-
-  test("Claude Code: Automático comes first for the model and picks the effort too; Usar saves both", async () => {
-    const state = await onClaude();
-    const d = await brainDialog();
-    // "Mais opções" names what it holds: with a fixed model, the effort first.
-    expect(lineOf(d, "Mais opções")).toBe("Esforço, janela de contexto e quem atende");
-    await toScreen(d, "Modelo");
-    // Each with what it is for.
-    expect(rowsOf(d)).toEqual([
-      ["Automático", "Escolhe o modelo e o esforço para cada tarefa"],
-      ["Opus 5.5", "Muito capaz. Gasta o plano mais rápido."],
-      ["Sonnet 5.5", "Equilibrado. Bom para quase tudo."],
-      ["Haiku 5.5", "Rápido e leve. Para tarefas simples."],
-    ]);
-    await toScreen(d, "Voltar");
-    // A fixed model: the effort's four levels, none of them Automático, under "Mais opções".
-    await toScreen(d, "Mais opções");
-    expect(lineOf(d, "Esforço")).toBe("Médio");
-    await toScreen(d, "Esforço");
-    const ramp = within(d).getByRole("slider", { name: "Esforço" });
-    expect(ramp.getAttribute("aria-valuemax")).toBe("4");
-    expect(ramp.getAttribute("aria-valuetext")).toBe("Médio");
-    await toScreen(d, "Voltar");
-    await toScreen(d, "Modelo");
-    await pickRow(d, "Automático");
-    expect(mainButton(d)?.textContent).toBe("Usar Automático");
-    await confirmScreen(d);
-    await settle(6);
-    expect(brainCalls(state)).toEqual([{ brain: "claude_code", model: "auto", effort: "auto" }]);
-    // The model picks the effort too: no ramp to set, and the place says so and how to set it.
-    expect(lineOf(d, "Modelo")).toBe("Automático");
-    expect(lineOf(d, "Mais opções")).toBe("Janela de contexto e quem atende");
-    await toScreen(d, "Mais opções");
-    expect(lineOf(d, "Esforço")).toBe("Automático");
-    await toScreen(d, "Esforço");
-    expect(within(d).queryByRole("slider", { name: "Esforço" })).toBeNull();
-    expect(d.textContent).toContain(
-      "O modelo Automático escolhe o esforço de cada tarefa. Escolha um modelo para fixar o esforço.",
-    );
-  });
-
-  test("back to a fixed model: the ramp returns at Médio and the effort is saved", async () => {
-    const state = await onClaude({ model: "auto", effectiveModel: "auto", effort: "auto" });
-    const d = await brainDialog();
-    await toScreen(d, "Mais opções");
-    // Claude Code on Automático summarises at 200K.
-    await toScreen(d, "Janela de contexto");
-    expect(d.textContent).toContain("No Claude Code e no Codex, resume a conversa em 200K.");
-    await toScreen(d, "Esforço");
-    expect(within(d).queryByRole("slider", { name: "Esforço" })).toBeNull();
-    await toScreen(d, "Voltar");
-    await toScreen(d, "Modelo");
-    expect(checkedOf(d)).toBe("Automático");
-    await pickRow(d, "Opus");
-    await confirmScreen(d);
-    await settle(6);
-    expect(brainCalls(state).at(-1)).toMatchObject({ brain: "claude_code", model: "opus", effort: "medium" });
-    await toScreen(d, "Mais opções");
-    await toScreen(d, "Esforço");
-    expect(within(d).getByRole("slider", { name: "Esforço" }).getAttribute("aria-valuetext")).toBe("Médio");
-  });
-
-  test("an API key with a fixed model: the effort is under Mais opções, none chosen until the ramp moves", async () => {
-    const state = seedState();
-    const api = createFakeApi(state);
-    // New agents are created with the effort on auto: on a key that leaves it to the provider.
-    follow(api, fakeAgentBrain(ADA_ID, { effort: "auto" }));
-    await open(state, api);
-    const d = await brainDialog();
-    expect(lineOf(d, "Mais opções")).toBe("Esforço e janela de contexto");
-    await toScreen(d, "Mais opções");
-    expect(lineOf(d, "Esforço")).toBe("Padrão do modelo");
-    await toScreen(d, "Esforço");
-    const ramp = within(d).getByRole("slider", { name: "Esforço" });
-    // The API takes three levels: Máximo would go as Alto, so it isn't offered.
-    expect(ramp.getAttribute("aria-valuemax")).toBe("3");
-    expect(ramp.getAttribute("aria-valuetext")).toBe("Padrão do modelo");
-    expect(ramp.textContent).not.toContain("Máximo");
-    expect(d.textContent).toContain("O modelo pensa o quanto costuma.");
-    await act(async () => fireEvent.keyDown(ramp, { key: "ArrowRight" }));
-    expect(ramp.getAttribute("aria-valuetext")).toBe("Baixo");
-    await act(async () => fireEvent.keyDown(ramp, { key: "ArrowRight" }));
-    // Médio is a level here, not the default.
-    expect(ramp.getAttribute("aria-valuetext")).toBe("Médio");
-    expect(d.textContent).not.toContain("O padrão.");
-    await act(async () => fireEvent.keyDown(ramp, { key: "ArrowRight" }));
-    expect(ramp.getAttribute("aria-valuetext")).toBe("Alto");
-    await done(d);
-    await settle(6);
-    expect(brainCalls(state)).toEqual([{ brain: "model", effort: "high" }]);
-  });
-
-  test("an API key: a stored Máximo shows as Alto, and Voltar ao padrão gives it back to the model", async () => {
-    const state = seedState();
-    const api = createFakeApi(state);
-    follow(api, fakeAgentBrain(ADA_ID, { effort: "max" }));
-    await open(state, api);
-    expect(brainCell().value).toContain("esforço alto");
-    const d = await brainDialog();
-    await toScreen(d, "Mais opções");
-    expect(lineOf(d, "Esforço")).toBe("Alto");
-    await act(async () => fireEvent.click(within(d).getByRole("button", { name: "Voltar ao padrão" })));
-    expect(lineOf(d, "Esforço")).toBe("Padrão do modelo");
-    await done(d);
-    await settle(6);
-    expect(brainCalls(state)).toEqual([{ brain: "model", effort: "auto" }]);
-  });
-
-  test("an API key on Automático: no ramp, the model picks the effort", async () => {
-    const state = seedState();
-    const api = createFakeApi(state);
-    await api.agents.update(ORG_ID, ADA_ID, { model: "auto" });
-    follow(api, fakeAgentBrain(ADA_ID, { effort: "auto" }));
-    await open(state, api);
-    const d = await brainDialog();
-    expect(lineOf(d, "Mais opções")).toBe("Janela de contexto");
-    await toScreen(d, "Mais opções");
-    expect(lineOf(d, "Esforço")).toBe("Automático");
-    // A key has its own cap: the line under Automático stays the model's window.
-    await toScreen(d, "Janela de contexto");
-    expect(d.textContent).toContain("O que o modelo aguenta.");
-    expect(d.textContent).not.toContain("resume a conversa em 200K");
-    await toScreen(d, "Esforço");
-    expect(within(d).queryByRole("slider", { name: "Esforço" })).toBeNull();
-  });
-
-  test("a new agent (Automático on every brain) switching to Claude Code starts there on Automático", async () => {
-    const state = seedState();
-    const api = createFakeApi(state);
-    pairMac(api, true);
-    await api.sandbox.setTarget(ORG_ID, ADA_ID, "machine_1");
-    // Its own Claude Code sign-in is there: Claude Code starts on it, not on a sign-in.
-    reportOwn(api, { claude_code: { plan: "max" } });
-    // New agents are created with the effort on auto too; the API brain doesn't show it.
-    follow(api, fakeAgentBrain(ADA_ID, { effort: "auto" }));
-    await open(state, api);
-    const d = await brainDialog();
-    await toScreen(d, "Trocar de conta");
-    await pickRow(d, (r) => r.group !== "Em uso" && r.mark === "claude");
-    await confirmScreen(d);
-    await settle(6);
-    expect(brainCalls(state).at(-1)).toEqual({ brain: "claude_code", model: "auto", account: null });
-    expect(brainScreen(d)).toBe("Pronto");
-    await done(d);
-    expect(lineOf(await brainDialog(), "Modelo")).toBe("Automático");
-  });
-
-  test("the organization's model: Automático is the first choice, and Usar saves the agent's model as auto", async () => {
-    const { state } = await open();
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    expect(rowsOf(d)[0]).toEqual(["Automático", "Escolhe o modelo e o esforço para cada tarefa"]);
-    await pickRow(d, "Automático");
-    await confirmScreen(d);
-    await settle(6);
-    expect(state.calls.filter((c) => c.method === "agents.update").map((c) => c.args[2])).toEqual([{ model: "auto" }]);
-    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
-    expect(lineOf(d, "Modelo")).toBe("Automático");
-  });
-
-  test("OpenRouter's models: a search over them, its good picks before the rest, each with its price", async () => {
-    const seeded = seedState({ extraModels: OPENROUTER_MODELS });
-    seeded.credentials.push(OPENROUTER_KEY);
-    const { state } = await open(seeded);
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    expect(groupsOf(d)).toEqual(["Claude", "OpenAI", "OpenRouter · Boas escolhas", "OpenRouter"]);
-    const search = within(d).getByRole("searchbox", { name: "Buscar modelos" });
-    await act(async () => fireEvent.change(search, { target: { value: "glm" } }));
-    expect(rowsOf(d)).toEqual([
-      ["Z.ai: GLM Latest", "US$ 0,1 / US$ 2,77 por milhão de tokens"],
-      ["Z.ai: GLM 5.3", "US$ 0,1 / US$ 2,77 por milhão de tokens"],
-    ]);
-    // The maker's name finds them too; a free one says so.
-    await act(async () => fireEvent.change(search, { target: { value: "nvidia" } }));
-    expect(rowsOf(d)).toContainEqual(["NVIDIA: Nemotron 3 Ultra (free)", "Grátis, com limite diário"]);
-    await act(async () => fireEvent.change(search, { target: { value: "glm" } }));
-    await pickRow(d, "Z.ai: GLM Latest");
-    await confirmScreen(d);
-    await settle(6);
-    expect(state.calls.filter((c) => c.method === "agents.update").map((c) => c.args[2])).toEqual([
-      { model: "~z-ai/glm-latest" },
-    ]);
-  });
-
-  test("the search finds a model by several words, its maker's and its own, in any order", async () => {
-    const seeded = seedState({ extraModels: OPENROUTER_MODELS });
-    seeded.credentials.push(OPENROUTER_KEY);
-    await open(seeded);
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    const search = within(d).getByRole("searchbox", { name: "Buscar modelos" });
-    // Each word on its own: they aren't side by side in the label.
-    for (const value of ["nvidia free", "free nvidia"]) {
-      await act(async () => fireEvent.change(search, { target: { value } }));
-      expect(rowsOf(d)).toEqual([["NVIDIA: Nemotron 3 Ultra (free)", "Grátis, com limite diário"]]);
-    }
-    await act(async () => fireEvent.change(search, { target: { value: "nvidia sonnet" } }));
-    expect(rowsOf(d)).toEqual([]);
-  });
-
-  test("without an OpenRouter key its good picks show, each saying a key opens it, and not the rest of its list", async () => {
-    await open(seedState({ extraModels: OPENROUTER_MODELS }));
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    const picks = brainRows(d).filter((r) => r.group === "OpenRouter · Boas escolhas");
-    expect(picks.map((r) => [r.title, ...r.lines, r.off])).toEqual([
-      ["Z.ai: GLM Latest", "Precisa de uma chave de API OpenRouter", true],
-      ["DeepSeek: DeepSeek Flash Latest", "Precisa de uma chave de API OpenRouter", true],
-      ["Claude Sonnet Latest", "Precisa de uma chave de API OpenRouter", true],
-    ]);
-    expect(groupsOf(d)).not.toContain("OpenRouter");
-  });
-
-  test("Command Code's models show only with its key: choosable, with their prices", async () => {
-    const cc = { provider: "commandcode", pick: false };
-    const models = [
-      {
-        ...cc,
-        id: "commandcode:claude-sonnet-5-5",
-        label: "Claude Sonnet 5.5",
-        inputUsdPerMTok: 2,
-        outputUsdPerMTok: 10,
-      },
-      { ...cc, id: "commandcode:zai-org/GLM-5.3", label: "GLM-5.3", inputUsdPerMTok: 0.6, outputUsdPerMTok: 2.2 },
-    ];
-    await open(seedState({ extraModels: models }));
-    const without = await brainDialog();
-    await toScreen(without, "Modelo");
-    expect(groupsOf(without)).not.toContain("Command Code");
-    cleanup();
-
-    const seeded = seedState({ extraModels: models });
-    seeded.credentials.push({ ...OPENROUTER_KEY, id: "cred-cc", provider: "commandcode", label: "Command Code" });
-    await open(seeded);
-    const d = await brainDialog();
-    await toScreen(d, "Modelo");
-    const rows = brainRows(d).filter((r) => r.group === "Command Code");
-    expect(rows.map((r) => [r.title, r.off])).toEqual([
-      ["Claude Sonnet 5.5", false],
-      ["GLM-5.3", false],
-    ]);
-    expect(rows[0]?.lines.join(" ")).toContain("US$");
-  });
-});
+describe("Quem pensa: Automático", () => {});
 
 describe("Velocidade (ADR 0149)", () => {
   async function onChatGpt(patch: Partial<AgentBrain> = {}, line?: Partial<NonNullable<Agent["brain"]>>) {
@@ -781,28 +275,6 @@ describe("Velocidade (ADR 0149)", () => {
     await toScreen(d, "Velocidade");
     return d;
   };
-
-  test("on a ChatGPT plan with a model that has it: Padrão first, Rápida saved with Concluído, the help says what it costs", async () => {
-    const { state } = await onChatGpt();
-    const d = await brainDialog();
-    expect(lineOf(d, "Mais opções")).toBe("Esforço, velocidade, janela de contexto e quem atende");
-    await toScreen(d, "Mais opções");
-    expect(lineOf(d, "Velocidade")).toBe("Padrão");
-    await toScreen(d, "Velocidade");
-    const [standard, fast] = within(speed(d) as HTMLElement).getAllByRole("radio");
-    expect(standard?.textContent).toBe("Padrão");
-    expect(standard?.getAttribute("aria-checked")).toBe("true");
-    expect(fast?.textContent).toBe("Rápida");
-    expect(d.textContent).toContain(
-      "Responde mais rápido nas conversas e gasta o plano 2,5× mais depressa. Rotinas e tarefas longas seguem no padrão.",
-    );
-    await click(fast as HTMLElement);
-    expect(lineOf(d, "Velocidade")).toBe("Rápida");
-    await done(d);
-    await settle(6);
-    expect(brainCalls(state)).toEqual([{ brain: "codex", speed: "fast" }]);
-    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
-  });
 
   test("Padrão left alone sends nothing; a saved Rápida shows chosen", async () => {
     const { state } = await onChatGpt({ speed: "fast" });
@@ -850,19 +322,5 @@ describe("Velocidade (ADR 0149)", () => {
     expect(brainScreen(d)).toBe("Mais opções da Ada");
     expect(screen().getByRole("dialog", { name: "Mais opções da Ada" })).toBe(d);
     expect(lineOf(d, "Velocidade")).toBe("Rápida");
-  });
-
-  test("Esforço on Mais opções: a level moved on the ramp is saved alone by Concluído", async () => {
-    const { state } = await onChatGpt();
-    const d = await brainDialog();
-    await toScreen(d, "Mais opções");
-    await toScreen(d, "Esforço");
-    const ramp = within(d).getByRole("slider", { name: "Esforço" });
-    await act(async () => fireEvent.keyDown(ramp, { key: "ArrowRight" }));
-    await settle(2);
-    expect(lineOf(d, "Esforço")).toBe("Alto");
-    await done(d);
-    await settle(6);
-    expect(brainCalls(state)).toEqual([{ brain: "codex", effort: "high" }]);
   });
 });

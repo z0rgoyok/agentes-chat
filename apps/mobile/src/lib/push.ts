@@ -114,6 +114,11 @@ function provisioningProfile(): Promise<ProfileFacts | null> {
   return profile;
 }
 
+/** This iPhone build's APNs target (its app id, and whether its tokens are the sandbox's), as its pushes use. */
+export async function iosPushTarget(): Promise<{ appId: string | null; sandbox: boolean }> {
+  return pushTarget(Platform.OS, await provisioningProfile(), Constants.expoConfig);
+}
+
 let tokenUploadOff = false;
 
 /**

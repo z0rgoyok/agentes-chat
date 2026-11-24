@@ -10,7 +10,7 @@ import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
 
-/** A proposal Atlas made in the chat: Ada's instructions unless `patch` says otherwise. */
+/** A proposal Atlas made in the chat, still being reviewed: Ada's instructions unless `patch` says otherwise. */
 const row = (id: string, patch: Partial<Proposal> = {}): Proposal => ({
   id,
   agentId: ADA_ID,
@@ -27,13 +27,31 @@ const row = (id: string, patch: Partial<Proposal> = {}): Proposal => ({
   decider: { type: "admins" },
   createdAt: new Date().toISOString(),
   decidedBy: null,
+  decidedByAgent: null,
+  review: null,
+  reviewed: false,
+  undoable: false,
+  undoneBy: null,
+  undoneAt: null,
   decidedAt: null,
   ...patch,
 });
+/** What Atlas's review decided (ADR 0219): applied, and the viewer may undo it, unless `patch` says otherwise. */
+const reviewed = (patch: Partial<Proposal> = {}): Partial<Proposal> => ({
+  status: "accepted",
+  reviewed: true,
+  decidedByAgent: { agentId: ATLAS_ID, name: "Atlas" },
+  review: "Uma preferência clara do time, que ainda não estava nas instruções.",
+  undoable: true,
+  decidedAt: new Date().toISOString(),
+  ...patch,
+});
+const leftOut = (): Partial<Proposal> =>
+  reviewed({ status: "refused", undoable: false, review: "Já está dito nas instruções." });
 const atlas = (id: string, patch: Partial<Proposal> = {}) =>
   row(id, { agentId: ATLAS_ID, target: { type: "agent_instructions", agentId: ATLAS_ID }, ...patch });
-const adaRole = (id: string) =>
-  row(id, { target: { type: "agent_role", agentId: ADA_ID }, before: "Dev", after: "Revisora de código" });
+const adaRole = (id: string, patch: Partial<Proposal> = {}) =>
+  row(id, { target: { type: "agent_role", agentId: ADA_ID }, before: "Dev", after: "Revisora de código", ...patch });
 
 /** #eng with Atlas's reply carrying the card for `proposals` (`meta.memoryUpdates`). */
 async function openCard(proposals: Proposal[], tweak: (api: ReturnType<typeof createFakeApi>) => void = () => {}) {
@@ -77,126 +95,111 @@ const pastTheList = (api: ReturnType<typeof createFakeApi>) => {
   const list = api.proposals.list;
   api.proposals.list = async (orgId, filter) => (filter?.ids ? list(orgId, filter) : []);
 };
-const accepted = (state: { calls: { method: string; args: unknown[] }[] }) =>
-  state.calls.filter((c) => c.method === "proposals.accept").map((c) => c.args[1]);
+type Calls = { calls: { method: string; args: unknown[] }[] };
+const undone = (state: Calls) => state.calls.filter((c) => c.method === "proposals.undo").map((c) => c.args[1]);
+/** Nobody decides a proposal in the chat any more (ADR 0219): none of the old decision's calls. */
+const decided = (state: Calls) =>
+  state.calls.filter((c) => ["proposals.accept", "proposals.refuse", "proposals.ask"].includes(c.method));
 const click = (el: HTMLElement) => act(async () => fireEvent.click(el));
+const one = () => screen().getByRole("group", { name: "Proposta de mudança de Atlas" });
+const many = () => screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
+/** How the card ended, without the review's line under it. */
+const ending = (card: HTMLElement) => card.querySelector(".rq__answer-text")?.firstChild?.textContent;
+/** Nothing on a card to decide it with: no Accept, Refuse, Edit or "Ask an admin", no switches. */
+function noDecision(card: HTMLElement) {
+  for (const name of [/^Aceitar/, /^Recusar/, "Editar", "Pedir a um admin"])
+    expect(within(card).queryByRole("button", { name })).toBeNull();
+  expect(within(card).queryByRole("switch")).toBeNull();
+}
 
 describe("a skill proposed in the chat", () => {
-  const skill = (id: string) =>
+  const skill = (id: string, patch: Partial<Proposal> = {}) =>
     row(id, {
       target: { type: "skill", agentId: ADA_ID, skillId: "sk-1", name: "relatorios" },
       before: "# Relatórios\n1. Abrir a planilha.",
       after: "# Relatórios\n1. Abrir a planilha.\n2. Conferir os totais.",
       whyCode: "skill",
+      ...patch,
     });
 
-  test("its card shows the change and takes it as proposed: Aceitar and Recusar, no Editar", async () => {
+  test("while the review weighs it the card says so and shows the change, with nothing to decide", async () => {
     const state = await openCard([skill("p-skill")]);
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas" });
+    const card = one();
+    expect(card.querySelector(".rq__state--other")?.textContent).toBe("Avaliando…");
+    expect(card.classList.contains("rq--ended")).toBe(false);
     expect(card.textContent).toContain("relatorios");
     expect(card.querySelector(".rq__wt")?.textContent).toContain("Conferir os totais.");
     await click(within(card).getByRole("button", { name: "Ver a mudança" }));
     expect(card.querySelector(".ac-diff__block--add")?.textContent).toContain("Conferir os totais.");
-    expect(within(card).queryByRole("button", { name: "Editar" })).toBeNull();
-    await click(within(card).getByRole("button", { name: "Aceitar mudança" }));
-    await settle(4);
-    expect(accepted(state)).toEqual(["p-skill"]);
+    noDecision(card);
+    expect(within(card).queryByRole("button", { name: "Desfazer" })).toBeNull();
+    expect(decided(state)).toEqual([]);
   });
 
-  test("whoever can't decide it sees whom it waits for and the change", async () => {
-    await openCard([{ ...skill("p-skill"), canDecide: false }]);
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas" });
-    expect(within(card).queryByRole("button", { name: "Aceitar mudança" })).toBeNull();
-    expect(card.textContent).toContain("Conferir os totais.");
+  test("applied by the review: who applied it, the review's why, and Undo puts it back", async () => {
+    const state = await openCard([skill("p-skill", reviewed())]);
+    const card = one();
+    expect(card.classList.contains("rq--ended")).toBe(true);
+    expect(card.querySelector(".rq__state--other")).toBeNull();
+    expect(card.querySelector(".rq-done__mark[data-done]")).not.toBeNull();
+    expect(ending(card)).toBe("Aplicado pelo Atlas");
+    expect(card.querySelector(".rq__answer-note")?.textContent).toBe(
+      "Uma preferência clara do time, que ainda não estava nas instruções.",
+    );
+    noDecision(card);
+    await click(within(card).getByRole("button", { name: "Desfazer" }));
+    await settle(4);
+    expect(undone(state)).toEqual(["p-skill"]);
+    expect(decided(state)).toEqual([]);
+    // Put back: the same card says who did it, with nothing left to undo.
+    const back = one();
+    expect(ending(back)).toBe("Desfeito por você");
+    expect(back.querySelector(".rq-done__mark[data-done]")).toBeNull();
+    expect(within(back).queryByRole("button", { name: "Desfazer" })).toBeNull();
   });
 });
 
-describe("a change proposed for several agents in the chat", () => {
-  test("one card: the change shown once, a row per agent, 'Aceitar para todos' accepts each row", async () => {
-    const state = await openCard([row("p-ada"), atlas("p-atlas")]);
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
-    expect(card.textContent).toContain("Atlas propõe · instruções de 2 agentes");
-    // The change once, behind "Ver a mudança", its first line in the well.
-    expect(card.querySelector(".rq__wt")?.textContent).toContain("Responder em português.");
-    await click(within(card).getByRole("button", { name: "Ver a mudança" }));
-    expect(card.querySelectorAll(".ac-diff")).toHaveLength(1);
-    // The added lines as Markdown: a list item, not its "- ".
-    const added = card.querySelector(".ac-diff__block--add:last-child");
-    expect(added?.querySelector("li")?.textContent).toBe("Responder em português.");
-    expect(within(card).getByRole("switch", { name: "Incluir Ada" })).toBeTruthy();
-    expect(within(card).getByRole("switch", { name: "Incluir Atlas" })).toBeTruthy();
-    await click(within(card).getByRole("button", { name: "Aceitar para todos" }));
-    await settle(4);
-    expect(accepted(state)).toEqual(["p-ada", "p-atlas"]);
-    // Decided: the same card. What it was, its rows with how each ended, and who decided where the buttons were.
-    const done = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
-    expect(done.classList.contains("rq--ended")).toBe(true);
-    expect(done.querySelector(".rq__lead")?.textContent).toBe("Atlas propõe · instruções de 2 agentes");
-    expect(done.querySelector(".rq__answer-text")?.textContent).toBe("Aplicado por você");
-    expect(done.querySelector(".rq-done__mark[data-done]")).not.toBeNull();
-    expect([...done.querySelectorAll(".proposal-row__status")].map((s) => s.textContent)).toEqual(["Aceita", "Aceita"]);
-    // Nothing left to switch or decide; the change still opens.
-    expect(within(done).queryByRole("switch")).toBeNull();
-    expect(within(done).queryByRole("button", { name: "Aceitar para todos" })).toBeNull();
-    expect(within(done).getByRole("button", { name: "Ver a mudança" })).toBeTruthy();
+describe("a change proposed in the chat, one row", () => {
+  test("Undo shows only while the viewer may put it back", async () => {
+    await openCard([adaRole("p-role", reviewed({ undoable: false }))]);
+    const card = one();
+    expect(ending(card)).toBe("Aplicado pelo Atlas");
+    expect(within(card).queryByRole("button", { name: "Desfazer" })).toBeNull();
   });
 
-  test("a row the viewer can't decide stays off and says whom it waits for; the button counts the chosen rows", async () => {
-    const state = await openCard([
-      row("p-ada"),
-      atlas("p-atlas", { canDecide: false, decider: { type: "user", userId: "u-joao", name: "João" } }),
-      adaRole("p-role"),
+  test("left out by the review: it says so and why, and there is nothing to undo", async () => {
+    await openCard([adaRole("p-role", leftOut())]);
+    const card = one();
+    expect(card.classList.contains("rq--ended")).toBe(true);
+    expect(card.querySelector(".rq-done__mark[data-done]")).toBeNull();
+    expect(ending(card)).toBe("Não aplicado pelo Atlas");
+    expect(card.querySelector(".rq__answer-note")?.textContent).toBe("Já está dito nas instruções.");
+    expect(within(card).queryByRole("button", { name: "Desfazer" })).toBeNull();
+    noDecision(card);
+  });
+
+  test("a workspace-wide lesson no agent holds reads as applied automatically", async () => {
+    await openCard([
+      row("p-context", { agentId: ATLAS_ID, target: { type: "org_context" }, ...reviewed({ decidedByAgent: null }) }),
     ]);
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
-    expect(card.textContent).toContain("Atlas propõe · mudanças em 2 agentes");
+    expect(ending(one())).toBe("Aplicado automaticamente");
+  });
+
+  test("a new role reads as proposed, with no Edit", async () => {
+    await openCard([adaRole("p-role")]);
+    const card = one();
+    expect(card.textContent).toContain("função da Ada");
+    expect(card.textContent).toContain("Mudar a função da Ada");
     expect(card.textContent).toContain("Função: Dev → Revisora de código");
-    const waiting = within(card).getByRole("switch", { name: "Incluir Atlas" });
-    expect(waiting.getAttribute("aria-checked")).toBe("false");
-    expect(waiting.hasAttribute("disabled")).toBe(true);
-    expect(card.textContent).toContain("Aguardando João");
-    expect(within(card).getByRole("button", { name: "Aceitar para 2" })).toBeTruthy();
-    const roles = within(card).getAllByRole("switch", { name: "Incluir Ada" });
-    await click(roles[1] as HTMLElement);
-    await click(within(card).getByRole("button", { name: "Aceitar para 1" }));
-    await settle(4);
-    expect(accepted(state)).toEqual(["p-ada"]);
-  });
-
-  test("a row that went stale meanwhile doesn't stop the others, and a toast says so", async () => {
-    const state = await openCard([row("p-ada"), atlas("p-atlas")]);
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
-    // Atlas's instructions change after the card was read: the server answers 409 for that row.
-    (state.proposals[1] as Proposal).stale = true;
-    await click(within(card).getByRole("button", { name: "Aceitar para todos" }));
-    await settle(4);
-    expect(accepted(state)).toEqual(["p-ada", "p-atlas"]);
-    expect(document.querySelector(".ac-toast")?.textContent).toContain(
-      "Uma não foi aceita: o texto mudou desde a proposta.",
-    );
-    const done = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
-    expect(done.textContent).toContain("1 de 2 aceitas");
-    await click(within(done).getByRole("button", { name: "Ver a mudança" }));
-    expect([...done.querySelectorAll(".proposal-row__status")].map((s) => s.textContent)).toEqual([
-      "Aceita",
-      "Ficou velha",
-    ]);
-  });
-
-  test("a card reads its rows by id: older than the newest proposals the list holds, it still shows whole", async () => {
-    await openCard([row("p-ada"), atlas("p-atlas")], pastTheList);
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
-    expect(within(card).getByRole("switch", { name: "Incluir Ada" })).toBeTruthy();
-    expect(within(card).getByRole("switch", { name: "Incluir Atlas" })).toBeTruthy();
+    noDecision(card);
   });
 
   test("a card of one row reads it by id too", async () => {
     await openCard([adaRole("p-role")], pastTheList);
-    expect(screen().getByRole("group", { name: "Proposta de mudança de Atlas" }).textContent).toContain(
-      "Função: Dev → Revisora de código",
-    );
+    expect(one().textContent).toContain("Função: Dev → Revisora de código");
   });
 
-  test("an accepted role or app reads the agents again, on a card of several rows or of one", async () => {
+  test("Undo on a role reads the agents again", async () => {
     let reads = 0;
     const counting = (api: ReturnType<typeof createFakeApi>) => {
       const list = api.agents.list;
@@ -205,30 +208,88 @@ describe("a change proposed for several agents in the chat", () => {
         return list(orgId);
       };
     };
-    await openCard([adaRole("p-role"), atlas("p-atlas")], counting);
-    let before = reads;
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas para 2 agentes" });
-    await click(within(card).getByRole("button", { name: "Aceitar para todos" }));
+    const state = await openCard([adaRole("p-role", reviewed())], counting);
+    const before = reads;
+    await click(within(one()).getByRole("button", { name: "Desfazer" }));
     await settle(4);
-    expect(reads).toBeGreaterThan(before);
-    cleanup();
-
-    await openCard([adaRole("p-role")], counting);
-    before = reads;
-    await click(screen().getByRole("button", { name: "Aceitar mudança" }));
-    await settle(4);
+    expect(undone(state)).toEqual(["p-role"]);
     expect(reads).toBeGreaterThan(before);
   });
+});
 
-  test("one row alone keeps the single card: a new role is taken as proposed, with no Editar", async () => {
-    const state = await openCard([adaRole("p-role")]);
-    const card = screen().getByRole("group", { name: "Proposta de mudança de Atlas" });
-    expect(card.textContent).toContain("função da Ada");
-    expect(card.textContent).toContain("Mudar a função da Ada");
-    expect(card.textContent).toContain("Função: Dev → Revisora de código");
-    expect(within(card).queryByRole("button", { name: "Editar" })).toBeNull();
-    await click(within(card).getByRole("button", { name: "Aceitar mudança" }));
+describe("a change proposed for several agents in the chat", () => {
+  test("while the review weighs them: the change once, a row per agent saying so, nothing to decide", async () => {
+    const state = await openCard([row("p-ada"), atlas("p-atlas")]);
+    const card = many();
+    expect(card.textContent).toContain("Atlas propõe · instruções de 2 agentes");
+    expect(card.querySelector(".rq__state--other")?.textContent).toBe("Avaliando…");
+    // The change once, behind "See the change", its first line in the well.
+    expect(card.querySelector(".rq__wt")?.textContent).toContain("Responder em português.");
+    await click(within(card).getByRole("button", { name: "Ver a mudança" }));
+    expect(card.querySelectorAll(".ac-diff")).toHaveLength(1);
+    // The added lines as Markdown: a list item, not its "- ".
+    const added = card.querySelector(".ac-diff__block--add:last-child");
+    expect(added?.querySelector("li")?.textContent).toBe("Responder em português.");
+    expect([...card.querySelectorAll(".proposal-row__name")].map((s) => s.textContent)).toEqual(["Ada", "Atlas"]);
+    expect([...card.querySelectorAll(".proposal-row__status")].map((s) => s.textContent)).toEqual([
+      "Avaliando…",
+      "Avaliando…",
+    ]);
+    noDecision(card);
+    expect(decided(state)).toEqual([]);
+  });
+
+  test("rows the review applied alike: the footer says so once, each row its own why and Undo", async () => {
+    const state = await openCard([
+      row("p-ada", reviewed({ review: "Vale para a Ada." })),
+      atlas("p-atlas", reviewed({ review: "Vale para o Atlas." })),
+    ]);
+    const card = many();
+    expect(card.classList.contains("rq--ended")).toBe(true);
+    expect(card.querySelector(".rq__lead")?.textContent).toBe("Atlas propõe · instruções de 2 agentes");
+    expect(card.querySelector(".rq__answer-text")?.textContent).toBe("Aplicado pelo Atlas");
+    expect(card.querySelector(".rq-done__mark[data-done]")).not.toBeNull();
+    expect([...card.querySelectorAll(".proposal-row__status")].map((s) => s.textContent)).toEqual([
+      "Aplicado pelo Atlas",
+      "Aplicado pelo Atlas",
+    ]);
+    expect([...card.querySelectorAll(".proposal-row__why")].map((s) => s.textContent)).toEqual([
+      "Vale para a Ada.",
+      "Vale para o Atlas.",
+    ]);
+    noDecision(card);
+    const undos = within(card).getAllByRole("button", { name: "Desfazer" });
+    expect(undos).toHaveLength(2);
+    await click(undos[1] as HTMLElement);
     await settle(4);
-    expect(state.calls.find((c) => c.method === "proposals.accept")?.args).toEqual([ORG_ID, "p-role", undefined]);
+    expect(undone(state)).toEqual(["p-atlas"]);
+    // One put back, one still applied: the footer counts, each row says how it ended.
+    const after = many();
+    expect(after.querySelector(".rq__answer-text")?.textContent).toBe("1 de 2 aplicadas");
+    expect([...after.querySelectorAll(".proposal-row__status")].map((s) => s.textContent)).toEqual([
+      "Aplicado pelo Atlas",
+      "Desfeito por você",
+    ]);
+    expect(within(after).getAllByRole("button", { name: "Desfazer" })).toHaveLength(1);
+  });
+
+  test("rows that ended apart: applied, left out and overtaken each say so, Undo only where it applies", async () => {
+    await openCard([row("p-ada", reviewed()), atlas("p-atlas", leftOut()), adaRole("p-role", { stale: true })]);
+    const card = many();
+    expect(card.textContent).toContain("Atlas propõe · mudanças em 2 agentes");
+    expect(card.textContent).toContain("Função: Dev → Revisora de código");
+    expect(card.querySelector(".rq__answer-text")?.textContent).toBe("1 de 3 aplicadas");
+    expect([...card.querySelectorAll(".proposal-row__status")].map((s) => s.textContent)).toEqual([
+      "Aplicado pelo Atlas",
+      "Não aplicado pelo Atlas",
+      "Ficou velha",
+    ]);
+    expect(within(card).getAllByRole("button", { name: "Desfazer" })).toHaveLength(1);
+  });
+
+  test("a card reads its rows by id: older than the newest proposals the list holds, it still shows whole", async () => {
+    await openCard([row("p-ada"), atlas("p-atlas")], pastTheList);
+    const card = many();
+    expect([...card.querySelectorAll(".proposal-row__name")].map((s) => s.textContent)).toEqual(["Ada", "Atlas"]);
   });
 });

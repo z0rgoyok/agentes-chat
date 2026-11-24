@@ -14,6 +14,7 @@ import {
 import { channelQuery, insertChannelRef } from "../channel-refs";
 import { cx } from "../cx";
 import { composes, onScreenKeyboard } from "../device";
+import { searchEmoji } from "../emoji-data";
 import { EDGE_ROOM, placeOverSelection } from "../floating";
 import {
   applyFormat,
@@ -22,14 +23,17 @@ import {
   formatShortcut,
   formatShortcutHint,
   insertText,
+  pasteLink,
   type TextEdit,
 } from "../format";
 import { useScrollSides } from "../hooks/useScrollSides";
 import { Icon, type IconName } from "../icons/Icon";
 import { selectionRect } from "../selection-rect";
+import { dragsFiles, pastedFiles, transferFiles } from "../transfer";
+import { typeInto } from "../type-into";
 import { Button } from "./Button";
 import { type EmojiPickerLabels, EmojiPickerPopover, type PickerTab } from "./EmojiPicker";
-import { useAutoGrow, useLocked } from "./Field";
+import { useAutoGrow, useLocked, useStillDefaultText } from "./Field";
 import { modKey } from "./Kbd";
 import { PixelStop } from "./PixelMarks";
 import { Spinner } from "./Skeleton";
@@ -237,7 +241,7 @@ const thumbnailSrc = (url: string | undefined) => (url?.startsWith("blob:") ? en
 /**
  * A file in the composer, as a tile beside the others: an image shows its
  * thumbnail (`preview`, a local object URL); the rest show the type, name and
- * `detail` (the size). A spinner while it uploads, remove.
+ * `detail` (the size). A spinner while it uploads, with a bar along its foot once the share sent is known, remove.
  */
 export function ComposerFile({
   name,
@@ -246,6 +250,7 @@ export function ComposerFile({
   detail,
   status,
   statusLabel,
+  progress,
   removeLabel,
   onRemove,
 }: {
@@ -258,6 +263,8 @@ export function ComposerFile({
   status: "uploading" | "done" | "failed";
   /** Read with the name ("enviando…", "não enviado"). */
   statusLabel?: string;
+  /** The share sent while it uploads, 0 to 1, when the app knows it. */
+  progress?: number;
   /** "Remover relatorio.pdf". */
   removeLabel: string;
   onRemove: () => void;
@@ -266,6 +273,20 @@ export function ComposerFile({
     <button type="button" className="ac-composer__file-remove" aria-label={removeLabel} onClick={onRemove}>
       <Icon name="close" size={14} />
     </button>
+  );
+  const pct =
+    status === "uploading" && progress !== undefined ? Math.round(Math.min(1, Math.max(0, progress)) * 100) : null;
+  const bar = pct !== null && (
+    <span
+      className="ac-composer__file-progress"
+      role="progressbar"
+      aria-label={statusLabel ?? name}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={pct}
+    >
+      <span style={{ width: `${pct}%` }} />
+    </span>
   );
   const src = thumbnailSrc(preview);
   if (src) {
@@ -284,6 +305,7 @@ export function ComposerFile({
           </span>
         )}
         {statusLabel && <span className="ac-visually-hidden">{statusLabel}</span>}
+        {bar}
         {remove}
       </span>
     );
@@ -303,6 +325,7 @@ export function ComposerFile({
         </span>
         {(statusLabel || detail) && <span className="ac-composer__file-detail">{statusLabel ?? detail}</span>}
       </span>
+      {bar}
       {remove}
     </span>
   );
@@ -413,7 +436,7 @@ function FormatBar({
                 onFocus={() => setFocus(i)}
                 onClick={() => onFormat(kind)}
               >
-                <Icon name={FORMAT_ICON[kind]} size={16} />
+                <Icon name={FORMAT_ICON[kind]} size={14} />
               </button>
             </span>
           );
@@ -451,6 +474,20 @@ export function linkQuery(text: string, caret: number): { start: number; query: 
 /** "@que" right before the caret (start of text or after a space or bracket). */
 export function mentionQuery(text: string, caret: number): { start: number; query: string } | null {
   const m = text.slice(0, caret).match(/(^|[\s(])@([\p{L}\p{N}_-]{0,32})$/u);
+  if (!m) return null;
+  const query = m[2] ?? "";
+  return { start: caret - query.length - 1, query };
+}
+
+/** How many emoji a ":name" lists. */
+const EMOJI_SUGGESTIONS = 8;
+
+/**
+ * ":nam" right before the caret, at the start or after a space (Slack, Discord): two letters at least, so a time
+ * ("10:30") or a "Nota:" never opens the list.
+ */
+export function emojiQuery(text: string, caret: number): { start: number; query: string } | null {
+  const m = text.slice(0, caret).match(/(^|\s):([a-z][a-z0-9_+-]{1,31})$/i);
   if (!m) return null;
   const query = m[2] ?? "";
   return { start: caret - query.length - 1, query };
@@ -555,12 +592,15 @@ export function Composer({
     setSelected((was) => (start === end ? null : was?.[0] === start && was[1] === end ? was : [start, end]));
   const listId = useId();
   useImperativeHandle(textareaRef, () => ref.current as HTMLTextAreaElement, []);
+  useStillDefaultText(ref);
   // The "@…" being typed, and the one the person closed with Esc.
   const [token, setToken] = useState<{ start: number; query: string } | null>(null);
   // `[[que` being typed (wiki links).
   const [linkToken, setLinkToken] = useState<{ start: number; query: string } | null>(null);
   // "#que" being typed (channels).
   const [channelToken, setChannelToken] = useState<{ start: number; query: string } | null>(null);
+  // ":nam" being typed (emoji by name).
+  const [emojiToken, setEmojiToken] = useState<{ start: number; query: string } | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
   const [active, setActive] = useState(0);
   const [dragging, setDragging] = useState(false);
@@ -576,6 +616,7 @@ export function Composer({
       setToken(null);
       setLinkToken(null);
       setChannelToken(null);
+      setEmojiToken(null);
     }
     const el = ref.current;
     if (!el) return;
@@ -590,6 +631,10 @@ export function Composer({
     }
   }, [value]);
 
+  /** Every change the box makes itself (a pick, a format, an emoji) goes through here, so ⌘Z undoes it. */
+  const put = (next: string) => {
+    if (!ref.current || !typeInto(ref.current, next)) onChange(next);
+  };
   /** Replaces the text and selection (formatting, emoji), keeping the focus in the box. */
   const edit = (next: TextEdit) => {
     const el = ref.current;
@@ -600,7 +645,7 @@ export function Composer({
       return;
     }
     selectAfter.current = [next.start, next.end];
-    onChange(next.value);
+    put(next.value);
   };
   const selection = () => {
     const el = ref.current;
@@ -615,7 +660,7 @@ export function Composer({
     edit(insertText(value, start, end, e));
   };
   const files = (list: FileList | null | undefined) => Array.from(list ?? []);
-  const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const hasFiles = (e: DragEvent) => dragsFiles(e.dataTransfer);
 
   // "/" commands: only while the box is just "/word" (no space yet).
   const slash = commands ? /^\/(\S*)$/.exec(value) : null;
@@ -635,6 +680,17 @@ export function Composer({
   const linkItems = links && linkToken && linkToken.start !== dismissed ? links.search(linkToken.query) : [];
   const channelItems =
     channels && channelToken && channelToken.start !== dismissed ? channels.search(channelToken.query) : [];
+  const emojiItems: ComposerSuggestion[] =
+    emoji && !disabled && emojiToken && emojiToken.start !== dismissed
+      ? searchEmoji(emojiToken.query.replace(/_/g, " "))
+          .slice(0, EMOJI_SUGGESTIONS)
+          .map((e) => ({
+            key: e.emoji,
+            insert: e.emoji,
+            label: `:${e.name.replace(/ /g, "_")}:`,
+            leading: <span className="ac-suggest__emoji">{e.emoji}</span>,
+          }))
+      : [];
   const items =
     slashItems.length > 0
       ? slashItems
@@ -642,10 +698,13 @@ export function Composer({
         ? linkItems
         : channelItems.length > 0
           ? channelItems
-          : mentionItems;
+          : emojiItems.length > 0
+            ? emojiItems
+            : mentionItems;
   const isSlash = slashItems.length > 0;
   const isLink = !isSlash && linkItems.length > 0;
   const isChannel = !isSlash && !isLink && channelItems.length > 0;
+  const isEmoji = !isSlash && !isLink && !isChannel && emojiItems.length > 0;
   const open = items.length > 0;
   const current = Math.min(active, Math.max(0, items.length - 1));
 
@@ -662,24 +721,32 @@ export function Composer({
       setChannelToken(nextChannel);
       setActive(0);
     }
-    if (!mentions) {
-      if (channels && dismissed !== null && dismissed !== -1 && nextChannel?.start !== dismissed) setDismissed(null);
-      return;
+    const nextEmoji = emoji ? emojiQuery(text, caret) : null;
+    if (emoji && (nextEmoji?.start !== emojiToken?.start || nextEmoji?.query !== emojiToken?.query)) {
+      setEmojiToken(nextEmoji);
+      setActive(0);
     }
-    const next = mentionQuery(text, caret);
-    if (next?.start !== token?.start || next?.query !== token?.query) {
+    const next = mentions ? mentionQuery(text, caret) : null;
+    if (mentions && (next?.start !== token?.start || next?.query !== token?.query)) {
       setToken(next);
       setActive(0);
     }
-    // A closed "@" or "#" list stays closed while its token is still being typed.
-    if (dismissed !== null && next?.start !== dismissed && nextChannel?.start !== dismissed) setDismissed(null);
+    // A closed "@", "#" or ":" list stays closed while its token is still being typed.
+    if (
+      dismissed !== null &&
+      dismissed !== -1 &&
+      next?.start !== dismissed &&
+      nextChannel?.start !== dismissed &&
+      nextEmoji?.start !== dismissed
+    )
+      setDismissed(null);
   };
 
   const pick = (item: ComposerSuggestion) => {
     if (isSlash) {
       const command = commands?.list.find((c) => c.key === item.key);
       caretAfter.current = item.insert.length;
-      onChange(item.insert);
+      put(item.insert);
       command?.onPick?.();
       return;
     }
@@ -689,7 +756,7 @@ export function Composer({
       const next = value.slice(0, linkToken.start) + inserted + value.slice(end).replace(/^\]\]\s?/, "");
       caretAfter.current = linkToken.start + inserted.length;
       setLinkToken(null);
-      onChange(next);
+      put(next);
       links?.onPick?.(item);
       return;
     }
@@ -697,8 +764,17 @@ export function Composer({
       const next = insertChannelRef(value, channelToken, item.insert);
       caretAfter.current = next.caret;
       setChannelToken(null);
-      onChange(next.text);
+      put(next.text);
       channels?.onPick?.(item);
+      return;
+    }
+    if (isEmoji && emojiToken) {
+      const end = emojiToken.start + 1 + emojiToken.query.length;
+      const rest = value.slice(end);
+      const inserted = /^\s/.test(rest) ? item.insert : `${item.insert} `;
+      caretAfter.current = emojiToken.start + inserted.length + (inserted === item.insert ? 1 : 0);
+      setEmojiToken(null);
+      put(value.slice(0, emojiToken.start) + inserted + rest);
       return;
     }
     if (!token) return;
@@ -707,7 +783,7 @@ export function Composer({
     const next = value.slice(0, token.start) + inserted + value.slice(caret).replace(/^ /, "");
     caretAfter.current = token.start + inserted.length;
     setToken(null);
-    onChange(next);
+    put(next);
     mentions?.onPick?.(item);
   };
 
@@ -749,7 +825,9 @@ export function Composer({
           ? (linkToken?.start ?? null)
           : isChannel
             ? (channelToken?.start ?? null)
-            : (token?.start ?? null),
+            : isEmoji
+              ? (emojiToken?.start ?? null)
+              : (token?.start ?? null),
     );
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -962,11 +1040,21 @@ export function Composer({
       }}
       onKeyDown={onKeyDown}
       onPaste={(e) => {
-        const pasted = files(e.clipboardData?.files);
-        if (!onFiles || pasted.length === 0) return;
+        const pasted = onFiles ? pastedFiles(e.clipboardData) : [];
+        if (onFiles && pasted.length > 0) {
+          e.preventDefault();
+          onFiles(pasted);
+          return;
+        }
+        if (!format) return;
+        const { start, end } = selection();
+        const linked = pasteLink(value, start, end, e.clipboardData?.getData("text/plain") ?? "");
+        if (!linked) return;
         e.preventDefault();
-        onFiles(pasted);
+        caretAfter.current = linked.start;
+        put(linked.value);
       }}
+      // A box with only the ":" list keeps its textbox role: that list is a shortcut beside the emoji button.
       {...(mentions || commands || links || channels
         ? {
             role: "combobox",
@@ -1030,10 +1118,11 @@ export function Composer({
             onFiles
               ? (e) => {
                   setDragging(false);
-                  const dropped = files(e.dataTransfer?.files);
-                  if (dropped.length === 0 || disabled) return;
+                  if (!hasFiles(e)) return;
+                  // Taken even when it can't be used: left alone, the browser opens the file in place of the app.
                   e.preventDefault();
-                  onFiles(dropped);
+                  const dropped = transferFiles(e.dataTransfer);
+                  if (dropped.length > 0 && !disabled) onFiles(dropped);
                 }
               : undefined
           }
@@ -1174,7 +1263,7 @@ export function Composer({
           </div>
         </div>
       </RPopover.Anchor>
-      {(mentions || commands || links || channels) && (
+      {(mentions || commands || links || channels || emoji) && (
         <RPopover.Portal>
           <RPopover.Content
             className={cx("ac-menu ac-suggest", isSlash && "ac-suggest--commands")}
@@ -1199,7 +1288,9 @@ export function Composer({
                     ? (links?.listLabel ?? "")
                     : isChannel
                       ? (channels?.listLabel ?? "")
-                      : (mentions?.listLabel ?? "")
+                      : isEmoji
+                        ? (emoji?.dialog ?? "")
+                        : (mentions?.listLabel ?? "")
               }
             >
               {items.map((item, i) => {

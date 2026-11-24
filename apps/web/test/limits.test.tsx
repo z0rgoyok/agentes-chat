@@ -59,6 +59,15 @@ describe("a workspace's limits (ADR 0079)", () => {
     expect(card.textContent).toContain("Arquivos40 GB de 50 GB");
     expect(within(card).getAllByRole("meter")).toHaveLength(2);
     cleanup();
+    // X's month once it was used, as a share alone; nothing before.
+    await go("settings/billing", { connectors: { usedUsd: 1.3, limitUsd: 4.35 } });
+    const x = screen().getByLabelText("Plano e cobrança");
+    expect(x.textContent).toContain("X neste mês30% usado");
+    expect(x.textContent).not.toContain("US$");
+    cleanup();
+    await go("settings/billing", { connectors: { usedUsd: 0, limitUsd: 4.35 } });
+    expect(screen().getByLabelText("Plano e cobrança").textContent).not.toContain("X neste mês");
+    cleanup();
     await go("settings/billing", { storage: { usedBytes: GB, limitBytes: 50 * GB, ownStorage: true } });
     const own = screen().getByLabelText("Plano e cobrança");
     expect(own.textContent).toContain("PessoasSem limite");
@@ -86,7 +95,7 @@ describe("a workspace's limits (ADR 0079)", () => {
     await click(within(invite()).getByRole("button", { name: "Abrir plano e cobrança" }));
     await settle(4);
     expect(billingLinks()).toEqual(["invite_full"]);
-    expect(left).toEqual([`${BILLING}/link?t=invite_full`]);
+    expect(left).toEqual([`${BILLING}/link?t=invite_full&theme=light`]);
     cleanup();
 
     await go("settings/members", { members: { used: 1, limit: 1 } }, false);

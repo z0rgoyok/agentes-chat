@@ -1,7 +1,14 @@
 import { type Issue, type Message, useChannels, type WorkView } from "@agenteschat/client";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { heldBack } from "@agenteschat/client/lib/issues";
-import { handedLine, workLine, workPlanProgress, workWaitsOnPerson } from "@agenteschat/client/lib/long-work";
+import {
+  handedLine,
+  workIsOver,
+  workLine,
+  workPlanProgress,
+  workWaitsOnPerson,
+} from "@agenteschat/client/lib/long-work";
 import { can } from "@agenteschat/client/lib/permissions";
 import { WorkLine, WorkLineAction, WorkPlan } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -29,7 +36,10 @@ function useWorkLine(work: WorkView, inUpdatesThread = false) {
   const agent = dir.agentById.get(work.agentId);
   // As `mayStopRun` decides (who asked, the agent's owner, who manages it); the server has the last word, said in a
   // toast.
-  const canStop = managesAgent(agent) || agent?.ownerUserId === me.user.id || work.requestedByUserId === me.user.id;
+  const canStop =
+    managesAgent(agent) ||
+    (!!agent && ownsAgentAs(agent, me.user.id, dir.rolesOf(me.user.id))) ||
+    work.requestedByUserId === me.user.id;
   const stop = useMutation({
     mutationFn: (runId: string) => api.agents.cancelRun(org.id, runId),
     onError: () => toast.show(t("work.stopFailed"), "error"),
@@ -51,14 +61,17 @@ function useWorkLine(work: WorkView, inUpdatesThread = false) {
 
 /**
  * Under the reply of the agent that handed work over: "Handed to Atlas · working on it · step 3 of 5 · 2 min", the
- * state word in the agent's colour while it works and amber while it waits on someone. Stop while it isn't over,
- * See the result once done. Its updates and report are the delegate's own messages right below.
+ * state word in the agent's colour while it works and amber while it waits on someone. Ver (the two agents' talk, as
+ * the bar's) and Stop while it isn't over, See the result once done. Its updates and report are the delegate's own
+ * messages right below. `data-handoff` lets the bar above the composer leave it out while it is on screen.
  */
 export function HandedWorkLine({ work }: { work: WorkView }) {
   const actions = useChannelActions();
   const { handed, agent, stop, t } = useWorkLine(work, true);
   const h = handed();
   const name = agent?.name ?? t("channel.unknownAgent");
+  const talk = work.handedBy?.consultationId;
+  const seeTalk = talk && !workIsOver(work) && actions?.openConsultation ? actions.openConsultation : undefined;
   return (
     <WorkLine
       tone={h.tone}
@@ -69,7 +82,7 @@ export function HandedWorkLine({ work }: { work: WorkView }) {
             i18nKey="work.handed.lead"
             values={{ name }}
             components={[
-              <span key="who" className="handed-line__who">
+              <span key="who" className="handed-line__who" data-handoff={talk}>
                 <AgentAvatar agentId={work.agentId} name={name} state="idle" size="xs" />
               </span>,
             ]}
@@ -86,6 +99,7 @@ export function HandedWorkLine({ work }: { work: WorkView }) {
               {h.result.label}
             </WorkLineAction>
           )}
+          {seeTalk && talk && <WorkLineAction onClick={() => seeTalk(talk)}>{t("run.strip.see")}</WorkLineAction>}
           {h.stop && (
             <WorkLineAction danger disabled={stop.isPending} onClick={() => stop.mutate(h.stop?.runId as string)}>
               {t("work.stop")}

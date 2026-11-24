@@ -26,6 +26,7 @@ import { upsertMessage } from "@agenteschat/client/lib/timeline";
 import { voiceOf } from "@agenteschat/client/lib/voice";
 import { isIdHandle } from "@agenteschat/ui/names";
 import { useQueryClient } from "@tanstack/react-query";
+import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import { Directory, File, Paths } from "expo-file-system";
 import * as ImagePicker from "expo-image-picker";
@@ -44,7 +45,9 @@ import { LiveQuoteBar } from "../../live-files/talk/AboutLine";
 import { dropTalkAbout, useTalkAbout } from "../../live-files/talk/store";
 import { RemindSheet } from "../../reminders/RemindSheet";
 import { takeShareHandoff, useShareHandoff } from "../../share/handoff";
+import { suggestAgent } from "../../share/suggestions";
 import type { useDirectory } from "../../shared/hooks";
+import { agentLook } from "../../shared/logic";
 import type { useSheet } from "../../shared/SheetHost";
 import { vaultHref } from "../../vault/logic";
 import { retryVoice, type VoiceRefusal } from "../../voice/outbox";
@@ -150,6 +153,9 @@ export function useChatSend({
     // guess stays until the run resumes and takes its place: dropped now, the line went and came back a moment later.
     onSent: (message, local) => {
       live.retarget(local.id, message.id);
+      // A message to an agent: it comes up among the share sheet's suggestions (ADR 0213).
+      const agent = dmAgentId ? dir.agents.find((a) => a.id === dmAgentId) : undefined;
+      if (agent) suggestAgent(orgId, { id: agent.id, name: agent.name, look: agentLook(agent) });
       const steered = Array.isArray(message.meta?.steeredRunIds) ? (message.meta.steeredRunIds as string[]) : [];
       if (live.runs.some((r) => !r.provisional && steered.includes(r.runId))) live.forget(message.id, false);
     },
@@ -664,7 +670,12 @@ export function useChatSend({
     ...(a.width > 0 && a.height > 0 ? { width: a.width, height: a.height } : {}),
     ...(a.type === "video" && a.duration ? { duration: a.duration / 1000 } : {}),
   });
-  const openPlus = () => sheet.open(<PlusActions media={mediaTabs.length > 0} onPick={(p) => void onPlus(p)} />);
+  const openPlus = async () => {
+    // Asked before the sheet opens, so its tiles never move under the thumb. Only whether there is one: reading it is
+    // what makes iOS ask, at the tap on Paste.
+    const paste = await Clipboard.hasImageAsync().catch(() => false);
+    sheet.open(<PlusActions media={mediaTabs.length > 0} paste={paste} onPick={(p) => void onPlus(p)} />);
+  };
   const onPlus = async (pick: PlusPick) => {
     // A next step of the "+" stacks over it at once (the GIFs, a reminder, a mission's summary): a flick down goes back
     // to the "+". What the system presents (the camera, the library, the files picker) waits for the sheet to be gone:
@@ -714,6 +725,29 @@ export function useChatSend({
           }),
         );
         if (!res.canceled) addPending(res.assets.map(pickedAsset));
+        return;
+      }
+      case "paste": {
+        const image = await Clipboard.getImageAsync({ format: "png" }).catch(() => null);
+        if (!image) {
+          toast({ title: t("mobile.plus.pasteGone"), icon: "paste" });
+          return;
+        }
+        const dir = new Directory(Paths.cache, "pasted", String(Date.now()));
+        dir.create({ intermediates: true, idempotent: true });
+        const file = new File(dir, "image.png");
+        file.write(image.data.slice(image.data.indexOf(",") + 1), { encoding: "base64" });
+        addPending([
+          {
+            uri: file.uri,
+            name: file.name,
+            type: "image/png",
+            size: file.size,
+            ...(image.size.width > 0 && image.size.height > 0
+              ? { width: image.size.width, height: image.size.height }
+              : {}),
+          },
+        ]);
         return;
       }
       case "file": {

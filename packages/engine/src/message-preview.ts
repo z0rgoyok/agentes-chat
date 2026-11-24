@@ -1,4 +1,16 @@
+import { plainLine } from "@agenteschat/ui/markdown";
+import { cutText } from "./format";
 import { type MessageMedia, mediaOf } from "./media";
+
+/** Length of a channel's last-message preview (plain text). */
+export const CHANNEL_PREVIEW_LENGTH = 140;
+
+/** Plain text for a card or a preview (`plainLine`), at most `max` chars. `@mentions` stay. */
+export function snippetOf(text: string | null | undefined, max: number): string {
+  if (!text) return "";
+  const plain = plainLine(text, max);
+  return plain.length > max ? `${cutText(plain, max - 1).trimEnd()}…` : plain;
+}
 
 /** `meta.voice` of a message (ADR 0100): all the apps need to draw and play it. */
 export interface MessageVoice {
@@ -71,7 +83,7 @@ export interface PreviewMeta {
   interrupted?: { text: string };
   brainInterrupted?: { brain?: string; text: string; tools?: string[] };
   memoryUpdates?: { action: string; text: string }[];
-  noAi?: { reason: string; own?: string; why?: string };
+  noAi?: { reason: string; own?: string; computer?: string; why?: string };
   /** What a computer brain's wait is on, and a usage wait's state: the chat's words depend on them. */
   brainUnavailable?: Record<string, unknown>;
   usageWait?: Record<string, unknown>;
@@ -106,11 +118,12 @@ export function previewMeta(meta: Record<string, unknown> | null | undefined): P
   if (meta.bodyParams && typeof meta.bodyParams === "object") {
     out.bodyParams = meta.bodyParams as Record<string, unknown>;
   }
-  const noAi = meta.noAi as { reason?: unknown; own?: unknown; why?: unknown } | undefined;
+  const noAi = meta.noAi as { reason?: unknown; own?: unknown; computer?: unknown; why?: unknown } | undefined;
   if (out.bodyCode === "no_ai" && typeof noAi?.reason === "string") {
     out.noAi = {
       reason: noAi.reason,
       ...(typeof noAi.own === "string" ? { own: noAi.own } : {}),
+      ...(typeof noAi.own === "string" && typeof noAi.computer === "string" ? { computer: noAi.computer } : {}),
       ...(typeof noAi.why === "string" ? { why: noAi.why } : {}),
     };
   }

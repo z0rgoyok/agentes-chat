@@ -15,6 +15,7 @@ import {
   useMailProviders,
   useMoveConnectionToTeam,
   useRenameConnection,
+  useServerDatabases,
   useTakeConnectionOffAgent,
 } from "@agenteschat/client";
 import { levelIn } from "@agenteschat/client/lib/access-levels";
@@ -25,7 +26,6 @@ import {
   connectedItems,
   connectionActs,
   connectionTabs,
-  isMcpItem,
   itemName,
   outcomeText,
   personalAllowed,
@@ -34,17 +34,16 @@ import {
 import { sameServer } from "@agenteschat/client/lib/custom-tools";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { relativeTime } from "@agenteschat/client/lib/format";
-import { appAccountsText, githubDisconnectNote } from "@agenteschat/client/lib/github-app";
+import { appAccountsText, githubDisconnectNote, missingEventsText } from "@agenteschat/client/lib/github-app";
 import { choiceOf, mailboxName, newestAccount } from "@agenteschat/client/lib/mail";
 import { ownerScopeOf } from "@agenteschat/client/lib/owner-split";
 import { can } from "@agenteschat/client/lib/permissions";
 import { connectorBrand } from "@agenteschat/client/lib/scopes";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
+  AvatarStack,
   Button,
-  Card,
-  CardHeader,
-  Chip,
+  codeAndBold,
   Dialog,
   DialogBody,
   DialogFooter,
@@ -56,25 +55,25 @@ import {
   Locked,
   Menu,
   MenuItem,
-  MenuSeparator,
 } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ConnectedRow } from "@/components/ConnectedRow";
 import { ConnectFlow, type FlowState, HeaderNames } from "@/components/ConnectFlow";
-import { ConnectorCatalogDialog, ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectedSkeleton, StoreBack, StoreBand, StoreFoot, useCatalogEntries } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import {
   DatabaseConnectFlow,
   DatabaseDisconnectDialog,
   type DatabaseFlowState,
+  DatabaseIcon,
   DatabaseReconnectDialog,
-  DatabaseRow,
   DatabaseScopeDialog,
 } from "@/components/DatabaseConnect";
-import { GitHubAppPanel, GitHubAppServerCard } from "@/components/GitHubAppPanel";
-import { LoadingList } from "@/components/Loading";
+import { GitHubAppPanel, RemoveServerAppDialog, useCreateServerApp } from "@/components/GitHubAppPanel";
 import {
   MailAddressesDialog,
   MailConnectFlow,
@@ -82,7 +81,7 @@ import {
   type MailFlowState,
   MailIcon,
   MailReconnectDialog,
-  MailRow,
+  mailChoiceName,
   mailChoices,
 } from "@/components/MailConnect";
 import { type OwnerTab, OwnerTabs, PersonalOf } from "@/components/OwnerScope";
@@ -95,10 +94,32 @@ import { takesConnectorReturn } from "@/lib/desktop";
 import { navigateAway } from "@/lib/navigate";
 import { useToast } from "@/lib/toast";
 
+/** One connection as the Connected tab and its page show it, whatever its kind (a service, a mailbox, a database). */
+interface Linked {
+  key: string;
+  icon: ReactNode;
+  name: string;
+  /** Under the name: the account, how many tools. */
+  sub: string[];
+  /** What it needs from a person, and the button that settles it (`name`: the button's name for screen readers). */
+  need: { text: string; label?: string; name?: string; run?: () => void } | null;
+  /** Who uses it; null where agents don't use it (this server's GitHub app). */
+  using: Agent[] | null;
+  /** The viewer may change it (its own, or the team's for who manages connectors). */
+  mayChange: boolean;
+  /** Its page's lines: a title, what is set now and the button that changes it. */
+  lines: { id: string; title: string; text: ReactNode; end?: ReactNode; action?: ReactNode }[];
+  more: { id: string; icon: "edit" | "plus" | "members"; label: string; run: () => void }[];
+  disconnect?: () => void;
+  /** The page's last button, when it isn't "Disconnect {name}". */
+  disconnectLabel?: string;
+}
+
 /**
- * Settings → Conectores: what the organization connected, one row per
- * service whatever its kind (state, account, who uses it), "Adicionar
- * conector" (the catalog) and the 3-step connect flow.
+ * Settings → Conectores: a line with a few services' marks and "Browse connectors" (the store, a page of its own:
+ * `/connectors`), then what is connected, one line per connection whatever its kind (a service, an MCP server, a
+ * mailbox, a database, this server's GitHub app). Only what needs a person shows a state, with the button that settles
+ * it; a line opens its page (`?service=on:…`: who uses it, tools, account). Connecting runs the same 3-step flows.
  *
  * Back from OAuth: `?connected=github` (or `custom:{id}`) and `?outcome` say what
  * came in; a new account reopens the flow at "O que faz" for it (a numbered one
@@ -119,6 +140,7 @@ export function ConnectorsSection({
   review,
   mail,
   account,
+  service,
 }: {
   connected?: string;
   /** What the OAuth return did: `connected` (a new account), `reconnected` or `same_account`. */
@@ -127,6 +149,8 @@ export function ConnectorsSection({
   mail?: string;
   /** The mailbox Gmail/Outlook came back with. */
   account?: string;
+  /** The connection whose page is open (`on:…`). */
+  service?: string;
 }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
@@ -140,8 +164,17 @@ export function ConnectorsSection({
   const [picked, setPicked] = useState<OwnerTab | null>(null);
   const agents = useAgents(org.id);
   const composio = useComposioUsage(org.id);
-  const [adding, setAdding] = useState(false);
+  const navigate = useNavigate();
+  const openService = (key?: string) =>
+    void navigate({
+      to: "/org/$orgId/settings/$section",
+      params: { orgId: org.id, section: "connectors" },
+      search: key ? { service: key } : {},
+    });
   const [flow, setFlow] = useState<FlowState | null>(null);
+  const serverApp = useGitHubApp(org.id).data?.setup;
+  const createApp = useCreateServerApp();
+  const [removingApp, setRemovingApp] = useState(false);
   const [removing, setRemoving] = useState<ConnectedItem | null>(null);
   const [renaming, setRenaming] = useState<ConnectedItem | null>(null);
   const toast = useToast();
@@ -202,8 +235,6 @@ export function ConnectorsSection({
   // Databases are the team's.
   const dbList = personal ? [] : (databases.data ?? []);
   const mayAdd = admin || personal;
-  const apps = items.filter((i) => !isMcpItem(i));
-  const mcps = items.filter(isMcpItem);
   const agentList = agents.data ?? [];
   const access = useAgentsAccess(agentList, everything.length > 0);
   const using = (item: ConnectedItem) =>
@@ -258,44 +289,7 @@ export function ConnectorsSection({
     toast,
   ]);
 
-  const row = (item: ConnectedItem) => (
-    <ServiceRow
-      key={item.id}
-      item={item}
-      using={using(item)}
-      total={agentList.length}
-      acts={connectionActs(item, me.user.id, admin)}
-      onTools={() => setFlow({ step: 1, item })}
-      onWho={() => setFlow({ step: 2, item })}
-      onRename={() => setRenaming(item)}
-      onReconnect={() => setFlow({ step: 0, def: item.def, mode: "reconnect", item })}
-      onAddAccount={() => setFlow({ step: 0, def: item.def, mode: "add", item })}
-      onDisconnect={() => setRemoving(item)}
-      onMove={() => setMoving(item)}
-    />
-  );
-  const mailRow = (account: (typeof accounts)[number]) => (
-    <MailRow
-      key={`mail-${account.id}`}
-      account={account}
-      agents={agentList}
-      admin={connectionActs(account, me.user.id, admin).change}
-      onTools={() => setMailFlow({ step: 1, account })}
-      onWho={() => setMailFlow({ step: 2, account })}
-      onAddresses={() => setAddressesOf(account)}
-      onReconnect={() => reconnect(account)}
-      onDisconnect={() => setRemovingMail(account)}
-    />
-  );
   const loaded = connections.isSuccess && servers.isSuccess;
-  // Pessoal is one list across both cards: its empty state shows only when nothing at all is there.
-  const noneYet =
-    loaded &&
-    !mailAccounts.isLoading &&
-    !databases.isLoading &&
-    (personal ? items.length : apps.length) === 0 &&
-    accounts.length === 0 &&
-    dbList.length === 0;
   const look = useRightHandLook();
   const [moving, setMoving] = useState<ConnectedItem | null>(null);
   const [takingOff, setTakingOff] = useState<ConnectedItem | null>(null);
@@ -303,348 +297,586 @@ export function ConnectorsSection({
   // A row taken off or removed leaves the focus on the list's heading, not on the page.
   useFocusHome("conn-sec", ["connected-others", "sec-conn"]);
 
-  return (
-    <>
-      {/* The split covers both cards below, as the Vault's covers its whole list. */}
-      {tabs.shown && loaded && (
-        <OwnerTabs
-          label={t("connectors.title")}
-          value={scope}
-          onValueChange={setPicked}
-          team={tabs.team}
-          personal={tabs.mine}
-        />
-      )}
-      {personal && accounts.length > 0 && (
-        <Card aria-labelledby="sec-own-mail">
-          <CardHeader id="sec-own-mail" icon="mail" title={t("connectors.personal.mailTitle")} />
-          <p className="small muted">{t("connectors.personal.mailNote")}</p>
-          <List className="connected-list" aria-label={t("connectors.personal.mailTitle")}>
-            {accounts.map(mailRow)}
-          </List>
-        </Card>
-      )}
-      {personal && items.length > 0 && (
-        <p className="small muted ac-iconline connected-note">
-          <Icon name="lock" size={14} />
-          <span>{t("connectors.personal.note")}</span>
-        </p>
-      )}
-      <Card id="conn-sec" aria-labelledby="sec-conn">
-        <CardHeader
-          id="sec-conn"
-          icon="plug"
-          title={t("connectors.title")}
-          action={
-            // The empty state takes over this button: one way in, in the middle of the card.
-            mayAdd &&
-            !noneYet && (
-              <Button size="sm" variant="primary" icon="plus" onClick={() => setAdding(true)}>
-                {t("connectors.add")}
-              </Button>
-            )
-          }
-        />
-        {composio.data && nearComposioLimit(composio.data) && (
-          <p className="small muted">{composioUsageText(t, i18n.language, composio.data)}</p>
-        )}
-        {(connections.isLoading || servers.isLoading) && <LoadingList count={2} trailing />}
-        {noneYet && (
-          <EmptyState
-            size="panel"
-            agent={look}
-            title={t(
-              personal
-                ? "connectors.personal.emptyTitle"
-                : admin
-                  ? modeKey(org, "connectors.noneTitle")
-                  : "access.noConnectorsViewerTitle",
-            )}
-            actions={
-              mayAdd && (
-                <Button variant="primary" icon="plus" onClick={() => setAdding(true)}>
-                  {t("connectors.add")}
-                </Button>
-              )
-            }
-          >
-            {t(personal ? "connectors.personal.emptyText" : admin ? "connectors.none" : "access.noConnectorsViewer")}
-          </EmptyState>
-        )}
-        {personal && loaded && !noneYet && apps.length === 0 && (
-          <p className="small muted">{t("connectors.personal.noApps")}</p>
-        )}
-        {apps.length + listedMail.length + dbList.length > 0 && (
-          <List className="connected-list" aria-label={t("connectors.connectedList")}>
-            {listedMail.map(mailRow)}
-            {dbList.map((connection) => (
-              <DatabaseRow
-                key={`db-${connection.id}`}
-                connection={connection}
-                agents={agentList}
-                admin={admin}
-                onTools={() => setDbFlow({ step: 1, connection })}
-                onWho={() => setDbFlow({ step: 2, connection })}
-                onReconnect={() => setReconnectingDb(connection)}
-                onScope={() => setScopingDb(connection)}
-                onDisconnect={() => setRemovingDb(connection)}
-              />
-            ))}
-            {apps.map(row)}
-          </List>
-        )}
-        {!personal && (
-          <GitHubAppPanel
-            onConnectAccount={() => {
-              const github = defs.find((d) => d.id === "github");
-              if (github) setFlow({ step: 0, def: github, account: true });
-            }}
-          />
-        )}
-        {admin && !personal && othersCount > 0 && (
-          <OthersPersonal
-            items={tabs.others}
-            mail={tabs.othersMail}
-            agents={agentList}
-            onRemove={setRemoving}
-            onRemoveMail={setRemovingMail}
-            onTakeOff={setTakingOff}
-          />
-        )}
-      </Card>
-      <GitHubAppServerCard />
-      <Card aria-labelledby="sec-mcp">
-        <CardHeader
-          id="sec-mcp"
-          icon="code"
-          title={t("connectors.mcp.title")}
-          action={
-            // The page's one primary is Add connector above; a server by address is the second way in.
-            mayAdd && (
-              <Button size="sm" icon="plus" onClick={() => setFlow({ step: 0, def: null, personal })}>
-                {t("connectors.mcp.add")}
-              </Button>
-            )
-          }
-        />
-        {loaded && mcps.length === 0 && !(personal && noneYet) && (
-          <p className="small muted">{t("connectors.mcp.none")}</p>
-        )}
-        {mcps.length > 0 && (
-          <List className="connected-list" aria-label={t("connectors.mcp.list")}>
-            {mcps.map(row)}
-          </List>
-        )}
+  // Who uses a connection, in words: the agents by name while they are few, else how many of the team.
+  const whoText = (list: Agent[]) =>
+    list.length === 0
+      ? t("connectors.usedByNone")
+      : list.length === agentList.length
+        ? t("connectors.store.whoEvery", { count: list.length })
+        : list.length <= 3
+          ? t("connectors.store.whoSome", {
+              names: new Intl.ListFormat(i18n.language, { type: "conjunction" }).format(list.map((a) => a.name)),
+              count: agentList.length - list.length,
+            })
+          : t("connectors.usedBy", { count: list.length, total: agentList.length });
+  const faces = (list: Agent[]) =>
+    list.length > 0 && (
+      <AvatarStack>
+        {list.slice(0, 3).map((a) => (
+          <AgentAvatar key={a.id} agentId={a.id} name={a.name} size="xs" />
+        ))}
+      </AvatarStack>
+    );
+  const act = (label: string, name: string, run: () => void) => (
+    <Button size="sm" aria-label={name} onClick={run}>
+      {label}
+    </Button>
+  );
+  const whoLine = (list: Agent[], name: string, run: () => void) => ({
+    id: "who",
+    title: t("connectors.who"),
+    text: whoText(list),
+    end: faces(list),
+    action: act(t("connectors.store.change"), t("connectors.whoName", { name }), run),
+  });
 
-        <ConnectorCatalogDialog
-          open={adding}
-          onOpenChange={setAdding}
-          // GitHub connects for the team only: not offered on Pessoal.
-          connectors={personal ? defs.filter((d) => personalAllowed(d.id)) : defs}
-          connected={connectedIds(items)}
-          loading={catalog.isLoading}
-          onPick={(def) => {
-            setAdding(false);
-            // Connected already: a server by address takes another account, a catalog connector a new sign-in. GitHub
-            // through the agentes.chat app alone has no sign-in: it offers the app on another account, or an account.
-            const item = items.find((i) => i.def?.id === def.id);
-            setFlow(
-              item && !item.viaGithubApp
-                ? { step: 0, def, mode: item.custom ? "add" : "reconnect", item }
-                : { step: 0, def, personal },
-            );
-          }}
-          onOther={() => {
-            setAdding(false);
-            setFlow({ step: 0, def: null, personal });
-          }}
-          mail={{
-            choices: mailChoices(mailProviders.data),
-            connected: new Set(accounts.map(choiceOf)),
-            onPick: (choice) => {
-              setAdding(false);
-              // A mailbox is its person's: it shows under Pessoal.
-              if (tabs.shown) setPicked("personal");
-              setMailFlow({ step: 0, choice });
-            },
-          }}
-          database={
-            personal
-              ? undefined
-              : {
-                  connected: dbList.length > 0,
-                  onPick: () => {
-                    setAdding(false);
-                    setDbFlow({ step: 0 });
-                  },
+  const fromItem = (item: ConnectedItem): Linked => {
+    const acts = connectionActs(item, me.user.id, admin);
+    const name = itemName(t, item);
+    const list = using(item);
+    const adds = item.needsReconnect ? null : reconnectAddsText(t, item);
+    const signIn = () => setFlow({ step: 0, def: item.def, mode: "reconnect", item });
+    const tools = () => setFlow({ step: 1, item });
+    const account =
+      item.viaGithubApp && item.account
+        ? appAccountsText(t, item.account)
+        : item.account
+          ? t("connectors.connectedAs", { account: item.account })
+          : null;
+    const sent = item.server?.headerNames ?? [];
+    const reconnectLabel = t("connectors.detail.reconnect");
+    const reconnectName = t("connectors.reconnectName", { name });
+    const reviewName = t("connectors.reviewName", { name });
+    return {
+      key: `on:${item.id}`,
+      icon: <ConnectorIcon def={item.def} image={item.image} label={name} />,
+      name,
+      sub: [item.account, t("connectors.toolsCount", { count: item.tools })].filter((x): x is string => !!x),
+      need: item.needsReconnect
+        ? { text: t("connectors.composio.needsReconnect"), label: reconnectLabel, name: reconnectName, run: signIn }
+        : adds
+          ? { text: adds, label: reconnectLabel, name: reconnectName, run: signIn }
+          : item.toolsError
+            ? { text: t("connectors.noToolsNow") }
+            : item.pending > 0 && item.server?.reviewedAt
+              ? {
+                  text: t("connectors.toReview", { count: item.pending }),
+                  label: t("connectors.review"),
+                  name: reviewName,
+                  run: tools,
                 }
-          }
-        />
-        <ConnectFlow flow={flow} onChange={setFlow} onClose={() => setFlow(null)} />
-        <MailConnectFlow flow={mailFlow} onChange={setMailFlow} onClose={() => setMailFlow(null)} />
-        <MailReconnectDialog account={reconnecting} onClose={() => setReconnecting(null)} />
-        <MailAddressesDialog account={addressesOf} onClose={() => setAddressesOf(null)} />
-        <MailDisconnectDialog account={removingMail} onClose={() => setRemovingMail(null)} />
-        <DatabaseConnectFlow flow={dbFlow} onChange={setDbFlow} onClose={() => setDbFlow(null)} />
-        <DatabaseReconnectDialog connection={reconnectingDb} onClose={() => setReconnectingDb(null)} />
-        <DatabaseScopeDialog connection={scopingDb} onClose={() => setScopingDb(null)} />
-        <DatabaseDisconnectDialog connection={removingDb} onClose={() => setRemovingDb(null)} />
-        <DisconnectDialog
-          item={removing}
-          using={removing ? using(removing).length : 0}
-          onClose={() => setRemoving(null)}
-        />
-        <RenameDialog item={renaming} onClose={() => setRenaming(null)} />
-        <MoveToTeamDialog item={moving} onClose={() => setMoving(null)} />
-        <TakeOffDialog item={takingOff} agents={takingOff ? using(takingOff) : []} onClose={() => setTakingOff(null)} />
-      </Card>
-    </>
+              : item.needsReview
+                ? { text: t("connectors.notReviewed"), label: t("connectors.review"), name: reviewName, run: tools }
+                : null,
+      using: list,
+      mayChange: acts.change,
+      lines: [
+        whoLine(list, name, () => setFlow({ step: 2, item })),
+        {
+          id: "tools",
+          title: t("connectors.tools"),
+          text: t("connectors.toolsCount", { count: item.tools }),
+          action: act(t("connectors.store.see"), t("connectors.toolsName", { name }), tools),
+        },
+        {
+          id: "account",
+          title: t("connectors.store.account"),
+          text: (
+            <>
+              {[account, relativeTime(t, i18n.language, item.createdAt)].filter(Boolean).join(" · ")}
+              {/* The request headers a server by address is also sent, by name: their values are never shown. */}
+              {sent.length > 0 && (
+                <>
+                  <br />
+                  <Trans i18nKey="connectors.sendsToo" components={{ names: <HeaderNames names={sent} /> }} />
+                </>
+              )}
+            </>
+          ),
+          // GitHub through the app alone has no sign-in to renew: its accounts are on GitHub's side.
+          action: item.viaGithubApp ? undefined : act(reconnectLabel, t("connectors.reconnectName", { name }), signIn),
+        },
+      ],
+      more: [
+        { id: "rename", icon: "edit" as const, label: t("connectors.rename"), run: () => setRenaming(item) },
+        ...(item.custom
+          ? [
+              {
+                id: "add",
+                icon: "plus" as const,
+                label: t("connectors.detail.addAccount"),
+                run: () => setFlow({ step: 0, def: item.def, mode: "add", item }),
+              },
+            ]
+          : []),
+        ...(acts.moveToTeam
+          ? [
+              {
+                id: "move",
+                icon: "members" as const,
+                label: t("connectors.personal.moveToTeam"),
+                run: () => setMoving(item),
+              },
+            ]
+          : []),
+      ],
+      disconnect: () => setRemoving(item),
+    };
+  };
+  const fromMail = (box: (typeof accounts)[number]): Linked => {
+    const name = box.address;
+    const list = agentList.filter((a) => box.agents.some((x) => x.agentId === a.id));
+    const signIn = () => reconnect(box);
+    return {
+      key: `on:mail-${box.id}`,
+      icon: <MailIcon choice={choiceOf(box)} />,
+      name: mailChoiceName(t, choiceOf(box)),
+      sub: [box.address],
+      need:
+        box.status === "needs_reconnect"
+          ? {
+              text: t("mail.status.needs_reconnect"),
+              label: t("mail.reconnect"),
+              name: t("mail.reconnectName", { name }),
+              run: signIn,
+            }
+          : box.status === "pending"
+            ? { text: t("mail.status.pending") }
+            : null,
+      using: list,
+      mayChange: connectionActs(box, me.user.id, admin).change,
+      lines: [
+        whoLine(list, name, () => setMailFlow({ step: 2, account: box })),
+        {
+          id: "tools",
+          title: t("connectors.tools"),
+          text: t("connectors.store.toolsText"),
+          action: act(t("connectors.store.see"), t("connectors.toolsName", { name }), () =>
+            setMailFlow({ step: 1, account: box }),
+          ),
+        },
+        {
+          id: "addresses",
+          title: t("mail.addresses.button"),
+          text: t("connectors.store.addressesText"),
+          action: act(t("connectors.store.change"), t("mail.addresses.buttonName", { name }), () =>
+            setAddressesOf(box),
+          ),
+        },
+        {
+          id: "account",
+          title: t("connectors.store.account"),
+          text: [
+            t("connectors.connectedAs", { account: box.address }),
+            relativeTime(t, i18n.language, box.createdAt),
+          ].join(" · "),
+          action: act(t("mail.reconnect"), t("mail.reconnectName", { name }), signIn),
+        },
+      ],
+      more: [],
+      disconnect: () => setRemovingMail(box),
+      // Two mailboxes of one provider share its name: the address says which one goes.
+      disconnectLabel: t("connectors.disconnectName", { name: box.address }),
+    };
+  };
+  const fromDatabase = (db: DatabaseConnection): Linked => {
+    const name = db.label;
+    const list = agentList.filter((a) => db.agents.some((x) => x.agentId === a.id));
+    const signIn = () => setReconnectingDb(db);
+    const where = db.wholeServer ? `${db.username}@${db.host}` : `${db.username}@${db.host}/${db.database}`;
+    return {
+      key: `on:db-${db.id}`,
+      icon: <DatabaseIcon />,
+      name,
+      sub: [t("database.readOnlyChip"), where],
+      need:
+        db.status === "needs_reconnect"
+          ? {
+              text: t("mail.status.needs_reconnect"),
+              label: t("mail.reconnect"),
+              name: t("mail.reconnectName", { name }),
+              run: signIn,
+            }
+          : null,
+      using: list,
+      mayChange: admin,
+      lines: [
+        whoLine(list, name, () => setDbFlow({ step: 2, connection: db })),
+        {
+          id: "tools",
+          title: t("connectors.tools"),
+          text: t("connectors.store.toolsText"),
+          action: act(t("connectors.store.see"), t("connectors.toolsName", { name }), () =>
+            setDbFlow({ step: 1, connection: db }),
+          ),
+        },
+        {
+          id: "scope",
+          title: t("database.scopeEdit"),
+          text: db.wholeServer ? (
+            <>
+              <DatabaseCount connection={db} />
+              {db.databasePrefix && ` · ${t("database.prefixRow", { prefix: db.databasePrefix })}`}
+            </>
+          ) : (
+            db.database
+          ),
+          action: (
+            <>
+              {db.wholeServer && <DatabaseRefresh connection={db} />}
+              {act(t("connectors.store.change"), t("database.scopeEditName", { name }), () => setScopingDb(db))}
+            </>
+          ),
+        },
+        {
+          id: "account",
+          title: t("connectors.store.account"),
+          text: [t("connectors.connectedAs", { account: where }), relativeTime(t, i18n.language, db.createdAt)].join(
+            " · ",
+          ),
+          action: act(t("mail.reconnect"), t("mail.reconnectName", { name }), signIn),
+        },
+      ],
+      more: [],
+      disconnect: () => setRemovingDb(db),
+    };
+  };
+  // This server's GitHub app (its owner's, never on agentes.chat Cloud): to create while missing, then its own page.
+  const fromServerApp = (setup: NonNullable<typeof serverApp>): Linked => {
+    const name = t("githubApp.server.title");
+    const events = missingEventsText(t, setup);
+    const note =
+      setup.source === "env"
+        ? t("githubApp.server.line.env")
+        : setup.state === "invalid"
+          ? t("githubApp.server.line.invalid")
+          : null;
+    const outside = (href: string, label: string) => (
+      <Button asChild size="sm">
+        <a href={href} target="_blank" rel="noopener noreferrer">
+          <Icon name="external" size={14} />
+          {label}
+        </a>
+      </Button>
+    );
+    const create = (
+      <Button
+        size="sm"
+        variant="primary"
+        loading={createApp.pending}
+        disabled={createApp.pending}
+        onClick={createApp.run}
+      >
+        {t("githubApp.server.create")}
+      </Button>
+    );
+    return {
+      key: "on:github-app",
+      icon: <ConnectorIcon def={defs.find((d) => d.id === "github") ?? null} label="GitHub" />,
+      name,
+      sub: [setup.canCreate ? t("githubApp.server.lead") : (setup.slug ?? "")].filter(Boolean),
+      need: setup.canCreate
+        ? { text: t("connectors.store.appMissing"), label: t("githubApp.server.create"), run: createApp.run }
+        : setup.state === "invalid"
+          ? { text: t("githubApp.server.state.invalid") }
+          : events
+            ? { text: t("connectors.store.appEvents") }
+            : null,
+      using: null,
+      mayChange: true,
+      lines: setup.canCreate
+        ? [{ id: "app", title: t("connectors.store.appLine"), text: t("githubApp.server.without"), action: create }]
+        : [
+            {
+              id: "app",
+              title: t("connectors.store.appLine"),
+              text: (
+                <>
+                  {setup.slug ?? name}
+                  {note && (
+                    <>
+                      <br />
+                      {codeAndBold(note)}
+                    </>
+                  )}
+                </>
+              ),
+              action: setup.htmlUrl ? outside(setup.htmlUrl, t("githubApp.server.open")) : undefined,
+            },
+            ...(events
+              ? [
+                  {
+                    id: "events",
+                    title: t("connectors.store.eventsLine"),
+                    text: events,
+                    action: setup.events ? outside(setup.events.url, t("githubApp.server.events")) : undefined,
+                  },
+                ]
+              : []),
+          ],
+      more: [],
+      disconnect: setup.source === "settings" && !setup.canCreate ? () => setRemovingApp(true) : undefined,
+      disconnectLabel: t("githubApp.server.remove"),
+    };
+  };
+  // What needs a person first; the rest in the order they came.
+  const first = (list: Linked[]) => [...list.filter((l) => l.need), ...list.filter((l) => !l.need)];
+  const ownMail = personal ? accounts.map(fromMail) : [];
+  const linked = [...listedMail.map(fromMail), ...dbList.map(fromDatabase), ...items.map(fromItem)];
+  // Nothing connected yet shows the empty state; this server's GitHub app still lists under it.
+  const noneYet = loaded && !mailAccounts.isLoading && !databases.isLoading && ownMail.length + linked.length === 0;
+  const listed = first([...(serverApp && !personal ? [fromServerApp(serverApp)] : []), ...linked]);
+  const everyLinked = [...ownMail, ...listed];
+
+  // The store is a page of its own (Browse connectors); a service by its address connects in the dialog right here.
+  const openStore = () => void navigate({ to: "/org/$orgId/connectors", params: { orgId: org.id } });
+  const { entries } = useCatalogEntries({
+    connectors: personal ? defs.filter((d) => personalAllowed(d.id)) : defs,
+    connected: connectedIds(items),
+    mail: { choices: mailChoices(mailProviders.data), connected: new Set(accounts.map(choiceOf)) },
+    database: personal ? undefined : { connected: dbList.length > 0 },
+  });
+  // One skeleton until the list, the mailboxes, the databases and the catalog (the band's count) are all in.
+  const loading = !loaded || mailAccounts.isLoading || databases.isLoading || catalog.isLoading;
+  const current = service ? (everyLinked.find((l) => l.key === service) ?? null) : null;
+  const back = () => openService();
+
+  const linkedRow = (l: Linked) => (
+    <li key={l.key} className="store-item store-item--link">
+      <button type="button" className="store-item__open" onClick={() => openService(l.key)}>
+        {l.icon}
+        <span className="store-item__text">
+          <b className="ac-captop">{l.name}</b>
+          <small>
+            {l.need && (
+              <>
+                <span className="store-state" data-s="wait">
+                  {l.need.text}
+                </span>
+                {l.sub.length > 0 && " · "}
+              </>
+            )}
+            {l.sub.join(" · ")}
+          </small>
+        </span>
+      </button>
+      {l.need?.run && l.mayChange ? (
+        <Button size="sm" variant="primary" aria-label={l.need.name ?? l.need.label} onClick={l.need.run}>
+          {l.need.label}
+        </Button>
+      ) : (
+        l.using && (
+          <span className="store-who">
+            {faces(l.using)}
+            {l.using.length > 0 ? t("connectors.store.agents", { count: l.using.length }) : t("connectors.usedByNone")}
+          </span>
+        )
+      )}
+      <Icon name="chevronRight" size={16} className="store-item__chev" />
+    </li>
+  );
+
+  return (
+    <div className="store" id="conn-sec">
+      {current ? (
+        <div className="store-page">
+          <StoreBack onBack={back} />
+          <div className="store-page__head">
+            <span className="store-page__icon">{current.icon}</span>
+            <div className="store-page__title">
+              <h3>{current.name}</h3>
+              <p>
+                <span className="store-state" data-s={current.need ? "wait" : "ok"}>
+                  {current.need ? current.need.text : t("connectors.store.connected")}
+                </span>
+                {current.sub.length > 0 && ` · ${current.sub.join(" · ")}`}
+              </p>
+            </div>
+            {current.mayChange && current.more.length > 0 && (
+              <Menu
+                align="end"
+                label={t("connectors.actionsName", { name: current.name })}
+                trigger={
+                  <Button
+                    variant="ghost"
+                    iconOnly
+                    icon="more"
+                    aria-label={t("connectors.actionsName", { name: current.name })}
+                  />
+                }
+              >
+                {current.more.map((m) => (
+                  <MenuItem key={m.id} icon={m.icon} onSelect={m.run}>
+                    {m.label}
+                  </MenuItem>
+                ))}
+              </Menu>
+            )}
+          </div>
+          {current.mayChange ? (
+            <>
+              <ul className="store-list store-list--lines">
+                {current.lines.map((line) => (
+                  <li key={line.id} className="store-item store-item--tall">
+                    <span className="store-item__text">
+                      <b>{line.title}</b>
+                      <small>{line.text}</small>
+                    </span>
+                    {line.end && <span className="store-who">{line.end}</span>}
+                    {line.action}
+                  </li>
+                ))}
+              </ul>
+              {current.disconnect && (
+                <p className="store-foot">
+                  <Button variant="link" className="store-danger" onClick={current.disconnect}>
+                    {current.disconnectLabel ?? t("connectors.disconnectName", { name: current.name })}
+                  </Button>
+                </p>
+              )}
+            </>
+          ) : (
+            current.using && <p className="store-foot">{whoText(current.using)}</p>
+          )}
+        </div>
+      ) : (
+        <>
+          {/* The split covers the band and the list, as the Vault's covers its whole list. */}
+          {tabs.shown && loaded && (
+            <OwnerTabs
+              label={t("connectors.title")}
+              value={scope}
+              onValueChange={setPicked}
+              team={tabs.team}
+              personal={tabs.mine}
+            />
+          )}
+          {composio.data && nearComposioLimit(composio.data) && (
+            <p className="small muted">{composioUsageText(t, i18n.language, composio.data)}</p>
+          )}
+          {loading ? (
+            <ConnectedSkeleton band={mayAdd} />
+          ) : noneYet ? (
+            <EmptyState
+              size="panel"
+              agent={look}
+              title={t(
+                personal
+                  ? "connectors.personal.emptyTitle"
+                  : admin
+                    ? modeKey(org, "connectors.noneTitle")
+                    : "access.noConnectorsViewerTitle",
+              )}
+              actions={
+                mayAdd && (
+                  <Button variant="primary" onClick={() => openStore()}>
+                    {t("connectors.store.browse")}
+                  </Button>
+                )
+              }
+            >
+              {t(personal ? "connectors.personal.emptyText" : admin ? "connectors.none" : "access.noConnectorsViewer")}
+            </EmptyState>
+          ) : (
+            mayAdd && <StoreBand entries={entries} onOpen={() => openStore()} />
+          )}
+          {!loading && ownMail.length > 0 && (
+            <section className="store-sec" aria-labelledby="sec-own-mail">
+              <div className="store-sec__head">
+                <h3 id="sec-own-mail">{t("connectors.personal.mailTitle")}</h3>
+              </div>
+              <p className="small muted">{t("connectors.personal.mailNote")}</p>
+              <ul className="store-list">{first(ownMail).map(linkedRow)}</ul>
+            </section>
+          )}
+          {!loading && personal && items.length > 0 && (
+            <p className="small muted ac-iconline connected-note">
+              <Icon name="lock" size={14} />
+              <span>{t("connectors.personal.note")}</span>
+            </p>
+          )}
+          {!loading && listed.length > 0 && (
+            <section className="store-sec" aria-labelledby="sec-conn">
+              <div className="store-sec__head">
+                <h3 id="sec-conn" tabIndex={-1}>
+                  {t("connectors.connectedFilter")}
+                </h3>
+              </div>
+              <ul className="store-list">{listed.map(linkedRow)}</ul>
+            </section>
+          )}
+          {!loading && !personal && (
+            <GitHubAppPanel
+              onConnectAccount={() => {
+                const github = defs.find((d) => d.id === "github");
+                if (github) setFlow({ step: 0, def: github, account: true });
+              }}
+            />
+          )}
+          {admin && !personal && othersCount > 0 && (
+            <OthersPersonal
+              items={tabs.others}
+              mail={tabs.othersMail}
+              agents={agentList}
+              onRemove={setRemoving}
+              onRemoveMail={setRemovingMail}
+              onTakeOff={setTakingOff}
+            />
+          )}
+          {!loading && mayAdd && <StoreFoot onOther={() => setFlow({ step: 0, def: null, personal })} />}
+        </>
+      )}
+      <ConnectFlow flow={flow} onChange={setFlow} onClose={() => setFlow(null)} />
+      <MailConnectFlow flow={mailFlow} onChange={setMailFlow} onClose={() => setMailFlow(null)} />
+      <MailReconnectDialog account={reconnecting} onClose={() => setReconnecting(null)} />
+      <MailAddressesDialog account={addressesOf} onClose={() => setAddressesOf(null)} />
+      <MailDisconnectDialog account={removingMail} onClose={() => setRemovingMail(null)} />
+      <DatabaseConnectFlow flow={dbFlow} onChange={setDbFlow} onClose={() => setDbFlow(null)} />
+      <DatabaseReconnectDialog connection={reconnectingDb} onClose={() => setReconnectingDb(null)} />
+      <DatabaseScopeDialog connection={scopingDb} onClose={() => setScopingDb(null)} />
+      <DatabaseDisconnectDialog connection={removingDb} onClose={() => setRemovingDb(null)} />
+      <DisconnectDialog
+        item={removing}
+        using={removing ? using(removing).length : 0}
+        onClose={() => {
+          // Its page is gone with it: back to the list.
+          if (removing && service === `on:${removing.id}` && !everything.some((i) => i.id === removing.id)) back();
+          setRemoving(null);
+        }}
+      />
+      <RenameDialog item={renaming} onClose={() => setRenaming(null)} />
+      <RemoveServerAppDialog open={removingApp} onClose={() => setRemovingApp(false)} />
+      <MoveToTeamDialog item={moving} onClose={() => setMoving(null)} />
+      <TakeOffDialog item={takingOff} agents={takingOff ? using(takingOff) : []} onClose={() => setTakingOff(null)} />
+    </div>
   );
 }
 
-/**
- * One connected account: on its line the icon, name, state and who uses it; inside, the account and what you can do
- * (Quem usa, Ferramentas, and in ⋯ Renomear, Reconectar, another account of an MCP server, Desconectar).
- */
-function ServiceRow({
-  item,
-  using,
-  total,
-  acts,
-  onTools,
-  onWho,
-  onRename,
-  onReconnect,
-  onAddAccount,
-  onDisconnect,
-  onMove,
-}: {
-  item: ConnectedItem;
-  using: Agent[];
-  total: number;
-  /** What the viewer may do with it (`connectionActs`). */
-  acts: ReturnType<typeof connectionActs>;
-  onTools: () => void;
-  onWho: () => void;
-  onRename: () => void;
-  onReconnect: () => void;
-  onAddAccount: () => void;
-  onDisconnect: () => void;
-  onMove: () => void;
-}) {
-  const { t, i18n } = useTranslation();
-  const meta = [
-    item.viaGithubApp && item.account
-      ? appAccountsText(t, item.account)
-      : item.account
-        ? t("connectors.connectedAs", { account: item.account })
-        : null,
-    relativeTime(t, i18n.language, item.createdAt),
-    t("connectors.toolsCount", { count: item.tools }),
-  ].filter(Boolean);
-  const adds = reconnectAddsText(t, item);
-  const name = itemName(t, item);
-  const sent = item.server?.headerNames ?? [];
+/** How many databases a whole-server connection reaches now. */
+function DatabaseCount({ connection }: { connection: DatabaseConnection }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const servers = useServerDatabases(org.id, connection.id, connection.wholeServer);
+  const count = servers.data?.length ?? connection.databaseCount;
+  return <>{count !== null ? t("database.count", { count }) : connection.host}</>;
+}
+
+/** Reads a whole-server connection's databases again. */
+function DatabaseRefresh({ connection }: { connection: DatabaseConnection }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const servers = useServerDatabases(org.id, connection.id, connection.wholeServer);
   return (
-    <ConnectedRow
-      icon={<ConnectorIcon def={item.def} image={item.image} label={name} />}
-      name={name}
-      chips={
-        item.needsReconnect ? (
-          <Chip icon="alert" tone="waiting">
-            {t("connectors.composio.needsReconnect")}
-          </Chip>
-        ) : item.toolsError ? (
-          <Chip icon="alert" tone="waiting">
-            {t("connectors.noToolsNow")}
-          </Chip>
-        ) : item.pending > 0 && item.server?.reviewedAt ? (
-          <Chip icon="waiting" tone="waiting">
-            {t("connectors.toReview", { count: item.pending })}
-          </Chip>
-        ) : item.needsReview ? (
-          <Chip icon="waiting" tone="waiting">
-            {t("connectors.notReviewed")}
-          </Chip>
-        ) : (
-          <Chip icon="check" tone="done">
-            {t("connectors.active")}
-          </Chip>
-        )
-      }
-      using={using}
-      total={total}
-      details={[
-        meta.join(" · "),
-        // The request headers a server by address is also sent, by name: their values are never shown.
-        sent.length > 0 && <Trans i18nKey="connectors.sendsToo" components={{ names: <HeaderNames names={sent} /> }} />,
-        !item.needsReconnect && adds,
-      ]}
-      actions={
-        acts.change && (
-          <>
-            {(item.needsReconnect || adds) && (
-              <Button
-                size="sm"
-                variant="primary"
-                aria-label={t("connectors.reconnectName", { name })}
-                onClick={onReconnect}
-              >
-                {t("connectors.detail.reconnect")}
-              </Button>
-            )}
-            {item.needsReview && !item.needsReconnect && !adds && (
-              <Button size="sm" variant="primary" aria-label={t("connectors.reviewName", { name })} onClick={onTools}>
-                {t("connectors.review")}
-              </Button>
-            )}
-            <Button variant="link" aria-label={t("connectors.whoName", { name })} onClick={onWho}>
-              {t("connectors.who")}
-            </Button>
-            <Button variant="link" aria-label={t("connectors.toolsName", { name })} onClick={onTools}>
-              {t("connectors.tools")}
-            </Button>
-            <Menu
-              align="end"
-              label={t("connectors.actionsName", { name })}
-              trigger={
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  iconOnly
-                  icon="more"
-                  aria-label={t("connectors.actionsName", { name })}
-                />
-              }
-            >
-              <MenuItem icon="edit" onSelect={onRename}>
-                {t("connectors.rename")}
-              </MenuItem>
-              {/* GitHub through the app alone has no sign-in to renew: its accounts are on GitHub's side. */}
-              {!item.viaGithubApp && (
-                <MenuItem icon="refresh" onSelect={onReconnect}>
-                  {t("connectors.detail.reconnect")}
-                </MenuItem>
-              )}
-              {item.custom && (
-                <MenuItem icon="plus" onSelect={onAddAccount}>
-                  {t("connectors.detail.addAccount")}
-                </MenuItem>
-              )}
-              {acts.moveToTeam && (
-                <MenuItem icon="members" onSelect={onMove}>
-                  {t("connectors.personal.moveToTeam")}
-                </MenuItem>
-              )}
-              <MenuSeparator />
-              <MenuItem icon="power" danger onSelect={onDisconnect}>
-                {t("connectors.disconnect")}
-              </MenuItem>
-            </Menu>
-          </>
-        )
-      }
-    />
+    <Button
+      size="sm"
+      variant="ghost"
+      aria-label={t("database.refreshName", { name: connection.label })}
+      disabled={servers.refresh.isPending}
+      loading={servers.refresh.isPending}
+      onClick={() => servers.refresh.mutate()}
+    >
+      {t("database.refresh")}
+    </Button>
   );
 }
 

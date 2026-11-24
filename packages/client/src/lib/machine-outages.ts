@@ -1,5 +1,7 @@
-import type { MachineTool } from "../api/types";
+import type { TFunction } from "i18next";
+import type { MachineTool, PlanDropped } from "../api/types";
 import { brainTool } from "./machines";
+import { planLabel, planOfAccount } from "./no-ai";
 
 /**
  * "Computador desconectado": when the computer that runs some agents' brain
@@ -54,6 +56,7 @@ export interface MoveResultLike {
   skipped: readonly { agentId: string; reason: string }[];
   resumed: number;
   stillWaiting: number;
+  planDropped?: readonly PlanDropped[];
 }
 
 // ── Counts and wording inputs ───────────────────────────────────────────────
@@ -211,6 +214,33 @@ export function moveOutcome(r: MoveResultLike) {
     resumed: Math.max(0, r.resumed),
     stillWaiting: Math.max(0, r.stillWaiting),
     tone: r.moved.length === 0 ? ("none" as const) : r.skipped.length > 0 ? ("partial" as const) : ("done" as const),
+  };
+}
+
+/**
+ * After "Trocar", each agent that moved without its plan (a sign-in is a folder on one computer): where the plan is
+ * signed in and the way back. `signIn`: the plan to open Connect on for them, when there is any.
+ */
+export function planDroppedText(
+  t: TFunction,
+  r: MoveResultLike,
+  where: { from: string; to: string; nameOf: (agentId: string) => string },
+) {
+  const dropped = r.planDropped ?? [];
+  const lines = dropped.map((d) =>
+    t("outage.done.planDropped", {
+      name: where.nameOf(d.agentId),
+      plan: planLabel(t, planOfAccount(d)),
+      from: where.from,
+      to: where.to,
+    }),
+  );
+  const first = dropped[0];
+  return {
+    lines,
+    signIn: first
+      ? { agentId: first.agentId, agentIds: dropped.map((d) => d.agentId), plan: planOfAccount(first) }
+      : null,
   };
 }
 

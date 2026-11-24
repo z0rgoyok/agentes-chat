@@ -240,6 +240,7 @@ function appServer() {
               };
           item("item/started", it);
           const turnId = active.id;
+          active.asking = true;
           return askRunner(
             file ? "item/fileChange/requestApproval" : "item/commandExecution/requestApproval",
             {
@@ -363,6 +364,8 @@ function appServer() {
         if (params.expectedTurnId !== active.id) {
           return fail(`expected active turn id \`${params.expectedTurnId}\` but found \`${active.id}\``);
         }
+        // Waiting on an approval's answer: kept for the model's next request (only the log says it came).
+        if (active.asking) return ok({ turnId: active.id });
         ok({ turnId: active.id });
         // Read at its next model request: the input as a user message with our id.
         setTimeout(() => {

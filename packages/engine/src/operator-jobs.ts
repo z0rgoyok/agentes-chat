@@ -13,7 +13,7 @@ import {
   UuidCursor,
   uuidOf,
 } from "./operator-paging";
-import { LANE_SLOW_FOR_MS } from "./outbox";
+import { jobsOfRun, LANE_SLOW_FOR_MS } from "./outbox";
 
 /**
  * Jobs and usage for the operator API (ADR 0056): what waits in the queue or failed there, and what model calls
@@ -76,11 +76,6 @@ export function jobOf({ dedupe, lastError, confidential, ...job }: JobRow) {
     lastError: confidential ? null : errorText(lastError, OPERATOR_JOB_ERROR_MAX),
   };
 }
-
-// By name, not by payload: a finished job's payload is cleared after 30 days and its name stays. Written as
-// `outbox_run_jobs_idx` is: the kind is the index's condition, and the planner reads `starts_with` as a range of it.
-export const jobsOfRun = (runId: string) =>
-  and(eq(outbox.kind, RUN_JOB), sql`starts_with(${outbox.dedupeKey}, ${`${RUN_JOB}:${runId}`})`);
 
 /**
  * A job is stuck when it has been due this long and no worker took it, or when a worker took it and its lease ran

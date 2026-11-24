@@ -14,8 +14,10 @@ export {
   type LiveAssetFile,
   type LiveAssetOrigin,
   listAssets,
+  MARK_PICTURE_BYTES,
   type PictureFile,
   putAsset,
+  putMarkPicture,
   readPictureFile,
 } from "./assets";
 export type { PresencePeer } from "./awareness";
@@ -26,6 +28,14 @@ export {
   LIVE_CHECKPOINTS,
   writeCheckpoint,
 } from "./checkpoints";
+export {
+  COMMENT_ON_FILE,
+  type CommentToolDeps,
+  createCommentToolSource,
+  isMediaConversation,
+  LOOK_AT_COMMENT,
+  RESOLVE_COMMENT,
+} from "./comment-tools";
 export {
   admitFileAgents,
   conversationFileId,
@@ -38,10 +48,12 @@ export {
   fileConversationSummaries,
   fileOfConversation,
   fileReadersAmong,
+  isPinned,
   type LiveRef,
   liveRefFor,
   liveRefLine,
   liveRefOf,
+  markWords,
   openFileConversation,
 } from "./conversation";
 export { createLiveFile } from "./create";
@@ -99,6 +111,7 @@ export {
   type LiveJobDeps,
   liveJobHandlers,
 } from "./jobs";
+export { isMediaKind, isTalkKind, MEDIA_KINDS, type MediaKind, mediaOfType, type TalkKind, talkKindOf } from "./media";
 export {
   exportLive,
   type LiveExportFormat,
@@ -129,6 +142,7 @@ export {
   snapshotContent,
   versionDoc,
 } from "./preview";
+export { type ResolveActor, type ResolvedMark, resolveComment, resolvedOf } from "./resolve";
 export { type LiveChangeActor, loadHeadDoc, loadHeadState, type StoredChange } from "./store";
 export {
   type CleanSvg,

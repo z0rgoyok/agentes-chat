@@ -11,8 +11,18 @@ import {
   waitingCardOf,
 } from "@agenteschat/client/lib/notifications";
 import { Button, CountBadge, cx, Icon, Kbd, Locked, prefersReducedMotion } from "@agenteschat/ui";
-import { Link } from "@tanstack/react-router";
-import { type FormEvent, useCallback, useContext, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { Link, useRouterState } from "@tanstack/react-router";
+import {
+  type CSSProperties,
+  type FormEvent,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { OpenDetailsContext } from "@/components/details-link";
@@ -73,6 +83,29 @@ export function NoticeIsland() {
     const timer = setTimeout(() => setLeaving(null), LEAVE_MS);
     return () => clearTimeout(timer);
   }, [snap.items]);
+
+  // Under the conversation's header, never over its name and glyphs: its bottom, measured while the island shows.
+  const href = useRouterState({ select: (s) => s.location.href });
+  const showing = snap.items.length > 0 || Boolean(leaving?.length);
+  const [headBottom, setHeadBottom] = useState<number | null>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: another page brings other headers to measure
+  useLayoutEffect(() => {
+    if (!showing) return;
+    const heads = () => [...document.querySelectorAll(".channel__header")];
+    const measure = () => {
+      const bottoms = heads().map((h) => h.getBoundingClientRect().bottom);
+      setHeadBottom(bottoms.length ? Math.max(...bottoms) : null);
+    };
+    measure();
+    // The pages' sheet too: a strip above it (an outage) moves the header without resizing it.
+    const ro = new ResizeObserver(measure);
+    for (const el of [...heads(), ...document.querySelectorAll(".shell__pages")]) ro.observe(el);
+    window.addEventListener("resize", measure);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", measure);
+    };
+  }, [showing, href]);
 
   // Time runs while nobody looks: stopped open, typing, with the pointer on it or the tab hidden.
   useEffect(() => {
@@ -146,7 +179,7 @@ export function NoticeIsland() {
   // In <body>, beside a side pane rather than in the page it makes inert (`useModalSheet` keeps it out of that): over a
   // thread open in the panel, "Ver" is the island's, never the panel header's under it.
   return createPortal(
-    <div className="ni-wrap">
+    <div className="ni-wrap" style={headBottom ? ({ "--ni-head": `${headBottom}px` } as CSSProperties) : undefined}>
       {/* Resting the pointer on it opens it; the pill itself is the button (keyboard, a click). */}
       <div
         ref={root}
@@ -253,7 +286,11 @@ function Line({ n, className }: { n: AppNotification; className?: string }) {
   const request = n.kind === "approval" ? approvals.data?.find((a) => a.id === n.source.approvalId) : undefined;
   // What the right hand found is its headline: nothing under it says it again.
   const line =
-    n.kind === "team_watch" ? "" : request ? approvalTitle(t, request) : noticeLine(n, (kind) => mediaWord(t, kind));
+    n.kind === "team_watch" || n.kind === "budget_paused"
+      ? ""
+      : request
+        ? approvalTitle(t, request)
+        : noticeLine(n, (kind) => mediaWord(t, kind));
   return line ? <span className={className}>{line}</span> : null;
 }
 

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { ASK_AGAIN } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
 import type { ModelRequest } from "@agenteschat/providers";
 import { systemText } from "@agenteschat/providers";
@@ -493,7 +494,7 @@ describe("with nobody behind it, a run works as the agent itself", () => {
     await f.db.update(schema.agents).set({ ownerUserId: bia.id }).where(eq(schema.agents.id, f.agent.id));
     await grantScopes(f.db, f.org.id, f.agent.id, [{ connectionId: null, scope: "sandbox:run" }]);
     const ran: Record<string, unknown>[] = [];
-    // Like run_code: a call that says why asks a person first.
+    // Like run_code: the computer holds a push to main for a person, and the call's why is the card's reason.
     const computer: ToolSource = {
       name: "computer",
       tools: async () => [
@@ -508,8 +509,12 @@ describe("with nobody behind it, a run works as the agent itself", () => {
           },
           scope: "sandbox:run",
           whyAsks: true,
-          execute: async (input) => {
+          execute: async (input, c) => {
             ran.push(input);
+            if (String(input.code).includes("git push") && !c.approved) {
+              const content = `Not run: This push goes to the default branch main: a person approves it first. ${ASK_AGAIN}`;
+              return { content, isError: true, data: { code: "command.approval_needed" } };
+            }
             return { content: "ran" };
           },
         },
@@ -534,7 +539,7 @@ describe("with nobody behind it, a run works as the agent itself", () => {
     if (asked.type !== "approval") throw new Error(`expected an approval, got ${JSON.stringify(asked)}`);
     expect(asked.approval).toMatchObject({ ownerUserId: bia.id, origin: { kind: "unattended" }, why });
     expect(await approverIds(f.db, asked.approval)).toContain(bia.id);
-    expect(ran).toEqual([{ code: "bun test" }]);
+    expect(ran).toEqual([{ code: "bun test" }, { code: "git push origin main", why }]);
   });
 });
 

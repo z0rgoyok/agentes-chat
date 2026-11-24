@@ -159,8 +159,8 @@
     "cloudText": "Toujours allumé. On s'occupe de tout, vous n'avez qu'à l'utiliser.",
     "here": "Sur ce {{device}}",
     "hereText": "Vos agents travaillent tant que l'app est ouverte.",
-    "box": "Sur un ordinateur toujours allumé",
-    "boxText": "Un Mac mini ou un ordinateur du bureau, installé une fois.",
+    "box": "Sur un serveur ou un VPS",
+    "boxText": "Toujours allumé, même avec cette app fermée. Vous l'installez une fois.",
     "goCloud": "Continuer dans le cloud",
     "goHere": "Préparer ce {{device}}",
     "goBox": "Voir comment l'installer",
@@ -168,15 +168,15 @@
     "haveOneLink": "Se connecter par son adresse"
   },
   "install": {
-    "title": "Installer sur un ordinateur toujours allumé",
+    "title": "Installer sur un serveur ou un VPS",
     "lead": "Ça se fait une fois. Ensuite il tourne tout seul, même avec cette app fermée.",
-    "step1": "Sur l'ordinateur qui reste allumé, ouvrez le Terminal et collez ceci",
+    "step1": "Sur le serveur, ouvrez le Terminal (ou connectez-vous en SSH) et collez ceci",
     "step2": "À la fin, un lien s'affiche. Ouvrez-le ici, c'est tout.",
     "noLink": "Pas de lien ?",
     "someoneElse": "Quelqu'un d'autre l'installe ?",
     "copy": "Copier les instructions",
     "copied": "Instructions copiées",
-    "text": "Pour installer agentes.chat sur un ordinateur qui reste allumé (un Mac mini, un ordinateur du bureau ou un serveur) :\n\n1. Sur cet ordinateur, ouvrez le Terminal et collez ceci :\n{{command}}\n\n2. À la fin, un lien s'affiche. Envoyez-le-moi : il ouvre le workspace dans l'app."
+    "text": "Pour installer agentes.chat sur un serveur ou un VPS (ou un ordinateur qui reste allumé, comme un Mac mini) :\n\n1. Sur le serveur, ouvrez le Terminal (ou connectez-vous en SSH) et collez ceci :\n{{command}}\n\n2. À la fin, un lien s'affiche. Envoyez-le-moi : il ouvre le workspace dans l'app."
   },
   "connect": {
     "title": "Se connecter à un workspace qui existe déjà",

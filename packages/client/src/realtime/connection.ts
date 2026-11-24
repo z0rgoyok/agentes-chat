@@ -1,6 +1,13 @@
 import type { ChannelEvent, UserEvent } from "../api/types";
 import { decodeBrowserFrameBytes } from "../browser/frame-bytes";
 import { type BrowserWatcher, createBrowserWatches } from "../browser/watches";
+import {
+  RECONNECT_HEALTHY_MS,
+  reconnectDelay,
+  reconnectStep,
+  retryAfterFromReason,
+  waitAfterRetryHint,
+} from "../lib/backoff";
 import { steerStore } from "./steer";
 import type { TypingKind } from "./typing";
 
@@ -10,8 +17,13 @@ import type { TypingKind } from "./typing";
  * - subscribes per channel (ref-counted) and re-subscribes after reconnects;
  * - says when the server confirms a channel's subscription (`onSubscribed`): its
  *   events arrive only from then on, so what a page read before may be behind;
- * - reconnects with backoff; tells listeners so they catch up over HTTP
- *   (real-time is best effort, the database is the source of truth);
+ * - reconnects with exponential backoff and full jitter (`lib/backoff.ts`), starting over only after a connection
+ *   stayed up `RECONNECT_HEALTHY_MS` (a server that takes the socket and drops it at once doesn't get a dial every
+ *   second); waits at least what a close reason's `retry-after=` asks; keeps one socket at a time; in a hidden tab
+ *   (`hidden`) waits from the longest step; shown again or back online (`checkAlive`), dials within the first step;
+ * - tells listeners so they catch up over HTTP (real-time is best effort, the database is the source of truth), at a
+ *   random point within a few seconds; at once when the app started it again after a `stop()` (the phone back in
+ *   front: that app's own moment, not a restart's wave);
  * - pings to keep the connection alive through proxies, and drops a socket whose pong doesn't come back
  *   (`pongTimeoutMs`): after a network change or a sleep the browser can keep a dead socket "open" for
  *   minutes while HTTP still works, so messages send and nothing arrives live;
@@ -40,6 +52,8 @@ export type ServerFrame =
   /** `agentId`: about an agent's browser (ADR 0040), for the live view. */
   | { type: "error"; code: string; channelId?: string; agentId?: string }
   | { type: "pong" }
+  /** The server missed events meant for this socket and kept it open: read again over HTTP (`onCatchUp`). */
+  | { type: "resync" }
   | { type: "event"; channelId: string; event: ChannelEvent }
   /** `user`: for me only; `org`: broadcasts to the whole organization. */
   | { type: "event"; scope: "user" | "org"; event: UserEvent }
@@ -64,7 +78,7 @@ export interface SocketLike {
   binaryType?: string;
   onopen: ((ev: unknown) => void) | null;
   onmessage: ((ev: { data: unknown }) => void) | null;
-  onclose: ((ev: { code: number }) => void) | null;
+  onclose: ((ev: { code: number; reason?: string }) => void) | null;
   onerror: ((ev: unknown) => void) | null;
 }
 
@@ -84,7 +98,14 @@ const defaultTimers: Timers = {
   clearInterval: (id) => clearInterval(id as ReturnType<typeof setInterval>),
 };
 
+/** Waits before asking again for a channel the server dropped or refused on a live socket. */
 export const BACKOFF_MS = [500, 1000, 2000, 5000, 10_000];
+/** The longest a catch-up waits, at random: a whole server's apps reconnecting at once don't all read at once. */
+export const CATCH_UP_SPREAD_MS = 5000;
+/** A socket back within this long missed little: what is on screen reads again, the rest of what is cached stays. */
+export const BRIEF_GAP_MS = 10_000;
+/** Close codes with which the server says this socket missed events: 1012 (a restart, events missed), 1013 (behind). */
+const MISSED_CLOSE_CODES = new Set([1012, 1013]);
 /** How long after a notification its message's own `message.created` may still come (it is normally first). */
 export const MISSED_MESSAGE_GRACE_MS = 3000;
 /** How many `message.created` ids are remembered for that check. */
@@ -163,6 +184,13 @@ export class RealtimeConnection {
   private readonly listeners = new Map<string, Set<EventListener>>();
   private readonly statusListeners = new Set<(status: ConnectionStatus) => void>();
   private readonly reconnectListeners = new Set<() => void>();
+  private readonly catchUpListeners = new Set<(full: boolean) => void>();
+  private catchUpTimer: unknown = null;
+  private catchUpFull = false;
+  /** Since when nothing reaches this app (null: open), and whether the server's close said events were missed. */
+  private downSince: number | null = null;
+  private missedOnClose = false;
+  private lastHeardAt = 0;
   private readonly subscribedListeners = new Set<(channelId: string) => void>();
   private readonly errorListeners = new Set<(code: string, channelId?: string) => void>();
   private readonly userListeners = new Set<(event: UserEvent) => void>();
@@ -202,6 +230,12 @@ export class RealtimeConnection {
   });
   private attempt = 0;
   private retryTimer: unknown = null;
+  /** When the pending retry dials. */
+  private retryAt = 0;
+  /** When the server's close asked to wait until (`retry-after=`); 0 for no ask. */
+  private retryAfterUntil = 0;
+  /** When the current socket opened (null: none open). */
+  private openedAt: number | null = null;
   private pingTimer: unknown = null;
   private pongTimer: unknown = null;
   /** Channels the server confirmed on this socket. */
@@ -209,8 +243,12 @@ export class RealtimeConnection {
   private readonly retries = new Map<string, { timer: unknown; attempt: number }>();
   /** Recent `message.created` ids, oldest first. */
   private readonly heard = new Set<string>();
+  /** Started again after a `stop()`, its first socket not open nor lost yet. */
+  private restarted = false;
   private everOpened = false;
   private stopped = true;
+  /** This connection's id on the server (`?tab=`): its new socket replaces one it left behind there. */
+  private readonly tab = Math.random().toString(36).slice(2, 12);
   status: ConnectionStatus = "idle";
 
   constructor(
@@ -221,15 +259,29 @@ export class RealtimeConnection {
       pingMs?: number;
       /** How long after a ping with nothing heard back the socket counts as dead and is replaced. */
       pongTimeoutMs?: number;
+      /**
+       * Steps for a channel's subscribe retries, and in place of the exponential reconnect steps when given (tests).
+       * Reconnect waits are a random point within the step either way.
+       */
       backoffMs?: number[];
+      /** Whether the page is hidden (web: a background tab): reconnect waits come from the longest step. */
+      hidden?: () => boolean;
       /**
        * Watched browsers' pictures as bytes on a frame socket each (ADR 0040 §7.1); default true. The phone says no:
        * React Native hands binary messages to JS as base64 decoded in JS, and its image view takes the server's
        * base64 as it is.
        */
       browserFrameSockets?: boolean;
+      /** The longest a catch-up waits (`onCatchUp`); default `CATCH_UP_SPREAD_MS`. */
+      catchUpSpreadMs?: number;
+      now?: () => number;
+      random?: () => number;
     },
   ) {}
+
+  private now() {
+    return (this.options.now ?? Date.now)();
+  }
 
   private get timers() {
     return this.options.timers ?? defaultTimers;
@@ -238,20 +290,19 @@ export class RealtimeConnection {
   start() {
     if (!this.stopped) return;
     this.stopped = false;
+    this.restarted = this.everOpened;
     this.open();
   }
 
   stop() {
     this.stopped = true;
+    this.downSince ??= this.now();
     this.clearTimers();
+    if (this.catchUpTimer !== null) this.timers.clearTimeout(this.catchUpTimer);
+    this.catchUpTimer = null;
     this.closeFrameSockets();
     this.forgetPacing();
-    const socket = this.socket;
-    this.socket = null;
-    if (socket) {
-      socket.onclose = null;
-      socket.close(1000, "bye");
-    }
+    this.dropSocket(1000, "bye");
     this.setStatus("closed");
   }
 
@@ -306,6 +357,33 @@ export class RealtimeConnection {
     return () => {
       this.reconnectListeners.delete(listener);
     };
+  }
+
+  /**
+   * Read again over HTTP what may have been missed, at a random point within `CATCH_UP_SPREAD_MS`: after a reconnect,
+   * or when the server says it missed events (`resync`); at once after a `start()` that followed a `stop()`, if its
+   * first socket opens. `full`: anything cached may be old; otherwise the socket was back within `BRIEF_GAP_MS` and
+   * what is on screen reading again is enough.
+   */
+  onCatchUp(listener: (full: boolean) => void) {
+    this.catchUpListeners.add(listener);
+    return () => {
+      this.catchUpListeners.delete(listener);
+    };
+  }
+
+  private queueCatchUp(full: boolean, atOnce = false) {
+    if (this.catchUpListeners.size === 0) return;
+    this.catchUpFull ||= full;
+    if (this.catchUpTimer !== null) return;
+    const spread = atOnce ? 0 : (this.options.catchUpSpreadMs ?? CATCH_UP_SPREAD_MS);
+    const delay = Math.floor((this.options.random ?? Math.random)() * spread);
+    this.catchUpTimer = this.timers.setTimeout(() => {
+      this.catchUpTimer = null;
+      const all = this.catchUpFull;
+      this.catchUpFull = false;
+      for (const l of this.catchUpListeners) l(all);
+    }, delay);
   }
 
   /**
@@ -537,19 +615,20 @@ export class RealtimeConnection {
    * call it too when the page may have slept or changed networks (visible again, back online).
    */
   checkAlive() {
+    if (this.retryTimer !== null) {
+      // Shown again or back online while waiting to dial: this device's own moment, not a restart's wave, so the dial
+      // comes within the first step if that's sooner (a server's retry-after still holds).
+      if (!this.options.hidden?.()) this.scheduleReconnect(false);
+      return;
+    }
     if (!this.isOpen || this.pongTimer !== null) return;
     this.send({ type: "ping" });
     const socket = this.socket;
     this.pongTimer = this.timers.setTimeout(() => {
       this.pongTimer = null;
       if (this.socket !== socket || !socket) return;
-      // Its close event may never come (or come late, after the new socket opened): detach it first.
-      socket.onclose = null;
-      socket.onmessage = null;
-      socket.onerror = null;
-      try {
-        socket.close(4000, "no pong");
-      } catch {}
+      // Its close event may never come (or come late, after the new socket opened): detached first.
+      this.dropSocket(4000, "no pong");
       this.lost();
     }, this.options.pongTimeoutMs ?? 10_000);
   }
@@ -566,11 +645,28 @@ export class RealtimeConnection {
     };
   }
 
+  /** Detaches and closes the current socket, if any: a late event of it never reaches this connection. */
+  private dropSocket(code: number, reason: string) {
+    const socket = this.socket;
+    this.socket = null;
+    if (!socket) return;
+    socket.onopen = null;
+    socket.onclose = null;
+    socket.onmessage = null;
+    socket.onerror = null;
+    try {
+      socket.close(code, reason);
+    } catch {}
+  }
+
   private open() {
     this.setStatus(this.everOpened ? "reconnecting" : "connecting");
+    // One socket at a time: one still here (opening, or never closed) goes before the next.
+    this.dropSocket(1000, "replaced");
     let socket: SocketLike;
     try {
-      socket = this.options.createSocket(this.options.url);
+      const url = this.options.url;
+      socket = this.options.createSocket(`${url}${url.includes("?") ? "&" : "?"}tab=${this.tab}`);
     } catch {
       this.scheduleReconnect();
       return;
@@ -578,18 +674,28 @@ export class RealtimeConnection {
     this.socket = socket;
     socket.onopen = () => {
       const reconnected = this.everOpened;
+      const now = this.now();
+      const full = this.missedOnClose || now - (this.downSince ?? now) >= BRIEF_GAP_MS;
       this.everOpened = true;
-      this.attempt = 0;
+      this.openedAt = now;
+      this.downSince = null;
+      this.missedOnClose = false;
+      this.lastHeardAt = now;
       this.setStatus("open");
       this.confirmed.clear();
       for (const channelId of this.listeners.keys()) this.send({ type: "subscribe", channelId });
       // The agents' browsers someone is looking at (a watch sent before the socket opened was dropped).
       this.browserWatches.resumeAll();
       this.startPing();
-      if (reconnected) for (const l of this.reconnectListeners) l();
+      if (reconnected) {
+        this.queueCatchUp(full, this.restarted);
+        for (const l of this.reconnectListeners) l();
+      }
+      this.restarted = false;
     };
     socket.onmessage = (ev) => {
       // Anything heard proves the socket alive.
+      this.lastHeardAt = this.now();
       if (this.pongTimer !== null) this.timers.clearTimeout(this.pongTimer);
       this.pongTimer = null;
       this.handle(parseServerFrame(ev.data));
@@ -597,10 +703,24 @@ export class RealtimeConnection {
     socket.onerror = () => {
       // `onclose` follows and schedules the retry.
     };
-    socket.onclose = () => this.lost();
+    socket.onclose = (ev) => this.lost(ev?.code, ev?.reason);
   }
 
-  private lost() {
+  private lost(code?: number, reason?: string) {
+    if (this.downSince === null) {
+      // A socket that went silent (a sleep, a dead network) missed everything since its last answer was due.
+      const ping = this.options.pingMs ?? 30_000;
+      const due = this.lastHeardAt + ping + (this.options.pongTimeoutMs ?? 10_000);
+      this.downSince = ping > 0 ? Math.min(this.now(), due) : this.now();
+    }
+    if (code !== undefined && MISSED_CLOSE_CODES.has(code)) this.missedOnClose = true;
+    // A restart whose first dial failed (the server restarting) comes back with everyone else: spread out.
+    this.restarted = false;
+    const now = this.now();
+    if (this.openedAt !== null && now - this.openedAt >= RECONNECT_HEALTHY_MS) this.attempt = 0;
+    this.openedAt = null;
+    const retryAfter = retryAfterFromReason(reason);
+    this.retryAfterUntil = retryAfter === null ? 0 : now + retryAfter;
     this.socket = null;
     this.clearTimers();
     // The server forgot this socket's views: their frame sockets go, and the watches made again bring new ones.
@@ -672,6 +792,8 @@ export class RealtimeConnection {
       const set = this.listeners.get(frame.channelId);
       if (!set) return;
       for (const l of [...set]) l(frame.event);
+    } else if (frame.type === "resync") {
+      this.queueCatchUp(true);
     } else if (frame.type === "subscribed") {
       this.confirmed.add(frame.channelId);
       this.clearRetry(frame.channelId);
@@ -731,10 +853,22 @@ export class RealtimeConnection {
     if (this.socket && this.socket.readyState === OPEN) this.socket.send(JSON.stringify(frame));
   }
 
-  private scheduleReconnect() {
-    const backoff = this.options.backoffMs ?? BACKOFF_MS;
-    const delay = backoff[Math.min(this.attempt, backoff.length - 1)] ?? 10_000;
-    this.attempt++;
+  /** `next`: a new attempt (false: the pending one brought forward to the first step, if that's sooner). */
+  private scheduleReconnect(next = true) {
+    const attempt = next ? this.attempt++ : 0;
+    const hidden = this.options.hidden?.() === true;
+    const steps = this.options.backoffMs;
+    const step = steps?.length
+      ? (steps[Math.min(hidden ? Infinity : attempt, steps.length - 1)] as number)
+      : reconnectStep(hidden ? Infinity : attempt);
+    const random = this.options.random ?? Math.random;
+    const retryAfter = this.retryAfterUntil - this.now();
+    const delay = retryAfter > 0 ? waitAfterRetryHint(retryAfter, step, random) : reconnectDelay(attempt, random, step);
+    if (!next) {
+      if (this.retryTimer === null || this.now() + delay >= this.retryAt) return;
+      this.timers.clearTimeout(this.retryTimer);
+    }
+    this.retryAt = this.now() + delay;
     this.setStatus("reconnecting");
     this.retryTimer = this.timers.setTimeout(() => {
       this.retryTimer = null;
@@ -761,7 +895,14 @@ export class RealtimeConnection {
 
   private setStatus(status: ConnectionStatus) {
     if (this.status === status) return;
+    if (status === "open") openSockets++;
+    else if (this.status === "open") openSockets--;
     this.status = status;
     for (const l of this.statusListeners) l(status);
   }
 }
+
+let openSockets = 0;
+
+/** Whether any of this app's realtime sockets is open: polls that only back events up may wait longer then. */
+export const realtimeOpen = () => openSockets > 0;

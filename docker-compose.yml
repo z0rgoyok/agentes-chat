@@ -15,6 +15,9 @@ services:
   postgres:
     # pgvector: the first migration creates the vector extension.
     image: pgvector/pgvector:0.8.7-pg18@sha256:2358fcba361ed2233a5ed81b5fe4ca779ccb304120ce531a3bf51c0ed7e2bc11
+    # Docker gives a container 64 MB of /dev/shm, where Postgres keeps its statistics and parallel queries' memory;
+    # past that, any statement can fail with "could not resize shared memory segment". A ceiling, not an allocation.
+    shm_size: 1gb
     environment:
       POSTGRES_USER: agentes
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}"
@@ -76,6 +79,8 @@ services:
     restart: unless-stopped
     # What the app may take from the machine it shares with Postgres (and the speech server). Over it, the kernel
     # stops this container alone and it restarts, instead of the machine swapping until something else is killed.
+    # Below it the app brakes first: its job slots stop growing at 70% of it and shed long jobs past 85%. With
+    # workers taking the runs, 4g is plenty for the app (SELF_HOSTING.md, worker processes).
     mem_limit: "${AGENTES_MEMORY:-8g}"
     memswap_limit: "${AGENTES_MEMORY:-8g}"
     # Above the 20 s that runs in progress get to finish on SIGTERM (RUN_DRAIN_MS, apps/server/src/start.ts).

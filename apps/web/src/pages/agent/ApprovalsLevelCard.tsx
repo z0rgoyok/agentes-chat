@@ -44,7 +44,11 @@ export function ApprovalsLevelCard() {
         description={t("approvalsLevel.lead", { name: agent.name })}
         value={level}
         saving={update.isPending}
-        onChoose={(next) => update.mutate({ approvalsLevel: next }, { onSuccess: () => setOpen(false) })}
+        onChoose={(next) => {
+          // The agent shows its level at once; a refusal puts it back.
+          update.mutate({ approvalsLevel: next });
+          setOpen(false);
+        }}
       />
     </Card>
   );

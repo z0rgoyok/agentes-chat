@@ -1,17 +1,10 @@
-import type {
-  AccountOrderGroup,
-  AiAccounts,
-  PlanAccountInfo,
-  PlanAccountUsage,
-  PlanServes,
-  PlanUseKind,
-} from "@agenteschat/client";
-import { keys, useAccountOrder, useAiAccounts, useApi, useModels, usePlanUsage } from "@agenteschat/client";
+import type { AiAccounts, PlanAccountInfo, PlanAccountUsage, PlanUseKind } from "@agenteschat/client";
+import { keys, useAiAccounts, useApi, useModels, usePlanUsage } from "@agenteschat/client";
 import { removableLogins } from "@agenteschat/client/lib/ai-accounts";
 import { computerNameOf } from "@agenteschat/client/lib/computer";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { formatPercent, formatTokensShort, formatUsd, joinNames } from "@agenteschat/client/lib/format";
-import { accountKinds, usageOrderSections } from "@agenteschat/client/lib/plan-usage";
+import { accountKinds } from "@agenteschat/client/lib/plan-usage";
 import { planName } from "@agenteschat/client/lib/plans";
 import { AUTO, apiProviderOf } from "@agenteschat/client/lib/providers";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
@@ -24,7 +17,6 @@ import {
   DialogFooter,
   Disclosure,
   EmptyState,
-  HintLine,
   Icon,
   InfoHint,
   List,
@@ -34,17 +26,15 @@ import {
   ProviderLogo,
   planLevel,
   planLine,
-  Segmented,
 } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { Fragment, type HTMLAttributes, type ReactNode, useEffect, useId, useState } from "react";
+import { Fragment, useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { OrderHead, useOrderMoves } from "@/components/ai/AccountOrder";
-import { AccountActions } from "@/components/ai/AiAccounts";
-import { PlanHold, usePlanHold } from "@/components/ai/ConnectAiSteps";
-import { useConnectAi, useMayConnectAi } from "@/components/ConnectAi";
+
+import { PlanHold, usePlanHold } from "@/components/ai/plan-hold";
+import { useConnectAi, useMayConnectAi } from "@/components/connect-ai-context";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { colorOf } from "@/components/Sky";
@@ -60,7 +50,6 @@ import {
   loginsText,
   noWindowsText,
   planMeterText,
-  servesTerms,
   servesText,
   shareCells,
   splitUsage,
@@ -112,7 +101,6 @@ export function PlanUsageCards() {
   const api = useApi();
   const usage = usePlanUsage(org.id);
   const mine = useAiAccounts(org.id);
-  const order = useAccountOrder(org.id);
   const look = useRightHandLook();
   const connectAi = useConnectAi();
   const mayConnect = useMayConnectAi();
@@ -142,11 +130,6 @@ export function PlanUsageCards() {
   // One Grok login per agent is what connecting the same account for every agent left behind (issue #319): the batch
   // removal takes them all at once, and only ever the viewer's own.
   const grokLogins = removableLogins(mine.data?.accounts ?? [], "grok");
-  const connect = connectAi && mayConnect && !hold && (
-    <Button size="sm" icon="plus" onClick={() => connectAi.open({})}>
-      {t("aiAccounts.page.connect")}
-    </Button>
-  );
   return (
     <Card aria-labelledby="sec-usage-plans">
       <CardHeader
@@ -154,7 +137,6 @@ export function PlanUsageCards() {
         icon="computer"
         title={t("usageViews.accounts.title")}
         hint={{ name: t("common.about", { label: t("usageViews.accounts.title") }), text: t("usageViews.estimate") }}
-        action={accounts.length > 0 ? connect : undefined}
       />
       {/* What comes first: an invitation to connect a plan would contradict it. */}
       {hold && <PlanHold hold={hold} />}
@@ -177,63 +159,18 @@ export function PlanUsageCards() {
       )}
       {accounts.length > 0 && (
         <List className="plan-rows">
-          {usageOrderSections(accounts, order.data?.groups).map((s) =>
-            s.group ? (
-              <OrderRows
-                key={`${s.group.machineId}:${s.group.kind}`}
-                group={s.group}
-                rows={s.rows}
-                money={money}
-                several={several}
-              />
-            ) : (
-              s.rows.map((a) => (
-                <AccountRow
-                  key={a.key}
-                  account={a}
-                  money={money}
-                  computer={several ? computerNameOf(t, org.name, a.machineName, isPersonal(org)) : null}
-                />
-              ))
-            ),
-          )}
+          {accounts.map((a) => (
+            <AccountRow
+              key={a.key}
+              account={a}
+              money={money}
+              computer={several ? computerNameOf(t, org.name, a.machineName, isPersonal(org)) : null}
+            />
+          ))}
         </List>
       )}
       {grokLogins.length > 1 && <RemoveGrokLogins logins={grokLogins} />}
     </Card>
-  );
-}
-
-/** An order of use's rows (ADR 0041 §6) under its heading, each starting with its place. */
-function OrderRows({
-  group,
-  rows,
-  money,
-  several,
-}: {
-  group: AccountOrderGroup;
-  rows: PlanAccountUsage[];
-  money: boolean;
-  several: boolean;
-}) {
-  const { t } = useTranslation();
-  const { org } = useOrg();
-  const { place, drop } = useOrderMoves(org.id, group);
-  const computer = several ? computerNameOf(t, org.name, group.computer, isPersonal(org)) : null;
-  return (
-    <div className="plan-order">
-      <OrderHead group={group} computer={computer} />
-      {rows.map((a) => (
-        <AccountRow
-          key={a.key}
-          account={a}
-          money={money}
-          computer={computer}
-          place={a.accountId ? place(a.accountId, accountName(t, a)) : undefined}
-          drop={a.accountId ? drop(a.accountId) : undefined}
-        />
-      ))}
-    </div>
   );
 }
 
@@ -248,15 +185,10 @@ function AccountRow({
   account,
   money,
   computer,
-  place,
-  drop,
 }: {
   account: PlanAccountUsage;
   money: boolean;
   computer: string | null;
-  /** Its place in an order of use, before the row's line. */
-  place?: ReactNode;
-  drop?: HTMLAttributes<HTMLDivElement>;
 }) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
@@ -281,8 +213,7 @@ function AccountRow({
   const owner = facts.length > 0;
   const chips = Boolean(account.plan) || Boolean(account.signedOut);
   return (
-    <div className={place ? "plan-row plan-row--placed" : "plan-row"} data-open={open || undefined} {...drop}>
-      {place}
+    <div className="plan-row" data-open={open || undefined}>
       <button
         type="button"
         // The kit's line of a row that opens under it: the row's room is above the line and below what it unfolds.
@@ -294,7 +225,7 @@ function AccountRow({
           setOpen(!open);
         }}
       >
-        {!place && <ProviderLogo id={account.provider ?? account.kind} size="sm" off={account.signedOut} />}
+        <ProviderLogo id={account.provider ?? account.kind} size="sm" off={account.signedOut} />
         {/* Two parts: one line of words on a wide row, and on a phone the name beside the mark with the plan and
             whose it is under both. The space that parts them ends the name, so neither starts with it. */}
         <span className="plan-acct__name">
@@ -404,63 +335,10 @@ function AccountRow({
                   )}
                 </Disclosure>
               )}
-              {account.mine && account.accountId && (
-                <div className="plan-own">
-                  {account.serves && <WhoUses accountId={account.accountId} account={account} />}
-                  <AccountActions machineId={account.machineId} accountId={account.accountId} />
-                </div>
-              )}
             </>
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-/**
- * "Quem usa" (ADR 0059 §3), for whoever connected the plan: everyone in the workspace, or only them. Saved at once,
- * with the plan's terms behind its ⓘ.
- */
-function WhoUses({ accountId, account }: { accountId: string; account: PlanAccountUsage }) {
-  const { t } = useTranslation();
-  const { org } = useOrg();
-  const api = useApi();
-  const qc = useQueryClient();
-  const toast = useToast();
-  const [busy, setBusy] = useState(false);
-  const serves = account.serves ?? "everyone";
-  const terms = servesTerms(t, account);
-  const choose = async (next: PlanServes) => {
-    if (next === serves) return;
-    setBusy(true);
-    try {
-      await api.machines.setAccountServes(org.id, accountId, next);
-      toast.show(t(next === "owner" ? "usageViews.serves.savedOwner" : "usageViews.serves.savedEveryone"), "success");
-      for (const key of [keys.planUsage(org.id), keys.aiAccounts(org.id), keys.agents(org.id), keys.aiStatus(org.id)])
-        void qc.invalidateQueries({ queryKey: key });
-    } catch (error) {
-      toast.show(errorText(t, error), "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="plan-serves">
-      <HintLine className="plan-serves__label" name={terms.about} hint={terms.text}>
-        {t("usageViews.serves.label")}
-      </HintLine>
-      <Segmented
-        size="sm"
-        label={t("usageViews.serves.label")}
-        value={serves}
-        disabled={busy}
-        onValueChange={(v) => void choose(v)}
-        options={[
-          { value: "everyone", label: t("usageViews.serves.all") },
-          { value: "owner", label: t("usageViews.serves.me") },
-        ]}
-      />
     </div>
   );
 }

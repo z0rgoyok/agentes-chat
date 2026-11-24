@@ -3,107 +3,52 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import type { MissionCommand, MissionDecision } from "@agenteschat/client";
+import type { AuditRow } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
 
-async function setup() {
-  const api = createFakeApi(seedState());
-  const mission = await api.missions.create(ORG_ID, { agentId: ADA_ID, goal: "App mobile", channelId: ENG_ID });
-  const command: MissionCommand = {
-    id: "00000000-0000-4000-8000-00000000cc01",
-    missionId: mission.id,
-    taskId: "00000000-0000-4000-8000-00000000aa01",
-    tool: "Bash",
-    command: "swift build -c release",
-    state: "pending",
-    rules: ["Bash(swift build *)"],
-    decidedBy: null,
-    decidedAt: null,
-    always: false,
-    createdAt: new Date().toISOString(),
-    expiresAt: new Date(Date.now() + 30 * 60_000).toISOString(),
-  };
-  const decision: MissionDecision = {
-    id: "00000000-0000-4000-8000-00000000dd01",
-    missionId: mission.id,
-    taskId: null,
-    messageId: "msg-decision-1",
-    question: "Expo ou React Native puro?",
-    options: ["Expo", "React Native"],
-    recommendation: "Expo",
-    why: null,
-    impact: null,
-    blocking: true,
-    status: "pending",
-    chosen: null,
-    chosenBy: null,
-    chosenAt: null,
-    opinions: [],
-    createdAt: new Date().toISOString(),
-  };
-  const decided: string[] = [];
-  const waiting = {
-    ...mission,
-    canAct: true,
-    pending: { ...mission.pending, commands: 1, decisions: 1 },
-  };
-  api.missions.list = async (_org, query) =>
-    query?.status === "waiting_you"
-      ? { missions: [waiting], counts: { active: 1, waitingYou: 1, closed: 0 } }
-      : { missions: [], counts: { active: 1, waitingYou: 1, closed: 0 } };
-  api.missions.get = async () => ({ ...waiting });
-  api.missions.commands = async () => ({ commands: [{ ...command }], rules: [] });
-  api.missions.decisions = async () => [{ ...decision }];
-  api.missions.decideCommand = async (_org, _mission, _id, d) => {
-    decided.push(d);
-    Object.assign(command, { state: d === "deny" ? "denied" : "allowed", always: d === "always" });
-    return { ...command };
-  };
-  return { api, mission, decided };
+/*
+ * A request's whole review (its facts, what it will write, how the run got to it) reads in its details dialog, over
+ * the page the person is on. Requests are decided in the inbox (ADR 0218), on the conversation's own card; the list of
+ * missions waiting is in Threads.
+ */
+
+/** The audit's row of the call that waits on the seed's merge request: its panel links to the request. */
+const call: AuditRow = {
+  id: "a1",
+  at: new Date(Date.now() - 5 * 60_000).toISOString(),
+  actor: { type: "agent", id: ADA_ID, name: "Ada" },
+  action: "tool.call",
+  target: { type: "tool", id: "merge_pull_request" },
+  details: { kind: "external", connector: "GitHub", behind: "person", approvalId: "ap-merge", input: {} },
+  runId: "run-1",
+  channelId: ENG_ID,
+  channel: { id: ENG_ID, name: "eng", kind: "channel" },
+  onBehalfOf: { id: "u-walter", name: "Walter" },
+  outcome: "pending",
+  approval: { id: "ap-merge", status: "pending", decidedBy: null },
+  secret: null,
+};
+
+/** The merge request's details, opened from the audit's row over that page. */
+async function details(state: ReturnType<typeof seedState>) {
+  state.audit = [call];
+  const { router } = await renderApp(`/org/${ORG_ID}/settings/audit`, { api: createFakeApi(state) });
+  await settle(6);
+  await act(async () => fireEvent.click(document.querySelector(".audit-row") as HTMLElement));
+  await settle(4);
+  const panel = screen().getByRole("complementary", { name: "Detalhe da auditoria" });
+  await act(async () => fireEvent.click(within(panel).getByRole("link", { name: "Ver o pedido" })));
+  await settle(8);
+  // Over the page, which stays where it was.
+  expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/settings/audit`);
+  return document.querySelector(".ap-dialog") as HTMLElement;
 }
 
-describe("Aprovações: missions", () => {
-  test("a pending command card with its mission, Aprovar / Recusar / Aprovar sempre, counted in Esperando você", async () => {
-    const { api, decided } = await setup();
-    const approvals = (await api.approvals.list(ORG_ID)).filter((a) => a.status === "pending").length;
-    await renderApp(`/org/${ORG_ID}/approvals`, { api });
-    await settle(8);
-    const section = screen().getByRole("region", { name: "Comandos para aprovar" });
-    expect(section.textContent).toContain("swift build -c release");
-    expect(section.textContent).toContain("App mobile");
-    expect(within(section).getByRole("link", { name: "App mobile" })).toBeTruthy();
-    expect(within(section).getByRole("button", { name: "Recusar" })).toBeTruthy();
-    expect(within(section).getByRole("button", { name: /Aprovar sempre/ })).toBeTruthy();
-    const pill = within(screen().getByRole("radiogroup", { name: "Filtro" })).getByRole("radio", {
-      name: /^Esperando você/,
-    });
-    expect(pill.textContent).toBe(`Esperando você${approvals + 1}`);
-    // Listed under the requests, the missions would sit under columns that fill the window: the page scrolls as one.
-    const split = document.querySelector(".ap-split");
-    expect(split?.compareDocumentPosition(section)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(split?.classList.contains("page-split")).toBe(false);
-    await act(async () => fireEvent.click(within(section).getByRole("button", { name: "Aprovar" })));
-    await settle(4);
-    expect(decided).toEqual(["allow"]);
-  });
-
-  test("Esperando você em missões: a pending decision links to its card in the thread", async () => {
-    const { api, mission } = await setup();
-    await renderApp(`/org/${ORG_ID}/approvals`, { api });
-    await settle(8);
-    const list = screen().getByRole("region", { name: "Esperando você em missões" });
-    expect(list.textContent).toContain("Expo ou React Native puro?");
-    expect(list.textContent).toContain("Decisão");
-    const open = within(list).getByRole("link", { name: "Abrir" });
-    expect(open.getAttribute("href")).toBe(`/org/${ORG_ID}/threads/${mission.threadId}?m=msg-decision-1`);
-  });
-});
-
-describe("Approvals: the open request", () => {
+describe("A request's details: how it got here", () => {
   test("how it got here: the run's steps before the ask, then the ask itself, on one track", async () => {
     const state = seedState();
     const merge = state.approvals.find((a) => a.id === "ap-merge");
@@ -125,9 +70,8 @@ describe("Approvals: the open request", () => {
         },
       ],
     };
-    await renderApp(`/org/${ORG_ID}/approvals?open=ap-merge`, { api: createFakeApi(state) });
-    await settle(8);
-    const pane = screen().getByRole("region", { name: "Fazer um merge" });
+    const pane = await details(state);
+    expect(pane.textContent).toContain("Fazer um merge");
     const track = within(pane).getByRole("list", { name: "Como chegou aqui" });
     const steps = [...track.querySelectorAll(".ac-track__step")];
     expect(steps.map((li) => [...li.classList].find((c) => c.startsWith("is-")))).toEqual([
@@ -156,7 +100,7 @@ describe("Approvals: the open request", () => {
   });
 });
 
-describe("Approvals: a long way to the request", () => {
+describe("A request's details: a long way to the request", () => {
   test("60 steps with long commands: the middle folds into one node, and the line tells any step whole", async () => {
     const state = seedState();
     const merge = state.approvals.find((a) => a.id === "ap-merge");
@@ -189,9 +133,8 @@ describe("Approvals: a long way to the request", () => {
         },
       ],
     };
-    await renderApp(`/org/${ORG_ID}/approvals?open=ap-merge`, { api: createFakeApi(state) });
-    await settle(8);
-    const pane = screen().getByRole("region", { name: "Fazer um merge" });
+    const pane = await details(state);
+    expect(pane.textContent).toContain("Fazer um merge");
     const track = within(pane).getByRole("list", { name: "Como chegou aqui" });
     const nodes = within(track).getAllByRole("button");
     const line = () => pane.querySelector(".ac-track__line")?.textContent ?? "";
@@ -223,7 +166,39 @@ describe("Approvals: a long way to the request", () => {
   });
 });
 
-describe("Aprovações: asked of a role (request_approval)", () => {
+describe("A request's details: what it will publish", () => {
+  test("a long text to publish folds, and Ver mais under it opens it in place for good", async () => {
+    const state = seedState();
+    const long = Array.from({ length: 9 }, (_, i) => `Parágrafo ${i + 1} do texto que vai sair.`).join("\n\n");
+    const merge = state.approvals.find((a) => a.id === "ap-merge");
+    if (!merge) throw new Error("no approval");
+    // A GitHub comment: its body is the text.
+    Object.assign(merge, {
+      tool: "add_issue_comment",
+      scope: "github:issues.write",
+      title: "GitHub: add_issue_comment",
+      detail: "add_issue_comment · acme/loja · issue 45",
+      connector: "github",
+      params: { owner: "acme", repo: "loja", issue_number: 45, body: long },
+    });
+    const pane = await details(state);
+    expect(pane.textContent).toContain("O que vai ser publicado");
+    const text = pane.querySelector(".ap-review__text") as HTMLElement;
+    expect(text.classList.contains("is-folded")).toBe(true);
+    // On the request's one surface, no card around it: "Ver mais" goes under the words, as a message's.
+    expect(text.closest(".ac-card")).toBeNull();
+    await act(async () =>
+      fireEvent.click(within(text.parentElement as HTMLElement).getByRole("button", { name: "Ver mais" })),
+    );
+    await settle(4);
+    expect(text.classList.contains("is-folded")).toBe(false);
+    expect(within(pane).queryByRole("button", { name: /^(Ver menos|Mostrar menos|Ver inteiro)$/ })).toBeNull();
+    expect(within(text.parentElement as HTMLElement).queryByRole("button", { name: "Ver mais" })).toBeNull();
+    expect(document.activeElement === text).toBe(true);
+  });
+});
+
+describe("A request's details: asked of a role (request_approval)", () => {
   test("waits for the role, not the agent's owner; the role decides, and the requester who approves by role is said", async () => {
     const state = seedState();
     const merge = state.approvals.find((a) => a.id === "ap-merge");
@@ -233,12 +208,8 @@ describe("Aprovações: asked of a role (request_approval)", () => {
       canDecide: false,
       approvers: { label: "Diretoria", requestedByUserId: "u-requester", requesterDecides: true },
     });
-    await renderApp(`/org/${ORG_ID}/approvals?open=ap-merge`, { api: createFakeApi(state) });
-    await settle(8);
-    const row = document.querySelector('.ap-li[data-id="ap-merge"]');
-    expect(row?.querySelector(".ap-li__left")?.textContent).toBe("Aguardando Diretoria");
-    // Beside the list: who decides is the role, and the bar says the requester may decide too, without buttons.
-    const pane = document.querySelector(".ap-review") as HTMLElement;
+    // Who decides is the role, and the bar says the requester may decide too, without buttons.
+    const pane = await details(state);
     const facts = [...pane.querySelectorAll(".ac-facts__item")].map((f) => [
       f.querySelector(".ac-facts__label")?.textContent,
       f.querySelector(".ac-facts__value")?.textContent,

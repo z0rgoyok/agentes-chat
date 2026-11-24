@@ -10,6 +10,7 @@ import { type HeaderAction, useHeaderActionOptions } from "./headerActions";
 import { LargeTitleHead, useLargeTitleScroll } from "./LargeTitleHead";
 import { useScrollUnderPushedOptions } from "./navigation";
 import { PULL_TINT, PullOrbit } from "./PullOrbit";
+import { usePane, usePaneHeader } from "./pane";
 import { SCREEN_X } from "./rhythm";
 import { Text } from "./Text";
 import { useTheme } from "./theme";
@@ -82,7 +83,9 @@ export interface LargeTitleScreenProps {
  * (`drawnTitle`), and on Android, the title is drawn in the content instead. Agents inside stop moving while the
  * screen is not showing.
  */
-export function LargeTitleScreen(props: LargeTitleScreenProps) {
+export function LargeTitleScreen(own: LargeTitleScreenProps) {
+  // A pane has no navigation bar to hold the system's large title (ADR 0212): there it is always drawn.
+  const props = usePane() ? { ...own, drawnTitle: true } : own;
   return IOS && !props.drawnTitle ? <SystemTitleScreen {...props} /> : <DrawnTitleScreen {...props} />;
 }
 
@@ -243,9 +246,17 @@ function DrawnTitleScreen({
     }),
     [actionOptions, title, y, collapsed],
   );
+  // In a pane (ADR 0212) the same bar is the pane's own, clear over the art: the title that fades in, the mark at its
+  // start, the buttons at its end. Outside one this sets nothing.
+  const pane = usePane();
+  const paneTitle = useMemo(
+    () => (collapsed ? title : <FadingHeaderTitle y={y} from={BAR_TITLE_FROM} to={BAR_TITLE_TO} text={title} />),
+    [collapsed, title, y],
+  );
+  usePaneHeader({ title: paneTitle, left, leftActions, actions, over: true });
   return (
     <View style={[styles.screen, { backgroundColor: grouped ? colors.grouped : colors.bg }]}>
-      <Stack.Screen options={options} />
+      {pane ? null : <Stack.Screen options={options} />}
       <LivePause paused={!focused}>
         <Animated.ScrollView
           ref={scroll.ref}

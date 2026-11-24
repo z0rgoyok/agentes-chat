@@ -6,6 +6,7 @@ import { stopLine, stopperOf } from "@agenteschat/client/lib/notices";
 import {
   delegationText,
   endedState,
+  opensInChat,
   taskPlace,
   taskState,
   taskTime,
@@ -17,6 +18,7 @@ import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar, AgentSpinner } from "@/components/AgentAvatar";
 import { ErrorState, LoadingList } from "@/components/Loading";
+import { MetaLine } from "@/components/MetaLine";
 import { OpensAgent } from "@/components/OpensAgent";
 import { useOrg } from "@/components/org-context";
 import { SidePanel } from "@/components/SidePanel";
@@ -88,7 +90,6 @@ export function TaskPanel({
     : null;
   const nameOf = (id: string) => dir.anyAgent(id)?.name;
   const chain = last ? delegationText(t, last, nameOf, me.user.id) : null;
-  const meta = [name, taskPlace(t, source), source.background ? null : (chain ?? asked)].filter(Boolean).join(" · ");
   // How it ended: the page's list, else my own stop on its way there.
   const end = task ? null : ended ? endedState(ended) : stopping ? "stopped" : null;
   const stopper: EndedTask["stoppedBy"] =
@@ -134,7 +135,11 @@ export function TaskPanel({
           <h2 className="channel__title thread-title">
             <span className="thread-title__text">{title}</span>
           </h2>
-          <span className="channel__topic thread-head__meta">{meta}</span>
+          <MetaLine
+            where={[name, taskPlace(t, source), source.background ? null : (chain ?? asked)]
+              .filter(Boolean)
+              .join(" · ")}
+          />
         </div>
         <Button size="sm" variant="ghost" iconOnly icon="close" aria-label={t("common.close")} onClick={onClose} />
       </header>
@@ -195,7 +200,7 @@ export function TaskPanel({
             {t("taskManager.delegated.stopNote", { name: nameOf(task.delegation.agentId) ?? "" })}
           </p>
         )}
-        {!source.background && (!source.betweenAgents || last?.delegation?.from) && (
+        {opensInChat({ ...source, delegation: last?.delegation }) && (
           <Button size="sm" variant="ghost" icon="message" onClick={() => openTask(source)}>
             {t("taskManager.actions.open")}
           </Button>

@@ -48,6 +48,27 @@ export function humanCheckUrl(
   return `${server}/human-check.html?${query.toString()}`;
 }
 
+/** Turnstile's checkbox: 65 px tall, and at least 300 px wide at its `flexible` size. */
+const WIDGET_HEIGHT = 65;
+const WIDGET_MIN_WIDTH = 300;
+/** The open sheet's gap to the window's sides, and its padding. */
+export const SHEET_INSET = 8;
+export const SHEET_PADDING = 18;
+
+/**
+ * The check's WebView box in a window this wide, the same hidden or open: a WebView that grew from a pixel when the
+ * sheet opened drew Turnstile zoomed several times over on Android. `narrow`: the sheet's padding would cut the
+ * checkbox, so it spans the sheet (304 px at 320 pt).
+ */
+export function widgetBox(windowWidth: number) {
+  const narrow = windowWidth - 2 * (SHEET_INSET + SHEET_PADDING) < WIDGET_MIN_WIDTH;
+  return {
+    narrow,
+    width: windowWidth - 2 * (narrow ? SHEET_INSET : SHEET_INSET + SHEET_PADDING),
+    height: WIDGET_HEIGHT,
+  };
+}
+
 /** What the check's page says (`human-check.html`): `error` without a code means Turnstile's script didn't load. */
 export type HumanCheckEvent =
   | { type: "token"; token: string }

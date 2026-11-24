@@ -228,6 +228,11 @@ export function describeCapabilities(
         "- A request for a file you already made (here, in a DM or in another channel): find it with `list_artifacts` and bring it with `share_artifact` instead of creating it again.",
       );
     }
+    if (loaded.has("show_image")) {
+      lines.push(
+        "- A picture you are talking about whose address you have (a photo, a product, a cover): `show_image` puts it on your reply for people to see. Never leave it as a bare link, and never write Markdown image syntax: it isn't drawn.",
+      );
+    }
     const undoable = tools.filter((t) => UNDOABLE_TOOLS.has(t.name) && !isSensitive(t)).map((t) => `\`${t.name}\``);
     if (undoable.length > 0) {
       lines.push(

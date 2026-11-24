@@ -4,7 +4,16 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { createFakeApi, fakeAgentBrain, LODI_ID, ORG_ID, seedDm, seedState, withRightHand } from "./fake-api";
+import {
+  createFakeApi,
+  fakeAgentBrain,
+  fakeMachinesOf,
+  LODI_ID,
+  ORG_ID,
+  seedDm,
+  seedState,
+  withRightHand,
+} from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 /**
@@ -87,29 +96,12 @@ test("Lodi's old settings address opens Lodi's page: three groups, the face open
   expect(screen().queryByRole("button", { name: "Usar uma chave de API" })).toBeNull();
   // Who a plan serves is its owner's choice in IA e uso (ADR 0059 §3): no lending switch here.
   expect(screen().queryByRole("switch", { name: /Emprestar/ })).toBeNull();
-  // The row opens the choice in place, and choosing there changes the row.
+  // The row opens the one "Quem pensa" in place: its Conta, Modelo and Esforço, for the workspace.
   await act(async () => fireEvent.click(ai));
   await settle(4);
-  // Drawn as any agent's "Who thinks": the account in use first, the others behind "Switch account".
   const dialog = screen().getByRole("dialog", { name: "Quem pensa pelo Lodi no workspace" });
-  expect(dialog.querySelector(".bd-use .arrival-have__row")?.textContent).toContain("Trabalho");
+  expect(within(dialog).getByRole("combobox", { name: "Conta" })).toBeTruthy();
   expect(dialog.textContent).toContain("Vale para quem não tem plano próprio.");
-  await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Trocar de conta" })));
-  await settle(4);
-  const switching = screen().getByRole("dialog", { name: "Trocar a conta do Lodi" });
-  // The plan in use under "In use", the key in its own group: each once.
-  expect(within(switching).getAllByRole("radio")).toHaveLength(2);
-  await act(async () => fireEvent.click(within(switching).getByRole("radio", { name: /Chave de API|OpenAI da Acme/ })));
-  await settle(2);
-  await act(async () => fireEvent.click(within(switching).getByRole("button", { name: /^Trocar para / })));
-  await settle(8);
-  expect(sent).toEqual([{ scope: "workspace", brain: "model" }]);
-  // Back on the first screen for the key's model. Closed, the row behind it says the new value.
-  await act(async () => fireEvent.click(within(screen().getByRole("dialog")).getByRole("button", { name: "Fechar" })));
-  await settle(4);
-  expect(row(/^IA de quem não tem plano próprio/).querySelector(".settings-row__status")?.textContent).toBe(
-    "OpenAI da Acme · Automático",
-  );
 });
 
 test("a member's Lodi page has nothing of the workspace's: Sua IA is one row that opens, and connects their plan from its dialog", async () => {
@@ -144,98 +136,124 @@ test("a member's Lodi page has nothing of the workspace's: Sua IA is one row tha
   expect(screen().getByRole("dialog", { name: /Lodi/ })).toBeTruthy();
 });
 
-test("Sua IA on a plan of mine: the dialog goes back to the workspace's AI, and the row says so", async () => {
+/** Ana's Claude plan on the workspace's computer, as Contas de IA lists it. */
+const anaPlan = (ownerId: string | undefined) => ({
+  ...(planOf(ownerId) as object),
+  email: null,
+  plan: "max",
+  ownerName: "Ana",
+  usage: null,
+  provider: null,
+  keyHint: null,
+  named: true,
+  machineId: "machine_1",
+  computer: "MacBook",
+});
+
+const openSelect = async (combobox: HTMLElement) => {
+  combobox.focus();
+  await act(async () => fireEvent.keyDown(combobox, { key: "Enter" }));
+  await settle(3);
+  return screen().getAllByRole("option");
+};
+
+test("Sua IA is the one picker: A do workspace first, then the plans; picking it hands Lodi back to the workspace's", async () => {
   const state = withRightHand(seedState());
   const api = createFakeApi(state);
+  fakeMachinesOf.get(api)?.setAiAccounts({
+    accounts: [anaPlan(state.me?.user.id) as never],
+    computers: [
+      {
+        machineId: "machine_1",
+        name: "MacBook",
+        online: true,
+        mine: true,
+        canAdd: true,
+        keys: true,
+        brains: { claude_code: true, codex: false },
+      },
+    ],
+  });
   const key = { provider: "openai", label: "OpenAI da Acme" };
-  let own = true;
   api.agents.brain = async (_org, id, scope) =>
     fakeAgentBrain(id, {
       scope: scope ?? "mine",
-      brain: own && scope !== "workspace" ? "claude_code" : "model",
-      ...(own && scope !== "workspace" ? { account: "acc-ana" } : {}),
+      brain: scope !== "workspace" ? "claude_code" : "model",
+      ...(scope !== "workspace" ? { account: "acc-ana" } : {}),
       accounts: [planOf(state.me?.user.id)],
       canUsePlans: true,
+      canEdit: true,
       workspaceAi: { brain: "model", ownerId: null, servesYou: true, key },
     });
   const sent: unknown[] = [];
   api.agents.setBrain = async (_org, id, input) => {
     sent.push(input);
-    own = false;
     return fakeAgentBrain(id);
   };
   await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}`, { api });
   await settle(8);
-  expect(row(/^Sua IA/).querySelector(".settings-row__status")?.textContent).toBe("Trabalho · seu plano · Sonnet 5.5");
   await act(async () => fireEvent.click(row(/^Sua IA/)));
   await settle(4);
   const dialog = screen().getByRole("dialog", { name: "Quem pensa pelo Lodi para você" });
-  // The plan in use as the account, then each way out as a line that leads somewhere: nothing to pick among them.
-  const inUse = dialog.querySelector(".bd-use .arrival-have__row");
-  expect(inUse?.textContent).toContain("Trabalho");
-  expect(inUse?.textContent).toContain("seu plano");
-  expect(within(dialog).queryAllByRole("radio")).toHaveLength(0);
-  expect(within(dialog).getByRole("button", { name: "Conectar outra IA" })).toBeTruthy();
-  await act(async () => fireEvent.click(within(dialog).getByRole("button", { name: "Usar a do workspace" })));
+  const account = within(dialog).getByRole("combobox", { name: "Conta" });
+  expect(account.querySelector(".aa-opt__name")?.textContent).toBe("Trabalho");
+  const options = await openSelect(account);
+  expect(options.map((o) => o.querySelector(".aa-opt__name")?.textContent)).toEqual(["A do workspace", "Trabalho"]);
+  // Lodi's own AI takes no key of the workspace's: "A do workspace" is it.
+  expect(screen().queryByRole("group", { name: "Do workspace" })).toBeNull();
+  await act(async () => fireEvent.click(options[0] as HTMLElement));
   await settle(8);
   expect(sent).toEqual([{ scope: "mine", brain: "model" }]);
-  expect(screen().queryByRole("dialog", { name: "Quem pensa pelo Lodi para você" })).toBeNull();
-  expect(row(/^Sua IA/).querySelector(".settings-row__status")?.textContent).toBe(
-    "OpenAI da Acme · chave do workspace",
-  );
 });
 
-test("a plan's model is a line that opens its list, in Sua IA and in the workspace's AI: picked, then used", async () => {
+test("the workspace's AI: Modelo and Esforço beside each other, each saved as it is picked", async () => {
   const state = withRightHand(seedState(), { brain: { kind: "claude_code", model: "Sonnet" } });
   const api = createFakeApi(state);
-  const model: Record<string, string | null> = { mine: null, workspace: null };
+  fakeMachinesOf.get(api)?.setAiAccounts({
+    accounts: [anaPlan(state.me?.user.id) as never],
+    computers: [
+      {
+        machineId: "machine_1",
+        name: "MacBook",
+        online: true,
+        mine: true,
+        canAdd: true,
+        keys: true,
+        brains: { claude_code: true, codex: false },
+      },
+    ],
+  });
   api.agents.brain = async (_org, id, scope) =>
     fakeAgentBrain(id, {
       scope: scope ?? "mine",
       brain: "claude_code",
       account: "acc-ana",
-      effectiveModel: model[scope ?? "mine"] ?? null,
+      effort: "medium",
       accounts: [planOf(state.me?.user.id)],
       canUsePlans: true,
       canEdit: true,
     });
-  const sent: { scope?: string; model?: string | null }[] = [];
+  const sent: { scope?: string; model?: string | null; effort?: string | null }[] = [];
   api.agents.setBrain = async (_org, id, input) => {
     sent.push(input);
-    model[input.scope ?? "mine"] = input.model ?? null;
     return fakeAgentBrain(id);
   };
   await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}`, { api });
   await settle(8);
-  for (const [name, scope, before] of [
-    [/^Sua IA/, "mine", "Trabalho · seu plano · Sonnet 5.5"],
-    [/^IA de quem não tem plano próprio/, "workspace", "Plano Trabalho · Sonnet 5.5"],
-  ] as const) {
-    expect(row(name).querySelector(".settings-row__status")?.textContent).toBe(before);
-    await act(async () => fireEvent.click(row(name)));
-    await settle(4);
-    const dialog = screen().getByRole("dialog");
-    // A line under the account in use, as on any agent's: it opens the plan's models.
-    const line = within(dialog).getByRole("button", { name: /^Modelo/ });
-    expect(line.closest(".bd-lines")).toBeTruthy();
-    expect(line.textContent).toContain("Sonnet");
-    await act(async () => fireEvent.click(line));
-    await settle(3);
-    await act(async () => fireEvent.click(within(screen().getByRole("dialog")).getByRole("radio", { name: /^Opus/ })));
-    await settle(2);
-    await act(async () =>
-      fireEvent.click(within(screen().getByRole("dialog")).getByRole("button", { name: /^Usar Opus/ })),
-    );
-    await settle(8);
-    expect(sent.at(-1)).toEqual({ scope, model: "opus" });
-    // Back on the first screen with the new model on its line, and the row behind it says it.
-    expect(within(screen().getByRole("dialog")).getByRole("button", { name: /^Modelo/ }).textContent).toContain("Opus");
-    await act(async () =>
-      fireEvent.click(within(screen().getByRole("dialog")).getByRole("button", { name: "Fechar" })),
-    );
-    await settle(4);
-    expect(row(name).querySelector(".settings-row__status")?.textContent).toBe(before.replace("Sonnet", "Opus"));
-  }
+  await act(async () => fireEvent.click(row(/^IA de quem não tem plano próprio/)));
+  await settle(4);
+  const dialog = screen().getByRole("dialog", { name: "Quem pensa pelo Lodi no workspace" });
+  const pair = dialog.querySelector(".aa-pair") as HTMLElement;
+  const model = within(pair).getByRole("combobox", { name: "Modelo" });
+  await act(async () =>
+    fireEvent.click((await openSelect(model)).find((o) => /^Opus/.test(o.textContent ?? "")) as Element),
+  );
+  await settle(8);
+  expect(sent.at(-1)).toMatchObject({ scope: "workspace", brain: "claude_code", account: "acc-ana", model: "opus" });
+  const effort = within(pair).getByRole("combobox", { name: "Esforço" });
+  await act(async () => fireEvent.click((await openSelect(effort)).find((o) => o.textContent === "Alto") as Element));
+  await settle(8);
+  expect(sent.at(-1)).toMatchObject({ scope: "workspace", effort: "high" });
 });
 
 test("Poderes do workspace is one row for everyone that opens what only Lodi does", async () => {
@@ -253,32 +271,40 @@ test("Poderes do workspace is one row for everyone that opens what only Lodi doe
     "Monta e muda o time inteiro por cards que uma pessoa aplica: agentes, pessoas e ajustes do workspace",
     "Roda e apaga rotinas de qualquer agente que você pode gerenciar",
     "Na sua conversa, lê o Drive, a wiki e as tarefas que você pode ver",
-    "Responde a um @ em qualquer canal sem ser membro",
+    "Responde a um @ em qualquer canal sem ser membro, e a mensagens em que é a melhor escolha",
   ]);
 });
 
-test("Lodi's page has three tabs: its settings, what it may use on the agent page's own access tab, and what it keeps for the viewer", async () => {
+test("Lodi's page has four tabs: its settings, what it may use on the agent page's own access tab, its skills, and what it keeps for the viewer", async () => {
   const state = withRightHand(seedState());
   await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}`, { api: createFakeApi(state) });
   await settle(8);
   const tabs = () => within(screen().getByRole("tablist", { name: "Seções do Lodi" })).getAllByRole("tab");
-  expect(tabs().map((tab) => tab.textContent)).toEqual(["Configurações", "Ferramentas e acesso", "Memória"]);
+  expect(tabs().map((tab) => tab.textContent)).toEqual(["Configurações", "Ferramentas e acesso", "Skills", "Memória"]);
   expect(tabs()[0]?.getAttribute("aria-selected")).toBe("true");
   expect(row(/^Poderes do workspace/)).toBeTruthy();
   cleanup();
   await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}?tab=access`, { api: createFakeApi(state) });
   await settle(8);
   expect(tabs()[1]?.getAttribute("aria-selected")).toBe("true");
-  // The same cards as any agent's: its apps, mailboxes and skills. Its settings are the other tab.
-  for (const id of ["ac-connectors", "ac-builtin", "ac-skills"]) expect(document.getElementById(id)).toBeTruthy();
+  // The same cards as any agent's: its apps and mailboxes. Its settings are the other tab.
+  for (const id of ["ac-connectors", "ac-builtin"]) expect(document.getElementById(id)).toBeTruthy();
+  expect(document.getElementById("ac-skills")).toBeNull();
   expect(screen().queryByRole("button", { name: /^Poderes do workspace/ })).toBeNull();
   // No sky, tabs of an agent's own work or archive: it is part of the workspace.
   expect(document.querySelector(".agp-hero")).toBeNull();
   cleanup();
+  // Its skills, and whether it uses them, on the agent page's own Skills tab.
+  await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}?tab=skills`, { api: createFakeApi(state) });
+  await settle(8);
+  expect(tabs()[2]?.getAttribute("aria-selected")).toBe("true");
+  expect(document.getElementById("ac-skills")).toBeTruthy();
+  expect(screen().getByRole("radiogroup", { name: "Nível em Skills" })).toBeTruthy();
+  cleanup();
   // What it keeps for the viewer, and the rules they gave it, on the agent page's own memory tab.
   await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}?tab=memory`, { api: createFakeApi(state) });
   await settle(8);
-  expect(tabs()[2]?.getAttribute("aria-selected")).toBe("true");
+  expect(tabs()[3]?.getAttribute("aria-selected")).toBe("true");
   expect(document.getElementById("mem-known")).toBeTruthy();
 });
 

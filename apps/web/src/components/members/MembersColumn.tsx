@@ -1,5 +1,5 @@
 import type { Agent, Channel, Member } from "@agenteschat/client";
-import { agentStateIn, useChannels, useRoles } from "@agenteschat/client";
+import { agentStateIn, useChannelName, useRoles } from "@agenteschat/client";
 import { WORK_TICK_MS, workLine, workLineText } from "@agenteschat/client/lib/agent-work";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
 import { relativeTime } from "@agenteschat/client/lib/format";
@@ -314,10 +314,11 @@ function AgentRow({ agent, channelId, busy }: { agent: Agent; channelId: string;
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
-  const channels = useChannels(org.id).data;
   const state = useStreams((s) => agentStateIn(s, agent.id, channelId));
   const shown = useAgentPresence(agent.id);
   const work = shown?.work ?? null;
+  // The name of where it works alone: the whole list moves with every message's unread count.
+  const workChannel = useChannelName(org.id, work?.channelId);
   const clock = useNow(work !== null, WORK_TICK_MS);
   const now = workLine(
     t,
@@ -325,7 +326,7 @@ function AgentRow({ agent, channelId, busy }: { agent: Agent; channelId: string;
     work,
     {
       agentName: (id) => dir.agentById.get(id)?.name,
-      channelName: (id) => channels?.find((c) => c.id === id)?.name,
+      channelName: () => workChannel,
       here: channelId,
     },
     clock,

@@ -1,5 +1,6 @@
 import type { ApiClient, MessageCard } from "@agenteschat/client";
 import { messagePath } from "@agenteschat/client/lib/message-links";
+import { liveActivityTargetOf } from "../live-activity/props";
 import { isSafeId } from "../shared/logic";
 import { chatHref, notificationHref } from "./logic";
 import { workspaceOnScreen } from "./on-screen";
@@ -254,4 +255,15 @@ export async function resolveLink(
   if (isSafeId(p.notification))
     return notificationHref(await api.notifications.read(orgId, p.notification, true)) ?? "/activity";
   return "/";
+}
+
+/**
+ * A tap on the agents' island (ADR 0210): the conversation it points at, straight away in `current` (the workspace on
+ * screen), else through `/link`, which switches workspace first. Null for any other link.
+ */
+export function liveActivityLinkHref(url: string, current: string | null = null): string | null {
+  const target = liveActivityTargetOf(url);
+  if (!target || !isSafeId(target.orgId) || !isSafeId(target.channelId)) return null;
+  const to = chatHref(target.channelId, target.threadId, target.messageId);
+  return target.orgId === current ? to : linkHref({ org: target.orgId, to });
 }

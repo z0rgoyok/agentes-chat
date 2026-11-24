@@ -9,7 +9,7 @@ import { PROVIDER_MARKS } from "@agenteschat/ui/brand/marks";
 import { cleanup, render } from "@testing-library/react";
 import { createElement } from "react";
 import { I18nextProvider } from "react-i18next";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { DatabaseIcon } from "@/components/DatabaseConnect";
 import { MailIcon, mailChoices } from "@/components/MailConnect";
 import { createI18n } from "@/i18n";

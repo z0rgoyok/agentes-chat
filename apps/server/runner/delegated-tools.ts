@@ -36,6 +36,7 @@ import {
   type McpTaskInfo,
   type McpToolResult,
   permissionPrompt,
+  reportRefusal,
   shellArg,
   type ToolCaller,
   turnAsks,
@@ -691,7 +692,10 @@ export class DelegatedTools {
       return message;
     };
     if (verdict?.behavior === "deny") {
-      return refuse(s.scope.asks === "never" && !s.scope.task ? unaskedMessage(verdict.message) : verdict.message);
+      const message = s.scope.asks === "never" && !s.scope.task ? unaskedMessage(verdict.message) : verdict.message;
+      const asked = { tool_name: tool, input, tool_use_id: `delegated-${String(r.id)}`, scope };
+      reportRefusal(r.ask, asked, { code: verdict.code, message });
+      return refuse(message);
     }
     if (s.rules.deny.some((rule) => ruleMatches(rule, tool, input))) {
       return refuse(`Permission to use ${tool} has been denied.`);

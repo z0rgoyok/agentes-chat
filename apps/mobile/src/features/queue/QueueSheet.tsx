@@ -165,12 +165,9 @@ export function QueueSheet({ machineId, computer }: { machineId: string; compute
         <SheetTitle title={q.data.name} subtitle={queueStatusText(t, view)} />
       </View>
       <View style={styles.group}>
-        <GroupHead title={t("queue.workingNow", { n: view.working.length })} />
-        {fill ? (
-          <Text variant="small" tone="ink2">
-            {fill}
-          </Text>
-        ) : null}
+        {/* What fills the computer now beside the head, as "In line" says when all of it starts: on a line of its own
+            it read as a loose sentence over the rows. */}
+        <GroupHead title={t("queue.workingNow", { n: view.working.length })} aside={fill || null} />
         {view.working.length === 0 ? (
           <Text variant="small" tone="muted">
             {t("queue.nothingWorking")}
@@ -333,7 +330,11 @@ function GroupHead({ title, aside }: { title: string; aside?: string | null }) {
   );
 }
 
-/** A line of the sheet with its stop beside it. */
+/**
+ * A line of the sheet with its stop beside it: the stop square on its round plate (`compact`), on the row's first
+ * line. With the word, the button took a third of the row: the time was pushed off the name and the second line
+ * wrapped under it.
+ */
 function ActiveLine({
   row,
   act,
@@ -348,11 +349,14 @@ function ActiveLine({
     <View style={styles.active}>
       <View style={styles.grow}>{children}</View>
       {row.canStop ? (
-        <StopButton
-          label={t("taskManager.actions.stop")}
-          stopping={act.stopping.has(row.runId)}
-          onPress={() => act.stop(row.runId)}
-        />
+        <View style={styles.stop}>
+          <StopButton
+            compact
+            label={t("taskManager.actions.stop")}
+            stopping={act.stopping.has(row.runId)}
+            onPress={() => act.stop(row.runId)}
+          />
+        </View>
       ) : null}
     </View>
   );
@@ -370,7 +374,8 @@ function WorkingRow({
   act: RowActions;
 }) {
   const { t } = useTranslation();
-  const elapsed = durationText(t, Math.max(0, now - Date.parse(w.startedAt)));
+  // How long it has run stays whole on its line ("35 s" broke after the number where the line wrapped).
+  const elapsed = durationText(t, Math.max(0, now - Date.parse(w.startedAt))).replaceAll(" ", NBSP);
   return (
     <ActiveLine row={w} act={act}>
       <QueueLine
@@ -482,6 +487,8 @@ export function QueueLine({
   );
 }
 
+/** A no-break space. */
+const NBSP = "\u00A0";
 const ROW_IN = FadeIn.duration(160);
 const ROW_OUT = FadeOut.duration(120);
 
@@ -498,7 +505,9 @@ const styles = StyleSheet.create({
   rows: { marginHorizontal: -8, gap: 2 },
   // The face (20) on the first line (small, 20 tall).
   row: { flexDirection: "row", alignItems: "flex-start", gap: 10, padding: 8, borderRadius: 10 },
-  active: { flexDirection: "row", alignItems: "center", gap: 4 },
+  active: { flexDirection: "row", alignItems: "flex-start", gap: 4 },
+  // The stop's plate (32) centered on the row's first line (20 tall, under the row's 8 of padding).
+  stop: { marginTop: 2 },
   grow: { flex: 1, minWidth: 0 },
   text: { flex: 1, minWidth: 0 },
   l1: { flexDirection: "row", alignItems: "center", gap: 6, minHeight: 20 },

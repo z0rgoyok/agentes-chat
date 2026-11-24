@@ -70,6 +70,8 @@ export interface DialogProps {
   subtitle?: ReactNode;
   /** The head's own actions, before the close button. */
   actions?: ReactNode;
+  /** Art over the head, edge to edge (a service's brand in the connectors store); the close sits on it. */
+  cover?: ReactNode;
   /**
    * The field the dialog starts on. Unlike `autoFocus`, it holds when the dialog opens over another one: React gives
    * an autoFocus field the focus before this dialog's trap is up, and the trap of the dialog under it takes it back.
@@ -105,6 +107,7 @@ export function Dialog({
   leading,
   subtitle,
   actions,
+  cover,
   initialFocus,
   bare = false,
   unsaved = false,
@@ -175,6 +178,7 @@ export function Dialog({
           // Without a description, tell Radix there is none (it warns otherwise).
           {...(description ? {} : { "aria-describedby": undefined })}
         >
+          {cover && !bare && <div className="ac-dialog__cover">{cover}</div>}
           {bare ? (
             <RDialog.Title className="ac-visually-hidden">{title}</RDialog.Title>
           ) : (
@@ -232,11 +236,17 @@ export function DialogBody({ className, ...rest }: React.HTMLAttributes<HTMLDivE
 
 export function DialogFooter({
   note,
+  busyNote,
   bar,
   className,
   children,
 }: {
   note?: ReactNode;
+  /**
+   * While something runs (a connection being tested): its words in the note's place, laid over the note so the footer
+   * keeps the note's size and its buttons stay where they are.
+   */
+  busyNote?: ReactNode;
   /** Footer separated by a line (lists). */
   bar?: boolean;
   className?: string;
@@ -249,7 +259,18 @@ export function DialogFooter({
     <div className={cx("ac-dialog__foot", bar && "ac-dialog__foot--bar", className)}>
       {note !== undefined ? (
         <>
-          <span className="ac-dialog__foot-note">{note}</span>
+          <span className="ac-dialog__foot-note">
+            {busyNote == null ? (
+              note
+            ) : (
+              <span className="ac-dialog__foot-swap">
+                <span className="ac-dialog__foot-swap-off" aria-hidden="true">
+                  {note}
+                </span>
+                <span role="status">{busyNote}</span>
+              </span>
+            )}
+          </span>
           <div className="ac-dialog__foot-acts">{children}</div>
         </>
       ) : (

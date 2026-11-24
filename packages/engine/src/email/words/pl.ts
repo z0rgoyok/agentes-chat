@@ -532,6 +532,36 @@ export const words: EmailWords = {
     table: (day) => `Cała tabela: bun run report:autonomy --day ${day}`,
     why: "Otrzymujesz tę wiadomość, ponieważ ten adres jest w OPS_REPORT_EMAIL na tym serwerze. Przychodzi raz dziennie.",
   },
+  accountOpened: {
+    subject: (plan) => `Więcej osób może korzystać z twojego konta ${plan}`,
+    preheader: (plan) => `To, co z nim robią, korzysta z twojego planu ${plan} i jego limitów.`,
+    headline: "Ktoś zmienił, kto może korzystać z twojego konta AI",
+    body: (by, account, plan) => [
+      { b: by },
+      ` zmienił(a), kto może korzystać z twojego konta ${plan} `,
+      { b: account },
+      `. To, co z nim robią, korzysta z twojego planu i jego limitów.`,
+    ],
+    account: "Konto",
+    by: "Zmienił(a)",
+    setting: "Uprawnienie",
+    use: "Używanie w agentach",
+    reply: "Odpowiadanie wszystkim",
+    was: "Wcześniej",
+    now: "Teraz",
+    everyone: "Wszyscy w workspace",
+    admins: "Ty i administratorzy",
+    onlyYou: "Tylko ty",
+    agentOwner: "Tylko właściciel agenta",
+    note: "Aby to cofnąć, otwórz konto w sekcji AI i użycie i zmień jego uprawnienia.",
+    button: "Otwórz konta AI",
+    why: (org) =>
+      `Otrzymujesz tę wiadomość, ponieważ połączyłeś(-aś) to konto AI w ${org}, a ktoś inny zmienił, kto może z niego korzystać.`,
+    personal: {
+      why: () =>
+        "Otrzymujesz tę wiadomość, ponieważ połączyłeś(-aś) to konto AI, a ktoś inny zmienił, kto może z niego korzystać.",
+    },
+  },
   planOpened: {
     subject: (plan) => `Więcej osób może rozmawiać z twoim agentem w ramach twojego planu ${plan}`,
     preheader: (plan) => `Ich rozmowy korzystają z twojego planu ${plan} i jego limitów.`,

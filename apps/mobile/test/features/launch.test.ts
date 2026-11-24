@@ -1,24 +1,36 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { inBody } from "@agenteschat/ui/agent/engine";
+import { bayerAt } from "@agenteschat/ui/sky/math";
 import {
-  DIVE,
-  DIVE_TOTAL,
-  diveBody,
-  diveEyes,
-  diveName,
-  diveScale,
+  burstCells,
+  burstDrift,
+  EXIT,
+  EXIT_TOTAL,
+  GATHER_FRAMES,
+  gatherFrame,
+  gatherPose,
   LAUNCH,
   LOGO,
   launchesAtOnce,
   launchPose,
   launchSkyTones,
+  nameUnderRing,
+  OPENING_END,
+  OPENING_FPS,
+  OPENING_FRAMES,
+  openingFrame,
+  panelOut,
+  ringCell,
+  ringRadius,
+  ringTones,
   SPRITES,
   spriteBlinks,
   spriteY,
   waitLine,
 } from "../../src/features/launch/logic";
+
+const source = (path: string) => readFileSync(join(import.meta.dir, "../..", path), "utf8");
 
 describe("launch splash", () => {
   test("starts on the native image: the body is 400 of its 512 px at 120 pt", () => {
@@ -78,69 +90,117 @@ describe("launch splash", () => {
     expect(blinks).toBeLessThan(20);
   });
 
-  test("ready within its first frames it leaves at once; later its rise plays the minimum", () => {
+  test("ready within its first frames it leaves at once; later its opening plays the minimum", () => {
     expect(launchesAtOnce(0)).toBe(true);
     expect(launchesAtOnce(LAUNCH.quick * 1000)).toBe(true);
     expect(launchesAtOnce(LAUNCH.quick * 1000 + 1)).toBe(false);
     expect(LAUNCH.quick).toBeLessThan(LAUNCH.min);
-    const splash = readFileSync(join(import.meta.dir, "../../src/features/launch/LaunchSplash.tsx"), "utf8");
-    expect(splash).toContain("if (!played && !launchesAtOnce(Date.now() - startedAt)) return;");
-    // Leaving, the agent holds its last pose: no frames of it on the JS thread while the app arrives under it.
-    expect(splash).toContain("const now = useFrameTime(!reduced && !leaving, heldAt);");
+    // The shortest launch leaves once the sky is nearly up and the name is in, not later.
+    expect(LAUNCH.min).toBe(0.6);
+    expect(LAUNCH.nameAt + LAUNCH.nameIn).toBeLessThanOrEqual(LAUNCH.min);
+    expect(source("src/features/launch/LaunchSplash.tsx")).toContain(
+      "if (!played && !launchesAtOnce(Date.now() - startedAt)) return;",
+    );
   });
 
-  test("leaving, the agent's body becomes a window that grows faster and faster until it holds any screen", () => {
-    expect(diveScale(0)).toBe(1);
-    // A breath in before the dive.
-    expect(diveScale(DIVE.at)).toBeCloseTo(DIVE.shrink, 2);
-    expect(diveScale(DIVE_TOTAL)).toBeCloseTo(DIVE.far, 5);
-    // Ever faster: each step grows the window more than the one before.
-    const grows = [0.16, 0.24, 0.32, 0.4].map((e) => diveScale(e + 0.04) / diveScale(e));
-    for (let i = 1; i < grows.length; i++) expect(grows[i]).toBeGreaterThan(grows[i - 1] as number);
-    // At its end the body holds every corner of the screen around where the agent stands: the largest phone, a
-    // tablet either way up.
-    const size = LOGO * DIVE.far;
+  test("the agent's opening is drawn ahead and shown by the UI thread; past it, it idles drawn as it goes", () => {
+    expect(OPENING_FRAMES).toBe(Math.round(OPENING_END * OPENING_FPS) + 1);
+    // The frame for each moment, never past what is drawn so far; none past the opening.
+    expect(openingFrame(0, 1)).toBe(0);
+    expect(openingFrame(0.5, 4)).toBe(3);
+    expect(openingFrame(0.5, OPENING_FRAMES)).toBe(15);
+    expect(openingFrame(OPENING_END, OPENING_FRAMES)).toBe(-1);
+    const splash = source("src/features/launch/LaunchSplash.tsx");
+    expect(splash).toContain("list.push(agentPicture(launchPose(list.length / OPENING_FPS)));");
+    expect(splash).toContain("const i = openingFrame(clock.value / 1000, list.length);");
+    // No frames of it on the JS thread during the opening (the app loads there), nor while it leaves.
+    expect(splash).toContain("const now = useFrameTime(!reduced && idling && !leaving, heldAt);");
+  });
+
+  test("leaving, the agent gathers itself: faces front from where it was, smiles and squashes", () => {
+    const held = launchPose(0.4);
+    const last = gatherPose(held, GATHER_FRAMES - 1);
+    expect(last.turn).toEqual([0, 0]);
+    expect(last.expression).toBe("happy");
+    expect(last.squash).toBeCloseTo(EXIT.squash, 5);
+    expect(gatherPose(held, 0).turn?.[1]).toBeGreaterThan(0);
+    expect(gatherFrame(0)).toBe(0);
+    expect(gatherFrame(EXIT.gather)).toBe(GATHER_FRAMES - 1);
+    expect(EXIT_TOTAL).toBeCloseTo(EXIT.gather + EXIT.wave, 5);
+  });
+
+  test("the ring starts just outside the agent and ends past every corner of any screen", () => {
+    expect(ringRadius(0, 400, 390, 844)).toBe(0);
+    expect(ringRadius(EXIT.gather, 400, 390, 844)).toBeCloseTo(LOGO * 0.55, 5);
     for (const [w, h] of [
+      [390, 844],
       [440, 956],
       [1024, 1366],
       [1366, 1024],
     ] as const) {
-      const left = w / 2 - size / 2;
-      const top = h / 2 - LAUNCH.lift - size / 2;
-      for (const [x, y] of [
-        [0, 0],
-        [w, 0],
-        [0, h],
-        [w, h],
-      ] as const)
-        expect({ w, h, x, y, inside: inBody((x - left) / size, (y - top) / size) }).toEqual({
-          w,
-          h,
-          x,
-          y,
-          inside: true,
-        });
+      const cy = h / 2 - LAUNCH.lift;
+      const r = ringRadius(EXIT_TOTAL, cy, w, h);
+      // Its band's inner edge (where only the app shows) is past the farthest corner.
+      expect(r - EXIT.band).toBeGreaterThan(Math.hypot(w / 2, Math.max(cy, h - cy)));
     }
-    // The body's fill lets go first (the app shows through it), the eyes a moment later, the name before the dive.
-    expect(diveBody(DIVE.at)).toBe(1);
-    expect(diveBody(DIVE.at + 0.1)).toBe(0);
-    expect(diveEyes(DIVE.at + 0.1)).toBeGreaterThan(0.5);
-    expect(diveEyes(DIVE_TOTAL)).toBe(0);
-    expect(diveName(DIVE.nameOut)).toBe(0);
+    // Always growing.
+    const rs = [0.1, 0.2, 0.3, 0.4, 0.5].map((e) => ringRadius(e, 400, 390, 844));
+    for (let i = 1; i < rs.length; i++) expect(rs[i]).toBeGreaterThan(rs[i - 1] as number);
   });
 
-  test("the dive runs on one clock on the UI thread, cut into the sky's canvas; the app is in view from its start", () => {
-    const splash = readFileSync(join(import.meta.dir, "../../src/features/launch/LaunchSplash.tsx"), "utf8");
+  test("on the ring: the splash outside, the sky's tones on the band, the app dithering in on its inner half", () => {
+    expect(ringCell(120, 100, 0.5)).toBe("splash");
+    // Mid-band: the brightest tone.
+    expect(ringCell(100 - EXIT.band / 2, 100, 0.5)).toBe(3);
+    // Past the band: the app.
+    expect(ringCell(10, 100, 0.5)).toBe("app");
+    expect(ringCell(100 - EXIT.band, 100, 0.99)).toBe("app");
+    // The inner half lets more of the app through the deeper it is.
+    const through = (k: number) =>
+      Array.from({ length: 16 }, (_, i) => ringCell(100 - k * EXIT.band, 100, bayerAt(i % 4, i >> 2))).filter(
+        (c) => c === "app",
+      ).length;
+    expect(through(0.4)).toBe(0);
+    expect(through(0.6)).toBeLessThan(through(0.9));
+    expect(ringTones("#ffffff", false)[0]).toBe("#ffffff");
+    expect(ringTones("#0f0f0e", true, true)[0]).toBe("#0f0f0e");
+  });
+
+  test("the agent comes apart into its own pixels, all gone early in the wave", () => {
+    const cells = burstCells();
+    expect(cells.length).toBeGreaterThan(300);
+    for (const c of cells) {
+      expect(Math.abs(c.dx)).toBeLessThan(LOGO / 2);
+      expect(Math.abs(c.dy)).toBeLessThan(LOGO / 2);
+      expect(c.gone).toBeLessThanOrEqual(EXIT.burst);
+      expect(burstDrift(c, 0)).toBe(1);
+      expect(burstDrift(c, EXIT.burst + 0.01)).toBeNull();
+    }
+  });
+
+  test("the name goes under the band as it passes; the panel at the bottom goes as the agent gathers", () => {
+    expect(nameUnderRing(0)).toBe(1);
+    expect(nameUnderRing(LOGO * 0.55)).toBe(1);
+    expect(nameUnderRing(400)).toBe(0);
+    expect(panelOut(0)).toBe(1);
+    expect(panelOut(0.12)).toBe(0);
+  });
+
+  test("the exit runs on one clock on the UI thread, the ring cutting the sky's canvas; the app in view from its start", () => {
+    const splash = source("src/features/launch/LaunchSplash.tsx");
     expect(splash).toContain(
-      "dive.value = withTiming(DIVE_TOTAL, { duration: DIVE_TOTAL * 1000, easing: Easing.linear }, end);",
+      "exit.value = withTiming(EXIT_TOTAL, { duration: EXIT_TOTAL * 1000, easing: Easing.linear }, end);",
     );
-    expect(splash).toContain("<Group clip={opening} invertClip>");
+    expect(splash).toContain('<Fill blendMode="dstOut">');
+    expect(splash).toContain("<Group layer={ring !== null}>");
     expect(splash).toContain("markRevealed();");
-    // Reduced motion keeps the short fade.
+    // Reduced motion (or no shader) keeps the short fade.
     expect(splash).toContain("shown.value = withTiming(0, { duration: LAUNCH.reducedExit * 1000 }, end);");
-    // Conversas arrives as the window grows, not once the splash is gone.
-    const home = readFileSync(join(import.meta.dir, "../../src/features/chats/HomeEntrance.tsx"), "utf8");
-    expect(home).toContain("const inView = useRevealed();");
+    // The app settles from a little larger under the ring, around the whole navigator.
+    expect(source("app/_layout.tsx")).toContain("style={[{ flex: 1 }, settleStyle]}");
+    // Conversas is in place under the splash: nothing arrives over the ring; the right hand still wakes once in view.
+    expect(source("src/features/chats/ChatsScreen.tsx")).not.toContain("<Arrive");
+    expect(source("src/features/chats/HomeEntrance.tsx")).toContain("const inView = useRevealed();");
   });
 
   test("the sky starts from the screen's own background", () => {

@@ -66,6 +66,13 @@ export const motion = {
   sheet: { duration: 300, dampingRatio: 0.8 },
   /** A small overshoot (the notice island's shape). */
   pop: { damping: 13, stiffness: 260, mass: 0.7 },
+  /**
+   * What moves to a new place (a row that reorders, a section under one that closes): settles with no overshoot, and
+   * a finger can interrupt it. In damping and stiffness, for `LinearTransition.springify()`.
+   */
+  nav: { damping: 30, stiffness: 260, mass: 1 },
+  /** A celebration (a face that hops, a pixel that pops): one clear overshoot. Rare. */
+  bounce: { damping: 15, stiffness: 240, mass: 1 },
 } as const;
 
 export interface Theme {

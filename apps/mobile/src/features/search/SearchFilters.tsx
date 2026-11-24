@@ -19,7 +19,7 @@ import {
   typingOperator,
 } from "@agenteschat/client/lib/search-filters";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import Animated, { FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
 import {
   Button,
@@ -27,6 +27,7 @@ import {
   Filters,
   SCREEN_X,
   SectionHeader,
+  SideScroll,
   SkeletonList,
   Text,
   TOKEN_GAP,
@@ -57,12 +58,7 @@ export function FilterChips({ chips, onRemove }: { chips: SearchChip[]; onRemove
   const motion = reduced ? {} : { exiting: CHIP_OUT, layout: LinearTransition.duration(200) };
   return (
     <LayoutAnimationConfig skipEntering skipExiting>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        contentContainerStyle={styles.chips}
-      >
+      <SideScroll keyboardShouldPersistTaps="handled" contentContainerStyle={styles.chips}>
         {chips.map((chip) => {
           const label = searchChipLabel(t, i18n.language, chip);
           const remove = () => onRemove(chip);
@@ -78,7 +74,7 @@ export function FilterChips({ chips, onRemove }: { chips: SearchChip[]; onRemove
             </Animated.View>
           );
         })}
-      </ScrollView>
+      </SideScroll>
     </LayoutAnimationConfig>
   );
 }

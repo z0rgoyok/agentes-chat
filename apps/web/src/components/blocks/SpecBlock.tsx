@@ -1,7 +1,7 @@
 import { type BlockChange, newClientId, useBlockReply, useBlockValues } from "@agenteschat/client";
 import type { ChartSpec } from "@agenteschat/client/lib/chart";
 import { formatTime } from "@agenteschat/client/lib/format";
-import { Button, Field, Input, Segmented, Switch, Textarea } from "@agenteschat/ui";
+import { BoundedMap, Button, Field, Input, Segmented, Switch, Textarea } from "@agenteschat/ui";
 import {
   type BlockViewPart,
   type BlockWords,
@@ -25,7 +25,7 @@ const INLINE_HEIGHT = 420;
 
 type Sent = { text: string; at: string };
 /** What this person sent from a block and whether they opened it whole, kept while the conversation is open. */
-const kept = new Map<string, { sent?: Sent; open?: boolean }>();
+const kept = new BoundedMap<string, { sent?: Sent; open?: boolean }>(500);
 const keptOf = (key: string) => {
   let k = kept.get(key);
   if (!k) {

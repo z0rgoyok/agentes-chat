@@ -4,7 +4,7 @@ import type { ErrorComponentProps } from "@tanstack/react-router";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { useBrowserOffline } from "@/chat/offline";
-import { DesktopDragStrip } from "@/components/DesktopTitleBar";
+import { DesktopDragStrip } from "@/components/DesktopDragStrip";
 import { BootSplash } from "@/components/Sky";
 import { useServerBack } from "@/hooks/useServerBack";
 import { onVersionReload, reloadIfStale, reloadingForNewVersion } from "@/lib/app-version";

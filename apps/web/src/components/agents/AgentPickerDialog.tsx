@@ -7,7 +7,7 @@ import { type KeyboardEvent, type ReactNode, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useConnectedById } from "@/components/AccessLevels";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { useAgentsAccess } from "@/hooks/useAgentsAccess";
 import "./agent-picker.css";
 

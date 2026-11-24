@@ -10,7 +10,7 @@ import {
   type SlideTheme,
   type SlideView,
 } from "@agenteschat/live/slides";
-import { cx } from "@agenteschat/ui";
+import { cx, transferFiles } from "@agenteschat/ui";
 import {
   type ClipboardEvent,
   type CSSProperties,
@@ -449,7 +449,7 @@ export function Stage(props: StageProps) {
   };
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
     if (readOnly) return;
-    const files = [...e.dataTransfer.files];
+    const files = transferFiles(e.dataTransfer);
     if (!files.length) return;
     e.preventDefault();
     props.onDropFiles(files, toSlide(e.clientX, e.clientY));

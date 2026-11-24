@@ -2,6 +2,7 @@ import {
   addMinutes,
   type CalItem,
   dragRange,
+  grownHeights,
   HOUR_PX,
   hourLabel,
   initialScrollMinutes,
@@ -33,6 +34,7 @@ import { RoutineBand } from "./RoutineBand";
 import { RunsPopover } from "./RunsPopover";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
+const NO_HEIGHTS: ReadonlyMap<string, number> = new Map();
 /** Movement before a press on a chip becomes a drag (px). */
 const DRAG_SLOP = 4;
 
@@ -120,15 +122,22 @@ export function TimeGrid({
   }, [daysKey, loading]);
 
   // How tall each block and stack of runs is drawn: a name that wraps reaches past its slot, and what starts under it
-  // then goes beside it, never under it (`layoutDay`, `runStacks`). Set only when a height changed.
-  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(() => new Map());
+  // then goes beside it, never under it (`layoutDay`, `runStacks`). For one set of days at one width they only grow
+  // (`grownHeights`), so the layout settles; other days or another width measure again from nothing. The grid's own
+  // width, not the scroll area's: a scrollbar that comes and goes with what is drawn must not start it over.
+  const [measured, setMeasured] = useState<{ at: string; heights: ReadonlyMap<string, number> }>(() => ({
+    at: "",
+    heights: NO_HEIGHTS,
+  }));
+  const heights = measured.at.startsWith(`${daysKey}@`) ? measured.heights : NO_HEIGHTS;
   useLayoutEffect(() => {
+    const at = `${daysKey}@${scroller.current?.parentElement?.clientWidth ?? 0}`;
     const drawn = new Map<string, number>();
     for (const el of scroller.current?.querySelectorAll<HTMLElement>("[data-measure]") ?? [])
       if (el.offsetHeight > 0) drawn.set(el.dataset.measure ?? "", el.offsetHeight);
-    const moved =
-      drawn.size !== heights.size || [...drawn].some(([key, h]) => Math.abs((heights.get(key) ?? 0) - h) > 0.5);
-    if (moved) setHeights(drawn);
+    const before = measured.at === at ? heights : NO_HEIGHTS;
+    const next = grownHeights(before, drawn);
+    if (measured.at !== at || next !== heights) setMeasured({ at, heights: next });
   });
 
   const colAt = (clientX: number, clientY: number) => {

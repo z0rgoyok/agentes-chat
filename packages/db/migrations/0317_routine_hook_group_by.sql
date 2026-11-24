@@ -1,0 +1,1 @@
+ALTER TABLE "routine_hooks" ADD COLUMN "group_by" text;

@@ -86,10 +86,14 @@ test("one computer per organization of the first account, its own token each; no
   expect(acme?.token).toStartWith("agm_");
   const row = await authenticateMachine(t.db, acme?.token ?? "");
   expect(row).toMatchObject({ kind: "host", orgId, pairedByUserId: await userId("owner@example.com") });
-  // The agent with no computer uses it now.
+  // The agent with no computer uses it now, and the right hand has its places there whatever users it keeps.
   const list = (await (await api("/machines")).json()) as { machines: { kind: string; agents: { id: string }[] }[] };
   expect(list.machines).toEqual([
-    expect.objectContaining({ kind: "host", name: "Servidor", agents: [expect.objectContaining({ id: agentId })] }),
+    expect.objectContaining({
+      kind: "host",
+      name: "Servidor",
+      agents: [expect.objectContaining({ id: agentId }), expect.objectContaining({ handle: "lodi" })],
+    }),
   ]);
   expect(await t.db.select().from(schema.machines).where(eq(schema.machines.orgId, betaId))).toEqual([]);
 

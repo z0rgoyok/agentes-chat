@@ -5,6 +5,7 @@ setupDom();
 
 import type { CustomServer, Message } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { connectionLine, openStore, pick, rowMenu, searchStore } from "./catalog";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, fakeMailOf, NOW, ORG_ID, seedState } from "./fake-api";
 import { MAIL_PROVIDERS } from "./fakes/mail";
 import { renderApp, screen, settle } from "./render";
@@ -19,10 +20,14 @@ const click = async (el: Element, rounds = 4) => {
   await settle(rounds);
 };
 const type = (el: Element, value: string) => act(async () => fireEvent.change(el, { target: { value } }));
-const section = () => screen().getByRole("region", { name: "Conectores" });
-const mcpSection = () => screen().getByRole("region", { name: "MCPs" });
-/** "Equipe | Pessoal": over both cards. */
+/** Settings › Connectors: the split, the band, what is connected and the way in by address. */
+const section = () => document.querySelector(".store") as HTMLElement;
+/** "Connected": one line per connection of the side shown. */
+const connectedList = () => screen().queryByRole("region", { name: "Conectados" });
+/** "Team | Personal": over the band and the list. */
 const ownerTabs = () => screen().getByRole("radiogroup", { name: "Conectores" });
+/** "Connect by address", under the list: any MCP server, in the connect dialog. */
+const byAddress = () => within(section()).getByRole("button", { name: "Conectar pelo endereço" });
 const flow = () => screen().getAllByRole("dialog").at(-1) as HTMLElement;
 const asMember = (state: State) => {
   const org = state.me?.organizations[0];
@@ -73,9 +78,9 @@ describe("Conectores: Equipe | Pessoal", () => {
         .getAttribute("aria-checked"),
     ).toBe("true");
     expect(section().textContent).toContain("Conecte suas próprias contas");
-    // Every member adds on Pessoal; the team's side has no Adicionar for them.
-    expect(within(section()).getAllByRole("button", { name: "Adicionar conector" }).length).toBeGreaterThan(0);
-    await click(within(mcpSection()).getByRole("button", { name: "Adicionar MCP" }));
+    // Every member adds on Personal; the team's side has no way in for them.
+    expect(within(section()).getAllByRole("button", { name: "Ver conectores" }).length).toBeGreaterThan(0);
+    await click(byAddress());
     const dialog = flow();
     const forWhom = within(dialog).getByRole("radiogroup", { name: "Para quem" });
     expect(within(forWhom).getByRole("radio", { name: "Pessoal" }).getAttribute("aria-checked")).toBe("true");
@@ -97,10 +102,10 @@ describe("Conectores: Equipe | Pessoal", () => {
     // A server not reviewed yet: Continuar saves the levels suggested for its tools.
     await click(within(flow()).getByRole("button", { name: "Continuar" }), 6);
     expect(within(tabs).getByRole("radio", { name: /Pessoal/ }).textContent).toContain("1");
-    expect(within(mcpSection()).getByRole("button", { name: /mcp\.example\.com/ })).toBeTruthy();
+    expect(within(connectedList() as HTMLElement).getByRole("button", { name: /mcp\.example\.com/ })).toBeTruthy();
     await click(within(tabs).getByRole("radio", { name: /Equipe/ }));
-    expect(within(section()).queryByRole("button", { name: "Adicionar conector" })).toBeNull();
-    expect(within(mcpSection()).queryByRole("button", { name: "Adicionar MCP" })).toBeNull();
+    expect(within(section()).queryByRole("button", { name: "Ver conectores" })).toBeNull();
+    expect(within(section()).queryByRole("button", { name: "Conectar pelo endereço" })).toBeNull();
   });
 
   test("who manages connectors opens on Equipe, connects for the team as before, and may choose Pessoal", async () => {
@@ -112,7 +117,7 @@ describe("Conectores: Equipe | Pessoal", () => {
         .getByRole("radio", { name: /Equipe/ })
         .getAttribute("aria-checked"),
     ).toBe("true");
-    await click(within(mcpSection()).getByRole("button", { name: "Adicionar MCP" }));
+    await click(byAddress());
     const forWhom = within(flow()).getByRole("radiogroup", { name: "Para quem" });
     expect(within(forWhom).getByRole("radio", { name: "Equipe" }).getAttribute("aria-checked")).toBe("true");
     expect(flow().textContent).toContain("Ao conectar, todos os agentes podem usar.");
@@ -139,8 +144,9 @@ describe("Conectores: Equipe | Pessoal", () => {
     expect(within(others).queryByRole("button", { name: /Ferramentas/ })).toBeNull();
     expect(within(others).queryByRole("button", { name: /Quem usa/ })).toBeNull();
     expect(within(others).queryByRole("button", { name: /Mais ações/ })).toBeNull();
-    // Nor in the team's list, nor on Pessoal.
-    expect(within(mcpSection()).queryByRole("button", { name: /CRM do João/ })).toBeNull();
+    // Nor in the team's list, nor on Personal.
+    expect(connectionLine("Equipe MCP")).toBeTruthy();
+    expect(within(connectedList() as HTMLElement).queryByRole("button", { name: /CRM do João/ })).toBeNull();
 
     await click(within(others).getByRole("button", { name: /CRM do João/ }));
     await click(within(others).getByRole("button", { name: "Tirar de um agente" }));
@@ -188,15 +194,8 @@ describe("Conectores: Equipe | Pessoal", () => {
     await openConnectors(api);
     await click(within(ownerTabs()).getByRole("radio", { name: /Pessoal/ }));
     expect(document.body.textContent).toContain("Só você abre estas conexões.");
-    await click(within(section()).getByRole("button", { name: /^Sentry/ }));
-    const more = within(section()).getByRole("button", { name: "Mais ações de Sentry" });
-    more.focus();
-    await act(async () => {
-      fireEvent.keyDown(more, { key: "Enter" });
-      fireEvent.keyUp(more, { key: "Enter" });
-    });
-    await settle(2);
-    await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Passar para a equipe" }));
+    // Its page's ⋯ holds Move to team.
+    await click(within(await rowMenu("Sentry")).getByRole("menuitem", { name: "Passar para a equipe" }));
     await click(
       within(screen().getByRole("dialog", { name: "Passar Sentry para a equipe?" })).getByRole("button", {
         name: "Passar para a equipe",
@@ -214,21 +213,18 @@ describe("Conectores: Equipe | Pessoal", () => {
     if (!mail) throw new Error("no mail fake");
     mail.providers = structuredClone(MAIL_PROVIDERS);
     await openConnectors(api);
-    await click(within(section()).getAllByRole("button", { name: "Adicionar conector" })[0] as HTMLElement);
-    const catalog = screen().getByRole("dialog", { name: "Adicionar conector" });
-    // GitHub connects for the team only: not offered on Pessoal.
-    expect(within(catalog).queryByRole("button", { name: "GitHub" })).toBeNull();
-    await click(within(catalog).getByRole("button", { name: "iCloud" }));
-    await click(
-      within(screen().getByRole("dialog", { name: "iCloud" })).getByRole("button", { name: "Conectar iCloud" }),
-    );
+    const store = await openStore();
+    // GitHub connects for the team only: the store doesn't offer it to who adds their own.
+    await searchStore(store, "GitHub");
+    expect(within(store).queryByRole("button", { name: "Conectar GitHub" })).toBeNull();
+    await pick(store, "iCloud");
     const forWhom = within(flow()).getByRole("radiogroup", { name: "Para quem" });
     expect(within(forWhom).getByRole("radio", { name: "Pessoal" }).getAttribute("aria-checked")).toBe("true");
     expect(flow().textContent).toContain("Uma caixa de email é sempre de quem a conecta.");
   });
 });
 
-describe("Conectores: the split covers both cards", () => {
+describe("Conectores: the split covers the band and the list", () => {
   test("Pessoal with only a server by address: its note shows, no empty state says there is nothing", async () => {
     const state = seedState({ connections: [] });
     asMember(state);
@@ -238,8 +234,10 @@ describe("Conectores: the split covers both cards", () => {
     expect(within(ownerTabs()).getByRole("radio", { name: /Pessoal/ }).textContent).toContain("1");
     expect(document.body.textContent).toContain("Só você abre estas conexões.");
     expect(section().textContent).not.toContain("Conecte suas próprias contas");
-    // The tabs sit over both cards, not inside the first.
-    expect(within(section()).queryByRole("radiogroup", { name: "Conectores" })).toBeNull();
+    // The tabs sit over the list they split.
+    expect(
+      ownerTabs().compareDocumentPosition(connectedList() as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
   test("others' personal connections stay a short group: five rows, the rest behind Ver todas", async () => {
@@ -287,7 +285,8 @@ describe("Conectores: the split covers both cards", () => {
     const box = screen().getByRole("region", { name: "Suas caixas de email" });
     expect(box.textContent).toContain("Quando outra pessoa pede algo que precisa de aprovação, quem aprova é você.");
     expect(box.textContent).toContain("walter@example.com");
-    expect(section().textContent).not.toContain("walter@example.com");
+    // Not in the connections' list: nothing but a mailbox, so there's none.
+    expect(connectedList()).toBeNull();
     // Nothing but a mailbox: the connections' note has nothing under it, so it isn't there.
     expect(document.body.textContent).not.toContain("Só você abre estas conexões.");
     cleanup();

@@ -257,7 +257,10 @@ export async function unreadNow(db: Executor, runId: string, options: { awaitTri
 export async function releaseInbox(
   db: Database,
   pubsub: PubSub | undefined,
-  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "trigger">,
+  run: Pick<
+    AgentRun,
+    "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "trigger"
+  >,
   options: { reason: ReleaseReason; exclude?: string[] },
 ): Promise<{ runId: string; messageIds: string[] } | null> {
   const taken = await takeToHandOn(db, run).catch(() => [] as string[]);
@@ -273,7 +276,10 @@ export async function releaseInbox(
 export async function handOnMessages(
   db: Database,
   pubsub: PubSub | undefined,
-  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "trigger">,
+  run: Pick<
+    AgentRun,
+    "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "trigger"
+  >,
   messageIds: string[],
 ): Promise<{ runId: string; messageIds: string[] } | null> {
   if (messageIds.length === 0) return null;
@@ -366,7 +372,7 @@ export async function passedOnTo(db: Executor, orgId: string, workId: string, id
  */
 export async function heldHere(
   db: Executor,
-  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId">,
+  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread">,
 ): Promise<string | null> {
   const rows = await db
     .select({ title: approvals.title, params: approvals.params, status: approvals.status })
@@ -417,7 +423,10 @@ export async function heldHere(
  */
 export async function whileHeld(
   db: Executor,
-  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "workId">,
+  run: Pick<
+    AgentRun,
+    "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "workId"
+  >,
 ): Promise<string | null> {
   // The pause: its last step of its own. Handing its inbox on (`handOn`) writes a step after the run it
   // started, which would hide that run and its trigger.
@@ -491,7 +500,10 @@ export async function whileHeld(
 async function handOn(
   db: Database,
   pubsub: PubSub | undefined,
-  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "trigger">,
+  run: Pick<
+    AgentRun,
+    "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "trigger"
+  >,
   taken: string[],
   options: { reason: ReleaseReason; exclude?: string[] },
 ): Promise<{ runId: string; messageIds: string[] } | null> {
@@ -538,21 +550,25 @@ async function handOn(
             eq(agentConsultations.status, "open"),
           ),
         );
-    const out = await startOrJoinRun(tx, last, run.agentId, trigger);
+    // Where the run answered (ADR 0214): what it took goes on there.
+    const out = await startOrJoinRun(tx, last, run.agentId, trigger, { after: run });
     if (!out) return out;
     const taker = "created" in out ? out.created.id : out.joined;
+    // A new run that answers under the message that asked (ADR 0214) reads that thread, not the main timeline.
+    const thread = "created" in out && out.created.replyInThread ? out.created.threadRootId : null;
     const taken = [last.id];
     for (const m of rows) {
       if (m.id === last.id) continue;
       // One that may not reach the run that took them (a routine's report next to a person's message,
       // ADR 0053 §4) goes its own way.
       if (!(await mayJoin(tx, m, taker))) {
-        const own = await startOrJoinRun(tx, m, run.agentId, await triggerFor(tx, run, m));
+        const own = await startOrJoinRun(tx, m, run.agentId, await triggerFor(tx, run, m), { after: run });
         if (own) await adopt("created" in own ? own.created.id : own.joined, [m.id]);
         continue;
       }
-      // Joined a run that already read its context: the rest go to it too (a new run reads them in the conversation).
-      if ("joined" in out) await queueOnRun(tx, out.joined, m.id);
+      // Joined a run that already read its context: the rest go to it too. A new run reads them in its conversation,
+      // but for what it took from outside the thread it answers in: that comes to its inbox.
+      if ("joined" in out || (thread && m.id !== thread && m.threadId !== thread)) await queueOnRun(tx, taker, m.id);
       taken.push(m.id);
     }
     await adopt(taker, taken);

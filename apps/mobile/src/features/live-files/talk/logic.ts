@@ -1,12 +1,35 @@
-import type { LiveKind, LiveRef, LiveSelection } from "@agenteschat/client";
+import {
+  isLiveFileKind,
+  isMediaKind,
+  isPinnedSelection,
+  type LiveRef,
+  type LiveSelection,
+  type ResolvedMark,
+  resolvedOf,
+  type TalkKind,
+} from "@agenteschat/client";
+import { mediaKindOfArtifact } from "@agenteschat/client/lib/files";
+import { decodeFileList, videoClock } from "../../files/logic";
 
 /**
  * A live file's own conversation on the phone (ADR 0199), the pure part: the line under the file (who took part, an
  * agent at work there or the last message, how many), the quote over the composer and the line over a message about
- * part of the file, and which agent "Ask Atlas" calls. The screens draw it; the tests read it.
+ * part of the file, and which agent "Ask Atlas" calls. A picture, a video or a PDF has the same conversation (ADR
+ * 0208), its comments pinned on the picture. The screens draw it; the tests read it.
  */
 
 type T = (key: string, options?: Record<string, unknown>) => string;
+
+/**
+ * What a file's conversation is about: a live file's kind, or a picture's, a video's or a PDF's by its type (ADR
+ * 0208); null for any other file.
+ */
+export function talkKindOf(
+  file: { kind: string; content?: { kind?: string; contentType?: string } } | null | undefined,
+): TalkKind | null {
+  if (!file) return null;
+  return isLiveFileKind(file.kind) ? file.kind : mediaKindOfArtifact(file);
+}
 
 // ── The quote and the line about the file ─────────────────────────────────────────────────────────────────────────
 
@@ -17,12 +40,37 @@ export function sheetParts(label: string): { range: string; sheet: string } | nu
   return { sheet: label.slice(0, at), range: label.slice(at + 1) };
 }
 
+/** A comment's pin number, as its app wrote it in the label (ADR 0208); empty when the label is no number. */
+const pinNumber = (selection: LiveSelection) => (/^\d{1,5}$/.test(selection.label) ? selection.label : "");
+
+/** The mark of a picture's, a video's or a PDF's comment, short: "Area 4", "Point 2". */
+function markWhat(t: T, selection: LiveSelection): string {
+  const n = pinNumber(selection);
+  const area = selection.mark?.w !== undefined;
+  return n
+    ? t(area ? "live.conversation.what.area" : "live.conversation.what.point", { n })
+    : t(area ? "live.conversation.what.anArea" : "live.conversation.what.aPoint");
+}
+
 /**
  * The quote over the composer: "About C2:D6 in Costs", "About 1 image on the canvas", "About slide 1", "About the
- * selected passage"; a comment's spot on a canvas: "A comment on a spot of the canvas".
+ * selected passage"; a comment's spot on a canvas: "A comment on a spot of the canvas"; a picture's, a video's or a
+ * PDF's comment (ADR 0208): "About point 4 of the image", "About 0:42 of the video".
  */
-export function aboutWords(t: T, kind: LiveKind, selection: LiveSelection): string {
+export function aboutWords(t: T, kind: TalkKind, selection: LiveSelection): string {
   const label = selection.label;
+  if (isMediaKind(kind)) {
+    if (kind === "video" && selection.time !== undefined) {
+      return t("live.conversation.about.videoAt", { time: videoClock(selection.time) });
+    }
+    if (kind === "pdf" && selection.page !== undefined) {
+      return t("live.conversation.about.pdfPage", { page: selection.page });
+    }
+    const n = pinNumber(selection);
+    if (selection.mark?.w !== undefined) return t("live.conversation.about.imageArea", { n });
+    if (selection.mark) return t("live.conversation.about.imagePoint", { n });
+    return t(`live.conversation.about.${kind}`);
+  }
   if (kind === "spreadsheet") {
     const sheet = sheetParts(label);
     if (sheet) return t("live.conversation.about.range", sheet);
@@ -41,11 +89,27 @@ export function aboutWords(t: T, kind: LiveKind, selection: LiveSelection): stri
 
 /**
  * A message's line about the file: what (bold) and where (quiet): "C2:D6" in "Costs", "Slide 3" in the file, "1
- * image" in "Summer banner"; the file alone when nothing in particular was selected.
+ * image" in "Summer banner"; a picture's, a video's or a PDF's comment (ADR 0208): "Area 1" on the image, "0:42 ·
+ * point 2" on the video, "Page 3" with its "area 1"; the file alone when nothing in particular was selected.
  */
 export function aboutParts(t: T, ref: LiveRef): { what: string; where: string } {
   const selection = ref.selection;
   const title = ref.title || t("live.conversation.untitled");
+  if (isMediaKind(ref.kind)) {
+    const where = t(`live.conversation.where.${ref.kind}`);
+    if (!selection) return { what: title, where };
+    if (ref.kind === "video" && selection.time !== undefined) {
+      const time = videoClock(selection.time);
+      return { what: selection.mark ? `${time} · ${markWhat(t, selection).toLowerCase()}` : time, where };
+    }
+    if (ref.kind === "pdf" && selection.page !== undefined) {
+      return {
+        what: t("live.conversation.what.page", { page: selection.page }),
+        where: selection.mark ? markWhat(t, selection).toLowerCase() : where,
+      };
+    }
+    return { what: selection.mark ? markWhat(t, selection) : title, where };
+  }
   if (!selection) return { what: title, where: t(`live.kinds.${ref.kind}`) };
   const sheet = ref.kind === "spreadsheet" ? sheetParts(selection.label) : null;
   if (sheet) return { what: sheet.range, where: sheet.sheet };
@@ -54,7 +118,9 @@ export function aboutParts(t: T, ref: LiveRef): { what: string; where: string } 
 
 /** Two selections are the same part of the file. */
 export const selectionKey = (s: LiveSelection | null | undefined) =>
-  s ? JSON.stringify([s.label, s.sheet, s.range, s.slide, s.shapes, s.point, s.text, s.block]) : "";
+  s
+    ? JSON.stringify([s.label, s.sheet, s.range, s.slide, s.shapes, s.point, s.text, s.block, s.mark, s.time, s.page])
+    : "";
 
 // ── The line under the file ───────────────────────────────────────────────────────────────────────────────────────
 
@@ -164,11 +230,148 @@ export function talkPins(
   return pins;
 }
 
+// ── Comment pins on a picture, a video or a PDF ──────────────────────────────────────────────────────────────────
+
+/** A point or an area, in fractions (0 to 1) of the picture, the video's frame or the PDF's page (ADR 0208). */
+export type Mark = NonNullable<LiveSelection["mark"]>;
+
+/** A comment with a pin on a picture, a video or a PDF: a message of its conversation that points at a place there. */
+export interface MediaPin {
+  messageId: string;
+  author: Who;
+  /** Its number, oldest first (1 for the first), as the web and the agents number them. */
+  n: number;
+  selection: LiveSelection;
+  /** Resolved: its pin leaves the picture, its message stays. */
+  resolved: ResolvedMark | null;
+  /** Made on a version older than the one shown: drawn faded. */
+  old: boolean;
+}
+
+/**
+ * The comments with a pin on this file (ADR 0208): the conversation's messages about it with a mark, a moment or a
+ * page, numbered oldest first (resolved ones keep their number). `version`: the file's version on screen.
+ */
+export function mediaPins(
+  fileId: string,
+  messages: readonly { id: string; author: Who; liveRef?: LiveRef | null; meta?: Record<string, unknown> | null }[],
+  version: number,
+): MediaPin[] {
+  const pins: MediaPin[] = [];
+  for (const m of messages) {
+    const ref = m.liveRef;
+    const selection = ref?.artifactId === fileId ? ref.selection : undefined;
+    if (!selection || !isPinnedSelection(selection)) continue;
+    pins.push({
+      messageId: m.id,
+      author: m.author,
+      n: pins.length + 1,
+      selection,
+      resolved: resolvedOf(m.meta),
+      old: selection.version !== undefined && selection.version < version,
+    });
+  }
+  return pins;
+}
+
+/**
+ * The conversation's messages with mine still on their way after them, each once: a local copy whose server copy is
+ * already in (the same `clientId`, or the same id) is left out.
+ */
+export function withSending<M extends { id: string; clientId?: string | null }>(
+  messages: readonly M[],
+  sending: readonly M[],
+): readonly M[] {
+  if (sending.length === 0) return messages;
+  const ids = new Set(messages.map((m) => m.id));
+  const echoed = new Set(messages.flatMap((m) => (m.clientId ? [m.clientId] : [])));
+  return [...messages, ...sending.filter((m) => !ids.has(m.id) && !(m.clientId && echoed.has(m.clientId)))];
+}
+
+/** The pins drawn on a picture: those with a mark, open (a resolved one is off the picture). */
+export const picturePins = (pins: readonly MediaPin[]) => pins.filter((p) => p.selection.mark && !p.resolved);
+
+/** Where a mark's pin stands: an area's top right corner, a point itself. */
+export const pinAnchor = (mark: Mark) =>
+  mark.w !== undefined ? { x: mark.x + mark.w, y: mark.y } : { x: mark.x, y: mark.y };
+
+/** A pin on the picture, on screen: its height and the most width a tap reaches it by (face, number, padding). */
+export const MEDIA_PIN_H = 24;
+export const MEDIA_PIN_W = 48;
+
+/**
+ * The pin under a tap on the picture, the newest on top; null for none. `tap`: where, in fractions of the picture, and
+ * the picture's size as it shows now (its zoom included), since a pin keeps the screen's own size at any zoom, its
+ * corner on its spot.
+ */
+export function pinUnder(
+  pins: readonly MediaPin[],
+  tap: { x: number; y: number; width: number; height: number },
+): MediaPin | null {
+  for (let i = pins.length - 1; i >= 0; i--) {
+    const pin = pins[i];
+    const mark = pin?.selection.mark;
+    if (!pin || !mark) continue;
+    const spot = pinAnchor(mark);
+    const dx = (tap.x - spot.x) * tap.width;
+    const dy = (tap.y - spot.y) * tap.height;
+    if (dx >= -6 && dx <= MEDIA_PIN_W + 6 && dy >= -MEDIA_PIN_H - 10 && dy <= 10) return pin;
+  }
+  return null;
+}
+
+const fraction = (v: number) => Math.round(v * 10_000) / 10_000;
+
+/** A tap that marks, as a comment's point in fractions of the picture; null off it (the black around it). */
+export function pointMark(at: { x: number; y: number }): Mark | null {
+  if (!(at.x >= 0 && at.x <= 1 && at.y >= 0 && at.y <= 1)) return null;
+  return { x: fraction(at.x), y: fraction(at.y) };
+}
+
+/**
+ * The quote a new comment opens its conversation with (ADR 0208): the next pin's number, where it points (a point on
+ * the picture, a video's moment to the tenth of a second with the point on its frame, a PDF's page from 1 with the
+ * point on it) and the version on screen.
+ */
+export function commentSelection(
+  pins: readonly MediaPin[],
+  where: { mark?: Mark; time?: number; page?: number },
+  version: number,
+): LiveSelection {
+  return {
+    label: String(pins.length + 1),
+    ...(where.mark ? { mark: where.mark } : {}),
+    ...(where.time !== undefined ? { time: Math.round(Math.max(0, where.time) * 10) / 10 } : {}),
+    ...(where.page !== undefined ? { page: Math.max(1, Math.round(where.page)) } : {}),
+    version,
+  };
+}
+
+/** The draft's pin key: it stands for no message yet. */
+export const DRAFT_PIN = "draft";
+
+/**
+ * The comment being written, as a pin on the file (ADR 0208): the person's face and the number it will take, where
+ * they tapped, while the quote over the composer is about a point of this file. Null when the quote is about no point
+ * of it (or nothing is quoted).
+ */
+export function draftPin(about: LiveRef | null | undefined, fileId: string, me: Who | null): MediaPin | null {
+  const selection = about?.artifactId === fileId ? about.selection : undefined;
+  if (!me || !selection?.mark) return null;
+  const n = Number(pinNumber(selection));
+  return { messageId: DRAFT_PIN, author: me, n: n > 0 ? n : 0, selection, resolved: null, old: false };
+}
+
+/** A PDF page's pins (`page` from 1): its open comments with a mark there. */
+export const pagePins = (pins: readonly MediaPin[], page: number) =>
+  pins.filter((p) => p.selection.page === page && p.selection.mark && !p.resolved);
+
 // ── Where the conversation opens ─────────────────────────────────────────────────────────────────────────────────
 
 /**
  * Whether the screen under the conversation is this file's own (the stack's route before the conversation's): then
- * going back to it is going back, never a second copy pushed over the conversation.
+ * going back to it is going back, never a second copy pushed over the conversation. The picture viewer counts when
+ * the page it is on is this file (`at`, which it keeps as the person turns the pages).
  */
 export function fileUnder(
   routes: readonly { name: string; params?: object | undefined }[] | undefined,
@@ -176,13 +379,24 @@ export function fileUnder(
 ): boolean {
   if (!routes || routes.length < 2) return false;
   const under = routes[routes.length - 2];
-  if (!under || !LIVE_ROUTE_NAMES.has(under.name)) return false;
+  if (!under) return false;
+  if (under.name === VIEWER_ROUTE) {
+    const params = under.params as { files?: string | string[]; at?: string } | undefined;
+    const files = decodeFileList(params?.files);
+    return files[Math.max(0, Number(params?.at) || 0)]?.id === fileId;
+  }
+  if (!LIVE_ROUTE_NAMES.has(under.name)) return false;
   return (under.params as { id?: unknown } | undefined)?.id === fileId;
 }
+
+/** The picture viewer's route (`/images`). */
+const VIEWER_ROUTE = "images";
 
 const LIVE_ROUTE_NAMES: ReadonlySet<string> = new Set([
   "spreadsheet/[id]",
   "slides/[id]",
   "canvas/[id]",
   "document/[id]",
+  // A PDF's screen (ADR 0208); pictures and videos open in the viewer (`VIEWER_ROUTE`).
+  "file/[id]",
 ]);

@@ -429,7 +429,7 @@ export function useOpenTask() {
   const navigate = useNavigate();
   return (
     task: Pick<ManagedTask, "agentId" | "channelId" | "threadId"> & {
-      channelKind: ManagedTask["channelKind"] | "task" | "file";
+      channelKind: ManagedTask["channelKind"] | "task" | "file" | "code";
       background?: boolean;
       routine?: ManagedTask["routine"];
       delegation?: ManagedTask["delegation"];
@@ -513,6 +513,7 @@ export function StopAllConfirm({
   onOpenChange,
   onStop,
   trigger,
+  anchor = false,
 }: {
   agentId: string;
   runIds: string[];
@@ -521,6 +522,8 @@ export function StopAllConfirm({
   onOpenChange: (open: boolean) => void;
   onStop: (runIds: string[], reason: string) => void;
   trigger: ReactNode;
+  /** `trigger` only places the card: an item of its menu opens it (a row's ⋯). */
+  anchor?: boolean;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
@@ -547,6 +550,7 @@ export function StopAllConfirm({
       side="bottom"
       align="end"
       className="tm-confirm"
+      anchor={anchor}
     >
       <div className="tm-confirm__head ac-mediarow ac-mediarow--row">
         <span className="ac-mediarow__face">

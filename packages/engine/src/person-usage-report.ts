@@ -1,5 +1,6 @@
 import { and, type Database, eq, gte, inArray, isNull, lt, rowsOf, schema, sql } from "@agenteschat/db";
 import { nanoUsdToUsd } from "@agenteschat/providers";
+import { OWNER_COLUMNS, ownsAgent } from "./audience";
 import { accountablePerson, runAuthority } from "./authority";
 import { readableChannelIds } from "./channels";
 import { ForbiddenError, NotFoundError } from "./errors";
@@ -338,7 +339,7 @@ export async function peopleUsage(db: Database, actorId: string, orgId: string, 
     monthsOf(db, orgId, at),
     orgPersonLimits(db, orgId),
     db
-      .select({ id: agents.id, owner: agents.ownerUserId })
+      .select({ id: agents.id, ...OWNER_COLUMNS })
       .from(agents)
       .where(and(eq(agents.orgId, orgId), isNull(agents.archivedAt))),
     creators(db, orgId),
@@ -380,7 +381,8 @@ export async function peopleUsage(db: Database, actorId: string, orgId: string, 
       estimated: mine.some((g) => g.plan),
       agents: top,
       ...limitView(limits, { ...m, roleIds: m.roleIds ?? [] }, months.get(m.userId)),
-      caresFor: owned.filter((a) => a.owner === m.userId).map((a) => a.id),
+      // Its owner, or holding its owner role (ADR 0085, addendum of 2026-11-21).
+      caresFor: owned.filter((a) => ownsAgent(a, m.userId, m.roleIds)).map((a) => a.id),
       created: made.filter((c) => c.userId === m.userId).length,
       lastActiveAt: last?.toISOString() ?? null,
       now: now ? { agentId: now.agentId, place: now.place, title: now.title, startedAt: now.startedAt } : null,

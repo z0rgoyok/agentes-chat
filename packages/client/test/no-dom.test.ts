@@ -30,8 +30,8 @@ const FORBIDDEN: [RegExp, string][] = [
   [/\bimport\.meta\.env\b/, "import.meta.env (Vite)"],
   [/\b(HTMLElement|HTMLCanvasElement|HTMLInputElement|FileList|MutationObserver|IntersectionObserver)\b/, "DOM type"],
   [/from\s+["']react-dom(\/[^"']*)?["']/, "react-dom"],
-  // `@agenteschat/ui/markdown` and `/agent-talk` are plain TypeScript the engine reads too (held below).
-  [/from\s+["']@agenteschat\/ui(?!\/(?:markdown|agent-talk)["'])(\/[^"']*)?["']/, "@agenteschat/ui"],
+  // `@agenteschat/ui/markdown`, `/agent-talk` and `/bounded-map` are plain TypeScript the engine reads too (held below).
+  [/from\s+["']@agenteschat\/ui(?!\/(?:markdown|agent-talk|bounded-map)["'])(\/[^"']*)?["']/, "@agenteschat/ui"],
   [/from\s+["']@tanstack\/react-router["']/, "@tanstack/react-router (web routing)"],
   [/from\s+["']react-i18next["']/, "react-i18next (each app sets up i18n)"],
   [/from\s+["']@\//, "the web app's @/ alias"],
@@ -58,6 +58,7 @@ describe("@agenteschat/client stays platform-neutral", () => {
     ["markdown.ts", ["@agenteschat/i18n/everyone"]],
     ["agent-talk.ts", ["./markdown", "./widgets/spec"]],
     ["widgets/spec.ts", []],
+    ["bounded-map.ts", []],
   ])("@agenteschat/ui's %s, shared with it, holds to the same rules", (file, imports) => {
     const source = code(readFileSync(join(SRC, "..", "..", "ui", "src", file), "utf8"));
     expect(FORBIDDEN.filter(([re]) => re.test(source)).map(([, what]) => what)).toEqual([]);

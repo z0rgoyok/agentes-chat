@@ -1071,6 +1071,7 @@ export async function proposeCalendarEvent(
     channelId: string;
     threadRootId: string;
     triggerMessageId: string;
+    replyInThread?: boolean;
   },
   input: {
     title: string;
@@ -1119,7 +1120,7 @@ export async function proposeCalendarEvent(
     const card = await insertMessage(tx, {
       orgId: run.orgId,
       channelId: run.channelId,
-      threadId: replyThreadOf(run),
+      threadId: replyThreadOf({ ...run, replyInThread: run.replyInThread === true }),
       author: { type: "agent", agentId: run.agentId, runId: run.runId, hop: 1 },
       body: `Event proposal: ${row.title}`,
       meta: {

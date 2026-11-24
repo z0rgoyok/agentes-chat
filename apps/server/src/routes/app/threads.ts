@@ -41,7 +41,7 @@ const Thread = z
     id: z.uuid().openapi({ description: "The root message id (what replies carry as `threadId`)." }),
     channelId: z.uuid(),
     channelName: z.string(),
-    channelKind: z.enum(["channel", "dm", "task", "file"]),
+    channelKind: z.enum(["channel", "dm", "task", "file", "code"]),
     title: z.string().nullable().openapi({ description: "Null: show `rootText`." }),
     rootText: z.string(),
     rootAuthor: Actor,

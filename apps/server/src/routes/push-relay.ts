@@ -5,6 +5,7 @@ import {
   type RelayInstance,
   RelayRateLimitError,
   registerRelayInstance,
+  relayLiveActivities,
   relaySend,
   ValidationError,
 } from "@agenteschat/engine";
@@ -33,7 +34,7 @@ export interface PushRelayDeps {
 type Vars = { Variables: { instance: RelayInstance } };
 
 /**
- * The push relay's API (ADR 0152, ADR 0178), mounted at `/api/push-relay/v1` only when this server runs the relay
+ * The push relay's API (ADR 0152, ADR 0178, ADR 0210), mounted at `/api/push-relay/v1` only when this server runs the relay
  * (`PUSH_RELAY_SERVE` with `FIREBASE_SERVICE_ACCOUNT` or `APNS_KEY`). Server to server, JSON only, no session or CSRF:
  * installations register on their own and then call with `Authorization: Bearer <instanceId>.<secret>`.
  * Errors use the API's error shape (`{ error: { code, message } }`); the client reads `blocked` and
@@ -75,32 +76,38 @@ export function pushRelayRoutes(deps: PushRelayDeps) {
     await next();
   });
 
-  app.post("/send", async (c) => {
-    const body = await readJson(c);
-    if (!body || !Array.isArray(body.messages)) return apiError(c, 400, "invalid_request", "messages: Required");
-    const instance = c.get("instance");
-    try {
-      const results = await relaySend({ db, sender, rateLimiter }, instance, body.messages);
-      log?.debug("push relay: sent", {
-        instanceId: instance.id,
-        messages: results.length,
-        ok: results.filter((r) => r.ok).length,
-      });
-      return c.json({ results }, 200);
-    } catch (error) {
-      if (error instanceof ValidationError) return apiError(c, 400, error.code, error.message, error.params);
-      if (error instanceof RelayRateLimitError) {
-        log?.warn("push relay: installation over its limit", { instanceId: instance.id });
-        return limited(c, error.resetAt);
+  /** Passes an installation's pushes on (`relaySend`, or `relayLiveActivities` for Live Activities, ADR 0210). */
+  const relayed =
+    (field: "messages" | "activities", relay: typeof relaySend, what: string) => async (c: Context<Vars>) => {
+      const body = await readJson(c);
+      const list = body?.[field];
+      if (!Array.isArray(list)) return apiError(c, 400, "invalid_request", `${field}: Required`);
+      const instance = c.get("instance");
+      try {
+        const results = await relay({ db, sender, rateLimiter }, instance, list);
+        log?.debug(`push relay: ${what}`, {
+          instanceId: instance.id,
+          messages: results.length,
+          ok: results.filter((r) => r.ok).length,
+        });
+        return c.json({ results }, 200);
+      } catch (error) {
+        if (error instanceof ValidationError) return apiError(c, 400, error.code, error.message, error.params);
+        if (error instanceof RelayRateLimitError) {
+          log?.warn("push relay: installation over its limit", { instanceId: instance.id });
+          return limited(c, error.resetAt);
+        }
+        if (error instanceof PushError) {
+          // The sender's own failure, passed on: the installation's outbox retries when it may work later.
+          log?.warn("push relay: sending failed", { instanceId: instance.id, status: error.status });
+          return apiError(c, 502, "upstream_failed", error.message, { retryable: error.retryable });
+        }
+        throw error;
       }
-      if (error instanceof PushError) {
-        // The sender's own failure, passed on: the installation's outbox retries when it may work later.
-        log?.warn("push relay: sending failed", { instanceId: instance.id, status: error.status });
-        return apiError(c, 502, "upstream_failed", error.message, { retryable: error.retryable });
-      }
-      throw error;
-    }
-  });
+    };
+
+  app.post("/send", relayed("messages", relaySend, "sent"));
+  app.post("/live-activities", relayed("activities", relayLiveActivities, "Live Activities sent"));
 
   app.notFound((c) => apiError(c, 404, "not_found", "Route not found"));
   app.onError((error, c) => {

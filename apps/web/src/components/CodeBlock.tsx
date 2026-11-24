@@ -1,8 +1,24 @@
 import { type CodeToken, codeLabel, formatJson, highlightCode, isJsonLang } from "@agenteschat/client/lib/code";
-import { Button, Dialog, DialogBody } from "@agenteschat/ui";
+import { BoundedMap, Button, Dialog, DialogBody } from "@agenteschat/ui";
 import { type CSSProperties, type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useGrowFrom } from "@/lib/grow";
+
+/**
+ * Blocks highlighted already, by language and text: a row drawn again (the conversation opened again, scrolled back
+ * to) shows its code without reading it all over again. Weighed by characters, not blocks: an editor's preview
+ * highlights its whole block again at every key, and each of those versions would stay.
+ */
+const HIGHLIGHTS = new BoundedMap<string, CodeToken[][]>(300_000, (key) => key.length);
+export function highlightedCode(text: string, lang: string) {
+  const key = `${lang}\n${text}`;
+  let lines = HIGHLIGHTS.get(key);
+  if (!lines) {
+    lines = highlightCode(text, lang);
+    HIGHLIGHTS.set(key, lines);
+  }
+  return lines;
+}
 
 /**
  * Fenced code in a message or document: the language on top, copy
@@ -29,7 +45,7 @@ export function CodeBlock({
   const [raw, setRaw] = useState(false);
   const pretty = formatted !== null && !raw;
   const shown = pretty ? formatted : text;
-  const lines = useMemo(() => highlightCode(shown, lang), [shown, lang]);
+  const lines = useMemo(() => highlightedCode(shown, lang), [shown, lang]);
   const label = codeLabel(lang) || t("common.code");
   const [open, setOpen] = useState(false);
   const [wrap, setWrap] = useState(false);
@@ -113,8 +129,11 @@ export function CodeBlock({
   );
 }
 
-/** `hang`: a wrapped line goes on under its own indent (`--hang`, its leading spaces), not at the block's edge. */
-function CodeLines({
+/**
+ * The highlighted lines of a block (`highlightCode`), numbered or not. `hang`: a wrapped line goes on under its own
+ * indent (`--hang`, its leading spaces), not at the block's edge.
+ */
+export function CodeLines({
   lines,
   numbered = false,
   hang = false,

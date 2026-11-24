@@ -15,7 +15,6 @@ const { organizationMembers } = schema;
  */
 export const SIDEBAR_ITEMS = [
   "waiting",
-  "approvals",
   "proposals",
   "threads",
   "issues",
@@ -25,6 +24,7 @@ export const SIDEBAR_ITEMS = [
   "calendar",
   "team",
   "dashboards",
+  "code",
   "taskManager",
 ] as const;
 export type SidebarItem = (typeof SIDEBAR_ITEMS)[number];
@@ -34,7 +34,6 @@ export type SidebarItem = (typeof SIDEBAR_ITEMS)[number];
  */
 export const PERSONAL_SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "waiting",
-  "approvals",
   "proposals",
   "routines",
   "drive",
@@ -44,6 +43,7 @@ export const PERSONAL_SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "team",
   "wiki",
   "dashboards",
+  "code",
   "taskManager",
 ];
 export const SIDEBAR_PLACES = ["always", "more", "auto"] as const;
@@ -51,7 +51,7 @@ export type SidebarPlace = (typeof SIDEBAR_PLACES)[number];
 export type SidebarItems = Partial<Record<SidebarItem, SidebarPlace>>;
 
 /** The items that show a count in the sidebar: only these can be `auto`. */
-export const SIDEBAR_COUNTED: readonly SidebarItem[] = ["waiting", "approvals", "proposals", "threads"];
+export const SIDEBAR_COUNTED: readonly SidebarItem[] = ["waiting", "threads"];
 
 const isItem = (value: string): value is SidebarItem => (SIDEBAR_ITEMS as readonly string[]).includes(value);
 const isPlace = (value: unknown): value is SidebarPlace =>

@@ -156,7 +156,7 @@ test("a member gives their own DM with Lodi their plan; everyone else keeps the 
   expect((await fx.db.select().from(schema.rightHandBrains)).map((r) => r.userId)).toEqual([caio.id]);
 });
 
-test("with no key in the workspace, a person with no AI of their own thinks with a plan that serves them, the roomiest", async () => {
+test("with no key in the workspace, a person with no AI of their own thinks with a plan that serves them: the first of the order of use with room", async () => {
   const { fx, bia, runIn } = await world();
   // The workspace's AI is the model, with no key: before, everyone's DM read "no AI" despite plans being here.
   await fx.db.update(schema.providerCredentials).set({ revokedAt: new Date() });
@@ -165,17 +165,18 @@ test("with no key in the workspace, a person with no AI of their own thinks with
     source: "probe" as const,
     at: new Date().toISOString(),
   });
+  // Room only filters (Ana's is at its limit): the rest go by their place, never by who has more room.
   await fx.db
     .update(schema.machineAccounts)
-    .set({ usage: window(90) })
+    .set({ usage: window(100) })
     .where(eq(schema.machineAccounts.id, ANAS));
   await fx.db
     .update(schema.machineAccounts)
-    .set({ usage: window(10) })
+    .set({ usage: window(90), useOrder: 0 })
     .where(eq(schema.machineAccounts.id, CAIOS));
   await fx.db
     .update(schema.machineAccounts)
-    .set({ usage: window(50) })
+    .set({ usage: window(10), useOrder: 1 })
     .where(eq(schema.machineAccounts.id, BIAS));
   const dani = await addMember(fx.db, fx.org.id, "member", "dani");
   const plan = await runIn(dani.id);
@@ -183,7 +184,7 @@ test("with no key in the workspace, a person with no AI of their own thinks with
   expect(plan.unavailable).toBeUndefined();
   // Someone with a plan of their own thinks with it first.
   expect(await runIn(bia.id)).toMatchObject({ account: { id: BIAS } });
-  // A login made for one agent that an agent thinks with stays that agent's: the next roomiest answers.
+  // A login made for one agent that an agent thinks with stays that agent's: the next of the order answers.
   await fx.db.update(schema.machineAccounts).set({ shared: false }).where(eq(schema.machineAccounts.id, CAIOS));
   await fx.db.update(schema.agents).set({ brainAccountId: CAIOS }).where(eq(schema.agents.id, fx.agent.id));
   const eva = await addMember(fx.db, fx.org.id, "member", "eva");

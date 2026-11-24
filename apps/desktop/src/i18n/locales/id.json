@@ -153,8 +153,8 @@
     "cloudText": "Selalu menyala. Kami urus semuanya, kamu tinggal pakai.",
     "here": "Di {{device}} ini",
     "hereText": "Agenmu bekerja selama aplikasi terbuka.",
-    "box": "Di komputer yang selalu menyala",
-    "boxText": "Mac mini atau komputer kantor, dipasang sekali.",
+    "box": "Di server atau VPS",
+    "boxText": "Selalu menyala, bahkan saat aplikasi ini ditutup. Cukup dipasang sekali.",
     "goCloud": "Lanjut di cloud",
     "goHere": "Siapkan {{device}} ini",
     "goBox": "Lihat cara memasang",
@@ -162,15 +162,15 @@
     "haveOneLink": "Masuk lewat alamatnya"
   },
   "install": {
-    "title": "Pasang di komputer yang selalu menyala",
+    "title": "Pasang di server atau VPS",
     "lead": "Cukup sekali. Setelah itu ia berjalan sendiri, bahkan saat aplikasi ini tertutup.",
-    "step1": "Di komputer yang tetap menyala, buka Terminal dan tempel ini",
+    "step1": "Di server, buka Terminal (atau masuk lewat SSH) dan tempel ini",
     "step2": "Di akhir muncul tautan. Buka di sini, selesai.",
     "noLink": "Tidak ada tautan?",
     "someoneElse": "Orang lain yang akan memasang?",
     "copy": "Salin petunjuk",
     "copied": "Petunjuk disalin",
-    "text": "Untuk memasang agentes.chat di komputer yang selalu menyala (Mac mini, komputer kantor, atau server):\n\n1. Di komputer itu, buka Terminal dan tempel ini:\n{{command}}\n\n2. Di akhir muncul tautan. Kirimkan ke saya: tautan itu membuka workspace di aplikasi."
+    "text": "Untuk memasang agentes.chat di server atau VPS (atau komputer yang selalu menyala, seperti Mac mini):\n\n1. Di server, buka Terminal (atau masuk lewat SSH) dan tempel ini:\n{{command}}\n\n2. Di akhir muncul tautan. Kirimkan ke saya: tautan itu membuka workspace di aplikasi."
   },
   "connect": {
     "title": "Masuk ke workspace yang sudah ada",

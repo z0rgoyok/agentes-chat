@@ -47,6 +47,7 @@ export type ActivityKind =
   | "creatingRoutine"
   | "updatingRoutine"
   | "proposingMission"
+  | "suggestingCodeSession"
   | "messagingMission"
   | "updatingPlan"
   | "reportingProgress"
@@ -195,6 +196,7 @@ const BUILTIN: Record<string, ActivityKind> = {
   run_code: "runningCode",
   write_file: "pcFiles",
   read_file: "pcFiles",
+  review_media: "pcFiles",
   list_files: "pcFiles",
   export_file: "exportingFile",
   upload_file: "exportingFile",
@@ -208,6 +210,8 @@ const BUILTIN: Record<string, ActivityKind> = {
   update_skill: "consultingSkill",
   // Missions (the agent's tools and the executor's MCP tools).
   propose_mission: "proposingMission",
+  // A code session suggested for a change asked in the chat (ADR 0215 §11).
+  suggest_code_session: "suggestingCodeSession",
   send_to_mission: "messagingMission",
   update_plan: "updatingPlan",
   report: "reportingProgress",
@@ -257,12 +261,15 @@ const BUILTIN: Record<string, ActivityKind> = {
   get_my_usage: "checkingUsage",
   ignore_usage_limit: "updatingWork",
   find_agent: "findingAgent",
+  read_agent: "findingAgent",
   // The right hand's look at the team: its tasks, open and stuck, and what waits.
   team_status: "listingTasks",
   cancel_follow_up: "cancelingFollowUp",
   web_search: "searchingWeb",
   web_fetch: "readingWeb",
   image_search: "searchingWeb",
+  // A picture from the web brought onto the reply (ADR 0217).
+  show_image: "fetchingFile",
   read_conversation: "readingConversation",
   // A card of ours in the conversation: the card itself says what it holds.
   show_block: "preparingCard",
@@ -560,6 +567,13 @@ export function barEntries(
     if (seen.has(c.agentId)) continue;
     // Its run failed: its row in the conversation says so.
     if (runs.some((r) => r.runId === c.runId && r.status === "failed")) continue;
+    // At work on something else while its question is out (a message that came meanwhile started another turn, or
+    // woke the asking one): the bar says that work, and the question takes the line back once it is done.
+    if (
+      c.status === "asking" &&
+      runs.some((r) => r.agentId === c.agentId && (r.runId !== c.runId || c.woke) && BAR_STATUSES.has(r.status))
+    )
+      continue;
     seen.add(c.agentId);
     out.push({
       id: c.agentId,

@@ -48,9 +48,9 @@ import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MESSAGE_STICKER } from "@/chat/ChatMedia";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
-import { useConnectAi } from "@/components/ConnectAi";
+import { usePlanHold } from "@/components/ai/plan-hold";
 import { useChannelActions } from "@/components/channel-actions";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { useInviteDialog } from "@/components/invite/InviteDialog";
 import { useOrg } from "@/components/org-context";
 import { type RequestAnswer, RequestCard } from "@/components/RequestCard";
@@ -60,7 +60,7 @@ import { lookOf } from "@/lib/look";
 import { proposedRoutineWhen } from "@/lib/recurrence";
 import { useToast } from "@/lib/toast";
 import "./team-plan.css";
-import { useNewAgent } from "@/components/new-agent/NewAgentDialog";
+import { useNewAgent } from "@/components/new-agent/new-agent-context";
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 

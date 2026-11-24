@@ -255,19 +255,6 @@ function MemoryDetail({ id }: { id: string }) {
           ),
       },
     ]);
-  const confirm = () =>
-    action.mutate(
-      { type: "confirm", id: m.id },
-      {
-        onSuccess: () => {
-          successHaptic();
-          toast({ title: t("mobile.memory.confirmedToast"), agentId });
-        },
-        onError: failed,
-      },
-    );
-  // Confirmar (ADR 0167): who may edit it, or the person who said it.
-  const confirms = (editable || m.editedByUserId === meId) && (m.lowTrust || !m.verified);
   // Tornar do time (ADR 0167): who reviews memory makes it every agent's, its copies archived.
   const teams = can(org, "review_memory") && !m.howTo && !m.playbook && m.kind !== "lesson";
   const makeTeam = () =>
@@ -333,7 +320,7 @@ function MemoryDetail({ id }: { id: string }) {
             </Pressable>
           ) : null}
           <View style={styles.chips}>
-            {/* Only the state that says something: an unconfirmed memory shows its Confirmar button instead. */}
+            {/* Only the state that says something: nobody is asked to confirm what an agent saved (ADR 0219). */}
             {m.verified ? <Chip icon="check" label={t("mobile.memory.confirmed")} /> : null}
             <Chip icon="clock" label={t("mobile.memory.uses", { count: m.uses })} />
           </View>
@@ -348,18 +335,8 @@ function MemoryDetail({ id }: { id: string }) {
             </View>
           ) : null}
         </View>
-        {editable || confirms || teams ? (
+        {editable || teams ? (
           <View style={styles.actions}>
-            {confirms ? (
-              <Button
-                variant="secondary"
-                wide
-                icon="check"
-                label={t("mobile.memory.confirm")}
-                disabled={action.isPending}
-                onPress={confirm}
-              />
-            ) : null}
             {teams ? (
               <Button
                 variant="secondary"

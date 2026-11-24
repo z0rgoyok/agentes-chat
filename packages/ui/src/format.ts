@@ -158,6 +158,18 @@ export function insertText(value: string, start: number, end: number, text: stri
 }
 
 /**
+ * A URL pasted over selected words links them, `[words](url)`, with the caret after it (Slack, GitHub, Notion). Null
+ * when it is a plain paste: nothing selected, the words span lines or are a URL themselves, the paste isn't one URL.
+ */
+export function pasteLink(value: string, start: number, end: number, pasted: string): TextEdit | null {
+  const url = pasted.trim();
+  const words = value.slice(start, end);
+  if (start === end || !/^https?:\/\/[^\s()<>]+$/i.test(url) || words.includes("\n") || /^\s*https?:\/\//i.test(words))
+    return null;
+  return insertText(value, start, end, `[${words}](${url})`);
+}
+
+/**
  * The keyboard shortcut for a format, if any: ⌘/Ctrl+B, I, E (code), K (link),
  * ⇧X (strikethrough), ⇧E (code block), ⇧7 (numbered), ⇧8 (bullets), ⇧9 (quote).
  */

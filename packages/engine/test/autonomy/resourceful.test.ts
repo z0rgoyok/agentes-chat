@@ -154,8 +154,9 @@ scenario("S56", "a 'couldn't' with one empty attempt is told its means once, the
   expect(
     w.f.provider.calls.some((c) => JSON.stringify(c.request.messages).includes("You ended saying you couldn't")),
   ).toBe(true);
-  // The give-up the judge held is never posted: only the answer is.
+  // The person reads the give-up at once, while it goes on; the answer goes out below it.
   expect((await w.posts("rui")).map((p) => p.body)).toEqual([
+    "Não consigo pesquisar: o Google bloqueou.",
     "O Banco Azul lançou um cartão sem anuidade nesta semana.",
   ]);
   expect(await untriedSteps(w)).toHaveLength(1);

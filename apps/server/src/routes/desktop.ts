@@ -16,6 +16,11 @@ const tags = ["Desktop app"];
  */
 export const DESKTOP_TAG_PREFIX = "desktop-v";
 const LATEST_TTL_MS = 5 * 60_000;
+/**
+ * How long a download's signed address is handed out again. GitHub signs it for a few minutes; a client follows the
+ * redirect at once and a download that started goes on past it.
+ */
+const SIGNED_TTL_MS = 60_000;
 const GITHUB_API = "https://api.github.com";
 const SEMVER = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const FILE_NAME = /^[\w.-]{1,200}$/;
@@ -156,6 +161,8 @@ function releaseReader<T, K extends string>(
   const now = options.now ?? Date.now;
   const latest = new Map<K, { at: number; value: T | null }>();
   let list: { at: number; value: GitHubRelease[] } | null = null;
+  const byTag = new Map<string, { at: number; value: GitHubRelease }>();
+  const signed = new Map<string, { at: number; value: string }>();
   const headers = () => ({
     authorization: `Bearer ${options.token}`,
     accept: "application/vnd.github+json",
@@ -170,15 +177,31 @@ function releaseReader<T, K extends string>(
     return (await res.json()) as R;
   }
 
-  /** An asset's bytes: GitHub redirects to a signed URL, which must not get our token. */
+  /** GitHub's first answer for an asset: a redirect to its signed URL, which must not get our token. */
+  const assetFirst = (asset: GitHubAsset) =>
+    http(asset.url, { headers: { ...headers(), accept: "application/octet-stream" }, redirect: "manual" });
+  const signedLocation = (res: Response) => {
+    const location = res.headers.get("location");
+    return res.status >= 300 && res.status < 400 && location ? location : null;
+  };
+
+  /** An asset's bytes. */
   async function assetResponse(asset: GitHubAsset): Promise<Response> {
-    const first = await http(asset.url, {
-      headers: { ...headers(), accept: "application/octet-stream" },
-      redirect: "manual",
-    });
-    const location = first.headers.get("location");
-    if (first.status >= 300 && first.status < 400 && location) return http(location, { redirect: "follow" });
-    return first;
+    const first = await assetFirst(asset);
+    const location = signedLocation(first);
+    return location ? http(location, { redirect: "follow" }) : first;
+  }
+
+  /**
+   * A published release by its tag, cached like the list. A missing or draft one isn't kept: any version can be asked
+   * for, and a draft is published minutes later.
+   */
+  async function releaseByTag(tag: string): Promise<GitHubRelease | null> {
+    const cached = byTag.get(tag);
+    if (cached && now() - cached.at < LATEST_TTL_MS) return cached.value;
+    const value = await getJson<GitHubRelease>(`/repos/${options.repo}/releases/tags/${encodeURIComponent(tag)}`);
+    if (value && !value.draft) byTag.set(tag, { at: now(), value });
+    return value;
   }
 
   const versionOf = (tag: string) => tag.slice(options.prefix.length);
@@ -214,17 +237,34 @@ function releaseReader<T, K extends string>(
       return value;
     },
 
-    /** The bytes of one asset of the release of this kind and version; null when it isn't one. */
-    async download(version: string, file: string): Promise<{ response: Response; name: string } | null> {
+    /**
+     * One asset of the release of this kind and version; null when it isn't one. `signed`: GitHub's signed address
+     * for it (`location`) when GitHub gives one, so the bytes go straight from there; otherwise its bytes.
+     */
+    async download(
+      version: string,
+      file: string,
+      { signed: wantSigned = false } = {},
+    ): Promise<{ name: string; location: string } | { name: string; response: Response } | null> {
       if (!options.token || !SEMVER.test(version) || !FILE_NAME.test(file)) return null;
-      const release = await getJson<GitHubRelease>(
-        `/repos/${options.repo}/releases/tags/${encodeURIComponent(`${options.prefix}${version}`)}`,
-      );
+      const release = await releaseByTag(`${options.prefix}${version}`);
       if (!release || release.draft || !ours(release)) return null;
       const asset = (release.assets ?? []).find((a) => a.name === file);
       if (!asset) return null;
+      if (wantSigned) {
+        const known = signed.get(asset.url);
+        if (known && now() - known.at < SIGNED_TTL_MS) return { name: asset.name, location: known.value };
+        const first = await assetFirst(asset);
+        const location = signedLocation(first);
+        if (location) {
+          await first.body?.cancel();
+          signed.set(asset.url, { at: now(), value: location });
+          return { name: asset.name, location };
+        }
+        return first.ok ? { name: asset.name, response: first } : null;
+      }
       const response = await assetResponse(asset);
-      return response.ok ? { response, name: asset.name } : null;
+      return response.ok ? { name: asset.name, response } : null;
     },
   };
 }
@@ -408,22 +448,30 @@ export function registerDesktopRoutes(api: OpenAPIHono, deps: AppDeps, releases:
     );
   });
 
-  registerDownload(api, deps, "desktop", releases);
+  // The app's builds are large and every app downloads each new one: the download itself goes straight from GitHub's
+  // signed address, never through this process.
+  registerDownload(api, deps, "desktop", releases, { signed: true });
 }
 
-/** `GET /api/<kind>/download/{version}/{file}`: one asset of a release, streamed under our own headers. */
+/**
+ * `GET /api/<kind>/download/{version}/{file}`: one asset of a release. `signed`: a redirect to GitHub's signed address
+ * for it (no-store: it expires in minutes); otherwise, and when GitHub gives none, streamed under our own headers.
+ */
 function registerDownload(
   api: OpenAPIHono,
   deps: AppDeps,
   kind: "desktop" | "native",
   releases: DesktopReleases | NativeReleases,
+  { signed = false } = {},
 ) {
   api.get(`/${kind}/download/:version/:file`, async (c) => {
     const ip = requestLimitIp(c.req.raw.headers, deps.config.TRUSTED_PROXIES);
     const limit = await deps.adapters.rateLimiter.consume(`${kind}-download:${ip}`, DOWNLOAD_LIMIT);
     if (!limit.allowed) return apiError(c, 429, "rate_limited", "Too many requests. Try again in a minute.");
-    const found = await releases.download(c.req.param("version"), c.req.param("file")).catch(() => null);
+    const found = await releases.download(c.req.param("version"), c.req.param("file"), { signed }).catch(() => null);
     if (!found) return apiError(c, 404, `${kind}.not_found`, "This build is not available");
+    if ("location" in found)
+      return new Response(null, { status: 302, headers: { location: found.location, "cache-control": "no-store" } });
     const upstream = found.response;
     const headers = new Headers({
       "content-type": upstream.headers.get("content-type") || "application/octet-stream",

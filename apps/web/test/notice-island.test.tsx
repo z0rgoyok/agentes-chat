@@ -102,3 +102,24 @@ test("the island is centered on the window, not the work area beside the sidebar
   expect(last(".ni-wrap", "right")).toBe("0");
   expect(last(".ni-wrap", "justify-content")).toBe("center");
 });
+
+test("in a conversation the island sits under its header, never over the header's tabs", async () => {
+  const rect = HTMLElement.prototype.getBoundingClientRect;
+  HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
+    return this.classList.contains("channel__header")
+      ? DOMRect.fromRect({ x: 0, y: 8, width: 1000, height: 57 })
+      : rect.call(this);
+  };
+  try {
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(seedState()) });
+    await act(async () => island.arrive(reply));
+    await settle(3);
+    const wrap = document.querySelector(".ni-wrap") as HTMLElement;
+    expect(wrap.style.getPropertyValue("--ni-head")).toBe("65px");
+  } finally {
+    HTMLElement.prototype.getBoundingClientRect = rect;
+  }
+  const css = topLevel(await builtCss("src/styles.css", "src/components/notice-island.css"));
+  const tops = declarations(css, ".ni-wrap").filter(([p]) => p === "top");
+  expect(tops.at(-1)?.[1]).toBe("calc(var(--ni-head,2px) + var(--space-2))");
+});

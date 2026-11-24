@@ -3,6 +3,7 @@ import { loneIdRef, splitIdRefs } from "@agenteschat/client/lib/id-refs";
 import { linkPill } from "@agenteschat/client/lib/link-pills";
 import { headingId, INLINE, MENTION, parseMarkdown, parseWikiToken, SAFE_URL } from "@agenteschat/client/lib/markdown";
 import { parseFileLink, parseMessageLink } from "@agenteschat/client/lib/message-links";
+import { BoundedMap } from "@agenteschat/ui";
 import { type ReactNode, useMemo } from "react";
 import { FileRef } from "@/chat/FileRef";
 import { LinkPill } from "@/chat/LinkPill";
@@ -223,6 +224,23 @@ export interface MarkdownProps {
 
 const TASK = /^\[( |x|X)\]\s+(.*)$/;
 const CALLOUT = /^\[!([\w-]+)\][+-]?\s*(.*)$/i;
+/**
+ * Texts parsed already, by source: a row drawn again (the conversation opened again, scrolled back to) shows its
+ * words without parsing them again. Never mutated. Weighed by characters, not texts: the wiki editor's preview parses
+ * its whole page again at every key, and each of those versions would stay.
+ */
+export const PARSED_CHARS = 1_000_000;
+const PARSED = new BoundedMap<string, ReturnType<typeof parseMarkdown>>(PARSED_CHARS, (key) => key.length);
+export function parsedMarkdown(source: string, message: boolean) {
+  const key = `${message ? "m" : "d"}${source}`;
+  let blocks = PARSED.get(key);
+  if (!blocks) {
+    blocks = parseMarkdown(source, { breaks: message, details: true });
+    PARSED.set(key, blocks);
+  }
+  return blocks;
+}
+
 /** Obsidian's callout kinds, in our three looks. */
 const calloutKind = (kind: string) =>
   /^(warning|caution|attention|danger|error|bug|failure|fail|missing|important)$/.test(kind)
@@ -248,7 +266,7 @@ export function Markdown({
   const inline = (text: string, k: string) =>
     renderInline(text, k, mention, wikiLink, embed, channel, undefined, idRef);
   // Parsed once per source (a streaming row re-renders every reveal frame); never mutated.
-  const all = useMemo(() => parseMarkdown(source, { breaks: message, details: true }), [source, message]);
+  const all = useMemo(() => parsedMarkdown(source, message), [source, message]);
   const [first] = all;
   const parsed =
     title && first?.type === "heading" && first.level === 1 && first.text.trim() === title.trim() ? all.slice(1) : all;

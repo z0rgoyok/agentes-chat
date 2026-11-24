@@ -8,10 +8,10 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { EventPill, EventPillAction, EventPillText, ProviderLogo, useToast } from "@/ui";
 import { useOrgId, useWhen } from "../shared/hooks";
-import { ConsultPairRow } from "./ConsultGroup";
+import { ConsultQuote } from "./ConsultGroup";
 import { keepOpen, keptOpen } from "./kept-sizes";
 import { eventLineOf } from "./logic";
-import { useQuietInset } from "./look";
+import { plateInset, useQuietInset, useRowLook } from "./look";
 import { MessageText } from "./MessageText";
 import { useRowDirectory } from "./row-data";
 import { StoppedLine } from "./StoppedLine";
@@ -42,22 +42,26 @@ export const EventLine = memo(function EventLine({
   const keep = `event:${message.id}`;
   const [open, setOpen] = useState(() => keptOpen(keep));
   const inset = useQuietInset();
+  const look = useRowLook();
   // A person stopped one of the agent's tasks (ADR 0128): its own line, with the reason, or a way to give one.
   const stopped = stoppedNoticeOf(message.meta);
   if (stopped) return <StoppedLine message={message} notice={stopped} gap={gap} />;
   if (fold?.fold === "hide") return null;
-  // Farther up than the reply that asked: the same pair row where the answer arrived, opening their conversation.
+  // Farther up than the reply that asked: the same quote of their talk where the answer arrived, on its own (no reply
+  // here to sit in), opening their conversation.
   if (fold?.fold === "line")
     return (
-      <ConsultPairRow
-        askerId={fold.consultation.agentId}
-        channelId={message.channelId}
-        items={[fold.consultation]}
-        gap={gap}
-      />
+      <View style={[plateInset(look, inset), { marginTop: gap }]}>
+        <ConsultQuote
+          askerId={fold.consultation.agentId}
+          channelId={message.channelId}
+          items={[fold.consultation]}
+          alone
+        />
+      </View>
     );
-  // An answer from another agent that carries the consultation, its reply not here: the same pair row a reply
-  // has (who asked whom), never the text written for the agent; a tap opens what they said.
+  // An answer from another agent that carries the consultation, its reply not here: the same quote a reply has, on
+  // its own (who asked whom), never the text written for the agent; a tap opens what they said.
   const consulted = consultationOfNotice(message.meta);
   const line = eventLineOf(message, {
     author: dir.nameOf(message.author) || t("channel.unknownAgent"),
@@ -65,18 +69,21 @@ export const EventLine = memo(function EventLine({
   });
   if (consulted)
     return (
-      <ConsultPairRow
-        askerId={consulted.askerId}
-        channelId={message.channelId}
-        items={[pairItemOf(consulted.consultation)]}
-        gap={gap}
-      />
+      <View style={[plateInset(look, inset), { marginTop: gap }]}>
+        <ConsultQuote
+          askerId={consulted.askerId}
+          channelId={message.channelId}
+          items={[pairItemOf(consulted.consultation)]}
+          alone
+        />
+      </View>
     );
   if (!line) return null;
+  const kind = noticeOf(message.meta)?.kind;
   return (
     <View style={[styles.line, { paddingLeft: inset, marginTop: gap }]}>
       <EventPill
-        mark={noticeOf(message.meta)?.kind === "github_event" ? <ProviderLogo id="github" size="xs" /> : line.icon}
+        mark={kind === "github_event" || kind === "github_check" ? <ProviderLogo id="github" size="xs" /> : line.icon}
         time={when.time(message.createdAt)}
         actions={[
           line.answer ? <AnswerGitHub key="answer" messageId={message.id} /> : null,

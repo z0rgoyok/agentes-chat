@@ -4,7 +4,7 @@ import { getAgentCached } from "./agents";
 import { recordAudit } from "./audit";
 import { ConflictError } from "./errors";
 import { publishUserEvent } from "./events";
-import { cutTextEnd } from "./format";
+import { cutTextEnd, trimEdges } from "./format";
 import { MachineRequestError } from "./machine-hub";
 import {
   claimQueuedTask,
@@ -75,16 +75,16 @@ const shortId = (missionId: string) => missionId.replace(/-/g, "").slice(-8);
 /** The mission's folder, relative to the agent's folder (`.worktrees/` stays out of git on the runner). */
 export const missionWorktreePath = (missionId: string) => `.worktrees/m-${shortId(missionId)}`;
 
+const isDash = (c: string) => c === "-";
+
 /** Words of a title as a branch name: lowercase ASCII, dashes, at most 40 characters ("" when nothing is left). */
 export function branchSlug(title: string) {
-  return title
+  const words = title
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40)
-    .replace(/-+$/g, "");
+    .replace(/[^a-z0-9]+/g, "-");
+  return trimEdges(trimEdges(words, isDash).slice(0, 40), isDash, "end");
 }
 
 /** `agentes/<short id>/<slug of the title>` (or `…/work`): under the mission's prefix, the only branches it may push. */

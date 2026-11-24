@@ -13,6 +13,7 @@ export const AGENT_TABS = [
   "overview",
   "instructions",
   "access",
+  "skills",
   "memory",
   "files",
   "usage",
@@ -66,6 +67,8 @@ export const ADVANCED_SECTIONS: readonly AgentSection[] = [
 /** The tab that shows for an address: a personal workspace's advanced sections in Advanced; a team's has no Advanced. */
 export function shownAgentTab(tab: AgentTab, sec: AgentSection | undefined, personal: boolean): AgentTab {
   if (!personal) return tab === "advanced" ? "settings" : tab;
+  // A personal workspace keeps the skills in Advanced.
+  if (tab === "skills") return "advanced";
   return tab === "settings" && sec && ADVANCED_SECTIONS.includes(sec) ? "advanced" : tab;
 }
 

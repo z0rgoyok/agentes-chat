@@ -7,6 +7,8 @@ import {
   STREAM_CLOSE,
   STREAM_LIMITS,
   type StreamRequest,
+  TERMINAL_CWD_PROTOCOL,
+  TERMINAL_KEEP_PROTOCOL,
 } from "@agenteschat/adapters";
 import { and, type Database, eq, gt, inArray, isNull, schema } from "@agenteschat/db";
 import { recordAudit } from "./audit";
@@ -62,7 +64,9 @@ export const requireDesktopAccess = (db: Database, userId: string, orgId: string
  * The computer a person's stream of an agent goes to, or why it can't: the
  * agent's own computer, with its socket on this server (streams don't cross
  * servers), on protocol 18 or later, its switch for that kind on and the
- * runner able to serve it; for a desktop, an agent that may use one.
+ * runner able to serve it; for a desktop, an agent that may use one. A
+ * terminal's `takesCwd`: the computer starts it in a folder it is asked for
+ * (`TERMINAL_CWD_PROTOCOL`, a code session's worktree, ADR 0215).
  */
 export async function desktopTarget(
   db: Database,
@@ -88,11 +92,8 @@ export async function desktopTarget(
       : (await isRightHandId(db, orgId, agentId)) && !(await runsCommands(db, orgId, agentId));
   const agent = await viewerScope(db, orgId, agentId, viewerId, told, make && !off, shared);
   if (!agent) return refused(STREAM_CLOSE.notFound, "no_agent");
-  // Why the right hand has no seat here, for the apps to say: no computer of the workspace's own, or one that runs
-  // every agent as one user.
-  if ("reason" in agent) {
-    return refused(STREAM_CLOSE.notFound, agent.reason === "not_system" ? "not_system" : "no_home");
-  }
+  // Why the right hand has no seat here, for the apps to say: no computer of the workspace's own.
+  if ("reason" in agent) return refused(STREAM_CLOSE.notFound, "no_home");
   if (off) {
     return kind === "desktop"
       ? refused(STREAM_CLOSE.notFound, "no_desktop")
@@ -110,6 +111,8 @@ export async function desktopTarget(
     machineId: machine.id,
     ...(agent.scope ? { agent: agent.scope } : { unmade: true }),
     ...(kind === "desktop" && machine.protocol >= DESKTOP_SWITCH_PROTOCOL ? { switches: true } : {}),
+    ...(kind === "terminal" && machine.protocol >= TERMINAL_CWD_PROTOCOL ? { takesCwd: true } : {}),
+    ...(kind === "terminal" && machine.protocol >= TERMINAL_KEEP_PROTOCOL ? { keeps: true } : {}),
   };
 }
 
@@ -303,7 +306,7 @@ export interface DesktopDeps {
 
 /** The REST reaches a computer through whichever server holds its socket (`hub.call`), unlike a stream. */
 const ANYWHERE = { isLocal: () => true };
-const NO_SCREEN = ["no_agent", "no_desktop", "no_computer", "no_home", "not_system", "not_allowed"];
+const NO_SCREEN = ["no_agent", "no_desktop", "no_computer", "no_home", "not_allowed"];
 
 /**
  * An agent's desktop as one person sees it: whether it can be shown and runs, who controls it, what they may

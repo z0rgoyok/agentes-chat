@@ -6,7 +6,8 @@
  */
 .ni-wrap {
   position: fixed;
-  top: 10px;
+  /* A conversation's header (`--ni-head`, its bottom): the island goes under it, never over its tabs. */
+  top: calc(var(--ni-head, 2px) + var(--space-2));
   left: 0;
   right: 0;
   z-index: var(--z-toast);

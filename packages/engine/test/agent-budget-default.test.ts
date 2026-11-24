@@ -182,6 +182,19 @@ test("what its budget doesn't pay (Jev's judgments, the router) leaves an agent'
   // A budget changed recounts the month the same way.
   await updateAgent(fx.db, fx.owner.id, fx.org.id, fx.agent.id, { monthlyBudgetNanoUsd: 20_000_000 });
   expect((await agentBudgetState(fx.db, fx.org.id, fx.agent.id)).spentNanoUsd).toBe(spent);
+  // Every view reads that counter, so a tool's own service for its run (recorded as the agent's use, on the
+  // platform's account) shows in none of them, as the budget never pays for it.
+  await fx.gateway.recordExternalUsage({
+    orgId: fx.org.id,
+    agentId: fx.agent.id,
+    kind: "agent",
+    provider: "web",
+    model: "search",
+    inputTokens: 0,
+    outputTokens: 0,
+    costNanoUsd: 2_000_000,
+  });
+  expect(await used()).toEqual({ workspace: 15, list: spent, page: 15 });
 });
 
 test("budgetPercent rounds to one decimal and never divides by zero", () => {

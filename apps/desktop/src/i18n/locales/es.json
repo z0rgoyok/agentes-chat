@@ -159,8 +159,8 @@
     "cloudText": "Siempre encendido. Nosotros nos ocupamos de todo, tú solo lo usas.",
     "here": "En esta {{device}}",
     "hereText": "Tus agentes trabajan mientras la app esté abierta.",
-    "box": "En una computadora siempre encendida",
-    "boxText": "Una Mac mini o una computadora de la oficina, instalada una vez.",
+    "box": "En un servidor o VPS",
+    "boxText": "Siempre encendido, incluso con esta app cerrada. Lo instalas una vez.",
     "goCloud": "Seguir en la nube",
     "goHere": "Preparar esta {{device}}",
     "goBox": "Ver cómo instalarlo",
@@ -168,15 +168,15 @@
     "haveOneLink": "Entrar con su dirección"
   },
   "install": {
-    "title": "Instalar en una computadora siempre encendida",
+    "title": "Instalar en un servidor o VPS",
     "lead": "Se hace una vez. Después sigue funcionando solo, incluso con esta app cerrada.",
-    "step1": "En la computadora que queda encendida, abre la Terminal y pega esto",
+    "step1": "En el servidor, abre la Terminal (o conéctate por SSH) y pega esto",
     "step2": "Al final aparece un enlace. Ábrelo aquí y listo.",
     "noLink": "¿Sin el enlace?",
     "someoneElse": "¿Lo va a instalar otra persona?",
     "copy": "Copiar las instrucciones",
     "copied": "Instrucciones copiadas",
-    "text": "Para instalar agentes.chat en una computadora que queda siempre encendida (una Mac mini, una computadora de la oficina o un servidor):\n\n1. En esa computadora, abre la Terminal y pega esto:\n{{command}}\n\n2. Al final aparece un enlace. Envíamelo: abre el workspace en la app."
+    "text": "Para instalar agentes.chat en un servidor o VPS (o en una computadora que queda siempre encendida, como una Mac mini):\n\n1. En el servidor, abre la Terminal (o conéctate por SSH) y pega esto:\n{{command}}\n\n2. Al final aparece un enlace. Envíamelo: abre el workspace en la app."
   },
   "connect": {
     "title": "Entrar en un workspace que ya existe",

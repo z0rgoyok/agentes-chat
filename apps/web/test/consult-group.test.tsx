@@ -3,7 +3,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import type { Message, RunConsultation } from "@agenteschat/client";
+import type { Message, RunConsultation, WorkView } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { askOf, type PendingAsk } from "@/components/RequestCard";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, LODI_ID, ORG_ID, seedState, withRightHand } from "./fake-api";
@@ -30,6 +30,36 @@ const consultation = (over: Partial<RunConsultation>): RunConsultation => ({
   answeredAt: null,
   expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
   ...over,
+});
+
+/** The work Ada handed Atlas with that note, as the line under her reply reads it. */
+const handedWork = (consultationId: string): WorkView => ({
+  id: "w-handed",
+  agentId: ATLAS_ID,
+  channelId: "dm-ada-atlas",
+  title: "Curva de juros",
+  status: "live",
+  state: "working",
+  how: "handed",
+  anchorMessageId: "note-1",
+  threadId: null,
+  homeThreadId: null,
+  runId: "atlas-run",
+  requestedByUserId: null,
+  startedAt: ago(40),
+  finishedAt: null,
+  nextUpdateAt: null,
+  lastUpdate: null,
+  question: null,
+  plan: [],
+  issue: null,
+  resultMessageId: null,
+  queuePosition: null,
+  pausedUntil: null,
+  canceledByUserId: null,
+  errorCode: null,
+  handedBy: { agentId: ADA_ID, consultationId },
+  askerRunId: RUN,
 });
 
 /** Ada's reply after asking (its run carries the questions), and the notice an answer came with. */
@@ -167,7 +197,7 @@ describe("the pair row before the reply that asked (ConsultPairRow)", () => {
     expect(asked().classList.contains("ac-msg--grouped")).toBe(false);
   });
 
-  test("its subject sits between the names and how it went, and stays in the dialog's header", async () => {
+  test("its subject sits between the names and how it went; the dialog's header leaves it to the first message", async () => {
     const c = consultation({ question: "Investigue as notificações duplicadas. Depois diga quem as recebe." });
     await open(withTalk(withAsk([c]), c));
     const r = row() as HTMLElement;
@@ -182,9 +212,15 @@ describe("the pair row before the reply that asked (ConsultPairRow)", () => {
     await act(async () => fireEvent.click(rowButton()));
     await settle(3);
     const side = panel() as HTMLElement;
-    expect(side.querySelector(".thread-head__subject")?.textContent).toBe(subject);
-    // Its own line, which wraps: the meta under it never does.
-    expect(side.querySelector(".thread-head__meta .thread-head__subject")).toBeNull();
+    // The question is the conversation's first message: the header doesn't say its first sentence again.
+    expect(side.querySelector(".thread-head__subject")).toBeNull();
+    expect(side.querySelector(".ac-dialog__sub, .thread-head__meta")?.textContent).not.toContain(subject);
+    // One "·" between the meta line's parts, and the place's own "·" drawn as one too (`MetaLine`), at the same gap.
+    const where = side.querySelector(".thread-head__meta > .thread-head__where");
+    expect(where?.querySelector(".thread-head__dot")?.textContent).toBe("·");
+    expect([...(where?.childNodes ?? [])].map((n) => n.textContent)).toEqual(["#eng", "·", "conversa entre agentes"]);
+    expect(where?.nextElementSibling?.getAttribute("aria-hidden")).toBe("true");
+    expect(where?.nextElementSibling?.nextElementSibling?.textContent).toMatch(/mensage/);
     // The participants and the kind stay, after it.
     expect(side.querySelector(".consult-title")?.textContent).toContain("Ada");
     expect(side.textContent).toContain("entre agentes");
@@ -310,7 +346,8 @@ describe("the pair row before the reply that asked (ConsultPairRow)", () => {
     await act(async () => fireEvent.click(rowButton()));
     await settle(3);
     const side = panel() as HTMLElement;
-    expect(side.textContent).toContain("Ada fez um pedido para Atlas em #eng");
+    // The request is the first message: no line over the conversation says it again.
+    expect(side.textContent).not.toContain("fez um pedido");
     expect(side.textContent).toContain("O Atlas passou uma parte adiante e espera o retorno");
   });
 
@@ -640,6 +677,41 @@ describe("the bar above the composer speaks for a hand-off (ADR 0095 addendum)",
     await act(async () => fireEvent.click(within(typingBar()).getByRole("button", { name: "Ver" })));
     await settle(3);
     expect(panel()).not.toBeNull();
+  });
+
+  test("its line under the reply that handed it on screen: the line has the Ver, and the bar leaves it out", async () => {
+    const c = consultation({ kind: "note" });
+    const state = withTalk(withAsk([c]), c);
+    const reply = state.messages.find((m) => m.id === "msg-asked") as Message;
+    reply.handedWorks = [handedWork(c.id)];
+    const rect = HTMLElement.prototype.getBoundingClientRect;
+    // Everything laid out inside the conversation's view.
+    HTMLElement.prototype.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 400, left: 0, right: 800, width: 800, height: 400, x: 0, y: 0 }) as DOMRect;
+    try {
+      const { socket } = await open(state);
+      await push(socket, { ...asking, kind: "note" });
+      await settle(2);
+      const line = document.querySelector(".handed-line") as HTMLElement;
+      expect([...line.querySelectorAll(".ac-workline__action")].map((b) => b.textContent)).toEqual(["Ver", "Parar"]);
+      expect(bar()).toBe("");
+      await act(async () => fireEvent.click(within(line).getByRole("button", { name: "Ver" })));
+      await settle(3);
+      expect(panel()).not.toBeNull();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = rect;
+    }
+  });
+
+  test("its line under the reply scrolled away: the bar still says the hand-off", async () => {
+    const c = consultation({ kind: "note" });
+    const state = withAsk([c]);
+    (state.messages.find((m) => m.id === "msg-asked") as Message).handedWorks = [handedWork(c.id)];
+    const { socket } = await open(state);
+    await push(socket, { ...asking, kind: "note" });
+    await settle(2);
+    expect(document.querySelector(".handed-line")).not.toBeNull();
+    expect(bar()).toBe("Atlas está trabalhando…");
   });
 
   test("waiting on someone else's approval: quiet, with the wait's own clock", async () => {

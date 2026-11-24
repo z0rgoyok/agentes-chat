@@ -37,6 +37,7 @@ import { confirmDeleteWorkspace } from "../settings/WorkspaceScreen";
 import { useColors, useDirectory, useMeId } from "../shared/hooks";
 import { goBack, PushedHeader } from "../shared/parts";
 import { usePersonPhoto } from "../shared/photo";
+import { useLeavePage } from "../shared/SplitPanes";
 import { type AccountDraft, accountChanges, accountProblem, handleErrorKey } from "./logic";
 import { Page, refreshProfile, setAccountDraft, useAccountDraft, useChangePhoto } from "./parts";
 
@@ -50,7 +51,8 @@ const zoneName = (zone: string, locale: string) =>
 /**
  * Conta: the photo and "Alterar foto", Nome (editable), E-mail (read only),
  * then in this workspace your @ and the time zone (Fuso, pushed over it), as the web's Perfil. "OK" in the bar
- * saves and goes back; Apagar conta at the end.
+ * saves and goes back (beside a list on a large screen, ADR 0212: it stays, showing what was saved); Apagar conta at
+ * the end.
  */
 export function AccountPage() {
   const { t, i18n } = useTranslation();
@@ -100,11 +102,13 @@ export function AccountPage() {
   const shownProblem = changed && problem ? t(`mobile.me.account.${problem}`) : null;
   // Back with a changed name, @ or zone asks first; Fuso and E-mail open over this screen and keep the form.
   const leave = useUnsavedGuard(changed);
+  // Back where it was opened from; beside a list on a large screen (ADR 0212) it stays, drawn afresh.
+  const leavePage = useLeavePage();
 
   const save = async () => {
     if (saving) return;
     // Nothing to save (a new photo saves on its own): OK just closes, as it says.
-    if (!changed) return goBack();
+    if (!changed) return leavePage();
     if (problem) return setError(t(`mobile.me.account.${problem}`));
     setSaving(true);
     setError(null);
@@ -117,7 +121,7 @@ export function AccountPage() {
       refreshProfile(qc, org.orgId);
       toast({ title: t("mobile.me.account.saved") });
       leave();
-      goBack();
+      leavePage();
     } catch (e) {
       const key = e instanceof ApiError ? handleErrorKey(e.code) : null;
       setError(key ? t(`mobile.me.account.${key}`) : t("mobile.app.failed"));

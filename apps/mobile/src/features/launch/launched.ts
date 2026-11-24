@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { markLaunchedAt } from "@/lib/perf";
 
 /**
  * Whether the launch splash has left. Screens under it wait for this before they take the keyboard: an
@@ -23,6 +24,7 @@ export function markRevealed(): void {
 
 export function markLaunched(): void {
   if (launched) return;
+  markLaunchedAt();
   launched = true;
   revealed = true;
   changed();

@@ -936,7 +936,10 @@ describe("folders and tools on the machine (protocol 10)", () => {
 
   test("the containers block: Docker's commands, the agent's own containers, ports above 1024 (ADR 0169)", () => {
     const text = containersText("Build box");
-    expect(text).toStartWith('# Containers on "Build box"\ndocker, docker compose and podman work there');
+    expect(text).toStartWith(
+      '# Containers on "Build box"\ndocker, docker compose, docker buildx and podman work there, rootless',
+    );
+    expect(text).toContain("Root inside a container is yours");
     expect(text).toContain("never another agent's containers or files");
     expect(text).toContain("-p 8080:80");
     expect(text).toContain("restart: always come back");

@@ -72,6 +72,8 @@ function setup(over: Partial<DelegatedScope> = {}, options: Partial<DelegatedToo
   const folder = temp("delegated-");
   const notices: ToolNotice[] = [];
   const asked: { tool: string; args: Record<string, unknown> }[] = [];
+  /** Refusals the computer made by itself, told to the server for the run's steps (nobody is asked). */
+  const told: Record<string, unknown>[] = [];
   const state = { answer: deny };
   const tools = new DelegatedTools({
     secrets: async () => null,
@@ -83,13 +85,14 @@ function setup(over: Partial<DelegatedScope> = {}, options: Partial<DelegatedToo
   const scope = { session: "s1", cwd: folder, folder, profile: "work" as const, ...over };
   const surface = tools.surface(scope);
   const ask: ToolCaller = async (tool, args) => {
-    asked.push({ tool, args });
+    if (args.refused) told.push(args);
+    else asked.push({ tool, args });
     return state.answer;
   };
   let id = 0;
   const call = (name: string, args: Record<string, unknown>, callId: string | number = ++id) =>
     surface.call(name, args, { id: callId, ask });
-  return { folder, tools, surface, scope, call, notices, asked, state, ask };
+  return { folder, tools, surface, scope, call, notices, asked, told, state, ask };
 }
 
 const textOf = (r: McpToolResult) => r.content.map((c) => (c.type === "text" ? c.text : "")).join("");
@@ -427,13 +430,22 @@ test("the worker stopping stops the shells", async () => {
 // ── The gate ─────────────────────────────────────────────────────────────────
 
 test("what the computer refuses is refused before anything runs, and no person is asked", async () => {
-  const { call, asked, folder } = setup();
+  const { call, asked, told, folder } = setup();
   const mark = path.join(folder, "mark");
   const merge = await call("Bash", { command: `touch ${mark}; git merge main` });
   expect(merge.isError).toBe(true);
   expect(textOf(merge)).toContain("This is a merge");
   expect((await call("Bash", { command: "cat ~/.ssh/id_rsa" })).isError).toBe(true);
   expect(asked).toEqual([]);
+  // The server is told of each, with what the agent was told, for the run's steps.
+  expect(told).toMatchObject([
+    {
+      tool_name: "Bash",
+      input: { command: `touch ${mark}; git merge main` },
+      refused: { code: "never", message: textOf(merge) },
+    },
+    { tool_name: "Bash", input: { command: "cat ~/.ssh/id_rsa" }, refused: { code: "secret" } },
+  ]);
   // Inline code isn't the computer's to refuse: the server decides it, and nothing runs until it allows.
   expect((await call("Bash", { command: `python3 -c 'open("${mark}", "w")'` })).isError).toBe(true);
   expect(asked).toHaveLength(1);

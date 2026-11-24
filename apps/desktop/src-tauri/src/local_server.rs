@@ -1307,6 +1307,7 @@ pub fn status(app: &AppHandle, welcome: bool) -> Status {
 }
 
 fn emit_status(app: &AppHandle) {
+    crate::discover::forget_served();
     let _ = app.emit(STATUS_EVENT, status(app, false));
     crate::tray::refresh(app);
 }
@@ -2293,14 +2294,29 @@ const KEEP_BACKUPS: usize = 2;
 /// The nightly backup's hour, local time.
 const NIGHTLY_HOUR: &str = "030000";
 
-/// Now on this computer's clock as `YYYY-MM-DD-HHMMSS` (backups' names); None where there is no `date` program
-/// (Windows, whose builds don't carry the server).
+/// Now on this computer's clock as `YYYY-MM-DD-HHMMSS` (backups' names), read from the system's time zone without
+/// starting a program (the nightly check asks every minute); None on Windows, whose builds don't carry the server.
 fn local_stamp() -> Option<String> {
     #[cfg(unix)]
-    let date = Command::new("date").arg("+%Y-%m-%d-%H%M%S").output().ok();
+    {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as libc::time_t;
+        // SAFETY: `localtime_r` fills `tm` from `now`; both live on this stack frame for the call.
+        let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+        if unsafe { libc::localtime_r(&now, &mut tm) }.is_null() {
+            return None;
+        }
+        Some(format!(
+            "{:04}-{:02}-{:02}-{:02}{:02}{:02}",
+            tm.tm_year + 1900,
+            tm.tm_mon + 1,
+            tm.tm_mday,
+            tm.tm_hour,
+            tm.tm_min,
+            tm.tm_sec
+        ))
+    }
     #[cfg(not(unix))]
-    let date: Option<std::process::Output> = None;
-    date.map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()).filter(|d| d.len() == 17)
+    None
 }
 
 /// The backups `backup` wrote in `dir` (`agentes-*.tar.gz`), newest first. Only those: the "Copy to" folder is the
@@ -2687,10 +2703,14 @@ pub(crate) fn app_window(webview: &tauri::Webview, allowed: &[&str]) -> Result<(
 /// The welcome, the popover, Preferences and the main window's cover.
 const ANY: &[&str] = &["welcome", "popover", "prefs", "main-cover"];
 
+/// Async, as every command here that reads files or runs a program: a sync command runs on the main thread, and every
+/// window stands still while it waits (`status` reads the folder, and on the welcome window asks the system for the
+/// person's name).
 #[tauri::command]
-pub fn local_server_status(app: AppHandle, webview: tauri::Webview) -> Result<Status, String> {
+pub async fn local_server_status(app: AppHandle, webview: tauri::Webview) -> Result<Status, String> {
     app_window(&webview, ANY)?;
-    Ok(status(&app, webview.label() == "welcome"))
+    let welcome = webview.label() == "welcome";
+    tauri::async_runtime::spawn_blocking(move || status(&app, welcome)).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -2760,27 +2780,31 @@ pub fn local_server_cancel(app: AppHandle, webview: tauri::Webview) -> Result<()
 }
 
 #[tauri::command]
-pub fn local_server_start(app: AppHandle, webview: tauri::Webview) -> Result<(), String> {
+pub async fn local_server_start(app: AppHandle, webview: tauri::Webview) -> Result<(), String> {
     app_window(&webview, ANY)?;
-    if !folder(&app).is_some_and(|f| installed(&f) == Installed::App) {
-        return Err("not set up here".into());
-    }
-    if erasing(&app) {
-        return Err("erasing".into());
-    }
-    {
-        let mut inner = state(&app);
-        inner.here.run = true;
-        // Start ends a stop the person asked to keep.
-        inner.here.hold = None;
-        inner.failed = 0;
-        inner.back_to = None;
-        let here = inner.here.clone();
-        drop(inner);
-        save_here(&app, &here);
-    }
-    start(&app);
-    Ok(())
+    tauri::async_runtime::spawn_blocking(move || {
+        if !folder(&app).is_some_and(|f| installed(&f) == Installed::App) {
+            return Err("not set up here".to_string());
+        }
+        if erasing(&app) {
+            return Err("erasing".into());
+        }
+        {
+            let mut inner = state(&app);
+            inner.here.run = true;
+            // Start ends a stop the person asked to keep.
+            inner.here.hold = None;
+            inner.failed = 0;
+            inner.back_to = None;
+            let here = inner.here.clone();
+            drop(inner);
+            save_here(&app, &here);
+        }
+        start(&app);
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 /// Stop: `forget` stops running it here; otherwise it stays stopped until Start, or for `minutes` (an hour, from
@@ -2995,7 +3019,7 @@ pub async fn keep_running(webview: tauri::Webview) -> Result<KeepRunning, String
 
 /// System Settings at Users & Groups (automatic login) or Energy (start after a power failure). macOS only.
 #[tauri::command]
-pub fn open_system_settings(webview: tauri::Webview, page: String) -> Result<(), String> {
+pub async fn open_system_settings(webview: tauri::Webview, page: String) -> Result<(), String> {
     app_window(&webview, &["prefs"])?;
     if !cfg!(target_os = "macos") {
         return Err("macOS only".into());
@@ -3005,13 +3029,17 @@ pub fn open_system_settings(webview: tauri::Webview, page: String) -> Result<(),
         "energy" => "x-apple.systempreferences:com.apple.preference.energysaver",
         _ => return Err("unknown page".into()),
     };
-    Command::new("/usr/bin/open").arg(url).status().map(|_| ()).map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(move || Command::new("/usr/bin/open").arg(url).status())
+        .await
+        .map_err(|e| e.to_string())?
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub fn local_server_diagnostics(app: AppHandle, webview: tauri::Webview) -> Result<String, String> {
+pub async fn local_server_diagnostics(app: AppHandle, webview: tauri::Webview) -> Result<String, String> {
     app_window(&webview, ANY)?;
-    Ok(diagnostics(&app))
+    tauri::async_runtime::spawn_blocking(move || diagnostics(&app)).await.map_err(|e| e.to_string())
 }
 
 /// What "Send a report" on the cover adds: the facts `diagnostics` copies, as fields, and the end of the server's log
@@ -3032,25 +3060,37 @@ pub struct ReportParts {
 }
 
 #[tauri::command]
-pub fn problem_report_parts(app: AppHandle, webview: tauri::Webview) -> Result<ReportParts, String> {
+pub async fn problem_report_parts(app: AppHandle, webview: tauri::Webview) -> Result<ReportParts, String> {
     app_window(&webview, &["main-cover"])?;
-    let status = status(&app, false);
-    let server_log_tail = folder(&app)
-        .and_then(|f| fs::read(f.log()).ok())
-        .map(|bytes| String::from_utf8_lossy(&bytes[bytes.len().saturating_sub(64 * 1024)..]).into_owned())
-        .unwrap_or_default();
-    Ok(ReportParts {
-        app_version: app.package_info().version.to_string(),
-        os: std::env::consts::OS,
-        arch: std::env::consts::ARCH,
-        phase: status.phase,
-        installed_version: status.installed_version,
-        server_version: status.server_version,
-        reach: status.reach,
-        usage: status.usage,
-        steps: state(&app).lines.iter().cloned().collect(),
-        server_log_tail,
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = status(&app, false);
+        let server_log_tail = folder(&app).and_then(|f| tail(&f.log(), 64 * 1024)).unwrap_or_default();
+        ReportParts {
+            app_version: app.package_info().version.to_string(),
+            os: std::env::consts::OS,
+            arch: std::env::consts::ARCH,
+            phase: status.phase,
+            installed_version: status.installed_version,
+            server_version: status.server_version,
+            reach: status.reach,
+            usage: status.usage,
+            steps: state(&app).lines.iter().cloned().collect(),
+            server_log_tail,
+        }
     })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// The last `bytes` of a file, read from its end (a server log runs to megabytes).
+fn tail(path: &Path, bytes: u64) -> Option<String> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    file.seek(SeekFrom::Start(len.saturating_sub(bytes))).ok()?;
+    let mut out = Vec::new();
+    file.take(bytes).read_to_end(&mut out).ok()?;
+    Some(String::from_utf8_lossy(&out).into_owned())
 }
 
 /// The popover: a host home's organization refused its token; the next sync asks for a new one.
@@ -3069,6 +3109,16 @@ pub async fn local_server_sync(app: AppHandle, webview: tauri::Webview, rotate: 
 mod tests {
     use super::*;
     use std::sync::Arc;
+
+    #[test]
+    fn a_reports_log_tail_is_read_from_the_end() {
+        let file = std::env::temp_dir().join(format!("agentes-tail-{}.log", std::process::id()));
+        fs::write(&file, (0..100).map(|n| format!("line {n}\n")).collect::<String>()).unwrap();
+        assert_eq!(tail(&file, 8).as_deref(), Some("line 99\n"));
+        assert_eq!(tail(&file, 1 << 20).map(|t| t.lines().count()), Some(100), "a short file whole");
+        assert_eq!(tail(&file.with_extension("gone"), 8), None);
+        let _ = fs::remove_file(&file);
+    }
 
     #[test]
     fn an_update_cut_short_is_still_an_update() {
@@ -3103,6 +3153,17 @@ mod tests {
         assert_eq!(owner_refusal(401, &says("OWNER_GONE")), None, "only the server's conflict carries it");
         assert_eq!(owner_refusal(400, "{\"message\":\"The owner's name and email are needed\"}"), None, "an older server");
         assert_eq!(owner_refusal(409, "not json"), None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_backups_clock_reads_like_date_without_running_it() {
+        let stamp = local_stamp().unwrap();
+        let date = Command::new("date").arg("+%Y-%m-%d-%H%M%S").output().unwrap();
+        let date = String::from_utf8_lossy(&date.stdout).trim().to_string();
+        assert_eq!(stamp.len(), 17, "{stamp}");
+        // The same minute as `date` (a second may tick between the two reads).
+        assert_eq!(stamp[..15], date[..15], "{stamp} {date}");
     }
 
     #[test]

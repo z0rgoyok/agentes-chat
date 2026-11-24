@@ -370,8 +370,10 @@ async function resave(
 }
 
 /** Whether a key is the one its provider's calls take by default: its provider's default, else the single default. */
-const isDefaultOf = (defaults: Awaited<ReturnType<typeof defaultCredentials>>, r: { id: string; provider: string }) =>
-  defaults.perProvider[r.provider] ? defaults.perProvider[r.provider] === r.id : defaults.legacy === r.id;
+export const isDefaultOf = (
+  defaults: Awaited<ReturnType<typeof defaultCredentials>>,
+  r: { id: string; provider: string },
+) => (defaults.perProvider[r.provider] ? defaults.perProvider[r.provider] === r.id : defaults.legacy === r.id);
 
 /**
  * Tries a stored key again (admins), before an agent is pointed at it: a key kept before this check, or one whose

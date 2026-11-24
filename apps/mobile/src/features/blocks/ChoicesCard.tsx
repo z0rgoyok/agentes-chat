@@ -15,7 +15,7 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { Button, IconButton, MEDIA_ROW, MediaRow, PressScale, Sky, Text, useToast } from "@/ui";
 import { initialText } from "@/ui/type-scale";
-import { useMessageCardCorners } from "../chat/look";
+import { useMessageCardFrame } from "../chat/look";
 import { useRowDirectory } from "../chat/row-data";
 import { useColors, useOrgId } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
@@ -28,7 +28,7 @@ import { useSheetIfAny } from "../shared/SheetHost";
  * "Outra resposta", opens a sheet to write the answer instead, as the ask card's does.
  */
 export function ChoicesCard({ id, version }: { id: string; version?: number }) {
-  const cardCorners = useMessageCardCorners();
+  const card = useMessageCardFrame();
   const { t, i18n } = useTranslation();
   const c = useColors();
   const orgId = useOrgId();
@@ -44,7 +44,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
   const a = artifact.data;
   if (a?.content.kind !== "choices" || !query.data) {
     return (
-      <View style={[styles.card, styles.loading, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
+      <View style={[styles.card, styles.loading, card.style]}>
         <ActivityIndicator color={c.faint} />
         <Text variant="footnote" tone="muted">
           {t("mobile.blocks.building")}
@@ -54,7 +54,8 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
   }
   const { questions } = a.content;
   const answered = query.data.answer;
-  const sky = (
+  // A bubble of the message has no sky across its top (as a request's card there).
+  const sky = card.bubble ? null : (
     <Sky
       color={agentLook(dir.agentById.get(a.createdBy.id)).color}
       surface="raised"
@@ -67,7 +68,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
   if (answered) {
     const by = dir.memberById.get(answered.userId)?.name ?? t("mobile.blocks.someone");
     return (
-      <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
+      <View style={[styles.card, card.style]}>
         {sky}
         <View style={styles.head}>
           <Text variant="subhead" style={styles.bold}>
@@ -87,7 +88,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
               ) : null}
               <View style={styles.picked}>
                 <Letter letter={s.letter} on />
-                <Text variant="body" style={[styles.flex, styles.bold, styles.said]}>
+                <Text variant="cardTitle" style={[styles.flex, styles.said]}>
                   {s.label}
                 </Text>
               </View>
@@ -130,7 +131,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
       });
   };
   return (
-    <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
+    <View style={[styles.card, card.style]}>
       {sky}
       <View style={[styles.head, styles.row, styles.top]}>
         <View style={styles.flex}>
@@ -147,7 +148,7 @@ export function ChoicesCard({ id, version }: { id: string; version?: number }) {
           <IconButton icon="x" label={t("mobile.choices.close")} onPress={() => setClosed(true)} />
         </View>
       </View>
-      <Text variant="body" style={styles.question}>
+      <Text variant="subhead" style={styles.question}>
         {q.question}
       </Text>
       {/* Not `Locked`: it closes the keyboard, and in a conversation that's the composer's. */}

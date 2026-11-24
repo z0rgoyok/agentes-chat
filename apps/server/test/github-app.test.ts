@@ -209,6 +209,7 @@ test("what happens on the items is queued once per delivery; the owner is told w
       "pull_request_review_thread",
       "discussion",
       "discussion_comment",
+      "check_run",
     ],
     url: "https://github.com/organizations/acme/settings/apps/agentes-chat/permissions",
   });

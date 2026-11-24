@@ -2,6 +2,7 @@ import type { PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, type Executor, eq, gt, rowsOf, schema, sql } from "@agenteschat/db";
 import { activeCoversTo } from "./approval-covers";
 import { adminsDecide, decidableBySql, decidingKeys, notifiedIds } from "./approvals";
+import { ownsAgentSql } from "./audience";
 import { personAgentDmKey } from "./dms";
 import { NotFoundError } from "./errors";
 import { stringsOf } from "./format";
@@ -62,15 +63,22 @@ export async function queueApprovalsDigest(db: Executor, orgId: string, userIds:
 
 /**
  * An approval this person can't have been told about, left out before it is read: an agent's own request (nobody
- * named, not access for good) whose owner is someone else still in the workspace. That owner alone is told, or who
- * covers them. It keeps an admin's job to their own agents' approvals instead of the whole workspace's.
+ * named, not access for good) whose owner is someone else still in the workspace, or whose owner role (ADR 0085,
+ * addendum of 2026-11-21) someone else holds and this person doesn't. They alone are told, or who covers them. It
+ * keeps an admin's job to their own agents' approvals instead of the whole workspace's.
  */
 const toldSomeoneElse = (userId: string) => sql`(${approvals.approvers} is null
   and ${approvals.tool} <> ${REQUEST_PERMISSION_TOOL}
-  and ${approvals.ownerUserId} <> ${userId}
-  and exists (select 1 from ${organizationMembers} join ${users} on ${users.id} = ${organizationMembers.userId}
-    where ${organizationMembers.orgId} = ${approvals.orgId} and ${organizationMembers.userId} = ${approvals.ownerUserId}
-      and ${accountInUse}))`;
+  and ((${approvals.ownerUserId} <> ${userId}
+    and exists (select 1 from ${organizationMembers} join ${users} on ${users.id} = ${organizationMembers.userId}
+      where ${organizationMembers.orgId} = ${approvals.orgId}
+        and ${organizationMembers.userId} = ${approvals.ownerUserId} and ${accountInUse}))
+  or (${approvals.ownerRoleId} is not null and not coalesce(${ownsAgentSql("approvals", sql`${userId}::text`)}, false)
+    and exists (select 1 from organization_member_roles hr
+      join ${organizationMembers} on ${organizationMembers.orgId} = hr.org_id
+        and ${organizationMembers.userId} = hr.user_id
+      join ${users} on ${users.id} = hr.user_id
+      where hr.org_id = ${approvals.orgId} and hr.role_id = ${approvals.ownerRoleId} and ${accountInUse}))))`;
 
 /** The approvals waiting that this person was told about and may decide, oldest first: what the digest sums up. */
 export async function digestWaitingOn(db: Database, orgId: string, userId: string, now: Date): Promise<string[]> {
@@ -101,6 +109,7 @@ export async function digestWaitingOn(db: Database, orgId: string, userId: strin
       adminsDecide(row),
       adminsDecide(row) ? row.agentId : null,
       row.ownerUserId,
+      row.ownerRoleId,
       row.approvers,
       row.requestedByUserId,
       row.highRisk,

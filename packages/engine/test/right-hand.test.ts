@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { and, eq, schema } from "@agenteschat/db";
 import { systemText } from "@agenteschat/providers";
 import {
+  AI_PLAN_ANSWER,
   addChannelMember,
   archiveAgent,
   BUILTIN_SCOPES,
@@ -216,6 +217,10 @@ test("its prompt says what the person may do, and shows only the agents they may
   );
   expect(owner).toContain("manage the routines of the agents they talk to.");
   expect(owner).not.toContain("They can't");
+  // Asked about using their Claude plan here: the vetted answer, which leaves the terms to the person and the provider.
+  expect(owner).toContain(AI_PLAN_ANSWER);
+  expect(AI_PLAN_ANSWER).toContain("supports signing the agents in with a person's own plan");
+  expect(AI_PLAN_ANSWER).toContain("never say their use is or isn't allowed");
   expect(owner).toContain("- @cofre (Cofre)");
   expect(owner).toContain("- @dev (Dev), Developer");
   const member = await prompt(nina.id);

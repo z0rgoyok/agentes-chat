@@ -1,18 +1,24 @@
 import { ACCOUNT_LOGIN_FAILURES } from "@agenteschat/adapters";
 import {
   accountLoginStatus,
+  aiHubView,
   beginAccountLogin,
+  can,
   cancelAccountLogin,
   getMachineAccounts,
+  getMembership,
   listAccountOrder,
   listAiAccounts,
   moveAccountInOrder,
+  planKeyFallbackOn,
   publishMachineAgentsChanged,
   refreshAiAccounts,
   removeMachineAccount,
   renameMachineAccount,
   sendAccountLoginCode,
+  setAccountPermissions,
   setAccountServes,
+  setPlanKeyFallback,
   takeBackPlan,
   ValidationError,
 } from "@agenteschat/engine";
@@ -29,7 +35,16 @@ import {
   requireSession,
   security,
 } from "./context";
-import { AccountKind, BrainUnavailable, MachineAccount, PlanUsage } from "./schemas";
+import {
+  AccountAudience,
+  AccountKind,
+  AccountPermissions,
+  AccountRights,
+  BrainUnavailable,
+  Credential,
+  MachineAccount,
+  PlanUsage,
+} from "./schemas";
 import { SecretBox } from "./secrets";
 
 const tags = ["Connected computers"];
@@ -90,6 +105,36 @@ const AccountOrderGroup = z
     ),
   })
   .openapi("AccountOrderGroup", { description: "One computer's accounts of one kind, first to last." });
+
+const AiHub = z
+  .object({
+    accounts: z.array(
+      MachineAccount.extend({
+        machineId: z.uuid(),
+        computer: z.string(),
+        permissions: AccountPermissions,
+        rights: AccountRights,
+      }),
+    ),
+    keys: z.array(
+      Credential.pick({ id: true, provider: true, label: true, keyHint: true, endpoint: true, usedBy: true }).extend({
+        isDefault: z.boolean(),
+      }),
+    ),
+    order: z.array(AccountOrderGroup),
+    keyFallback: z.boolean().openapi({
+      description:
+        "With every plan account of a run's order at its limit, the run goes on with the workspace's API key (off by default).",
+    }),
+    canManageKeys: z.boolean().openapi({ description: "The caller adds and removes keys (`manage_credentials`)." }),
+    canConfigure: z.boolean().openapi({
+      description: "The caller turns `keyFallback` on or off and moves anyone's account in the order (`configure`).",
+    }),
+  })
+  .openapi("AiHub", {
+    description:
+      "\"Contas de IA\" as one view: every plan account on the workspace's computers, whoever connected it, with the caller's rights; the live API keys (who uses each only for `manage_credentials`); the order of use; and the API-key switch.",
+  });
 
 const offline = {
   409: errorResponse("The computer is offline (`machine.offline`) or its runner is too old (`account.runner_old`)"),
@@ -265,7 +310,12 @@ export function machineAccountRoutes(deps: AppDeps) {
         200: json(
           z
             .object({
-              accounts: z.array(MachineAccount.extend({ machineId: z.uuid(), computer: z.string() })),
+              accounts: z
+                .array(MachineAccount.extend({ machineId: z.uuid(), computer: z.string() }))
+                .openapi({ description: "The caller's own plans and keys (older apps read these)." }),
+              hub: AiHub.optional().openapi({
+                description: 'Every account in the workspace, as "Contas de IA" lists them.',
+              }),
               computers: z.array(
                 z.object({
                   machineId: z.uuid(),
@@ -325,7 +375,12 @@ export function machineAccountRoutes(deps: AppDeps) {
         ...errors,
       },
     }),
-    async (c) => c.json(await listAiAccounts({ db }, c.get("user").id, c.req.valid("param").orgId), 200),
+    async (c) => {
+      const userId = c.get("user").id;
+      const { orgId } = c.req.valid("param");
+      const [own, hub] = await Promise.all([listAiAccounts({ db }, userId, orgId), aiHubView(db, userId, orgId)]);
+      return c.json({ ...own, hub }, 200);
+    },
   );
 
   app.openapi(
@@ -461,11 +516,89 @@ export function machineAccountRoutes(deps: AppDeps) {
       description:
         "ADR 0041 §6: at a plan's limit a run goes on with the next account of its computer and kind, its agent's owner's own first and then the others that serve everyone, each in this order. Only the CLI's own sign-ins (never a key). Owner-only accounts keep their place for their owner's agents. Changes come as `machine.updated` org events with `accounts: true`.",
       request: { params: OrgParams },
-      responses: { 200: json(z.object({ groups: z.array(AccountOrderGroup) })), ...errors },
+      responses: {
+        200: json(
+          z.object({
+            groups: z.array(AccountOrderGroup),
+            keyFallback: z.boolean().optional().openapi({
+              description: '"Continuar com a chave de API quando todos os planos estiverem no limite", off by default.',
+            }),
+            canConfigure: z
+              .boolean()
+              .optional()
+              .openapi({ description: "The caller may turn `keyFallback` on or off (`configure`)." }),
+          }),
+        ),
+        ...errors,
+      },
     }),
     async (c) => {
-      const groups = await listAccountOrder({ db }, c.get("user").id, c.req.valid("param").orgId);
-      return c.json({ groups }, 200);
+      const userId = c.get("user").id;
+      const { orgId } = c.req.valid("param");
+      const [groups, keyFallback, canConfigure] = await Promise.all([
+        listAccountOrder({ db }, userId, orgId),
+        planKeyFallbackOn(db, orgId),
+        getMembership(db, userId, orgId).then((m) => can(m, "configure")),
+      ]);
+      return c.json({ groups, keyFallback, canConfigure }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/organizations/{orgId}/ai-accounts/key-fallback",
+      tags,
+      security,
+      summary:
+        "Turn on or off going on with the workspace's API key once every plan of the order is at its limit (admins)",
+      description:
+        "Off by default, since it turns flat-rate plans into spend by the token. Needs `configure`. Audited as `ai.key_fallback`.",
+      request: { params: OrgParams, body: body(z.object({ on: z.boolean() })) },
+      responses: { 200: json(z.object({ on: z.boolean() })), ...errors },
+    }),
+    async (c) => {
+      const { orgId } = c.req.valid("param");
+      const on = await setPlanKeyFallback(db, c.get("user").id, orgId, c.req.valid("json").on);
+      return c.json({ on }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/organizations/{orgId}/ai-accounts/{accountId}/permissions",
+      tags,
+      security,
+      summary: "Change an AI account's permissions: Gerenciar, Usar em agentes, Atender todos",
+      description:
+        "Only the ones given change, for every login of the account. `manage`: its owner. `use`: whoever manages it. `reply`: its owner or an administrator (else 403 `account.permission_forbidden`). Fewer people in `use` moves the agents and right hand of those it no longer serves off it, as when a plan is taken back (`agentIds`). Audited as `account.permissions`; when someone other than its owner lets more people in (`use` or `reply`), its owner gets one email.",
+      request: {
+        params: PlanParams,
+        body: body(
+          z.object({
+            manage: AccountAudience.optional(),
+            use: AccountAudience.optional(),
+            reply: AccountAudience.optional(),
+          }),
+        ),
+      },
+      responses: {
+        200: json(z.object({ permissions: AccountPermissions, agentIds: z.array(z.uuid()) })),
+        ...errors,
+      },
+    }),
+    async (c) => {
+      const { orgId, accountId } = c.req.valid("param");
+      const result = await setAccountPermissions(
+        { db, pubsub },
+        c.get("user").id,
+        orgId,
+        accountId,
+        c.req.valid("json"),
+      );
+      if (result.agentIds.length) await publishMachineAgentsChanged(pubsub, orgId);
+      return c.json(result, 200);
     },
   );
 

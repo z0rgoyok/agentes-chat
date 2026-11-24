@@ -70,3 +70,11 @@ test("streamed: the file as it is read; nothing for a missing key", async () => 
   expect(await store.stream?.("orgs/o1/gone")).toBeNull();
   expect(store.stream?.("../outside")).rejects.toThrow("outside the files folder");
 });
+
+test("a range streams only its part, both ends included", async () => {
+  const store = createDiskBlobStore(dir);
+  await store.put("orgs/o1/clip", bytes("0123456789"), { contentType: "video/mp4" });
+  expect(await new Response(await store.stream?.("orgs/o1/clip", { start: 2, end: 5 })).text()).toBe("2345");
+  expect(await new Response(await store.stream?.("orgs/o1/clip", { start: 9, end: 9 })).text()).toBe("9");
+  expect(await store.stream?.("orgs/o1/gone", { start: 0, end: 1 })).toBeNull();
+});

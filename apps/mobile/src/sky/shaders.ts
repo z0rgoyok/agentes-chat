@@ -18,7 +18,8 @@ export type DitherKind =
   | "pill"
   | "horizon"
   | "workspace"
-  | "forming";
+  | "forming"
+  | "card";
 
 const PRELUDE = `
 uniform float2 size;
@@ -177,6 +178,14 @@ float field(float u, float v, float x, float y) {
   float hh = hash2(x, y);
   if (f < 0.12 && hh > 0.988 && v < 0.7) f = 0.45 + 0.4 * sin(t * 1.6 + hh * 90.0);
   return f;
+}
+`,
+  // A service's own sky on its page: its color from the top down into the surface by `reach` of the height, a
+  // slow wave on its horizon; still (a page, not a scene).
+  card: `
+uniform float reach;
+float field(float u, float v, float x, float y) {
+  return 1.0 - v / max(0.05, reach) + 0.05 * sin(u * 6.2832 + 0.8);
 }
 `,
   // Behind an agent's computer while its screen opens: the web's `ComputerSky`, the same field.

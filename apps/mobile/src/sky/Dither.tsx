@@ -1,5 +1,5 @@
 import { Canvas, Fill, Shader, Skia, type SkRuntimeEffect } from "@shopify/react-native-skia";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { type LayoutChangeEvent, type StyleProp, View, type ViewStyle } from "react-native";
 import { type SharedValue, useDerivedValue } from "react-native-reanimated";
 import { useLivePaused } from "@/agent/live";
@@ -76,19 +76,32 @@ export function Dither({
     if (width !== size.width || height !== size.height) setSize({ width, height });
   };
   const effect = effectOf(kind);
-  const { pal, last } = paletteUniform(tones);
+  // The uniforms by what they say, not by the objects handed in: a parent drawn again hands new arrays of the same
+  // tones (`softTones(…)`, `[...tones, …]`) and a new `extra`. Made anew, they rebuilt the drawing's mapper on the UI
+  // thread (Reanimated starts it again when what its worklet captures changes) and parsed the eight tones again, on
+  // every draw of the home's header, of a conversation's pill and of each card with a sky.
+  const tonesKey = tones.join("|");
+  const extraKey = extra ? JSON.stringify(extra) : "";
+  const { pal, last } = useMemo(() => paletteUniform(tonesKey ? tonesKey.split("|") : []), [tonesKey]);
+  const extraUniforms = useMemo<Record<string, number | number[]>>(
+    () => (extraKey ? JSON.parse(extraKey) : {}),
+    [extraKey],
+  );
   const timed = animated && !reduced;
   const clock = useDrawingClock(timed && !paused, drawingFps(kind));
-  const base = {
-    size: [size.width, size.height],
-    px: pixel,
-    last,
-    fade,
-    fadeTop,
-    clear: clear ? 1 : 0,
-    pal,
-    ...(extra ?? {}),
-  };
+  const base = useMemo(
+    () => ({
+      size: [size.width, size.height],
+      px: pixel,
+      last,
+      fade,
+      fadeTop,
+      clear: clear ? 1 : 0,
+      pal,
+      ...extraUniforms,
+    }),
+    [size.width, size.height, pixel, last, fade, fadeTop, clear, pal, extraUniforms],
+  );
   const uniforms = useDerivedValue(() => ({
     ...base,
     ...(liveWidth ? { size: [Math.max(1, liveWidth.value), size.height] } : {}),

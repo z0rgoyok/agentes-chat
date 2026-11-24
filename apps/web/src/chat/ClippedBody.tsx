@@ -1,4 +1,5 @@
-import { LONG_MESSAGE } from "@agenteschat/client/lib/message-length";
+import { LONG_MESSAGE, shownWhole } from "@agenteschat/client/lib/message-length";
+import { Icon } from "@agenteschat/ui";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useChannelActions } from "@/components/channel-actions";
@@ -12,12 +13,17 @@ import { useReveal } from "@/hooks/useReveal";
  * "Ver mais" opens the words in place, for good (no "Ver menos"): they grow down from the fold and the list stops
  * following its end, so the reader stays on them. `children` draws the words (`lead` while folded to it) with the class
  * it is given on their own root: no box goes around them, since the bubble's rules read the words as the direct child
- * of the message's text.
+ * of the message's text. One `addressed` to the reader (their answer, `answerIds`, or a mention of them) shows whole
+ * however long, and so does one shown whole before in this session (`shownWhole`).
  */
 export function ClippedBody({
+  id,
+  addressed = false,
   lead,
   children,
 }: {
+  id: string;
+  addressed?: boolean;
   lead?: string | undefined;
   children: (className: string, lead?: string) => ReactNode;
 }) {
@@ -30,14 +36,16 @@ export function ClippedBody({
     const el = foot.current?.previousElementSibling;
     words.current = el instanceof HTMLElement ? el : null;
   }, []);
-  const [open, setOpen] = useState(false);
-  const expanded = open || fullMessages;
-  const cut = useOverflows(words, !expanded, LONG_MESSAGE.over);
+  // An agent's message to another folded to its lead is not the reader's answer: only "Ver mais" opens it.
+  if (addressed && lead === undefined) shownWhole.add(id);
+  const [open, setOpen] = useState(() => shownWhole.has(id));
+  const expanded = open || fullMessages || (lead === undefined && shownWhole.has(id));
+  const cut = useOverflows(words, !expanded, LONG_MESSAGE.over, LONG_MESSAGE.shows) && !expanded;
   const reveal = useReveal(words, open);
   const folded = !expanded && (cut || lead !== undefined);
   return (
     <>
-      {children(cut && !expanded ? "msg-clip msg-clip--cut" : "msg-clip", expanded ? undefined : lead)}
+      {children(cut ? "msg-clip msg-clip--cut" : "msg-clip", expanded ? undefined : lead)}
       {/* Always there, to find the words by; empty under a message that shows whole, so its text reads as its words alone. */}
       <div ref={foot} className="msg-clip__foot" hidden={!folded}>
         {folded && (
@@ -47,10 +55,12 @@ export function ClippedBody({
             onClick={() => {
               reveal();
               actions?.letGo?.();
+              shownWhole.add(id);
               setOpen(true);
             }}
           >
             {t("channel.long.more")}
+            <Icon name="chevronDown" size={16} inline />
           </button>
         )}
       </div>

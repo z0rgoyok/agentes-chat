@@ -159,8 +159,8 @@
     "cloudText": "Sempre acceso. Pensiamo a tutto noi, tu lo usi e basta.",
     "here": "Su questo {{device}}",
     "hereText": "I tuoi agenti lavorano finché l'app è aperta.",
-    "box": "Su un computer sempre acceso",
-    "boxText": "Un Mac mini o un computer dell'ufficio, installato una volta.",
+    "box": "Su un server o VPS",
+    "boxText": "Sempre acceso, anche con questa app chiusa. Lo installi una volta.",
     "goCloud": "Continua nel cloud",
     "goHere": "Prepara questo {{device}}",
     "goBox": "Vedi come installarlo",
@@ -168,15 +168,15 @@
     "haveOneLink": "Accedi dal suo indirizzo"
   },
   "install": {
-    "title": "Installa su un computer sempre acceso",
+    "title": "Installa su un server o VPS",
     "lead": "Si fa una volta. Poi continua da solo, anche con questa app chiusa.",
-    "step1": "Sul computer che resta acceso, apri il Terminale e incolla questo",
+    "step1": "Sul server, apri il Terminale (o collegati via SSH) e incolla questo",
     "step2": "Alla fine compare un link. Aprilo qui ed è fatta.",
     "noLink": "Niente link?",
     "someoneElse": "Lo installa un'altra persona?",
     "copy": "Copia le istruzioni",
     "copied": "Istruzioni copiate",
-    "text": "Per installare agentes.chat su un computer che resta sempre acceso (un Mac mini, un computer dell'ufficio o un server):\n\n1. Su quel computer, apri il Terminale e incolla questo:\n{{command}}\n\n2. Alla fine compare un link. Mandamelo: apre il workspace nell'app."
+    "text": "Per installare agentes.chat su un server o VPS (o su un computer che resta sempre acceso, come un Mac mini):\n\n1. Sul server, apri il Terminale (o collegati via SSH) e incolla questo:\n{{command}}\n\n2. Alla fine compare un link. Mandamelo: apre il workspace nell'app."
   },
   "connect": {
     "title": "Accedi a un workspace che esiste già",

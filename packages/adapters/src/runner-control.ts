@@ -183,6 +183,8 @@ export interface ControlConfigPatch {
 /** Settings as `config.get` returns them. */
 export interface ControlConfig extends Required<ControlConfigPatch> {
   workspace: string;
+  /** The runner's own `maxConcurrentTasks` when the config has none, sized to the computer; absent: an older one (3). */
+  defaultMaxConcurrentTasks?: number;
   managedBy?: "desktop";
 }
 

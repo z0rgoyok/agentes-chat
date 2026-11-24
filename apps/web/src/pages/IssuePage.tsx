@@ -50,7 +50,7 @@ import {
 } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { renderIdRef } from "@/chat/IdRef";
@@ -60,7 +60,13 @@ import { ArtifactCard } from "@/components/artifacts/ArtifactCard";
 import { IssueWorkBlock } from "@/components/BackgroundWork";
 import { EditInPlace, useFocusAtEnd, useSavedFlash, useSent } from "@/components/EditInPlace";
 import { GitHubMark } from "@/components/GitHubMark";
-import { IssueFiles, useIssueFileEntries } from "@/components/IssueFiles";
+import {
+  IssueFiles,
+  PendingTile,
+  useIssueFileAdd,
+  useIssueFileEntries,
+  useIssueFilePaste,
+} from "@/components/IssueFiles";
 import { useOrg } from "@/components/org-context";
 import { SidePanel } from "@/components/SidePanel";
 import { TaskConversationButton, TaskConversationPanel, TaskConversationSummary } from "@/components/TaskConversation";
@@ -315,10 +321,29 @@ export function IssueDetails({
   const [tab, setTab] = useState<"details" | "files" | "history">("details");
   const files = useIssueFileEntries(i, list);
   const [saved, flashSaved] = useSavedFlash();
-  // The files it was created with show under the description (prints, logs): the rest are in "Anexos".
-  const createdFiles = list.find((a) => a.event === "created")?.attachments ?? [];
+  const toast = useToast();
+  // A file pasted anywhere in the task (the description being edited too) joins "Anexos"; from another tab, the
+  // toast takes there.
+  const tabNow = useRef(tab);
+  tabNow.current = tab;
+  const adding = useIssueFileAdd(i, (count) => {
+    if (tabNow.current === "files") return;
+    toast.show(t("issues.files.added", { count }), "success", {
+      label: t("issues.files.see"),
+      run: () => setTab("files"),
+    });
+  });
+  const root = useRef<HTMLDivElement>(null);
+  useIssueFilePaste(root, adding.onFiles);
+  // The files it was created with show under the description (prints, logs): the rest are in "Anexos". One taken
+  // off the task or in the trash isn't there any more.
+  const linked = new Set(i.artifacts.map((f) => f.id));
+  const createdFiles = (list.find((a) => a.event === "created")?.attachments ?? []).filter((f) => linked.has(f.id));
+  // On their way to "Anexos" (a paste on this tab): shown under the description until they're there.
+  const pending = tab === "details" ? adding.items : [];
+  const filesCount = files.length + adding.items.length;
   return (
-    <div className="issue-details">
+    <div className="issue-details" ref={root}>
       <header className="issue-details__head">
         <span className="small muted tabular">
           {variant === "page"
@@ -336,7 +361,7 @@ export function IssueDetails({
         label={t("issues.tabs.label")}
         items={[
           { value: "details", label: t("issues.tabs.details") },
-          { value: "files", label: t("issues.tabs.files"), count: files.length || undefined },
+          { value: "files", label: t("issues.tabs.files"), count: filesCount || undefined },
           { value: "history", label: t("issues.tabs.history") },
         ]}
       >
@@ -354,6 +379,13 @@ export function IssueDetails({
                 ))}
               </div>
             )}
+            {pending.length > 0 && (
+              <div className="issue-files__grid issue-description__pending">
+                {pending.map((f) => (
+                  <PendingTile key={f.key} file={f} onRemove={() => adding.remove(f.key)} />
+                ))}
+              </div>
+            )}
           </DetailsSection>
           <IssueCriteria issue={i} onSaved={flashSaved} />
           <IssueSubIssues issue={i} />
@@ -362,7 +394,7 @@ export function IssueDetails({
           </DetailsSection>
         </TabPanel>
         <TabPanel value="files">
-          <IssueFiles issue={i} activity={list} />
+          <IssueFiles issue={i} activity={list} adding={adding} />
         </TabPanel>
         <TabPanel value="history">
           <History activity={list} loaded={activity.isSuccess} />

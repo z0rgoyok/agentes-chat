@@ -1097,11 +1097,87 @@ html:not([data-pointer]) .sidebar__user:focus-visible {
   display: flex;
 }
 .channel__col {
+  position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
+.channel__file-drop {
+  position: absolute;
+  z-index: 5;
+  inset: var(--space-2);
+  display: grid;
+  place-items: center;
+  padding: var(--space-6);
+  border: 1px dashed var(--info);
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--bg) 81%, transparent);
+  color: var(--ink);
+  pointer-events: none;
+}
+.channel__file-drop-card {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  width: min(100%, 320px);
+  padding: var(--space-6);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--raised);
+  box-shadow: var(--e3), var(--top);
+  text-align: center;
+}
+.channel__file-drop-card strong {
+  font-family: var(--font-display);
+  font-weight: var(--font-display-weight, 500);
+  font-size: 23px;
+  letter-spacing: -0.025em;
+}
+.channel__file-drop-card > span:last-child {
+  max-width: 28ch;
+  color: var(--ink-muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.channel__file-drop-icon {
+  display: grid;
+  place-items: center;
+  width: 54px;
+  height: 54px;
+  margin-bottom: var(--space-1);
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--info) 15%, var(--raised));
+  color: var(--info);
+}
+@media (prefers-reduced-motion: no-preference) {
+  .channel__file-drop {
+    animation: chat-drop-veil 160ms ease-out both;
+  }
+  .channel__file-drop-card {
+    animation: chat-drop-card 240ms cubic-bezier(0.2, 0.8, 0.3, 1) both;
+  }
+  .channel__file-drop-icon .ac-icon {
+    animation: chat-drop-arrow 1.35s ease-in-out 160ms infinite;
+  }
+}
+@keyframes chat-drop-veil {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes chat-drop-card {
+  from {
+    opacity: 0;
+    transform: translateY(9px) scale(0.96);
+  }
+}
+@keyframes chat-drop-arrow {
+  50% {
+    transform: translateY(-4px);
+  }
+}
+
 .channel__messages {
   flex: 1;
   min-height: 0;
@@ -1110,6 +1186,14 @@ html:not([data-pointer]) .sidebar__user:focus-visible {
   display: flex;
   flex-direction: column;
   padding: 16px 8px 24px;
+}
+/* The scrollbar's room is kept while the list fits too: the kit's scrollbar takes width under a mouse (and Windows'
+   own does), and showing and hiding it narrowed and widened every row, so a message measured at one width and not the
+   other (ClippedBody) flipped with it on every frame. A touch screen's scrollbar takes no room: none kept there. */
+@media (hover: hover) and (pointer: fine) {
+  .channel__messages {
+    scrollbar-gutter: stable;
+  }
 }
 /* A message that @mentions the viewer: a tinted row, its corners all round. No accent bar on its left edge: the tint
    and the name in the words say it. No other row carries a plate at rest (only a hover on someone else's row, an open
@@ -1573,21 +1657,6 @@ html:not([data-pointer]) .member-row--add:focus-visible {
 .struck {
   text-decoration: line-through;
 }
-/* Aceitar todas and Recusar todas at the tabs' right, small and 8 apart, as the tabs bar's toolbar sits; asked again in
-   the same spot. Under the tabs, at the right, when the row has no room. */
-.proposals-all {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-2) auto;
-}
-.proposals-all__ask {
-  font-size: 13px;
-  line-height: 18px;
-  color: var(--muted);
-}
 .evidence {
   margin: 0;
   padding: 0;
@@ -1925,7 +1994,7 @@ html:not([data-pointer]) .artifact-tile__open:focus-visible {
   overflow: hidden;
   color: var(--ink2);
   -webkit-mask-image: linear-gradient(#000 60%, transparent);
-  mask-image: linear-gradient(#000 60%, transparent);
+  mask-image: linear-gradient(#000 40%, transparent calc(100% - 1.25em));
 }
 .artifact-tile__code {
   font-family: var(--font-mono);
@@ -1984,6 +2053,33 @@ html:not([data-pointer]) .artifact-tile__open:focus-visible {
 .artifact-tile__cover .artifact-diagram--compact img {
   max-width: 100%;
   max-height: calc(var(--tile-cover) - 16px);
+}
+/* A PDF's first page (`PdfCover`): the type's cover until it is drawn, then on a tile the page's top across it, on
+   its own white. */
+.pdf-cover {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+.pdf-cover canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: auto;
+  opacity: 0;
+}
+.pdf-cover[data-drawn] canvas {
+  opacity: 1;
+}
+.artifact-tile__cover .pdf-cover[data-drawn] {
+  background: #fff;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .pdf-cover[data-drawn] canvas {
+    transition: opacity 200ms var(--out);
+  }
 }
 /* A picture fills its cover. */
 .artifact-tile__picture {
@@ -2957,6 +3053,18 @@ html:not([data-pointer]) .artifact-table__sort:focus-visible {
     0 10px 24px -14px rgba(0, 0, 0, 0.25);
   color: var(--ink2);
 }
+/* A PDF's first page drawn where its sheet stands. */
+.drive-pv .pdf-cover canvas {
+  top: 10%;
+  left: 16%;
+  width: 68%;
+  border-radius: 2.6cqw 2.6cqw 0 0;
+  background: #fff;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.06),
+    0 0 0 1px var(--line),
+    0 10px 24px -14px rgba(0, 0, 0, 0.25);
+}
 .drive-pv__paper {
   left: 16%;
   right: 16%;
@@ -3586,12 +3694,17 @@ html:not([data-pointer]) .channel-ref:focus-visible {
   overflow-wrap: break-word;
 }
 .id-ref > .ac-icon,
-.file-ref > .ac-icon {
+.file-ref > .ac-icon,
+.account-ref > .ac-brand {
   position: absolute;
   top: 0.27em;
   left: 3px;
   width: 1em;
   height: 1em;
+}
+.account-ref > .ac-brand svg {
+  width: 100%;
+  height: 100%;
 }
 /* A known service's address (LinkPill): the #channel pill, led by the service's logo. Its words wrap like the ones around
    it, so a long repository or title never pushes past a narrow bubble; `break-word`, not `anywhere`, which would let a
@@ -3636,30 +3749,50 @@ html:not([data-pointer]) .channel-ref:focus-visible {
   overflow: hidden;
 }
 .folded-body__text[data-cut] {
-  mask-image: linear-gradient(#000 60%, transparent);
+  mask-image: linear-gradient(#000 40%, transparent calc(100% - 1.25em));
 }
 .folded-body__more {
   margin-top: 2px;
   font-size: 13px;
+  text-decoration-color: transparent;
+}
+.msg-clip__more > .ac-icon,
+.folded-body__more > .ac-icon {
+  margin-inline-start: 2px;
+}
+.folded-body__text[data-cut] + .folded-body__more {
+  position: relative;
+  margin-top: -1.25em;
 }
 /*
  * A tall message in a conversation (ClippedBody): whole up to `LONG_MESSAGE.over`, past it only its first
- * `LONG_MESSAGE.shows`, fading out, with "Ver mais" under it, which opens it in place. The limits sit on the words'
+ * `LONG_MESSAGE.shows`, fading out, with "Ver mais" over the fade's last line, which opens it in place. A mask, not a
+ * gradient painted over the words: it fades into whatever is behind them (either theme, a row's hover or highlight, a
+ * DM's tinted bubble). The limits sit on the words'
  * own root, so the bubble still reads them as its direct child. `clip`, not `hidden`: the browser's find must not
  * scroll the words inside their box. Only a cut message is clipped: one that shows whole keeps whatever reaches past
  * its lines.
  */
 .msg-clip--cut {
-  max-height: 360px;
+  max-height: 480px;
   overflow-y: clip;
-  -webkit-mask-image: linear-gradient(#000 calc(100% - 96px), transparent);
-  mask-image: linear-gradient(#000 calc(100% - 96px), transparent);
+  -webkit-mask-image: linear-gradient(#000 calc(100% - 128px), transparent calc(100% - 20px));
+  mask-image: linear-gradient(#000 calc(100% - 128px), transparent calc(100% - 20px));
 }
 .msg-clip__more {
   display: inline-block;
   margin-top: var(--space-1);
   font-size: var(--text-sm);
   color: inherit;
+  text-decoration-color: transparent;
+}
+/* Over the fade's clear end: the words show continuing right above it. */
+.msg-clip--cut + .msg-clip__foot {
+  position: relative;
+  margin-top: -20px;
+}
+.msg-clip--cut + .msg-clip__foot .msg-clip__more {
+  margin-top: 0;
 }
 .channel-card__head {
   display: flex;
@@ -3679,6 +3812,12 @@ html:not([data-pointer]) .channel-ref:focus-visible {
 }
 .channel-card__facts {
   margin: 0;
+  overflow-wrap: anywhere;
+}
+/* An account's name can be one long run (a hyphenated team name): it breaks at its hyphens and syllables, not mid-letter. */
+.account-card .profile-card__name {
+  overflow-wrap: anywhere;
+  hyphens: auto;
 }
 
 /* "Ada não está no canal" after an @ pick */
@@ -4303,24 +4442,13 @@ html:not([data-pointer]) .sidebar__org-button:focus-visible {
   flex-direction: column;
   gap: var(--space-4);
 }
+/* The pages' header (`PageHeader`), its words in line with the links' icons. */
 .settings__head {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   padding: 0 10px;
-}
-.settings__title {
-  margin: 0;
-  font-size: 20px;
-  line-height: 26px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
 }
 /* The workspace's name wraps under the mark, which stays on its first line: a long one never widens the nav. */
 .settings__org {
   min-width: 0;
-  color: var(--ink-muted);
-  font-size: 13px;
 }
 .settings__org > span {
   min-width: 0;
@@ -6148,16 +6276,16 @@ html:not([data-pointer]) .tr-ok:focus-visible {
 .channel__composer-skeleton-line {
   display: block;
   flex: 1;
-  min-height: var(--control-h-sm);
-  padding: calc((var(--control-h-sm) - 22px) / 2) var(--space-2);
-  line-height: 22px;
+  min-height: var(--composer-row);
+  padding: calc((var(--composer-row) - var(--composer-line)) / 2) var(--space-2);
+  line-height: var(--composer-line);
 }
 .channel__composer-skeleton-line::before {
   content: "\a0";
 }
 .channel__composer-skeleton-send.ac-skeleton {
-  width: var(--control-h-sm);
-  height: var(--control-h-sm);
+  width: var(--composer-row);
+  height: var(--composer-row);
   margin-left: auto;
   border-radius: var(--control-r-sm);
 }
@@ -6172,20 +6300,6 @@ html:not([data-pointer]) .tr-ok:focus-visible {
 }
 .channel__skeleton-meta {
   height: 18px;
-}
-@media (prefers-reduced-motion: no-preference) {
-  .channel__messages[data-fresh] .ac-msg,
-  .channel__messages[data-fresh] .ac-divider {
-    animation: content-in 240ms ease-out both;
-  }
-}
-@keyframes content-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 .sidebar__item--skeleton {
   pointer-events: none;
@@ -6207,24 +6321,14 @@ html:not([data-pointer]) .tr-ok:focus-visible {
 }
 
 /*
- * Route transitions: only the main column moves (opacity + 4 px), 160 ms, as each page's main mounts.
- * No View Transitions: the browser freezes the whole page while the new one renders, so the
- * sidebar's sliding pill stopped halfway and jumped. Nothing moves with prefers-reduced-motion.
+ * Route changes and data landing after a skeleton show the page at once, with no fade: a fade on every navigation
+ * reads as the app being slow. No View Transitions either: the browser freezes the whole page while the next one renders.
+ * The page stays the containing block and stacking context its old entrance (a filled transform animation) made it,
+ * which overlays and bars inside pages were laid out against.
  */
 @media (prefers-reduced-motion: no-preference) {
-  /* A thread opening in the side panel has its own entrance; a view taking over from its own skeleton is already in. */
   .shell__main:not(.thread-panel__chat, [data-continues]) {
-    animation: page-in 160ms ease-out both;
-  }
-}
-@keyframes page-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: none;
+    will-change: transform;
   }
 }
 /* "Carregando mensagens anteriores…": floats over the top, takes no space (no jump). */
@@ -8335,6 +8439,10 @@ html:not([data-pointer]) .izoom__stage:focus-visible {
   .izoom__actual {
     display: none;
   }
+  /* More on the bar (a file's resolved comments, ADR 0208): Ajustar goes too, a tap fits the picture back. */
+  .izoom[data-tools] .izoom__fit {
+    display: none;
+  }
 }
 /* "Loading…" only when a picture takes a moment: moving to one already here shows no flash of it (with reduced
    motion it shows at once). The zoom bar comes with the picture (no "100%" while its bytes are on the way). */
@@ -8402,6 +8510,12 @@ html:not([data-pointer]) .izoom__stage:focus-visible {
   border: 0;
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
+}
+/* A Markdown file, drawn as a document at a reading width. */
+.file-view__doc {
+  max-width: 72ch;
+  margin: 0 auto;
+  overflow-wrap: anywhere;
 }
 .file-view__text {
   max-height: 60vh;
@@ -9595,6 +9709,12 @@ html:not([data-pointer]) .onb__step:focus-visible {
   width: var(--option-face);
   height: var(--option-face);
 }
+/* A role picked as "Owner" (ADR 0085, addendum of 2026-11-21): its 20px mark in the trigger keeps its own
+   icon size, not the 16px the trigger gives a bare icon. */
+.ac-select__lead > .ac-rolemark .ac-icon {
+  width: 12px;
+  height: 12px;
+}
 /* The role step: "Do zero" first (its Função field right under it, one card's gap apart), then the groups of presets
    under small headings. */
 .newag__role-groups {
@@ -9939,8 +10059,10 @@ html:not([data-pointer]) .newag__addrow:focus-visible {
   text-align: start;
   text-decoration: none;
   cursor: pointer;
-  /* Where its words and where it goes don't fit one line, the second goes under, whole. */
+  /* Where its words and where it goes don't fit one line, the second goes under, whole. Its icon leads its words by
+     the kit's icon gap. */
   flex-wrap: wrap;
+  column-gap: var(--icon-gap);
   row-gap: var(--space-1);
   transition:
     background-color var(--dur-base) var(--out),
@@ -10467,6 +10589,16 @@ html:not([data-pointer]) .agp-cell:focus-visible {
   background: none;
   box-shadow: none;
 }
+/* A role that answers for the agent (ADR 0085, addendum of 2026-11-21) brings its own circle: its 18px mark, icon 11px,
+   where a person's face goes. */
+.agp-cell__key:has(> .ac-rolemark) {
+  background: none;
+  box-shadow: none;
+}
+.agp-cell__key > .ac-rolemark .ac-icon {
+  width: 11px;
+  height: 11px;
+}
 .agp-cell__key .ac-brand--sm {
   border-radius: inherit;
 }
@@ -10814,10 +10946,6 @@ html:not([data-pointer]) .agp-cell:focus-visible {
 .agp-badge--edit {
   background: var(--ink);
   color: var(--bg);
-}
-.agp-badge--ask {
-  background: var(--warn-soft);
-  color: var(--warn);
 }
 .agp-view {
   /* Room under the tabs before the first card, and the same 16px between whatever a tab stacks. */
@@ -13473,6 +13601,10 @@ html:not([data-pointer]) .sidebar__bell:focus-visible {
   gap: 2px;
   overflow: visible;
 }
+/* Its two buttons stand 8 apart, as buttons side by side do. */
+.sidebar:not([data-rail="true"]) .sidebar__org--person .sidebar__agora + .sidebar__head-collapse {
+  margin-left: 6px;
+}
 .sidebar__org--person .sidebar__org-button > .ac-avatar {
   width: 28px;
   height: 28px;
@@ -13760,27 +13892,6 @@ html:not([data-pointer]) .channel__latest-btn.ac-btn:focus-visible {
   }
   .channel__latest[data-shown] .channel__latest-at {
     transform: none;
-  }
-}
-
-/* Above the box when the connection drops, then "Conectado de novo". */
-.channel__conn {
-  min-height: 30px;
-  margin: 0 4px 6px;
-  padding: 4px 10px;
-  border-radius: 10px 10px 10px 3px;
-  background: var(--warn-soft);
-  color: var(--warn);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-.channel__conn[data-back] {
-  background: color-mix(in srgb, var(--ok) 14%, transparent);
-  color: var(--ok);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .channel__conn {
-    animation: ac-msg-enter 0.22s cubic-bezier(0.2, 0.8, 0.2, 1) both;
   }
 }
 
@@ -14599,6 +14710,14 @@ html:not([data-pointer]) .ac-typing__see:focus-visible {
 .settings-row--toggle:not(:has(.ac-switch:disabled)):hover {
   background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
+/* A line that opens something sums it up in one line: what it opens says the rest, and a narrow pane never leaves its
+   icon a column beside three lines. */
+.settings-row--open :is(.settings-row__status, .settings-row__status .ac-iconline > :last-child) {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 html:not([data-pointer]) .settings-row--open:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring-inset);
@@ -15116,4 +15235,734 @@ html:not([data-pointer]) .rh-set__face-edit:focus-visible {
 }
 .ac-workline--waiting .handed-line__state {
   color: var(--warn);
+}
+
+/*
+ * Conectores as a store (Settings → Conectores): a title line with the search, the categories as a line of tabs,
+ * the suggestions as features on their brand's pixel sky, then services as lines on hairlines (no card in a card),
+ * each with its one button. A state is plain text in its color.
+ */
+.store {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+.store-top {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.store-title {
+  margin: 0 auto 0 0;
+  font: 650 28px / 34px var(--font-display, var(--font-sans));
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  outline: none;
+}
+.store-search {
+  width: 260px;
+}
+/* The categories run past the edge on a narrow page: they scroll sideways and fade out there. */
+.store-cats {
+  display: flex;
+  gap: 20px;
+  margin-top: -12px;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+}
+.store-cats::-webkit-scrollbar {
+  display: none;
+}
+.store-cats button {
+  all: unset;
+  cursor: pointer;
+  flex: none;
+  padding: 8px 0 10px;
+  font-size: 14px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.store-cats button:last-child {
+  padding-right: 48px;
+}
+.store-cats button:hover {
+  color: var(--ink);
+}
+html:not([data-pointer]) .store-cats button:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: var(--focus-ring);
+}
+.store-cats button[aria-pressed="true"] {
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--ink);
+}
+.store-cats button small {
+  margin-left: 5px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--faint);
+}
+.store-feats {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.store-feat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+.store-trio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.store-feat[data-side] {
+  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+}
+.store-hero,
+.store-role {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 20px 20px 20px 4px;
+  background: var(--card-well);
+}
+.store-hero {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  align-items: flex-start;
+  min-height: 272px;
+  padding: 22px 24px;
+}
+/* A feature's sky fills its card, behind the words. */
+.catalog-feat__sky--cover {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  height: auto;
+  margin: 0;
+}
+.store-hero__mark {
+  position: absolute;
+  top: 24px;
+  right: 26px;
+}
+.store-hero__mark .connector-icon,
+.store-role__mark .connector-icon {
+  background: var(--raised);
+  box-shadow:
+    inset 0 0 0 1px var(--line2),
+    var(--e1);
+}
+.store-hero__mark .connector-icon {
+  width: 88px;
+  height: 88px;
+  border-radius: 22px 22px 22px 6px;
+  font-size: 28px;
+}
+.store-role__mark {
+  position: absolute;
+  top: 14px;
+  right: 16px;
+}
+.store-role__mark .connector-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px 14px 14px 4px;
+}
+.store-kicker {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink2);
+}
+.store-open {
+  all: unset;
+  cursor: pointer;
+}
+.store-open:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+html:not([data-pointer]) .store-open:focus-visible {
+  outline: none;
+  border-radius: 4px;
+  box-shadow: var(--focus-ring);
+}
+.store-hero__name {
+  margin: 4px 0 2px;
+  font: 650 30px / 36px var(--font-display, var(--font-sans));
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.store-hero__text {
+  margin: 0 0 16px;
+  max-width: 380px;
+  font-size: 16px;
+  line-height: 23px;
+  color: var(--ink2);
+}
+/* A feature opens its service's dialog wherever it is clicked (its name is the control); See more stays its own. */
+.store-hero .store-open::after,
+.store-role .store-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.store-hero__more {
+  position: relative;
+  z-index: var(--z-raised);
+  gap: 4px;
+}
+.store-side {
+  display: grid;
+  grid-auto-rows: 1fr;
+  gap: 16px;
+}
+.store-role {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  min-height: 128px;
+  padding: 16px 18px;
+}
+.store-role__text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.store-role__name {
+  font-size: 17px;
+  line-height: 22px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.store-role__sub {
+  font-size: 13.5px;
+  line-height: 19px;
+  color: var(--ink2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.store-role__chev {
+  flex: none;
+  color: var(--ink2);
+}
+.store-role:hover .store-role__chev {
+  color: var(--ink);
+}
+.store-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.store-sec__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.store-sec__head h3 {
+  margin: 0;
+  font: 650 20px / 26px var(--font-display, var(--font-sans));
+  color: var(--ink);
+}
+.store-rows,
+.store-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.store-rows {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 40px;
+}
+.store-list {
+  display: flex;
+  flex-direction: column;
+}
+.store-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 64px;
+  min-width: 0;
+  border-bottom: 1px solid var(--line);
+}
+.store-list > .store-item:last-child {
+  border-bottom: 0;
+}
+.store-item__open {
+  all: unset;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  /* The name's capitals start at the mark's top (`.ac-captop` on the name), as a chat name starts at its face; the pair
+     sits in the middle of the line, as the state or the button at its end does. */
+  align-items: flex-start;
+  gap: 14px;
+  align-self: center;
+  padding-block: 14px;
+}
+.store-item__open:disabled {
+  cursor: default;
+}
+html:not([data-pointer]) .store-item__open:focus-visible {
+  outline: none;
+  border-radius: 10px;
+  box-shadow: var(--focus-ring);
+}
+.store-item__text {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.store-item__text b {
+  font-size: 15.5px;
+  line-height: 21px;
+  font-weight: 600;
+  color: var(--ink);
+  /* One line, as the line under it: a long name ends in an ellipsis and reads whole on its page. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.store-item__text small {
+  font-size: 13.5px;
+  line-height: 19px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.store-item[data-soon] .connector-icon,
+.store-item[data-soon] .store-item__text b {
+  opacity: 0.55;
+}
+.store-state {
+  font-size: 13.5px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+.store-item > .store-state {
+  flex: none;
+  min-width: 84px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+.store-state[data-s="ok"] {
+  color: var(--ok);
+}
+.store-state[data-s="wait"] {
+  color: var(--warn);
+}
+.store-state[data-s="soon"] {
+  color: var(--faint);
+}
+.store-item__text .store-state,
+.store-page__title .store-state,
+.store-dialog .ac-dialog__desc .store-state {
+  font-size: inherit;
+  line-height: inherit;
+}
+/* A connection's line opens its page wherever it is clicked; its button stays its own. */
+.store-item--link {
+  gap: 16px;
+}
+.store-item--link .store-item__open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+}
+.store-item--link > .store-state {
+  min-width: 0;
+}
+.store-item--link > .ac-btn {
+  position: relative;
+  z-index: 1;
+  flex: none;
+  min-width: 104px;
+  justify-content: center;
+}
+.store-item--link:hover .store-item__text b {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.store-who {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13.5px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.store-item__chev {
+  flex: none;
+  color: var(--faint);
+}
+.store-foot {
+  margin: 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.store .store-danger {
+  color: var(--danger);
+}
+/* A service's page. */
+.store-page {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.store-back {
+  all: unset;
+  cursor: pointer;
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--muted);
+}
+.store-back:hover {
+  color: var(--ink);
+}
+html:not([data-pointer]) .store-back:focus-visible {
+  outline: none;
+  border-radius: 6px;
+  box-shadow: var(--focus-ring);
+}
+.store-page__head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+.store-page__icon {
+  flex: none;
+  display: inline-flex;
+}
+.store-page__icon .connector-icon {
+  width: 88px;
+  height: 88px;
+  border-radius: 20px 20px 20px 5px;
+  font-size: 28px;
+}
+.store-page__title {
+  min-width: 0;
+  flex: 1;
+}
+.store-page__title h3 {
+  margin: 0;
+  font: 650 30px / 36px var(--font-display, var(--font-sans));
+  letter-spacing: -0.015em;
+  color: var(--ink);
+}
+.store-page__title p {
+  margin: 2px 0 0;
+  font-size: 16px;
+  line-height: 23px;
+  color: var(--muted);
+}
+.store-page__head > .ac-btn {
+  flex: none;
+}
+.store-strip {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  margin: 0;
+  border-block: 1px solid var(--line);
+}
+.store-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 16px 20px;
+}
+.store-strip > div + div {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+.store-strip > div:first-child {
+  padding-left: 0;
+}
+.store-strip dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.store-strip dd {
+  margin: 0;
+  font-size: 15.5px;
+  line-height: 21px;
+  font-weight: 600;
+  color: var(--ink);
+}
+/* Brand art (`BrandArt`): a canvas filling what holds it, behind its words. */
+.brand-art {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-under);
+  pointer-events: none;
+}
+.brand-art > canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* A service's dialog in the store: its mark sits on the art's lower edge, bigger, with the name under it. */
+.store-dialog .ac-dialog__head {
+  padding-top: 0;
+}
+.store-dialog .cflow__title {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+}
+.store-dialog .cflow__title > .connector-icon {
+  position: relative;
+  z-index: var(--z-raised);
+  translate: none;
+  margin-top: -34px;
+  width: 68px;
+  height: 68px;
+  border-radius: 18px 18px 18px 5px;
+  background: var(--raised);
+  box-shadow:
+    0 0 0 4px var(--surface-raised),
+    inset 0 0 0 1px var(--line2),
+    var(--e1);
+}
+.store-dialog .cflow__title > :last-child {
+  font: 650 24px / 30px var(--font-display, var(--font-sans));
+  letter-spacing: -0.01em;
+}
+.store-dialog .ac-dialog__desc {
+  margin-top: -6px;
+}
+/* A service's dialog in the store: the strip, what agents could do, what connecting changes, one under another. */
+.store-dialog__body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.store-dialog__body h4 {
+  margin: 0 0 8px;
+  font-size: 15px;
+  line-height: 21px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.store-caps,
+.store-after {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14.5px;
+  line-height: 21px;
+}
+.store-caps {
+  color: var(--ink2);
+}
+.store-caps .ac-icon {
+  color: var(--faint);
+}
+.store-caps li[data-asks] .ac-icon {
+  color: var(--warn);
+}
+.store-after {
+  color: var(--muted);
+}
+/* A connected service's lines: what is set now, and the button that changes it. */
+.store-list--lines {
+  border-top: 1px solid var(--line);
+}
+.store-list--lines > .store-item:last-child {
+  border-bottom: 1px solid var(--line);
+}
+.store-item--tall {
+  min-height: 76px;
+  padding-block: 14px;
+  gap: 12px;
+}
+.store-item--tall .store-item__text small {
+  white-space: normal;
+  text-wrap: pretty;
+}
+.store-item--tall > .ac-btn {
+  flex: none;
+  min-width: 104px;
+  justify-content: center;
+}
+@media (max-width: 760px) {
+  .store-top {
+    flex-wrap: wrap;
+  }
+  .store-search {
+    width: 100%;
+  }
+  .store-feat[data-side],
+  .store-trio,
+  .store-rows {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .store-strip {
+    grid-auto-flow: row;
+  }
+  .store-strip > div {
+    padding-inline: 0;
+  }
+  .store-strip > div + div {
+    box-shadow: inset 0 1px 0 var(--line);
+  }
+  .store-page__head {
+    flex-wrap: wrap;
+  }
+  .store-who {
+    display: none;
+  }
+}
+/* The store as a page of its own (`/connectors`): wider than a settings section. */
+.store-wrap {
+  max-width: 1120px;
+  padding-bottom: 96px;
+}
+.store-sec__head h3:focus {
+  outline: none;
+}
+/* Settings › Connectors' way to the store: a few marks, how many services and Browse connectors, between hairlines. */
+.store-band {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-block: 1px solid var(--line);
+}
+.store-band__marks {
+  display: flex;
+  flex: none;
+}
+.store-band__marks > span {
+  display: inline-flex;
+}
+.store-band__marks > span + span {
+  margin-left: -8px;
+}
+.store-band__marks .connector-icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px 10px 10px 3px;
+  background: var(--raised);
+  box-shadow:
+    0 0 0 2px var(--bg),
+    inset 0 0 0 1px var(--line2);
+}
+.store-band__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.store-band__text b {
+  font-size: 15.5px;
+  line-height: 21px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.store-band__text small {
+  font-size: 13.5px;
+  line-height: 19px;
+  color: var(--muted);
+}
+.store-band > .ac-btn {
+  flex: none;
+}
+@media (max-width: 760px) {
+  .store-band__marks {
+    display: none;
+  }
+}
+/* A settings section with nothing in it yet (Connectors, Vault, Skills…): its empty state sits on a card's surface, so
+   it reads as one place on the page. Inside a card it stays flat (no card in a card). */
+.settings__body .ac-empty:is(.ac-empty--panel, .ac-empty--page):not(.ac-card .ac-empty) {
+  --empty-surface: var(--surface-raised);
+  border: 0;
+  border-radius: var(--radius-section) var(--radius-section) var(--radius-section) 4px;
+  background: linear-gradient(180deg, var(--card-face-top), var(--surface-raised) 64px);
+  box-shadow: var(--card-shadow);
+}
+/* Loading: the band, the heading and the lines in the places and sizes they arrive in. */
+.store-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.store-skeleton .store-band__text {
+  gap: 6px;
+}
+.store-skeleton .store-item__text {
+  gap: 6px;
+}
+.store-skeleton__mark {
+  flex: none;
+  border-radius: 12px 12px 12px 4px;
+}
+.store-skeleton__hero {
+  width: 100%;
+  border-radius: 20px 20px 20px 4px;
+}
+/* Short of room, the buttons go under the words instead of squeezing them (a phone, a narrow window). */
+.store-page__head,
+.store-band,
+.store-role,
+.store-item--tall {
+  flex-wrap: wrap;
+  row-gap: 12px;
+}
+.store-page__title {
+  flex: 1 1 280px;
+}
+.store-band__text {
+  flex: 1 1 220px;
+}
+.store-role__text {
+  flex: 1 1 200px;
+}
+.store-item--tall > .store-item__text {
+  flex: 1 1 240px;
+}
+@media (max-width: 760px) {
+  .store-page__icon .connector-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 14px 14px 14px 4px;
+    font-size: 20px;
+  }
+  .store-page__title h3 {
+    font-size: 24px;
+    line-height: 30px;
+  }
 }

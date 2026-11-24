@@ -53,7 +53,7 @@ function fakeGithub(releases: Record<string, unknown>[]) {
     if (name) return new Response(null, { status: 302, headers: { location: `https://signed.example/${name}` } });
     return new Response("not found", { status: 404 });
   }) as typeof globalThis.fetch;
-  return { fetch: fakeFetch, calls };
+  return { fetch: fakeFetch, calls, releases };
 }
 
 test("release body and checksum parsing", () => {
@@ -254,14 +254,27 @@ test("download links are on PUBLIC_URL, whatever address the request came in on"
   expect(await links("https://app.agentes.chat")).toEqual(onPublicUrl);
 });
 
-test("download streams an asset of a desktop-v* release, as an attachment; nothing else", async () => {
+test("a desktop download goes straight to the asset's signed address, never through the server; nothing else", async () => {
   const github = fakeGithub([release("0.2.0"), { tag_name: "v1.0.0", assets: [asset("secret.txt")] }]);
   t = await createTestServer({ env: { DESKTOP_RELEASES_TOKEN: "ghp_test" }, desktopFetch: github.fetch });
-  const res = await server().app.request("/api/desktop/download/0.2.0/agentes_0.2.0_universal.dmg");
-  expect(res.status).toBe(200);
-  expect(res.headers.get("content-disposition")).toBe('attachment; filename="agentes_0.2.0_universal.dmg"');
-  expect(res.headers.get("content-type")).toBe("application/x-apple-diskimage");
-  expect(await res.text()).toBe("DMG-BYTES");
+  const path = "/api/desktop/download/0.2.0/agentes_0.2.0_universal.dmg";
+  const res = await server().app.request(path);
+  expect(res.status).toBe(302);
+  expect(res.headers.get("location")).toBe("https://signed.example/agentes_0.2.0_universal.dmg");
+  expect(res.headers.get("cache-control")).toBe("no-store");
+  // The bytes never pass through here, so the signed address never sees our token either.
+  expect(github.calls.filter((c) => c.url.startsWith("https://signed.example/"))).toEqual([]);
+  // The next app's download within the minute asks GitHub nothing: the release and its signed address are kept.
+  const asked = github.calls.length;
+  expect((await server().app.request(path)).headers.get("location")).toBe(res.headers.get("location"));
+  expect(github.calls.length).toBe(asked);
+  // A build asked for before it is published is there once it is: a missing release is never kept.
+  const next = "/api/desktop/download/0.3.0/agentes_0.3.0_universal.dmg";
+  expect((await server().app.request(next)).status).toBe(404);
+  github.releases.unshift(release("0.3.0", { draft: true }));
+  expect((await server().app.request(next)).status).toBe(404);
+  github.releases[0] = release("0.3.0");
+  expect((await server().app.request(next)).status).toBe(302);
   expect((await server().app.request("/api/desktop/download/0.2.0/other.dmg")).status).toBe(404);
   expect((await server().app.request("/api/desktop/download/1.0.0/secret.txt")).status).toBe(404);
   expect((await server().app.request("/api/desktop/download/..%2F..%2Fx/a.dmg")).status).toBe(404);

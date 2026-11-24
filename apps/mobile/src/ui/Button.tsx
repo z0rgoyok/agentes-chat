@@ -1,10 +1,9 @@
-import { mixHex } from "@agenteschat/ui/agent/engine";
-import { LinearGradient } from "expo-linear-gradient";
 import type { ReactNode } from "react";
 import { ActivityIndicator, Text as RNText, StyleSheet, View } from "react-native";
 import type { IconName } from "./Icon";
 import { PressScale } from "./PressScale";
-import { TOOL_H, TOUCH } from "./rhythm";
+import { RADIUS } from "./radius";
+import { TOUCH } from "./rhythm";
 import { systemText } from "./Text";
 import { type Theme, useTheme } from "./theme";
 import { CHROME_MAX_SCALE, weights } from "./type-scale";
@@ -35,11 +34,14 @@ export interface ButtonProps {
   wrap?: boolean;
 }
 
-/** In a card or a row: the web's small button, 32 tall, its target grown to 44 past it (`slopOf`). */
-const SMALL = { height: TOOL_H, radius: 10, padding: 12, text: "subhead", icon: 16 } as const;
+/**
+ * In a card or a row: a capsule 34 tall, its target grown to 44 past it (`slopOf`). Every button is a capsule, sized
+ * for a finger rather than a pointer (the web's rectangles read as a page's buttons on a phone).
+ */
+const SMALL = { height: 34, radius: RADIUS.full, padding: 14, text: "subhead", icon: 16 } as const;
 
 export const BUTTON_SIZES = {
-  md: { height: 48, radius: 15, padding: 20, text: "headline", icon: 18 },
+  md: { height: 50, radius: RADIUS.full, padding: 22, text: "headline", icon: 18 },
   // A request's footer in the conversation: the in-card small button, so the card stays a message.
   card: SMALL,
   sm: SMALL,
@@ -53,19 +55,25 @@ export function slopOf(height: number) {
   return grow > 0 ? { top: grow, bottom: grow } : undefined;
 }
 
-/** Primary's tonal gradient (ink 82% → ink) and its shadow, as on the web (`.b1`). */
+/**
+ * Primary's look: the ink, solid, with the page's color for its words (no gradient, edge lines or shadow: a phone's
+ * button is a fill a finger presses). A gradient pair of the same ink for what draws it as one (`HoldButton`).
+ */
 export function primaryLook(theme: Pick<Theme, "colors">) {
   const { ink, bg } = theme.colors;
   return {
-    gradient: [mixHex(ink, bg, 0.18), ink] as const,
-    shadow: "0px 1px 2px 0px rgba(0, 0, 0, 0.18), 0px 6px 14px -6px rgba(0, 0, 0, 0.45)",
-    highlight: "rgba(255, 255, 255, 0.18)",
-    lowlight: "rgba(0, 0, 0, 0.3)",
+    gradient: [ink, ink] as const,
+    shadow: "none",
+    highlight: "transparent",
+    lowlight: "transparent",
     text: bg,
   };
 }
 
-/** The tactile button: tonal gradient, a lit top edge, a spring press and a light haptic. */
+/**
+ * The kit's button, touch first: a capsule (50 wide or in a form, 34 in a row) that gives under the finger with a light
+ * haptic. Primary is the ink, solid; secondary a tonal fill (`tonal`); ghost and text the ink's words with no fill.
+ */
 export function Button({
   variant,
   size = "md",
@@ -79,11 +87,11 @@ export function Button({
   wrap = false,
 }: ButtonProps) {
   const theme = useTheme();
-  const { colors, shadows } = theme;
+  const { colors } = theme;
   const s = BUTTON_SIZES[size];
   const primary = variant === "primary";
   const look = primaryLook(theme);
-  const textColor = primary ? look.text : variant === "ghost" || variant === "text" ? colors.muted : colors.ink;
+  const textColor = primary ? look.text : colors.ink;
   return (
     <PressScale
       onPress={onPress}
@@ -101,30 +109,19 @@ export function Button({
           alignSelf: wide ? "stretch" : "flex-start",
           opacity: disabled ? 0.5 : 1,
         },
-        primary ? { boxShadow: look.shadow } : variant === "secondary" ? { boxShadow: shadows.e1 } : null,
       ]}
     >
       <View
         style={[
           styles.face,
           { minHeight: s.height, borderRadius: s.radius, paddingHorizontal: variant === "text" ? 0 : s.padding },
-          variant === "secondary" ? { backgroundColor: colors.raised } : null,
+          primary
+            ? { backgroundColor: colors.ink }
+            : variant === "secondary"
+              ? { backgroundColor: colors.tonal }
+              : null,
         ]}
       >
-        {primary ? (
-          <>
-            <LinearGradient colors={look.gradient} style={StyleSheet.absoluteFill} />
-            <View style={[styles.edge, { top: 0, backgroundColor: look.highlight }]} />
-            <View style={[styles.edge, { bottom: 0, backgroundColor: look.lowlight }]} />
-          </>
-        ) : variant === "secondary" ? (
-          <View
-            style={[
-              styles.edge,
-              { top: 0, backgroundColor: theme.scheme === "dark" ? "rgba(255,255,255,0.08)" : "rgba(255,255,255,0.9)" },
-            ]}
-          />
-        ) : null}
         {loading ? <ActivityIndicator size="small" color={textColor} /> : leading ? leading(textColor) : null}
         <RNText
           numberOfLines={wrap ? 0 : 1}
@@ -149,6 +146,5 @@ const styles = StyleSheet.create({
     gap: 8,
     overflow: "hidden",
   },
-  edge: { position: "absolute", left: 0, right: 0, height: 1 },
   wrap: { flexShrink: 1, textAlign: "center", paddingVertical: 8 },
 });

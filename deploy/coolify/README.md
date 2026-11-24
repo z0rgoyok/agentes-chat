@@ -50,7 +50,7 @@ them by hand:
 | `AGENTES_SECRET` | Signs sessions and encrypts every key an organization stores (model providers, connectors, mailboxes, databases). Never change it on a running instance. |
 | `SERVICE_PASSWORD_POSTGRES` | The database password, used only inside `DATABASE_URL`. |
 | `AGENTES_IMAGE` | The image to run. Defaults to `ghcr.io/agentes-chat/agentes:latest`; a version tag or a digest holds a version. |
-| `AGENTES_MEMORY` | The cap on the app's memory, swap included. Defaults to `8g`. |
+| `AGENTES_MEMORY` | The cap on the app's memory, swap included. Defaults to `8g`. The app brakes below it: past 70% its job slots stop growing, past 85% it sheds long jobs. |
 
 Coolify writes the resource's variables into `.env` in the deployment directory and passes that
 file to every container, so anything you add under Environment Variables reaches the app without

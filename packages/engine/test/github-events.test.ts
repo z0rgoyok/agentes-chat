@@ -66,11 +66,102 @@ async function world(options: { rightHand?: boolean } = {}) {
   return { root, ctx };
 }
 
+/** A code session's branch (ADR 0215) and a commit on it. */
+const BRANCH = "agentes/dev/fix-login-1a2b";
+const SHA = "0123456789abcdef0123456789abcdef01234567";
+
+/** A code session of `@dev` on acme/app (spelled as typed), its worktree ready, and the person's request. */
+async function codeSession() {
+  const [channel] = await f.db
+    .insert(schema.channels)
+    .values({
+      orgId: f.org.id,
+      name: "code-1a2b3c4d",
+      kind: "code",
+      visibility: "private",
+      createdByUserId: f.owner.id,
+    })
+    .returning();
+  const channelId = channel?.id ?? "";
+  const person = { type: "person" as const, userId: f.owner.id };
+  const root = await insertMessage(f.db, { orgId: f.org.id, channelId, author: person, body: "Code session" });
+  await f.db.insert(schema.channelMembers).values([
+    { orgId: f.org.id, channelId, userId: f.owner.id },
+    { orgId: f.org.id, channelId, agentId: f.agent.id, autoReply: true },
+  ]);
+  const [session] = await f.db
+    .insert(schema.codeSessions)
+    .values({
+      orgId: f.org.id,
+      channelId,
+      rootMessageId: root.id,
+      agentId: f.agent.id,
+      repo: "Acme/App",
+      repoDir: "repos/acme/app",
+      title: "Fix the login",
+      branch: BRANCH,
+      worktreePath: ".worktrees/c-1a2b3c4d",
+      worktreeState: "ready",
+      createdBy: f.owner.id,
+    })
+    .returning();
+  const request = await insertMessage(f.db, {
+    orgId: f.org.id,
+    channelId,
+    threadId: root.id,
+    author: person,
+    body: "Fix the login and open a PR",
+  });
+  // The run that worked on it: the person's request started it.
+  const [run] = await f.db
+    .insert(schema.agentRuns)
+    .values({
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      channelId,
+      threadRootId: root.id,
+      triggerMessageId: request.id,
+      trigger: "dm",
+      hop: 1,
+      status: "done",
+    })
+    .returning();
+  return { channelId, root, session, run };
+}
+
 const base = (sender: Record<string, unknown>) => ({
   installation: { id: 7 },
   repository: { full_name: "acme/app" },
   sender,
 });
+
+/** GitHub's `check_run` payload for a check that ran on `BRANCH` (pull request #12 by default). */
+const checkRun = (fields: Record<string, unknown> = {}, action = "completed") => ({
+  ...base({ id: 41898282, login: "github-actions[bot]", type: "Bot" }),
+  action,
+  check_run: {
+    name: "lint",
+    head_sha: SHA,
+    status: "completed",
+    conclusion: "failure",
+    html_url: "https://github.com/acme/app/runs/5",
+    details_url: "https://github.com/acme/app/actions/runs/1/job/5",
+    output: { title: "2 problems found", summary: "src/login.ts" },
+    app: { slug: "github-actions" },
+    check_suite: { head_branch: BRANCH, head_sha: SHA },
+    pull_requests: [{ number: 12, head: { ref: BRANCH, sha: SHA } }],
+    ...fields,
+  },
+});
+
+/** GitHub's `pull_request` payload for #12 opened from `ref`. */
+const prOpened = (sender: Record<string, unknown>, ref: string, body = "") => ({
+  ...base(sender),
+  action: "opened",
+  pull_request: { number: 12, body, html_url: "https://github.com/acme/app/pull/12", head: { ref, sha: SHA } },
+});
+
+const APP_BOT = { id: 9, login: `${SLUG}[bot]`, type: "Bot" };
 
 const commentOn = (number: number, body: string, sender: Record<string, unknown> = MEMBER_GH, pr = true) => ({
   ...base(sender),
@@ -93,11 +184,11 @@ async function deliver(event: string, payload: Record<string, unknown>, delivery
   return queued;
 }
 
-const githubNotices = () =>
+const githubNotices = (kind = "github_event") =>
   f.db
     .select()
     .from(schema.messages)
-    .where(and(eq(schema.messages.orgId, f.org.id), sql`${schema.messages.meta}->'notice'->>'kind' = 'github_event'`))
+    .where(and(eq(schema.messages.orgId, f.org.id), sql`${schema.messages.meta}->'notice'->>'kind' = ${kind}`))
     .orderBy(schema.messages.createdAt);
 
 const runsOn = (messageId: string) =>
@@ -384,6 +475,62 @@ describe("what happens on GitHub wakes the agent it concerns (ADR 0156)", () => 
     await recordGitHubItem(elsewhere, { repo: "acme/app", number: 12, authored: false });
     expect((await items())[0]).toEqual({ number: 12, hand: false, authored: true, threadId: null });
   });
+
+  test("a check that failed on a code session's branch wakes its agent there, once per check and commit", async () => {
+    await world();
+    const { channelId, root, run: asked } = await codeSession();
+    expect(await deliver("check_run", checkRun())).toBe(true);
+    const [notice] = await githubNotices("github_check");
+    expect(notice).toMatchObject({ channelId, threadId: root.id, authorAgentId: f.agent.id });
+    expect(refsOf(notice)).toMatchObject({ check: "lint", sha: SHA, number: "12", runId: asked?.id });
+    // The server's line, the check's own words as outside text, and what to do about it.
+    const read = noticeText(notice?.meta, true) ?? "";
+    expect(read).toContain("the check «lint» failed on PR #12 (acme/app) on GitHub, at commit 0123456");
+    expect(read).toContain("https://github.com/acme/app/runs/5");
+    expect(read).toContain('<external_data source="github check lint">');
+    expect(read).toContain("fix it in this worktree");
+    // It goes on from the session's last run, for the person who asked for that work.
+    const [run] = await runsOn(notice?.id ?? "");
+    expect(run).toMatchObject({ agentId: f.agent.id, channelId, threadRootId: root.id });
+    expect(await runAuthorityById(f.db, f.org.id, run?.id ?? "")).toEqual({ kind: "person", personId: f.owner.id });
+    expect(await runReadOutsideById(f.db, f.org.id, run?.id ?? "")).toBe(true);
+    // It may fix it without a word when a push since already did.
+    if (run && notice) expect(replyPolicyFor(run, notice).mayPass).toBe(true);
+
+    // Redelivered, or the same check failing again on that commit: nothing new. Another check is its own notice.
+    await deliver("check_run", checkRun());
+    await deliver("check_run", checkRun({ name: "test (ubuntu-latest)", conclusion: "timed_out" }));
+    const checks = (await githubNotices("github_check")).map((m) => refsOf(m).check);
+    expect(checks).toEqual(["lint", "test (ubuntu-latest)"]);
+    // A branch no open session works on reaches nobody.
+    const other = { head_branch: "agentes/dev/other-9f9f", head_sha: SHA };
+    expect(await deliver("check_run", checkRun({ check_suite: other, pull_requests: [] }))).toBe(true);
+    expect(await githubNotices("github_check")).toHaveLength(2);
+    expect(await githubNotices()).toEqual([]);
+  });
+
+  test("a pull request opened from a code session's branch is kept on the session, without a notice", async () => {
+    await world();
+    const { session } = await codeSession();
+    const kept = async () =>
+      (
+        await f.db
+          .select()
+          .from(schema.codeSessions)
+          .where(eq(schema.codeSessions.id, session?.id ?? ""))
+      )[0];
+    // The agent opened it through the app (its bot): no news, but the session knows its pull request.
+    expect(await deliver("pull_request", prOpened(APP_BOT, BRANCH))).toBe(true);
+    expect(await kept()).toMatchObject({ prNumber: 12, prUrl: "https://github.com/acme/app/pull/12" });
+    expect(await githubNotices()).toEqual([]);
+    // Once the session is closed, nothing reaches it.
+    await f.db
+      .update(schema.codeSessions)
+      .set({ archivedAt: new Date(), prNumber: null, prUrl: null })
+      .where(eq(schema.codeSessions.id, session?.id ?? ""));
+    await deliver("pull_request", prOpened(APP_BOT, BRANCH));
+    expect(await kept()).toMatchObject({ prNumber: null });
+  });
 });
 
 describe("reading what GitHub sent", () => {
@@ -395,9 +542,11 @@ describe("reading what GitHub sent", () => {
       number: 3,
       mentioned: false,
     });
-    expect(of("issue_comment", commentOn(3, "Thanks @agentes-chat[bot]!"))?.mentioned).toBe(true);
+    expect(of("issue_comment", commentOn(3, "Thanks @agentes-chat[bot]!"))).toMatchObject({ mentioned: true });
     // An email address or a longer handle isn't the app.
-    expect(of("issue_comment", commentOn(3, "mail me@agentes-chat or @agentes-chat-two"))?.mentioned).toBe(false);
+    expect(of("issue_comment", commentOn(3, "mail me@agentes-chat or @agentes-chat-two"))).toMatchObject({
+      mentioned: false,
+    });
     const review = (state: string, body: string) => ({
       ...base(MEMBER_GH),
       action: "submitted",
@@ -440,6 +589,71 @@ describe("reading what GitHub sent", () => {
     expect(of("issues", { ...base(MEMBER_GH), action: "labeled", issue: { number: 3 } })).toBeNull();
     expect(of("push", { ...base(MEMBER_GH) })).toBeNull();
     expect(of("issue_comment", { ...commentOn(3, "x"), installation: undefined })).toBeNull();
+  });
+
+  test("on an agent's own branch: a check that failed there, and a pull request opened from it (ADR 0215)", () => {
+    const of = (event: string, payload: Record<string, unknown>) => githubAppEventOf(event, payload, SLUG);
+    // A bot ran it, and it is news all the same: what the agent pushed doesn't pass.
+    expect(of("check_run", checkRun())).toEqual({
+      installationId: 7,
+      action: "check_failed",
+      repo: "acme/app",
+      branch: BRANCH,
+      sha: SHA,
+      check: "lint",
+      conclusion: "failure",
+      url: "https://github.com/acme/app/runs/5",
+      prs: [12],
+      body: "2 problems found\n\nsrc/login.ts",
+    });
+    for (const conclusion of ["timed_out", "action_required"])
+      expect(of("check_run", checkRun({ conclusion }))).toMatchObject({ action: "check_failed", conclusion });
+    // Pushed before any pull request: the check's suite names the branch. A name is kept on one line.
+    expect(of("check_run", checkRun({ pull_requests: [], name: "test\n(ubuntu)" }))).toMatchObject({
+      branch: BRANCH,
+      prs: [],
+      check: "test (ubuntu)",
+    });
+    // Passed, cancelled by a newer push, skipped or still running, or the app's own check: nothing.
+    for (const conclusion of ["success", "cancelled", "skipped", "neutral", "stale"])
+      expect(of("check_run", checkRun({ conclusion }))).toBeNull();
+    expect(of("check_run", checkRun({ status: "in_progress", conclusion: null }, "created"))).toBeNull();
+    expect(of("check_run", checkRun({ app: { slug: SLUG } }))).toBeNull();
+    // Someone else's branch, or a fork's run (which names no branch): not an agent's.
+    const onBranch = (branch: string | null) =>
+      checkRun({ check_suite: { head_branch: branch, head_sha: SHA }, pull_requests: [] });
+    expect(of("check_run", onBranch("main"))).toBeNull();
+    expect(of("check_run", onBranch(null))).toBeNull();
+
+    // The agent's own pull request (the app's bot opened it), or one opened from its branch naming nobody: only the
+    // code session working on that branch keeps it.
+    expect(of("pull_request", prOpened(APP_BOT, BRANCH))).toMatchObject({
+      action: "pr_opened",
+      item: "pull_request",
+      number: 12,
+      url: "https://github.com/acme/app/pull/12",
+      branch: BRANCH,
+      body: "",
+      mentioned: false,
+    });
+    expect(of("pull_request", prOpened(MEMBER_GH, BRANCH, "Ship the login fix"))).toMatchObject({
+      action: "pr_opened",
+    });
+    // Naming the app, it is news as before, and says its branch.
+    expect(of("pull_request", prOpened(MEMBER_GH, BRANCH, "@agentes-chat can you check this?"))).toMatchObject({
+      action: "opened",
+      mentioned: true,
+      branch: BRANCH,
+    });
+    // From any other branch, nothing changes: no news unless it names the app.
+    expect(of("pull_request", prOpened(APP_BOT, "fix/login"))).toBeNull();
+    expect(of("pull_request", prOpened(MEMBER_GH, "fix/login", "Ship the login fix"))).toBeNull();
+    // A merge says the branch it came from.
+    const merged = { ...prOpened(MEMBER_GH, BRANCH).pull_request, merged: true };
+    expect(of("pull_request", { ...base(MEMBER_GH), action: "closed", pull_request: merged })).toMatchObject({
+      action: "merged",
+      branch: BRANCH,
+    });
   });
 
   test("the item a GitHub tool wrote on: from the call, or the link in GitHub's answer for a new one", () => {

@@ -15,9 +15,8 @@ import {
   voiceOn,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
-import type { Context } from "hono";
 import { bodyLimit } from "hono/body-limit";
-import { rangedResponse } from "../../http/byte-range";
+import { storedResponse } from "../../http/byte-range";
 import { apiError, errorResponse } from "../../http/errors";
 import { type AppDeps, body, createAppRouter, errors, json, OrgParams, requireSession, security } from "./context";
 
@@ -33,14 +32,6 @@ const ChannelParams = OrgParams.extend({ channelId: z.uuid() });
 const ClipParams = OrgParams.extend({ clipId: z.uuid() });
 // The count is the engine's to refuse (`message.too_many_attachments`), as for a typed message.
 const AttachmentIds = z.array(z.uuid());
-
-function audioResponse(c: Context, audio: Uint8Array, contentType: string) {
-  return rangedResponse(audio, c.req.header("range"), {
-    "content-type": contentType,
-    "cache-control": "private, max-age=300",
-    "x-content-type-options": "nosniff",
-  });
-}
 
 /**
  * Voice messages (ADR 0100): the app sends the finished recording and shows it at once; the message arrives over the
@@ -211,7 +202,11 @@ export function voiceRoutes(deps: AppDeps) {
       const audio = await voiceClipAudio(voice(), c.get("user").id, orgId, clipId);
       if ("expired" in audio) return apiError(c, 410, "voice.expired", "This recording is no longer kept");
       if ("url" in audio) return c.redirect(audio.url, 302);
-      return audioResponse(c, audio.body, audio.contentType);
+      return storedResponse(audio, c.req.header("range"), {
+        "content-type": audio.contentType,
+        "cache-control": "private, max-age=300",
+        "x-content-type-options": "nosniff",
+      });
     },
   );
 

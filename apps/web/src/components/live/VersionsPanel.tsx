@@ -15,7 +15,7 @@ import {
 } from "@agenteschat/ui";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useAuthorName } from "@/components/artifacts/ArtifactViewer";
+import { useAuthorName } from "@/components/artifacts/viewer-context";
 import { useOrg } from "@/components/org-context";
 import { PeerFace } from "./peers";
 

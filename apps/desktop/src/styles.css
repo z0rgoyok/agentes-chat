@@ -771,15 +771,31 @@ body[data-window="popover"] {
   font-weight: 600;
   color: var(--agent);
 }
-.dk-choose__go {
-  width: 100%;
-  height: 48px;
-  margin-top: 20px;
-  justify-content: center;
+/* Each place goes on by itself: a chevron at its end, brighter and a step on under the pointer or the focus. */
+.dk-choose__place {
+  padding-right: 14px;
+}
+.dk-choose__place:hover {
+  background: var(--chosen-bg);
+}
+.dk-choose__chev {
+  flex: none;
+  color: var(--faint);
+  transition:
+    color 0.15s var(--out),
+    translate 0.15s var(--out);
+}
+.dk-choose__place:hover .dk-choose__chev,
+.dk-choose__place:focus-visible .dk-choose__chev {
+  color: var(--ink);
+  translate: 2px 0;
 }
 .dk-choose__more {
   margin-top: 12px;
   text-align: center;
+}
+.dk-choose__list + .dk-choose__more {
+  margin-top: 20px;
 }
 
 .dk-fr__back {

@@ -78,3 +78,12 @@ The app already used the platform's tab bar, headers and sheets, with our line i
 - **Presses.** A list row (`RowPressable`) lights at once in the system's gray, goes out over 0.3 s, and a row that opens a screen stays lit until that screen covers it, so the list is plain again on the way back. A row tap gives no haptic, as the system's lists give none; switches, picks and swipes keep theirs.
 
 Android keeps our line icons for now; the colored tiles and the row presses apply there too.
+
+## Addendum (2026-11-18): on Android the icons are Google's
+
+On Android the app now draws Google's own symbols, as it draws Apple's on iOS.
+
+- **Which.** Material Symbols, Rounded. `icons.material.names.ts` names one symbol for each of our icons. Where Google has no such drawing, the icon keeps ours: the agent, the waiting fuse, a sticker and the computers' marks, the same ones that keep ours on iOS. Android's conventions win where they differ: "more" is the vertical dots, "back" the arrow, and "share" Android's share.
+- **How.** The symbols are path data, not a font: `scripts/material-icons.ts` generates `icons.material.data.ts` from the `@material-symbols/svg-600` npm package (Apache-2.0, credited in NOTICE). Only the 95 symbols the app names are included. `Icon` draws them with react-native-svg on the symbols' own grid. Weight 600 at the package's 48 optical size comes to 2-point strokes on a 24-point icon, the weight of the system's own icons. An outline is drawn by default; the filled form goes on a colored tile and on the selected tab. The tab bar rasterizes Google's symbols for every tab except Agentes, which keeps our agent.
+- **Only Android carries them.** `icons.material.ios.ts` has no paths, so none of the data reaches the iPhone's bundle.
+

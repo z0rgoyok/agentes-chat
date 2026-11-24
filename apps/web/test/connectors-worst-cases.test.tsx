@@ -4,8 +4,8 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { defaultDatabasePolicy } from "@agenteschat/client/lib/databases";
-import { cleanup } from "@testing-library/react";
-import { openConnected } from "./catalog";
+import { cleanup, within } from "@testing-library/react";
+import { backToList, connectedNames, openConnection } from "./catalog";
 import { ADA_ID, createFakeApi, fakeDatabasesOf, fakeMailOf, ORG_ID, seedState } from "./fake-api";
 import { MAIL_PROVIDERS } from "./fakes/mail";
 import { renderApp, screen, settle } from "./render";
@@ -15,8 +15,8 @@ afterEach(() => cleanup());
 /**
  * Settings → Conectores with what breaks its rows (break-ui): a sign-in that died, a server with a 70-character name
  * whose tools can't be read, a reviewed server with no tool at all, a mailbox with a long address that waits, a whole database server with a prefix, rows
- * nobody uses beside a row all 40 agents use. CI's geometry check lays out every screen these tests reach, closed and
- * open, at 1280 and 320.
+ * nobody uses beside a row all 40 agents use. CI's geometry check lays out every screen these tests reach (the list
+ * and a connection's page) at 1280 and 320.
  */
 const LONG_SERVER = "Suporte ao cliente das lojas da região sul, do sudeste e do centro-oeste";
 const LONG_ADDRESS = "atendimento.financeiro.contas-a-receber@subsidiaria.example.com";
@@ -88,63 +88,80 @@ async function open() {
   await settle(8);
 }
 
-const lines = () => [...document.querySelectorAll<HTMLElement>(".connected-row > button")];
+const lines = () => [...document.querySelectorAll<HTMLElement>(".store-list > .store-item--link")];
 
 describe("Conectores, worst case", () => {
-  test("closed, every row is one line of the same parts, and what needs the person is a pill on it", async () => {
+  test("every connection is one line of the same parts; only what needs the person says so, with its fix", async () => {
     await open();
     expect(lines().length).toBe(6);
     for (const line of lines()) {
-      expect(line.getAttribute("aria-expanded")).toBe("false");
-      expect([...line.children].map((c) => c.getAttribute("class"))).toEqual([
-        "ac-mediarow__face",
-        "ac-mediarow__head",
-        "ac-mediarow__end ac-mediarow__end--wrap",
-        "ac-icon ac-foldrow__chevron",
-      ]);
-      expect(line.querySelectorAll(".list-title > .ac-chip").length).toBeGreaterThan(0);
-      expect(line.querySelector(".connected-row__who")?.textContent).toMatch(
-        /^(\d+ de \d+ agentes|Nenhum agente ainda)$/,
-      );
+      // The line's open button, then the fix or who uses it, then the chevron to its page.
+      const [first, middle, last] = [...line.children];
+      expect(first?.matches("button.store-item__open")).toBe(true);
+      expect(middle?.matches(".ac-btn, .store-who")).toBe(true);
+      expect(last?.matches(".ac-icon.store-item__chev")).toBe(true);
+      expect(line.children.length).toBe(3);
     }
-    expect(lines().map((l) => l.querySelector(".list-title")?.textContent)).toEqual([
-      "iCloudPrecisa reconectar",
-      "iCloudConectando",
-      "ClientesAtivoSó lê",
-      "GitHubPrecisa reconectar",
-      `${LONG_SERVER}Sem ferramentas agora`,
-      "VazioAtivo",
+    // What needs the person comes first, each in its own words; what works says nothing about it.
+    expect(connectedNames()).toEqual(["iCloud", "iCloud", "GitHub", LONG_SERVER, "Clientes", "Vazio"]);
+    expect(lines().map((l) => l.querySelector(".store-item__text .store-state")?.textContent ?? null)).toEqual([
+      "Precisa reconectar",
+      "Conectando",
+      "Precisa reconectar",
+      "Sem ferramentas agora",
+      null,
+      null,
     ]);
     expect(LONG_SERVER.length).toBeGreaterThanOrEqual(70);
-    // Forty agents use the first: five faces, and the count says the rest.
-    expect(lines()[0]?.querySelector(".connected-row__who")?.textContent).toBe("40 de 40 agentes");
-    expect(lines()[0]?.querySelectorAll(".connected-row__who .ac-avatar").length).toBe(5);
-    // Nothing of the inside is in reach: no action, no account.
-    expect(screen().queryByRole("button", { name: /^(Quem usa|Reconectar|Desconectar) / })).toBeNull();
+    // A dead sign-in has its fix on the line; a state nobody can fix from here has who uses it instead.
+    expect(lines().map((l) => l.querySelector(":scope > .ac-btn")?.textContent ?? null)).toEqual([
+      "Reconectar",
+      null,
+      "Reconectar",
+      null,
+      null,
+      null,
+    ]);
+    for (const line of lines().filter((l) => l.querySelector(":scope > .store-who")))
+      expect(line.querySelector(".store-who")?.textContent).toMatch(/^(\d+ agentes?|Nenhum agente ainda)$/);
+    // Nothing of a page is on the list: no who uses it, no disconnect.
+    expect(screen().queryByRole("button", { name: /^(Quem usa|Desconectar) / })).toBeNull();
   });
 
-  test("open, each row says its account whole and offers its actions in one row", async () => {
+  test("a connection's page says its account whole and offers each change on its own line", async () => {
     await open();
-    await openConnected();
-    const rows = [...document.querySelectorAll<HTMLElement>(".connected-row")];
-    expect(rows.map((r) => r.matches(".ac-foldrow--open"))).toEqual([true, true, true, true, true, true]);
-    expect(rows[5]?.querySelector(".connected-row__text")?.textContent).toContain("0 ferramentas");
-    expect(rows[0]?.querySelector(".connected-row__text")?.textContent).toContain(`Conectado como ${LONG_ADDRESS}`);
-    expect(rows[2]?.querySelector(".connected-row__text")?.textContent).toContain(
-      "leitura_relatorios_financeiros@db-replica-01.interno.example.com",
-    );
-    for (const row of rows) expect(row.querySelectorAll(".ac-foldrow__more > .ac-acts").length).toBe(1);
-    // The fix is the one plated button, first; the rest are bare words.
-    expect([...(rows[0]?.querySelectorAll(".ac-acts > button") ?? [])].map((b) => b.textContent)).toEqual([
+    // Forty agents use the first mailbox: three faces, and the line says they all do.
+    let page = await openConnection("iCloud");
+    expect(page.querySelector(".store-page__title p")?.textContent).toContain("Precisa reconectar");
+    const lineTexts = () =>
+      [...page.querySelectorAll(".store-list--lines > .store-item")].map((l) => l.querySelector("b")?.textContent);
+    expect(lineTexts()).toEqual(["Quem usa", "Ferramentas", "Endereços", "Conta"]);
+    const who = page.querySelector(".store-list--lines > .store-item") as HTMLElement;
+    expect(who.querySelector("small")?.textContent).toBe("Todos os 40 agentes usam.");
+    expect(who.querySelectorAll(".ac-avatar").length).toBe(3);
+    expect(page.textContent).toContain(`Conectado como ${LONG_ADDRESS}`);
+    // The head says what's wrong; the fix is the Account line's own button (no second one in the head); Disconnect
+    // ends the page.
+    expect(page.querySelectorAll(".store-page__head > .ac-btn")).toHaveLength(0);
+    expect([...page.querySelectorAll(".store-list--lines .ac-btn")].map((b) => b.textContent)).toEqual([
+      "Alterar",
+      "Ver",
+      "Alterar",
       "Reconectar",
-      "Quem usa",
-      "Ferramentas",
-      "Endereços",
-      "Desconectar",
     ]);
-    expect([...(rows[0]?.querySelectorAll(".ac-acts > .ac-btn") ?? [])].map((b) => b.textContent)).toEqual([
-      "Reconectar",
-    ]);
-    expect(rows[0]?.querySelectorAll(".ac-acts > .ac-link--action").length).toBe(4);
+    expect(within(page).getByRole("button", { name: `Desconectar ${LONG_ADDRESS}` })).toBeTruthy();
+
+    await backToList();
+    page = await openConnection("Clientes");
+    expect(page.textContent).toContain("leitura_relatorios_financeiros@db-replica-01.interno.example.com");
+
+    await backToList();
+    page = await openConnection("Vazio");
+    expect(page.textContent).toContain("0 ferramentas");
+
+    await backToList();
+    page = await openConnection(LONG_SERVER);
+    expect(page.querySelector(".store-page__title h3")?.textContent).toBe(LONG_SERVER);
+    expect(page.querySelector(".store-page__title p")?.textContent).toContain("Sem ferramentas agora");
   });
 });

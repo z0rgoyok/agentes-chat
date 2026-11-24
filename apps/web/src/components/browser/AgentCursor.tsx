@@ -14,6 +14,7 @@ import { gradientOf } from "@agenteschat/ui";
 import { type CSSProperties, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
+import "./agent-cursor.css";
 
 interface AgentCursorProps {
   agentId: string;
@@ -140,29 +141,41 @@ export function AgentCursor({ agentId, name, color, pointer }: AgentCursorProps)
             .filter(Boolean)
             .join(" ")}
         >
-          <svg width="16" height="24" viewBox="0 0 8 12" shapeRendering="crispEdges" role="presentation">
-            {AGENT_ARROW.flatMap((row, y) =>
-              [...row].map((c, x) =>
-                c === "." ? null : (
-                  <rect
-                    // biome-ignore lint/suspicious/noArrayIndexKey: a fixed grid.
-                    key={`${x}-${y}`}
-                    x={x}
-                    y={y}
-                    width="1.02"
-                    height="1.02"
-                    className={c === "X" ? "brw-cur__edge" : "brw-cur__body"}
-                  />
-                ),
-              ),
-            )}
-          </svg>
-          <span className="brw-cur__who">
-            <AgentAvatar agentId={agentId} name={name} size="xs" state="idle" />
-            <b>{name}</b>
-          </span>
+          <CursorMark agentId={agentId} name={name} />
         </span>
       </span>
     </span>
+  );
+}
+
+/**
+ * The cursor's drawing, inside a `.brw-cur` that places it: the pixel arrow in the agent's color (`--cursor`) and the
+ * tag with its face and name. Also the Code home's agent's (`CodeHomeAgent`).
+ */
+export function CursorMark({ agentId, name }: { agentId: string; name: string }) {
+  return (
+    <>
+      <svg width="16" height="24" viewBox="0 0 8 12" shapeRendering="crispEdges" role="presentation">
+        {AGENT_ARROW.flatMap((row, y) =>
+          [...row].map((c, x) =>
+            c === "." ? null : (
+              <rect
+                // biome-ignore lint/suspicious/noArrayIndexKey: a fixed grid.
+                key={`${x}-${y}`}
+                x={x}
+                y={y}
+                width="1.02"
+                height="1.02"
+                className={c === "X" ? "brw-cur__edge" : "brw-cur__body"}
+              />
+            ),
+          ),
+        )}
+      </svg>
+      <span className="brw-cur__who">
+        <AgentAvatar agentId={agentId} name={name} size="xs" state="idle" />
+        <b>{name}</b>
+      </span>
+    </>
   );
 }

@@ -1,5 +1,5 @@
 import { and, type Database, eq, isNotNull, isNull, schema, sql } from "@agenteschat/db";
-import { managesAgent } from "./audience";
+import { managesAgent, ownsAgent } from "./audience";
 import { caches } from "./cache";
 import { NotFoundError } from "./errors";
 import { can, requirePermission } from "./organizations";
@@ -110,7 +110,7 @@ export async function confirmSetupStep(db: Database, actorId: string, orgId: str
       ? FIRST_RUN_SKIPS.has(step) && can(membership, step === "apps" ? "manage_connectors" : "invite_people")
       : !agent.builtin &&
         SETUP_STEPS.includes(step as never) &&
-        (agent.ownerUserId === actorId || managesAgent(agent, actorId, membership));
+        (ownsAgent(agent, actorId, membership.roleIds) || managesAgent(agent, actorId, membership));
   // Not found for whoever may not change it, as for an agent that isn't there.
   if (!allowed) throw new NotFoundError("Agent not found");
   const one = JSON.stringify([step]);

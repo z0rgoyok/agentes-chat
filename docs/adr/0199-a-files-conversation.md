@@ -5,6 +5,7 @@
 - Extends: 0145 (a task's conversation is a chat thread of its own), 0196 (live files), 0157 (who sees a file), 0029
   (threads), 0071 (agent replies notify)
 - Amends: 0196 §6 ("Ask an agent" posts in the file's own conversation)
+- Amended by: 0208 (pictures, videos and PDFs have one too, with comments pinned on a place)
 - Code: engine `packages/engine/src/live/conversation.ts` (`ensureFileConversation`, `openFileConversation`,
   `admitFileAgents`, `fileConversationSummaries`, `fileConversationBrief`, `fileConversationOf`, `cleanSelection`,
   `liveRefFor`, `liveRefOf`, `liveRefLine`, `conversationFileId`), `task-access.ts` (`fileConversationReaderSql`,

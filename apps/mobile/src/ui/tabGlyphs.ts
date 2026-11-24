@@ -1,5 +1,6 @@
 import { bodyPath, EYE_STYLES, EYE_X } from "@agenteschat/ui/agent/engine";
 import { ICONS } from "./icons.data";
+import { MATERIAL_VIEWBOX, materialTabPathOf } from "./icons.material";
 
 /**
  * The tab bar's own glyphs (Conversas, Threads, Agentes, Atividade, Buscar) as SVG documents, in two states:
@@ -105,8 +106,14 @@ function searchGlyph(selected: boolean, color: string): string {
 }
 const SEARCH_SELECTED_STROKE = 2.3;
 
-/** The SVG document of a tab glyph in a state, drawn in `color` (any opaque color: it is a template). */
-export function tabGlyphSvg(glyph: TabGlyph, selected: boolean, color = "#000000"): string {
+/**
+ * The SVG document of a tab glyph in a state, drawn in `color` (any opaque color: it is a template). With `material`
+ * (Android), Google's symbol where it has one (`TAB_MATERIAL`): outline, filled when selected; Agentes keeps ours.
+ */
+export function tabGlyphSvg(glyph: TabGlyph, selected: boolean, color = "#000000", material = false): string {
+  const symbol = material ? materialTabPathOf(glyph, selected) : null;
+  if (symbol)
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="${MATERIAL_VIEWBOX}"><path d="${symbol}" fill="${color}"/></svg>`;
   let body: string;
   switch (glyph) {
     case "chats":

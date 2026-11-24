@@ -1,4 +1,4 @@
-import { pairAddress } from "@agenteschat/adapters";
+import { pairAddress, TASK_LIMIT_BOUNDS } from "@agenteschat/adapters";
 import {
   approveDeviceJoin,
   cancelWifiPairing,
@@ -284,9 +284,10 @@ export function deviceAppRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/devices/computers/{machineId}",
       tags,
       security,
-      summary: "Rename a computer, change who can use it, mark it the workspace's, let replies spill over to it",
+      summary:
+        "Rename a computer, change who can use it, mark it the workspace's, let replies spill over to it, set its tasks at once",
       description:
-        "Its owner: anything. An admin: rename, mark it the workspace's, and narrow who can use someone's own computer (`device.widen_forbidden` otherwise). Never the workspace's computer (`machine.managed`). Only its owner turns spill-over on (`device.spill_owner_only`).",
+        "Its owner: anything. An admin: rename, mark it the workspace's, and narrow who can use someone's own computer (`device.widen_forbidden` otherwise). Never the workspace's computer (`machine.managed`). Only its owner turns spill-over on (`device.spill_owner_only`) and changes its tasks at once (`device.tasks_owner_only`; an admin too on a computer nobody connected), which the computer applies: it must be online (`machine.offline`) with an app that can (`machine.outdated`).",
       request: {
         params: MachineParams,
         body: body(
@@ -295,6 +296,7 @@ export function deviceAppRoutes(deps: AppDeps) {
             audience: Audience.optional(),
             belongsToWorkspace: z.boolean().optional(),
             spill: z.object({ own: z.boolean().optional(), others: z.boolean().optional() }).optional(),
+            maxTasks: z.number().int().min(TASK_LIMIT_BOUNDS[0]).max(TASK_LIMIT_BOUNDS[1]).optional(),
           }),
         ),
       },
@@ -303,7 +305,7 @@ export function deviceAppRoutes(deps: AppDeps) {
     async (c) => {
       const { orgId, machineId } = c.req.valid("param");
       const device = await updateComputerDevice(
-        { db, pubsub },
+        { db, pubsub, hub: deps.extras?.sandbox?.machines?.hub },
         c.get("user").id,
         orgId,
         machineId,

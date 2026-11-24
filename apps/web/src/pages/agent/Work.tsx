@@ -58,8 +58,8 @@ import { Link } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NO_COMPUTER, useNoComputer } from "@/components/AgentComputer";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
-import { useConnectAi } from "@/components/ConnectAi";
+import { usePlanHold } from "@/components/ai/plan-hold";
+import { useConnectAi } from "@/components/connect-ai-context";
 import { ToolOffWayOut, useToolOneClick } from "@/components/devices/ToolOneClick";
 import { CommandBlock } from "@/components/machine-bits";
 import { useOrg } from "@/components/org-context";
@@ -492,14 +492,17 @@ export function WorkDialogs({
   open,
   brainAt,
   onClose,
+  onReopen,
 }: {
   open: WorkDialog | null;
   /** The screen "Quem pensa" opens on, from a link; its first one otherwise. */
   brainAt?: BrainScreen;
   onClose: () => void;
+  /** Opens "Quem pensa" again (Back from the Connect it closed for). */
+  onReopen?: () => void;
 }) {
   // Who thinks has its own dialog, under the sky like Connect's (ADR 0032 §5, addendum 2026-11-10).
-  if (open === "brain") return <BrainDialog onClose={onClose} at={brainAt} />;
+  if (open === "brain") return <BrainDialog onClose={onClose} at={brainAt} onReopen={onReopen} />;
   if (open === "computer") return <ComputerDialog onClose={onClose} />;
   if (open === "browser") return <BrowserDialog onClose={onClose} />;
   return null;

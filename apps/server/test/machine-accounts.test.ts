@@ -203,6 +203,9 @@ test("accounts on a computer: the runner's list, signing in with a sealed code, 
   // A name its owner gave it: the apps title the account by it, not by its email.
   expect(named.named).toBe(true);
   expect((await api(`${base}/accounts/${login.loginId}`, { method: "PATCH", json: { label: "" } })).status).toBe(400);
+  // "Gerenciar" is its owner's and the administrators' by default; "Só você" keeps them out.
+  const onlyMe = { manage: { mode: "owner", userIds: [], roleIds: [] } };
+  expect((await api(`/ai-accounts/${login.loginId}/permissions`, { method: "PUT", json: onlyMe })).status).toBe(200);
   expect((await asAdmin(`${base}/accounts/${login.loginId}`, { method: "PATCH", json: { label: "Meu" } })).status).toBe(
     403,
   );

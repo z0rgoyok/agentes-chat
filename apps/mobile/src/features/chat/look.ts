@@ -17,12 +17,14 @@ import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import type { AgentColorName } from "@agenteschat/ui/agent/engine";
 import { wallpaperStrength } from "@agenteschat/ui/sky/wallpaper";
 import { createContext, useCallback, useContext, useMemo, useState } from "react";
-import { type LayoutChangeEvent, StyleSheet, useWindowDimensions, type ViewStyle } from "react-native";
+import { type LayoutChangeEvent, type StyleProp, StyleSheet, useWindowDimensions, type ViewStyle } from "react-native";
 import { useOrg } from "@/providers/org";
 import { useTheme } from "@/ui";
 import { cardEdge, type Scheme } from "@/ui/palette";
+import { useContentWidth } from "@/ui/pane";
 import { type Corners, RADIUS } from "@/ui/radius";
 import { BUBBLE_PART_CORNERS, MESSAGE_CARD_CORNERS, useBubblePart } from "../shared/bubble-part";
+import { BUBBLE_PAD_V } from "./bubble-cap";
 import { keepSize, keptSize } from "./kept-sizes";
 import {
   BUBBLES_EDGE,
@@ -34,6 +36,7 @@ import {
   COMPACT_GAP,
   MSG_INSET,
   quietInset,
+  rowBodyInset,
 } from "./logic";
 import { wallpaperKey } from "./wallpaper-logic";
 
@@ -111,11 +114,13 @@ export const useRhythm = () => CHAT_RHYTHM[useRowLook().style];
 
 /**
  * What a row's measured size depends on besides its content, for the sizes kept across the list's unmounts
- * (`kept-sizes.ts`): the window's width, the system's text size, the person's Tamanho do texto and the conversation's
- * look (its insets and faces).
+ * (`kept-sizes.ts`): the width it lays out in (the window's, or its pane's), the system's text size, the person's
+ * Tamanho do texto and the conversation's look (its insets and faces).
  */
 export function useLayoutKey(): string {
-  const { width, fontScale } = useWindowDimensions();
+  const { fontScale } = useWindowDimensions();
+  // A conversation in a pane (ADR 0212) lays out at the pane's width, not the window's.
+  const width = useContentWidth();
   const { style, faces, text } = useRowLook();
   return `${Math.round(width)}:${fontScale}:${style}:${faces ? 1 : 0}:${text?.fontSize ?? 0}`;
 }
@@ -161,6 +166,43 @@ export function useMessageCardCorners(): Corners | null {
   return part ? BUBBLE_PART_CORNERS : inBody ? MESSAGE_CARD_CORNERS : null;
 }
 
+/**
+ * The one frame of a card that shows in a message, spread last over the card's own: under someone else's words in a
+ * conversation of bubbles it is a bubble of that message (its fill, its light edge over a background, no outline); in
+ * a message of the other looks the raised surface with a hairline; outside a message (a mission's screen, the inbox)
+ * the app's raised card with its shadow, at the card's own corners. `fill`: the color behind its content, for what
+ * fades into it or rings a face on it; `bubble`: whether it is a bubble part.
+ */
+export function useMessageCardFrame(): { style: StyleProp<ViewStyle>; fill: string; bubble: boolean } {
+  const { colors, shadows } = useTheme();
+  const part = useBubblePart();
+  const inBody = useContext(RowPartContext) !== null;
+  const cardCorners = useMessageCardCorners();
+  return useMemo(() => {
+    if (part)
+      return {
+        style: [{ backgroundColor: part.fill, borderWidth: 0 }, cardCorners, part.edge],
+        fill: part.fill,
+        bubble: true,
+      };
+    const style = inBody
+      ? { backgroundColor: colors.raised, borderColor: colors.line2, borderWidth: StyleSheet.hairlineWidth }
+      : { backgroundColor: colors.raised, boxShadow: `${shadows.e1}, ${shadows.top}` };
+    return { style: [style, cardCorners], fill: colors.raised, bubble: false };
+  }, [part, inBody, cardCorners, colors.raised, colors.line2, shadows]);
+}
+
+/**
+ * Where a plate standing on its own among the rows starts and ends (the agents' talk quoted with no reply here): in a
+ * conversation of bubbles on the bubbles' own column, as wide as one, so it never stands a step in from them and past
+ * their end; in the other looks at `start` (the words' column), with the room a bubble leaves at the end.
+ */
+export function plateInset(look: RowLook, start: number): { paddingLeft: number; paddingRight: number } {
+  if (look.style !== "bubbles") return { paddingLeft: start, paddingRight: 48 };
+  const body = rowBodyInset(look);
+  return { paddingLeft: body.left, paddingRight: body.right };
+}
+
 /** `quietInset` in this conversation's look. */
 export const useQuietInset = () => quietInset(useRowLook());
 
@@ -192,7 +234,7 @@ export const lookRows = StyleSheet.create({
   bubble: {
     alignSelf: "flex-start",
     maxWidth: "100%",
-    paddingVertical: 8,
+    paddingVertical: BUBBLE_PAD_V,
     paddingHorizontal: 14,
     borderRadius: RADIUS.xl,
   },

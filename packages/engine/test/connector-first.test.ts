@@ -9,7 +9,11 @@ import {
   type ToolContext,
   type ToolDefinition,
 } from "../src";
+import { CONNECTOR_CATALOG } from "../src/connectors/catalog";
+import { MCP_PRESETS } from "../src/connectors/presets";
+import { CONNECTOR_NAMES, CONNECTOR_SITES, connectorsForUrl } from "../src/connectors/sites";
 import { requestSecretTool } from "../src/secret-request-tool";
+import { catalogConnector } from "../src/setup-tools";
 import { fakeGithubMcp } from "./fake-mcp";
 import { type Fixture, setup } from "./fixtures";
 import { runContext } from "./mail-fixtures";
@@ -33,6 +37,14 @@ const offerConnectApp: ToolDefinition = {
   execute: async () => ({ content: "ok" }),
 };
 
+const browserOpen: ToolDefinition = {
+  name: "browser_open",
+  description: "Open a page.",
+  inputSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
+  scope: "",
+  execute: async () => ({ content: "opened" }),
+};
+
 const deps = (): ConnectorDeps => ({ db: f.db, keyWrappers: [f.keyWrapper], publicUrl: "https://chat.example.com" });
 
 async function world(options: { offer?: boolean; catalog?: boolean } = {}) {
@@ -49,7 +61,7 @@ async function world(options: { offer?: boolean; catalog?: boolean } = {}) {
     permissionTools: true,
     ...(options.catalog === false ? {} : { catalog: { oauthApps: {} } }),
     toolSources: [
-      { name: "secrets", tools: async () => [secret, ...(options.offer ? [offerConnectApp] : [])] },
+      { name: "secrets", tools: async () => [secret, browserOpen, ...(options.offer ? [offerConnectApp] : [])] },
       { name: "connectors", tools: (ctx) => createConnectorToolSource({ ...deps(), connect: mcp.connect }).tools(ctx) },
     ],
   });
@@ -114,7 +126,7 @@ test("not connected: the connect card when the agent has it, else how an admin c
   await f.close();
   const plain = await world();
   const text = await ask(plain, { ...KEY, name: "LINEAR_API_KEY", purpose: "Read issues" });
-  expect(text).toContain("Settings › Connectors and MCPs › Add connector › Linear");
+  expect(text).toContain("Settings › Connectors and MCPs › Browse connectors › Linear");
   expect(text).toContain("Tell the person this instead of asking for a key.");
 });
 
@@ -227,4 +239,49 @@ test("a key of that name in the Vault keeps its way too", async () => {
   await connectGithub();
   await f.db.insert(schema.vaultItems).values({ orgId: f.org.id, kind: "key", title: "Deploy", keyName: KEY.name });
   expect(await ask(ctx, KEY)).toBe(CARD);
+});
+
+async function open(ctx: ToolContext, url: string) {
+  const r = await f.tools?.invoke(ctx, { toolUseId: `tu_${Math.random()}`, name: "browser_open", input: { url } });
+  if (r?.type !== "result") throw new Error(`expected a result, got ${r?.type}`);
+  return r.output.content;
+}
+
+test("a service's site in the browser: the connector is suggested once, then the page opens", async () => {
+  const ctx = await world({ offer: true });
+  const first = await open(ctx, "https://github.com/login");
+  expect(first).toStartWith("Not opened yet: this site has an app connector here");
+  expect(first).toContain(`offer it with offer_connect_app (app "GitHub"), not the browser.`);
+  expect(first).toContain("never a reason to refuse");
+  // The person chose the browser: it opens, in a later run of this conversation too.
+  expect(await open(ctx, "https://github.com/login")).toBe("opened");
+  expect(await open(await runContext(f), "https://www.github.com/settings")).toBe("opened");
+});
+
+test("a connected service's site: its tools first; a site of no connector opens", async () => {
+  const ctx = await world();
+  await connectGithub();
+  expect(await open(ctx, "https://github.com/acme/app/pulls")).toContain("use them, not the browser.");
+  expect(await open(ctx, "https://news.example.com/")).toBe("opened");
+  // A service this server can't connect (`soon`) leaves the browser as the way.
+  expect(await open(ctx, "https://app.asana.com/0/home")).toBe("opened");
+});
+
+test("a service's sites and other names find its connector", () => {
+  expect(connectorsForUrl("https://business.facebook.com/latest/home")).toEqual(["meta-ads", "facebook"]);
+  expect(connectorsForUrl("https://adsmanager.facebook.com/adsmanager")).toEqual(["meta-ads"]);
+  expect(connectorsForUrl("https://docs.google.com/spreadsheets/d/1")).toEqual(["google-sheets"]);
+  expect(connectorsForUrl("https://docs.google.com/document/d/1")).toEqual(["google-docs"]);
+  expect(connectorsForUrl("https://acme.atlassian.net/jira")).toEqual(["atlassian"]);
+  expect(connectorsForUrl("https://acme.github.io/")).toEqual([]);
+  expect(connectorsForUrl("https://github.com.example.com/")).toEqual([]);
+  expect(connectorsForUrl("not a url")).toEqual([]);
+  expect(catalogConnector("Meta Business Suite")?.id).toBe("meta-ads");
+  expect(catalogConnector("Facebook Ads")?.id).toBe("meta-ads");
+  expect(catalogConnector("Facebook")?.id).toBe("facebook");
+});
+
+test("every site and other name is of a connector this catalog has", () => {
+  const ids = new Set([...Object.keys(CONNECTOR_CATALOG), ...MCP_PRESETS.map((p) => p.id)]);
+  expect([...Object.keys(CONNECTOR_SITES), ...Object.keys(CONNECTOR_NAMES)].filter((id) => !ids.has(id))).toEqual([]);
 });

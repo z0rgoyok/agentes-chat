@@ -276,6 +276,35 @@ describe("the controller's untried verdict", () => {
     expect(criteria.untried).toStartWith("What `request` asked for is still missing");
   });
 
+  test("an answer already given is done: a plain 'I can't, because' on a rule or a refusal, a question back", async () => {
+    let asked: JudgeRequest | undefined;
+    const judge: Judge = {
+      name: "fake",
+      ask: async (request) => {
+        asked = request;
+        return { verdict: { choice: "done", probabilities: { done: 0.8 } } };
+      },
+    };
+    await continuationVerdict(judge, {
+      orgId: "o",
+      agentId: "a",
+      runId: "r",
+      request: "What is the email of the owner of the Example Co workspace?",
+      reply: "I can't get that email: the support tools never show what customers typed, a privacy rule of the tools.",
+      means: ["the web: `web_search`"],
+      tried: ["support_find(example co) → failed: Nothing for that reference."],
+      runKind: "conversation",
+    });
+    const criteria = (asked?.questions.verdict as { criteria: Record<string, string> } | undefined)?.criteria ?? {};
+    expect(criteria.done).toContain("So is a plain 'I can't, because…' whose because is a rule or a refusal");
+    expect(criteria.done).toContain("Going around a rule is not resourcefulness.");
+    expect(criteria.done).toContain("A question back that only the person can answer");
+    expect(criteria.untried).toContain("Nor a plain 'I can't, because…' on a rule or a refusal (see done).");
+    // What needs the person is still no wall, and a question for what its means could find is still untried.
+    expect(criteria.untried).toContain("a step that needs the person is never a blocker");
+    expect(criteria.untried).toContain("asked a person for information its means could find");
+  });
+
   test("a call as the judge reads it", () => {
     expect(callLine("web_search", { query: "banco azul" }, { content: "1. A\n   https://a" })).toBe(
       "web_search(banco azul) → 1. A https://a",

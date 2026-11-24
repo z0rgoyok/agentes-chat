@@ -18,7 +18,6 @@ import { REQUEST_SECRET_TOOL } from "./secrets";
 import { maskCredentials } from "./tool-detail";
 import { reachesTeammates, turnMeans } from "./tools/directory";
 import type { ToolContext, ToolDefinition, ToolSource } from "./tools/types";
-import { neutralizeUntrusted } from "./untrusted";
 
 export const HAND_OFF_TOOL = "hand_off";
 /** A report, not a transcript: long enough for findings, why and what next. */
@@ -349,6 +348,7 @@ export async function askVerdict(
     reply?: string;
   },
 ): Promise<AskVerdict> {
+  const { shownTried } = await import("./continuation");
   const answers = await judge.ask({
     orgId: input.orgId,
     agentId: input.agentId,
@@ -359,7 +359,7 @@ export async function askVerdict(
       request: cutText(input.request, 2000),
       ...(input.reply ? { reply: cutText(input.reply, 2000) } : {}),
       means: input.means,
-      tried: input.tried.slice(-20).map(neutralizeUntrusted),
+      tried: shownTried(input.tried),
     },
     questions: {
       verdict: {

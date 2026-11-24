@@ -7,7 +7,8 @@ const read = (path: string) => readFileSync(join(import.meta.dir, "../../src/fea
 
 describe("the agent's computer and a browser profile's live view are pushed screens", () => {
   test("pushed with the opaque bar, never a modal the app's sheets, pickers and toasts would open under", () => {
-    expect(ownOptionsOf("computer/[agentId]")).toBe("solid,");
+    // The opaque bar, without the side insets as padding: the computer's screen places its edges by them (ADR 0212).
+    expect(ownOptionsOf("computer/[agentId]")).toBe("{ ...solid, contentStyle: { backgroundColor: colors.bg } },");
     expect(ownOptionsOf("browser-profile/[profileId]")).toBe("solid,");
   });
 

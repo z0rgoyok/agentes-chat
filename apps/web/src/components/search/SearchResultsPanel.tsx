@@ -26,6 +26,7 @@ import { useTranslation } from "react-i18next";
 import { ActorAvatar } from "@/components/AgentAvatar";
 import { useChannelActions } from "@/components/channel-actions";
 import { ErrorState, LoadingList } from "@/components/Loading";
+import { MetaLine } from "@/components/MetaLine";
 import { COMPACT_QUERY } from "@/components/NavDrawer";
 import { useOrg } from "@/components/org-context";
 import { useEscClose } from "@/hooks/useEscClose";
@@ -169,11 +170,7 @@ export function SearchResultsPanel({
           <h1 className="channel__title thread-title" aria-live="polite">
             {search.isSuccess || hits.length ? count : t("searchPage.panel.label")}
           </h1>
-          {what && (
-            <span className="channel__topic thread-head__meta">
-              <span className="thread-head__where">{what}</span>
-            </span>
-          )}
+          {what && <MetaLine where={what} />}
         </div>
         <Button
           size="sm"

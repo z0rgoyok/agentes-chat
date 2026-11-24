@@ -13,7 +13,7 @@ import { connectionToken } from "./git/branches";
 import { appTokenForRepo, boundInstallations, type GitHubAppConfig, type GitHubHttp } from "./git/github-app";
 import { assertStorageRoom } from "./limits";
 import { assertPublicHttpsUrl, type ResolveHost } from "./net-guard";
-import { can, type Membership, requirePermission } from "./organizations";
+import { can, getMembership, type Membership, requirePermission } from "./organizations";
 import { vaultPersonOfRun } from "./vault/access";
 import { inflateZipEntry, listZip, type ZipListing } from "./zip";
 
@@ -2126,6 +2126,47 @@ export async function agentSkillByName(
     rows.map((r) => r.skill),
   );
   return usable ?? null;
+}
+
+/**
+ * A skill of the workspace by name that `personId` may change on its page (`maySkill`): the team's, else their own
+ * personal one. What an agent reads and changes for a person who manages skills, though it isn't on for that agent.
+ */
+export async function skillPersonMayChange(db: Database, orgId: string, name: string, personId: string) {
+  const membership = await getMembership(db, personId, orgId);
+  if (!membership) return null;
+  const rows = await db
+    .select()
+    .from(skills)
+    .where(
+      and(
+        eq(skills.orgId, orgId),
+        eq(skills.slug, name.trim().toLowerCase()),
+        isNull(skills.deletedAt),
+        or(isNull(skills.ownerUserId), eq(skills.ownerUserId, personId)),
+      ),
+    )
+    .orderBy(sql`${skills.ownerUserId} is not null`);
+  return rows.find((s) => maySkill(s, personId, membership, "change")) ?? null;
+}
+
+/** The active agents that have this skill on, by handle. */
+export async function skillHolders(db: Database, orgId: string, skillId: string) {
+  const rows = await db
+    .select({ handle: schema.agents.handle })
+    .from(agentSkills)
+    .innerJoin(schema.agents, eq(schema.agents.id, agentSkills.agentId))
+    .where(
+      and(
+        eq(agentSkills.orgId, orgId),
+        eq(agentSkills.skillId, skillId),
+        eq(agentSkills.enabled, true),
+        isNull(schema.agents.archivedAt),
+        isNull(schema.agents.deletedAt),
+      ),
+    )
+    .orderBy(asc(schema.agents.handle));
+  return rows.map((r) => r.handle);
 }
 
 /**

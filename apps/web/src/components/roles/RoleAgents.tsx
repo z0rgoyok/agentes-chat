@@ -217,13 +217,17 @@ function AgentRow({
   const base = isEveryone(role);
   const a = audienceOf(agent);
   const on = roleTalksTo(role, agent);
-  const mine = canEditAudience(org, agent, me.user.id);
+  const myRoleIds = people.find((p) => p.userId === me.user.id)?.roleIds ?? [];
+  const mine = canEditAudience(org, agent, me.user.id, myRoleIds);
   const owner = people.find((p) => p.userId === agent.ownerUserId);
+  // Or the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const ownerRole = agent.ownerRoleId ? byId.get(agent.ownerRoleId) : undefined;
+  const ownerName = ownerRole?.name ?? owner?.name;
   const g = agentGrammar(agent.name);
   const why = mine
     ? undefined
-    : owner
-      ? t("rolesPage.agents.notYours", { ...g, owner: owner.name })
+    : ownerName
+      ? t("rolesPage.agents.notYours", { ...g, owner: ownerName })
       : t("rolesPage.agents.notYoursNoOwner");
   const write = (next: AgentAudience) => widen.widen(audiencePatch(next), asks.ask(next), onSaved);
   const change = (next: boolean) => {
@@ -241,6 +245,7 @@ function AgentRow({
       <WhoChip everyone />
     ) : a.mode === "owner" ? (
       <WhoChip
+        roles={ownerRole ? [ownerRole] : undefined}
         people={owner ? [{ userId: owner.userId, name: owner.name, image: owner.avatarUrl ?? owner.image }] : []}
       />
     ) : (

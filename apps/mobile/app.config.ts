@@ -12,8 +12,7 @@ import versions from "./versions.json";
  * - `ANDROID_VERSION_CODE`: the build's version code, set by the Android workflow (EAS numbers its own builds).
  * - `APPLE_TEAM_ID`: the Apple team that signs the iOS app and its share extension (a build setting, never in the
  *   repo).
- * - `IOS_BUNDLE_ID`: the iOS application identifier for a store build. The managed fork uses its own identifier
- *   instead of the upstream one; variants keep their existing identifiers when this is unset.
+ * - `IOS_BUNDLE_ID`: overrides the managed iOS bundle identifier.
  * - `IOS_BUILD_NUMBER`: the build's number on iOS, set by the iOS workflow.
  * - `APP_PLATFORM`: "ios" | "android", set by each build workflow (EAS says it in `EAS_BUILD_PLATFORM`): which of the
  *   two versions in versions.json the build takes.
@@ -256,13 +255,25 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         enableBackgroundPlayback: false,
       },
     ],
+    // The agents at work in the Dynamic Island and on the Lock Screen (ADR 0210): a widget extension
+    // (`<bundle id>.ExpoWidgetsTarget`, in the app group `group.<bundle id>`) for the Live Activity the server starts,
+    // updates and ends by push; `frequentUpdates` lets those pushes come as often as an agent moves on.
+    ["expo-widgets", { enablePushNotifications: true, frequentUpdates: true }],
+    // The share extension reads as the app in the share sheet. Before expo-share-intent, so it runs once the
+    // extension's files are written (a project's changes run from the last plugin to the first).
+    "./plugins/with-share-extension-name",
+    // The agents a person sends to, among the share sheet's suggestions (ADR 0213): the app declares the intent it
+    // donates, the extension the suggestions it takes and passes the one picked on to the app. Also before
+    // expo-share-intent, for the same reason.
+    "./plugins/with-share-suggestions",
     [
       // "Compartilhar com…": the app in the system's share sheet (an iOS share extension and Android's send intents),
       // for photos, videos, files, links and text; what arrives opens the agent picker (src/features/share). The
-      // extension takes the app's name and shares its URL scheme; it reaches phones only with a new native build.
+      // extension shares the app's URL scheme; it reaches phones only with a new native build. No
+      // `iosShareExtensionName`: it also names the extension's Xcode target, and the app's name there is the app's
+      // own target, so the extension was never made (plugins/with-share-extension-name.js gives it its name).
       "expo-share-intent",
       {
-        iosShareExtensionName: variant === "production" ? "Tich Rooms Share" : `Tich Rooms Share ${variant}`,
         iosActivationRules: {
           NSExtensionActivationSupportsText: true,
           NSExtensionActivationSupportsWebURLWithMaxCount: 1,

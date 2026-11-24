@@ -6,21 +6,36 @@ setupDom();
 import { join } from "node:path";
 import { act, cleanup, fireEvent } from "@testing-library/react";
 import { declarations } from "./built-css";
-import { createFakeApi, ORG_ID, seedState } from "./fake-api";
+import { ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { notification } from "./fakes/notifications";
 import { renderApp, settle } from "./render";
 
 afterEach(() => cleanup());
 
+/** One high-risk request, waiting on me in the inbox, where requests are decided (ADR 0218). */
 const state = () => {
-  const s = seedState();
+  const s = seedState({
+    notifications: [
+      notification({
+        id: "n-deploy",
+        kind: "approval",
+        waiting: true,
+        actors: [{ type: "agent", id: ATLAS_ID }],
+        source: { approvalId: "ap-deploy", channelId: ENG_ID },
+        latest: { title: "Run deploy workflow" },
+      }),
+    ],
+  });
   s.approvals = s.approvals.filter((a) => a.id === "ap-deploy");
   return s;
 };
+/** The open request's hold button, beside the inbox's list. */
+const holdButton = () => document.querySelector<HTMLButtonElement>(".ib-read .ap-hold") as HTMLButtonElement;
 const hold = async () => {
   const s = state();
-  await renderApp(`/org/${ORG_ID}/approvals`, { api: createFakeApi(s) });
+  await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(s) });
   await settle(8);
-  const button = document.querySelector<HTMLButtonElement>(".ap-hold") as HTMLButtonElement;
+  const button = holdButton();
   button.setPointerCapture = () => {};
   return { s, button, capture: spyOn(button, "setPointerCapture") };
 };
@@ -54,9 +69,9 @@ test("let go early, nothing is approved and the click explains", async () => {
 test("a finished hold no click ends (a finger's long press, a failed approve): the next plain click still explains", async () => {
   const api = createFakeApi(state());
   api.approvals.approve = () => Promise.reject(new Error("offline"));
-  await renderApp(`/org/${ORG_ID}/approvals`, { api });
+  await renderApp(`/org/${ORG_ID}/notifications`, { api });
   await settle(8);
-  const button = document.querySelector<HTMLButtonElement>(".ap-hold") as HTMLButtonElement;
+  const button = holdButton();
   button.setPointerCapture = () => {};
   await act(async () => fireEvent.pointerDown(button, { button: 0, pointerId: 7 }));
   await wait(1150);

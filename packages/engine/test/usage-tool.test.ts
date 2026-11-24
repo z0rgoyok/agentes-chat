@@ -8,6 +8,7 @@ import {
   createUsageToolSource,
   insertMessage,
   recordPlanUsage,
+  resyncBudgetCounter,
   type ToolContext,
   USAGE_TOOL,
 } from "../src";
@@ -195,8 +196,8 @@ test("on the API: how much of its budget it used, for an admin and a member alik
     { name: "Atlas", handle: "atlas", role: "Ops", instructions: "Run ops.", credentialId: f.agent.credentialId },
     { model: "claude-sonnet-5-5" },
   );
-  const spend = (agentId: string, costNanoUsd: number, inputTokens: number) =>
-    f.db.insert(schema.usageRecords).values({
+  const spend = async (agentId: string, costNanoUsd: number, inputTokens: number) => {
+    await f.db.insert(schema.usageRecords).values({
       orgId: f.org.id,
       agentId,
       kind: "agent",
@@ -207,6 +208,9 @@ test("on the API: how much of its budget it used, for an admin and a member alik
       outputTokens: 0,
       costNanoUsd,
     });
+    // The gateway adds each call to the agent's month counter, which the budget is read from.
+    await resyncBudgetCounter(f.db, f.org.id, agentId);
+  };
   await spend(f.agent.id, 2_000_000_000, 1_000);
   await spend(atlas.id, 10_000_000_000, 9_000);
 

@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
+  createApnsPushSender,
   createFakePushSender,
   createMemoryRateLimiter,
   createPhonePushSender,
   createRelayPushSender,
+  type Http2Client,
+  type LiveActivityMessage,
   PushError,
   type PushMessage,
   type PushSender,
@@ -197,6 +200,102 @@ describe("push relay routes", () => {
     calls.length = 0;
     expect((await sender.send([iphone]))[0]).toMatchObject({ ok: false, unregistered: false, skipped: true });
     expect(calls).toEqual(["/send"]);
+  });
+});
+
+describe("push relay routes, Live Activities (ADR 0210)", () => {
+  const activityToken = (n: number) => String(n).padStart(160, "f");
+  const activity = (n: number, topic = "chat.agentes.app"): LiveActivityMessage => ({
+    to: activityToken(n),
+    event: "update",
+    contentState: { name: "AgentsActivity", props: '{"v":1,"tone":"working","headline":"Iris"}' },
+    timestamp: 1_800_000_000,
+    staleDate: 1_800_001_800,
+    priority: 5,
+    apns: { topic },
+  });
+
+  /** The relay's APNs, with only the apps its key pushes to (`APNS_APP_IDS`), over a fake HTTP/2. */
+  async function relayApns() {
+    const pair = await crypto.subtle.generateKey({ name: "ECDSA", namedCurve: "P-256" }, true, ["sign", "verify"]);
+    const der = Buffer.from(await crypto.subtle.exportKey("pkcs8", pair.privateKey)).toString("base64");
+    const pem = `-----BEGIN PRIVATE KEY-----\n${der.match(/.{1,64}/g)?.join("\n")}\n-----END PRIVATE KEY-----\n`;
+    const calls: { path: string; headers: Record<string, string>; body: unknown }[] = [];
+    const http2: Http2Client = {
+      async request(_origin, request) {
+        calls.push({ path: request.path, headers: request.headers, body: JSON.parse(request.body) });
+        return { status: 200, body: "" };
+      },
+      close() {},
+    };
+    const apns = createApnsPushSender({
+      key: { key: pem, keyId: "ABC123DEFG", teamId: "XYZ987WVUT" },
+      appIds: ["chat.agentes.app"],
+      http2,
+    });
+    return { apns, calls };
+  }
+
+  /** An installation's relay sender, talking to these routes in memory. */
+  function installation(app: ReturnType<typeof relay>["app"]) {
+    let saved: { instanceId: string; secret: string } | null = null;
+    const credentials: RelayCredentials = {
+      get: async () => saved,
+      save: async (c) => {
+        saved = c;
+      },
+      clear: async () => {
+        saved = null;
+      },
+    };
+    const base = "https://relay.example/api/push-relay/v1";
+    const paths: string[] = [];
+    const sender = createRelayPushSender({
+      url: base,
+      credentials,
+      fetch: (async (url: string, init: RequestInit) => {
+        paths.push(url.slice(base.length));
+        return app.request(url.slice(base.length), init);
+      }) as unknown as typeof fetch,
+    });
+    return { sender, paths };
+  }
+
+  test("an installation's Live Activity reaches Apple through the relay, only for the relay's own apps", async () => {
+    const { apns, calls } = await relayApns();
+    const { app } = relay(createPhonePushSender({ android: createFakePushSender(), ios: apns }));
+    const { sender, paths } = installation(app);
+    const results = await sender.sendLiveActivity?.([activity(1), activity(2, "com.example.other")]);
+    expect(results?.[0]).toEqual({ token: activityToken(1), ok: true, unregistered: false });
+    expect(results?.[1]).toMatchObject({ token: activityToken(2), ok: false, unregistered: false, retryable: false });
+    expect(results?.[1]?.error).toContain("APNS_APP_IDS");
+    expect(paths).toEqual(["/instances", "/live-activities"]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.path).toBe(`/3/device/${activityToken(1)}`);
+    expect(calls[0]?.headers["apns-topic"]).toBe("chat.agentes.app.push-type.liveactivity");
+    expect(calls[0]?.headers["apns-push-type"]).toBe("liveactivity");
+    expect(calls[0]?.body).toEqual({
+      aps: {
+        timestamp: 1_800_000_000,
+        event: "update",
+        "content-state": { name: "AgentsActivity", props: '{"v":1,"tone":"working","headline":"Iris"}' },
+        "stale-date": 1_800_001_800,
+      },
+    });
+  });
+
+  test("a relay with no Apple key answers them skipped; a malformed one is a 400", async () => {
+    const { app, post, register } = relay(createPhonePushSender({ android: createFakePushSender(), ios: null }));
+    const { sender } = installation(app);
+    expect(await sender.sendLiveActivity?.([activity(1)])).toEqual([
+      { token: activityToken(1), ok: false, unregistered: false, skipped: true, error: "the push relay sends none" },
+    ]);
+    const { auth } = await register();
+    expect((await post("/live-activities", { activities: [{ ...activity(1), event: "pause" }] }, auth)).status).toBe(
+      400,
+    );
+    expect((await post("/live-activities", { messages: [activity(1)] }, auth)).status).toBe(400);
+    expect((await post("/live-activities", { activities: [activity(1)] })).status).toBe(401);
   });
 });
 

@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
-import { Glass, Icon, IconButton, type IconName, PressScale, Text, useTheme } from "@/ui";
+import { besideFold, Glass, Icon, IconButton, type IconName, PressScale, Text, useFoldRoom, useTheme } from "@/ui";
 
 /** How far the capsule hangs under the screen's edge: half its height, the rest over the picture. */
 export const DOCK_HANG = 24;
@@ -9,12 +9,14 @@ export const DOCK_HANG = 24;
  * What can be done with the agent's screen right now, on the glass capsule the sideways view docks at its side
  * (`TouchDock`), pinned across the screen's bottom edge: half on the picture, half under it. Its parent leaves
  * `DOCK_HANG` and a little air under the screen. `inside`: within the screen's box, near its bottom (a state that
- * fills the live screen, whose box clips what hangs out).
+ * fills the live screen, whose box clips what hangs out). The screen spans the window (its box 12 in from each side),
+ * so folded like a book the capsule moves beside the fold, still on the edge, instead of sitting in it (ADR 0212).
  */
 export function EdgeDock({ children, inside = false }: { children: ReactNode; inside?: boolean }) {
   const { colors, shadows } = useTheme();
+  const room = useFoldRoom();
   return (
-    <View pointerEvents="box-none" style={[styles.dock, inside && styles.inside]}>
+    <View pointerEvents="box-none" style={[styles.dock, inside && styles.inside, room && besideFold(room)]}>
       <View style={[styles.lift, { boxShadow: shadows.e2 }]}>
         <Glass liquid intensity={70} style={[styles.glass, { borderColor: colors.line2 }]}>
           {children}

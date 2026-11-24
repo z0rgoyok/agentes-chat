@@ -1,4 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { AGENT_GRADIENTS, mixHex } from "@agenteschat/ui/agent/engine";
 import { FORMING_LOOP_S, formingField } from "@agenteschat/ui/sky/forming";
 import { phoneField } from "@agenteschat/ui/sky/workspace";
@@ -109,6 +111,7 @@ test("every shader declares the uniforms the component passes", () => {
     "horizon",
     "workspace",
     "forming",
+    "card",
   ] as const) {
     const src = shaderSource(kind);
     for (const u of ["size", "px", "t", "last", "fade", "clear", "pal"])
@@ -202,4 +205,13 @@ test("the computer's sky: its agents rise past the top and start again, at the s
   }
   expect(computerSpriteBlinks(sprite, 4 - sprite.blink)).toBe(true);
   expect(computerSpriteBlinks(sprite, 2)).toBe(false);
+});
+
+test("a drawing's uniforms hold while its tones and extras say the same: a parent drawn again rebuilds nothing", () => {
+  const dither = readFileSync(join(import.meta.dir, "../src/sky/Dither.tsx"), "utf8");
+  expect(dither).toContain(
+    'const { pal, last } = useMemo(() => paletteUniform(tonesKey ? tonesKey.split("|") : []), [tonesKey]);',
+  );
+  expect(dither).toContain("[size.width, size.height, pixel, last, fade, fadeTop, clear, pal, extraUniforms],");
+  expect(dither).not.toContain("paletteUniform(tones)");
 });

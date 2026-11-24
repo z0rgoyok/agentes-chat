@@ -1,6 +1,7 @@
 import {
   ACCOUNTS_PROTOCOL,
   type AccountKind,
+  AGY_COPY_PROTOCOL,
   ANTIGRAVITY_MAC_PROTOCOL,
   ANTIGRAVITY_PROTOCOL,
   BRAIN_PROTOCOL,
@@ -44,9 +45,14 @@ import {
 } from "@agenteschat/providers";
 import {
   ANTIGRAVITY_MODELS,
+  ANTIGRAVITY_NEON_CLI,
+  ANTIGRAVITY_NEW_MODEL,
+  ANTIGRAVITY_PAID_MODEL,
   antigravityBaseModel,
   claudeCodeModel,
+  cliVersionAtLeast,
   GROK_BUILD_MODELS,
+  isAntigravityGemini,
   isPlanModelId,
   OPENCODE_FREE_MODELS,
   planModel,
@@ -55,6 +61,7 @@ import {
   speedFits,
 } from "@agenteschat/providers/plans";
 import { type Agent, getAgent, rememberAgentSetup, setupOfAgent } from "./agents";
+import { accountServes, accountsServing } from "./ai-accounts/serves";
 import {
   type AgentAudience,
   answersOthers,
@@ -63,6 +70,7 @@ import {
   dropMailIfWidened,
   managesAgent,
   OWNER_ONLY,
+  ownsAgent,
   planOpened,
 } from "./audience";
 import { recordAudit } from "./audit";
@@ -80,9 +88,9 @@ import {
   type MachineAccountView,
   mayAddAccounts,
   type PlanServes,
-  publishAccountsChanged,
   releaseAgents,
   sameLogins,
+  servesOf,
   sharesSignIns,
 } from "./machine-accounts";
 import {
@@ -112,7 +120,7 @@ import { can, getMembership, requirePermission } from "./organizations";
 import { isRightHand, personalBrain, personalModel } from "./right-hand";
 import { orgModelProvider } from "./router";
 import { readRefusal } from "./standing";
-import { agentsMovedOnto, paysExtraUsage, wakeAgentsBrainWaits } from "./usage-pause";
+import { paysExtraUsage, wakeAgentsBrainWaits } from "./usage-pause";
 
 /*
  * "Quem pensa" (ADR 0032 §5): the brain an agent thinks with and its model,
@@ -206,15 +214,61 @@ export const grokModels = (listed: readonly { id: string; label?: string }[] = [
     ...(catalogModelOf(m.id) ? { modelId: m.id } : {}),
   }));
 
+/** The newest Gemini the plan offers: the picker says why when it isn't among an Antigravity computer's models. */
+const ANTIGRAVITY_NEON = "gemini-4-neon";
+
 /**
- * The Antigravity CLI's models (ADR 0143): what it listed on the agent's computer (`agy models`), else
- * `ANTIGRAVITY_MODELS`. A slug is a model at one thinking level (`gemini-4-argon-high`): its catalog model is the base.
+ * The Antigravity CLI's Gemini models (ADR 0143): what it listed on the agent's computer (`agy models`), its other
+ * makers' models left out, else `ANTIGRAVITY_MODELS`. A listing an older CLI took (a folder lent to an agent is never
+ * looked at again) shows a paid plan by its Argon and has no Neon or Hydrogen: with a CLI that runs them now
+ * (`version`, its `--version` line) they come first. A CLI known to predate them gets no reserve row it can't run. A
+ * slug is a model at one thinking level (`gemini-4-argon-high`): its catalog model is the base.
  */
-export const antigravityModels = (listed: readonly { id: string; label?: string }[] = []): BrainModelOption[] =>
-  (listed.length ? listed : ANTIGRAVITY_MODELS).map((m) => {
+export function antigravityModels(
+  listed: readonly { id: string; label?: string }[] = [],
+  version?: string | null,
+): BrainModelOption[] {
+  const knowsNew = cliVersionAtLeast(version, ANTIGRAVITY_NEON_CLI) !== false;
+  const reserve = ANTIGRAVITY_MODELS.filter((m) => knowsNew || !ANTIGRAVITY_NEW_MODEL.test(m.id));
+  const gemini = listed.filter((m) => isAntigravityGemini(m.id));
+  const olderListing =
+    knowsNew &&
+    gemini.some((m) => ANTIGRAVITY_PAID_MODEL.test(m.id)) &&
+    !gemini.some((m) => ANTIGRAVITY_NEW_MODEL.test(m.id));
+  const list = !gemini.length
+    ? reserve
+    : olderListing
+      ? [...reserve.filter((r) => ANTIGRAVITY_NEW_MODEL.test(r.id)), ...gemini]
+      : gemini;
+  return list.map((m) => {
     const base = antigravityBaseModel(m.id);
     return { value: m.id, label: m.label || m.id, ...(catalogModelOf(base) ? { modelId: base } : {}) };
   });
+}
+
+/**
+ * Why the newest Gemini isn't among an Antigravity computer's models (`BrainOption.missing`): its CLI predates it
+ * (where the app brings its own from `AGY_COPY_PROTOCOL` on, an older app is the reason; the workspace's own computer
+ * gets it with its image, so nothing is said there), or what the accounts there listed has no paid Gemini 4 model.
+ * None while nothing was listed (the reserve shows).
+ */
+function antigravityMissing(
+  models: readonly BrainModelOption[],
+  machine: { kind?: string; protocol: number; executors?: schema.MachineExecutors | null } | null,
+): BrainOption["missing"] {
+  const cli = machine?.executors?.antigravity;
+  if (!machine || !cli || models.some((m) => m.modelId === ANTIGRAVITY_NEON)) return undefined;
+  const label = MODEL_CATALOG[ANTIGRAVITY_NEON]?.label ?? ANTIGRAVITY_NEON;
+  if (cliVersionAtLeast(cli.version, ANTIGRAVITY_NEON_CLI) === false) {
+    if (machine.kind === "managed") return undefined;
+    const system = machine.executors?.mode === "system";
+    const why = !system && machine.protocol < AGY_COPY_PROTOCOL ? "app_old" : "cli_old";
+    return { modelId: ANTIGRAVITY_NEON, label, why };
+  }
+  return cli.models?.some((m) => isAntigravityGemini(m.id))
+    ? { modelId: ANTIGRAVITY_NEON, label, why: "plan" }
+    : undefined;
+}
 
 /**
  * Claude Code's aliases (`--model fable|opus|sonnet|haiku`), mapped to today's ids in the catalog. Each is named by
@@ -255,7 +309,8 @@ function modelChoices(kind: BrainKind, machine?: { executors?: schema.MachineExe
   if (kind === "cursor") return cursorModels(machine?.executors?.cursor?.models);
   if (kind === "opencode") return opencodeModels(machine?.executors?.opencode?.models);
   if (kind === "grok") return grokModels(machine?.executors?.grok?.models);
-  if (kind === "antigravity") return antigravityModels(machine?.executors?.antigravity?.models);
+  if (kind === "antigravity")
+    return antigravityModels(machine?.executors?.antigravity?.models, machine?.executors?.antigravity?.version);
   return [];
 }
 
@@ -276,11 +331,29 @@ export function brainModelId(kind: BrainKind, model: string | null | undefined):
 
 const FREE_MODEL = /^[A-Za-z0-9][A-Za-z0-9._:/-]{0,79}$/;
 
+/** The one maker whose models a CLI runs (the catalog's `provider`); Cursor and OpenCode run many makers' models. */
+const ONE_MAKER: Partial<Record<BrainKind, string>> = { codex: "openai", antigravity: "gemini", grok: "xai" };
+/** The plan a maker's models think on, for the refusal's words. */
+const PLAN_OF_MAKER: Record<string, string> = { anthropic: "Claude", openai: "ChatGPT", gemini: "Gemini", xai: "Grok" };
+
+/** Each maker's model names, catalog or not ("gpt-6.1", a Claude Code alias). */
+const MAKER_NAMES: readonly (readonly [RegExp, string])[] = [
+  [/^(claude-|(fable|opus|sonnet|haiku)$)/i, "anthropic"],
+  [/^(gpt-|o\d)/i, "openai"],
+  [/^gemini-/i, "gemini"],
+  [/^grok-/i, "xai"],
+];
+
+/** Whose model a name is, by its family or the catalog; null for a name neither knows. */
+const makerOfModel = (v: string): string | null =>
+  MAKER_NAMES.find(([names]) => names.test(v))?.[1] ?? MODEL_CATALOG[catalogModelOf(v) ?? ""]?.provider ?? null;
+
 /**
  * A model for a brain, as stored: null = the brain's default. Claude Code
  * takes its aliases, a full Claude id or a coding plan's model; Codex any
- * model name (a new one may come out before our catalog knows it); the model
- * brain none.
+ * model name (a new one may come out before our catalog knows it) but another
+ * maker's (Codex, Antigravity and Grok Build run their maker's alone); the
+ * model brain none.
  */
 export function normalizeBrainModel(kind: BrainKind, value: unknown, stored?: string | null): string | null {
   if (value === null || value === undefined || value === "") return null;
@@ -302,6 +375,16 @@ export function normalizeBrainModel(kind: BrainKind, value: unknown, stored?: st
     });
   }
   if (!FREE_MODEL.test(v)) throw new ValidationError("That isn't a model name", "brain.invalid_model", { brain: kind });
+  const maker = makerOfModel(v);
+  const runs = ONE_MAKER[kind];
+  if (runs && maker && maker !== runs) {
+    const label = MODEL_CATALOG[catalogModelOf(v) ?? ""]?.label ?? v;
+    throw new ValidationError(
+      `${label} doesn't run on ${BRAIN_NAMES[kind as ComputerBrainKind]}: it needs an AI account of ${PLAN_OF_MAKER[maker] ?? maker} first`,
+      "brain.invalid_model",
+      { brain: kind, model: v, maker },
+    );
+  }
   // OpenCode runs `--model provider/model` (its runner refuses anything else).
   if (kind === "opencode" && !/^[\w.-]{1,40}\/[\w.:-]{1,79}$/.test(v)) {
     throw new ValidationError("OpenCode's models are provider/model, like opencode/big-pickle", "brain.invalid_model", {
@@ -331,11 +414,19 @@ export interface BrainOption {
   reason?: BrainUnavailable;
   models: BrainModelOption[];
   defaultModel: string | null;
+  /**
+   * Antigravity: the newest Gemini (`ANTIGRAVITY_NEON`) isn't among its models, and why: the computer's agentes.chat
+   * is too old to bring a CLI that runs it (`app_old`), its CLI predates it where the computer's setup installs it
+   * (`cli_old`, system mode), or no account signed in there has a plan that includes it (`plan`).
+   */
+  missing?: { modelId: string; label: string; why: "app_old" | "cli_old" | "plan" };
 }
 
 type MachineLike = Parameters<typeof machineExecutors>[0] & {
   id: string;
   name: string;
+  /** `managed`: the workspace's own computer, whose CLIs come with its image. */
+  kind?: string;
   /** Its system (`hello.os`): a Windows runner before `CODEX_WINDOWS_PROTOCOL` can't think with Codex. */
   os?: string;
   /** Protocol 10: what the machine allows (the app's Ferramentas); absent on older runners. */
@@ -426,16 +517,31 @@ function cliOption(machine: MachineLike | null, kind: "cursor" | "opencode" | "g
   else if (kind === "antigravity" && machine.os === "darwin" && machine.protocol < ANTIGRAVITY_MAC_PROTOCOL)
     reason = "runner_old";
   else if (!brainRunsOn(kind, machine.os)) reason = "system";
-  else if (!machine.executors?.[kind]) reason = missingCli(machine, kind);
+  else if (!machine.executors?.[kind] && !(kind === "antigravity" && bringsAgy(machine)))
+    reason = missingCli(machine, kind);
   else if (tools && (tools[kind] ?? tools.codex) !== true) reason = "tool_off";
+  const models = brainModelOptions(kind, machine);
+  const missing = kind === "antigravity" ? antigravityMissing(models, machine) : undefined;
   return {
     kind,
     available: !reason,
     ...(reason ? { reason } : {}),
-    models: brainModelOptions(kind, machine),
+    models,
     defaultModel: null,
+    ...(missing ? { missing } : {}),
   };
 }
+
+/**
+ * A computer whose runner brings its own Antigravity CLI (`AGY_COPY_PROTOCOL`, ADR 0143): outside system mode, on macOS
+ * and Linux, never the workspace's own (its image brings it). There Gemini can be connected with no CLI installed: the
+ * runner downloads it as the first sign-in starts.
+ */
+const bringsAgy = (machine: MachineLike) =>
+  machine.protocol >= AGY_COPY_PROTOCOL &&
+  machine.kind !== "managed" &&
+  machine.executors?.mode !== "system" &&
+  (machine.os === "darwin" || machine.os === "linux");
 
 /** "Usar um computador": the agent's machine as the brain section shows it. */
 export interface BrainComputer {
@@ -540,6 +646,8 @@ interface BrainAccounts {
   accounts: MachineAccountView[];
   canManageAccounts: boolean;
   accountsSupported: boolean;
+  /** The account it thinks with answers only the agent's owner ("Atender todos"), which older apps show as `onlyOwner`. */
+  replyOwnerOnly?: boolean;
 }
 
 const NO_ACCOUNTS: BrainAccounts = { accounts: [], canManageAccounts: false, accountsSupported: false };
@@ -558,13 +666,25 @@ async function brainAccounts(
   if (!machine) return NO_ACCOUNTS;
   const supported = machine.protocol >= ACCOUNTS_PROTOCOL;
   const accounts = await listMachineAccounts({ db }, orgId, machine.id, userId);
-  return {
-    accounts: accounts.filter(
-      (a) =>
-        (a.ownerId !== null && a.serves === "everyone") ||
-        (agent.ownerUserId !== null && a.ownerId === agent.ownerUserId) ||
-        a.id === agent.brainAccountId,
+  const [serving, [current]] = await Promise.all([
+    accountsServing(
+      db,
+      orgId,
+      agent.ownerUserId,
+      accounts.map((a) => a.id),
     ),
+    agent.brainAccountId
+      ? db
+          .select({ replyMode: schema.machineAccounts.replyMode })
+          .from(schema.machineAccounts)
+          .where(and(eq(schema.machineAccounts.orgId, orgId), eq(schema.machineAccounts.id, agent.brainAccountId)))
+      : Promise.resolve([]),
+  ]);
+  return {
+    replyOwnerOnly: current?.replyMode === "owner",
+    accounts: accounts
+      .filter((a) => serving.has(a.id) || a.id === agent.brainAccountId)
+      .map((a) => ({ ...a, usable: serving.has(a.id) })),
     canManageAccounts: supported && agent.ownerUserId === userId && mayAddAccounts(machine, userId),
     accountsSupported: supported,
   };
@@ -584,7 +704,7 @@ async function agentBrainAccess(db: Database, userId: string, orgId: string, age
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
   const admin = managesAgent(agent, userId, membership);
   const which: BrainScope | undefined = isRightHand(agent) ? (scope === "mine" ? "mine" : "workspace") : undefined;
-  if (which !== "mine" && !admin && agent.ownerUserId !== userId) {
+  if (which !== "mine" && !admin && !ownsAgent(agent, userId, membership.roleIds)) {
     throw new ForbiddenError("Only an admin or the agent's owner can see who thinks for it", "agent.not_owner");
   }
   return { agent, admin, membership, scope: which };
@@ -656,6 +776,7 @@ function view(
   userId: string,
 ): AgentBrainView {
   const brain = brainOf(agent.brain);
+  const { replyOwnerOnly, ...listed } = accounts;
   return {
     agentId: agent.id,
     brain,
@@ -672,9 +793,12 @@ function view(
     effort: isBrainEffortSetting(agent.brainEffort) ? agent.brainEffort : null,
     speed: isBrainSpeed(agent.brainSpeed) ? agent.brainSpeed : "standard",
     contextTokens: isContextLimit(agent.contextTokens) ? agent.contextTokens : null,
-    ...accounts,
-    // The right hand keeps its audience: the switch says whether other people's DMs think with the plan.
-    onlyOwner: isRightHand(agent) ? !agent.planForOthers : !answersOthers(audienceOf(agent), agent.ownerUserId),
+    ...listed,
+    // The right hand keeps its audience: the switch says whether other people's DMs think with the plan. Any other
+    // agent answers only its owner when it does itself, or when its plan's "Atender todos" does.
+    onlyOwner: isRightHand(agent)
+      ? !agent.planForOthers
+      : !answersOthers(audienceOf(agent), agent.ownerUserId) || (brain !== "model" && replyOwnerOnly === true),
     canUsePlans: agent.ownerUserId === userId,
     // Every plan that serves the workspace is listed for whoever chooses (ADR 0059 §3): no permission lends one.
     canUseOthersPlans: true,
@@ -777,8 +901,7 @@ async function workspaceAi(db: Database, agent: Agent, userId: string): Promise<
   if (brain === "model" || !agent.brainAccountId)
     return { brain: "model", ownerId: null, servesYou: true, key: await workspaceKey(db, agent) };
   const ownerId = await accountOwnerOf(db, agent.orgId, agent.brainAccountId);
-  const everyone = await servesEveryone(db, agent.orgId, agent.brainAccountId);
-  if (everyone || ownerId === userId) return { brain, ownerId, servesYou: true };
+  if (await accountServes(db, agent.orgId, agent.brainAccountId, userId)) return { brain, ownerId, servesYou: true };
   // A plan kept to its owner: the workspace's key answers this person instead (`rightHandStandIn`), so their row names
   // it rather than saying nobody answers.
   const key = await workspaceKey(db, agent);
@@ -859,7 +982,7 @@ async function setPersonalBrain(
     throw new ValidationError("Choose an account of this brain", "account.invalid", { brain: brain ?? null });
   }
   const lent = account.createdBy !== userId;
-  if (account.createdBy === null || (lent && account.serves !== "everyone")) {
+  if (!(await accountServes(db, orgId, account.id, userId))) {
     throw new ForbiddenError("This plan thinks only for the person who connected it", "account.not_owner");
   }
   const changed = !current || current.brain !== brain || current.brainAccountId !== account.id;
@@ -1121,14 +1244,16 @@ export interface AgentBrainInput {
 const EVERYONE: AgentAudience = { mode: "everyone", userIds: [], roleIds: [] };
 
 /**
- * Who it answers after this change: a switch onto a plan (`ontoPlan`) makes it its owner's only (ADR 0059 §5). From
- * one of its owner's plans to another it keeps whoever its owner already let in.
+ * Who it answers after this change. A move onto a plan account keeps it: whom an agent there answers besides its owner
+ * is the account's "Atender todos" (`replyAllowsSql`). A computer's own sign-in has no account, so a switch onto it
+ * (`ontoOwnSignIn`) makes it its owner's only (ADR 0059 §5). Older apps' "Atende outras pessoas" (`onlyOwner`) still
+ * narrows or widens the agent itself.
  */
-function nextAudience(agent: Agent, ontoPlan: boolean, onlyOwner: boolean | undefined): AgentAudience {
+function nextAudience(agent: Agent, ontoOwnSignIn: boolean, onlyOwner: boolean | undefined): AgentAudience {
   const current = audienceOf(agent);
   // One that already answers its owner alone keeps its mode: "Só algumas pessoas" with nobody picked stays that.
   const narrow = (a: AgentAudience) => (answersOthers(a, agent.ownerUserId) ? OWNER_ONLY : a);
-  const base = ontoPlan ? narrow(current) : current;
+  const base = ontoOwnSignIn ? narrow(current) : current;
   if (onlyOwner === undefined) return base;
   if (onlyOwner) return narrow(base);
   if (answersOthers(base, agent.ownerUserId)) return base;
@@ -1219,7 +1344,7 @@ export async function setAgentBrain(
   // may override, and the plan's owner hears it by email (`planOpened` below).
   const handsOver =
     rightHand && agent.ownerUserId !== userId && account !== null && account !== access.agent.brainAccountId;
-  if (handsOver && !(await servesEveryone(deps.db, orgId, account))) {
+  if (handsOver && !(await accountServes(deps.db, orgId, account, null))) {
     throw new ForbiddenError("Only the plan's owner gives it to the team's right hand", "account.not_owner");
   }
   // Who gave it someone else's plan (ADR 0059 §3): kept while the account stays, else whoever gives one now.
@@ -1244,11 +1369,10 @@ export async function setAgentBrain(
   const contextTokens =
     input.contextTokens === undefined ? agent.contextTokens : (input.contextTokens as number | null);
   // The right hand keeps its audience: "Atende outras pessoas" is its own switch, off when it moves onto a plan.
-  // Onto someone else's plan it starts on its owner alone, as onto a plan (ADR 0059 §5).
-  // Already on a plan, another kind of plan (Claude to ChatGPT) is not a move onto one: whoever its owner let in
-  // stays, as when only the account or the model changes. A plan that changes hands still starts on its owner alone.
-  const ontoPlan = isComputerBrain(brain) && (ownerSwitch || (changed && !isComputerBrain(from)));
-  const to = rightHand ? audienceOf(agent) : nextAudience(agent, ontoPlan, input.onlyOwner as boolean | undefined);
+  // Already on a plan, another kind of plan (Claude to ChatGPT) is not a move onto one: whoever its owner let in stays.
+  const ontoOwnSignIn =
+    isComputerBrain(brain) && account === null && (ownerSwitch || (changed && !isComputerBrain(from)));
+  const to = rightHand ? audienceOf(agent) : nextAudience(agent, ontoOwnSignIn, input.onlyOwner as boolean | undefined);
   const audience = to.mode === agent.audienceMode ? null : to;
   const planForOthers = !rightHand
     ? agent.planForOthers
@@ -1328,10 +1452,6 @@ export async function setAgentBrain(
         brainSpeed: speed,
         contextTokens,
         planForOthers,
-        // Unused here, but the previous release still reads it while a deploy rolls out or after a rollback: a plan
-        // that changes hands keeps it off there too, so that release never spends someone else's extra usage.
-        // Goes with the column (ADR 0118's 2026-11-15 addendum).
-        ...(newPlan || ownerSwitch ? { brainExtraUsage: false } : {}),
         // The people and roles lists stay while it is its owner's only, for when it is let out again.
         ...(audience
           ? {
@@ -1350,8 +1470,10 @@ export async function setAgentBrain(
         }
         throw error;
       });
-    // Onto a plan it answered nobody on it before: one that keeps answering others opens that plan to them.
-    const planFrom = (changed || ownerSwitch) && isComputerBrain(brain) ? OWNER_ONLY : audienceOf(agent);
+    // A move onto a plan account opens it to nobody: its "Atender todos" does (`setAccountPermissions` tells its
+    // owner). Onto a computer's own sign-in it answered nobody there before.
+    const planFrom =
+      (changed || ownerSwitch) && isComputerBrain(brain) && account === null ? OWNER_ONLY : audienceOf(agent);
     let opened = false;
     if (row && audience) {
       await dropMailIfWidened(tx, orgId, agentId, agent.ownerUserId, audienceOf(agent), audienceOf(row), userId);
@@ -1416,6 +1538,11 @@ export async function setAgentBrain(
       target: { type: "machine_account", id: next.from.accountId },
       details: { from: next.from.agentId, to: agentId },
     });
+  }
+  // Older apps' "Atende outras pessoas" turned on: the plan's "Atender todos" lets everyone in, where the caller may.
+  if (input.onlyOwner === false && account && isComputerBrain(brain) && !rightHand) {
+    const { openAccountReplies } = await import("./ai-accounts/permissions");
+    if (await openAccountReplies(deps, userId, orgId, account)) options.onPlanOpened?.();
   }
   const saved = row ?? {
     ...agent,
@@ -1493,7 +1620,7 @@ async function nextBrainAccount(
     });
   }
   const lent = row.createdBy !== owner;
-  if (!chooses || owner === null || row.createdBy === null || (lent && row.serves !== "everyone")) {
+  if (!chooses || owner === null || !(await accountServes(db, orgId, row.id, owner))) {
     throw new ForbiddenError("This plan thinks only for its owner's agents", "account.not_owner");
   }
   // Made for all of its owner's agents there (protocol 29): it thinks for this one too.
@@ -1521,15 +1648,6 @@ async function nextBrainAccount(
 
 /** The outbox job telling a plan's owner that someone else gave it to an agent (`queuePlanLent`). */
 export const PLAN_LENT_JOB = "agent.plan_lent";
-
-/** The account serves everyone in the workspace (`machine_accounts.serves`, ADR 0059 §3). */
-async function servesEveryone(db: Executor, orgId: string, accountId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ serves: schema.machineAccounts.serves })
-    .from(schema.machineAccounts)
-    .where(and(eq(schema.machineAccounts.orgId, orgId), eq(schema.machineAccounts.id, accountId)));
-  return row?.serves === "everyone";
-}
 
 async function accountOwnerOf(db: Executor, orgId: string, accountId: string): Promise<string | null> {
   const [row] = await db
@@ -1623,9 +1741,8 @@ export const planServesGroup = (accountId: string) => `plan_serves:${accountId}`
 
 /**
  * `PUT …/ai-accounts/{id}/serves` (ADR 0059 §3): who a plan thinks for, `everyone` in the workspace or only its
- * `owner`. Only the person who connected it chooses, for every login of that account. "Só eu" moves the agents of other
- * people off it and people's own AI for the right hand back to the workspace's, as when a plan is taken back
- * (`releaseAgents`). Audited (`account.serves`); its `plan_serves` note is done.
+ * `owner`, as older apps choose it: "Usar em agentes" set to everyone or its owner alone (`setAccountPermissions`).
+ * Only the person who connected it chooses here. Audited (`account.serves`); its `plan_serves` note is done.
  */
 export async function setAccountServes(
   deps: { db: Database; pubsub?: PubSub },
@@ -1645,62 +1762,21 @@ export async function setAccountServes(
     throw new ForbiddenError("Only the person who connected this plan chooses who it serves", "account.not_owner");
   }
   const logins = (await sameLogins(deps.db, row)).map((l) => l.id);
-  const changed = await deps.db.transaction(async (tx) => {
-    const updated = await tx
-      .update(schema.machineAccounts)
-      .set({ serves, updatedAt: new Date() })
-      .where(
-        and(
-          eq(schema.machineAccounts.orgId, orgId),
-          inArray(schema.machineAccounts.id, logins),
-          ne(schema.machineAccounts.serves, serves),
-        ),
-      )
-      .returning({ id: schema.machineAccounts.id });
-    if (updated.length === 0 || serves === "everyone")
-      return { ids: updated.map((u) => u.id), agentIds: [], people: 0 };
-    const others = await tx
-      .select({ id: schema.agents.id })
-      .from(schema.agents)
-      .where(
-        and(
-          eq(schema.agents.orgId, orgId),
-          inArray(schema.agents.brainAccountId, logins),
-          isNull(schema.agents.builtin),
-          sql`${schema.agents.ownerUserId} is distinct from ${userId}`,
-        ),
-      );
-    const agentIds = await releaseAgents(
-      tx,
-      orgId,
-      logins,
-      new Date(),
-      others.map((a) => a.id),
-    );
-    const people = await tx
-      .delete(schema.rightHandBrains)
-      .where(
-        and(
-          eq(schema.rightHandBrains.orgId, orgId),
-          inArray(schema.rightHandBrains.brainAccountId, logins),
-          ne(schema.rightHandBrains.userId, userId),
-        ),
-      )
-      .returning({ userId: schema.rightHandBrains.userId });
-    return { ids: updated.map((u) => u.id), agentIds, people: people.length };
+  const before = servesOf(row.serves);
+  const { setAccountPermissions } = await import("./ai-accounts/permissions");
+  const { agentIds } = await setAccountPermissions(deps, userId, orgId, accountId, {
+    use: { mode: serves, userIds: [], roleIds: [] },
   });
-  forgetAgents(orgId, changed.agentIds);
-  const moved = serves === "owner" ? await agentsMovedOnto(deps.db, orgId, changed.ids) : [];
-  await wakeAgentsBrainWaits(deps, orgId, [...changed.agentIds, ...moved]);
-  if (changed.people > 0) await publishMachineAgentsChanged(deps.pubsub, orgId);
-  for (const id of changed.ids) {
-    await recordAudit(deps.db, {
-      orgId,
-      actor: { type: "person", id: userId },
-      action: "account.serves",
-      target: { type: "machine_account", id },
-      details: { serves, agents: changed.agentIds },
-    });
+  if (before !== serves) {
+    for (const id of logins) {
+      await recordAudit(deps.db, {
+        orgId,
+        actor: { type: "person", id: userId },
+        action: "account.serves",
+        target: { type: "machine_account", id },
+        details: { serves, agents: agentIds },
+      });
+    }
   }
   for (const id of logins) {
     await resolveNotifications(deps, orgId, {
@@ -1709,8 +1785,7 @@ export async function setAccountServes(
       kind: "plan_serves",
     });
   }
-  if (changed.ids.length > 0) await publishAccountsChanged(deps.pubsub, orgId, row.machineId);
-  return { serves, agentIds: changed.agentIds };
+  return { serves, agentIds };
 }
 
 // ── Missions ────────────────────────────────────────────────────────────────
@@ -1897,6 +1972,8 @@ export async function agentBrainSummaries(
     brainModel: string | null;
     machineId: string | null;
     ownerUserId: string | null;
+    /** Its owner role (ADR 0085, addendum of 2026-11-21); absent reads as none. */
+    ownerRoleId?: string | null;
     brainAccountId?: string | null;
     brainSpeed?: string;
     builtin?: string | null;
@@ -1940,11 +2017,13 @@ export async function agentBrainSummaries(
   const live = new Map(machines.filter((m) => !m.deletedAt).map((m) => [m.id, m]));
   const accountById = new Map(accounts.map((r) => [r.id, r]));
   const reads = membership !== null && !readRefusal(membership.standing);
-  for (const a of agents) {
+  for (const given of agents) {
+    const a = { ...given, ownerRoleId: given.ownerRoleId ?? null };
     const kind = brainOf(a.brain);
     const machine = a.machineId ? live.get(a.machineId) : undefined;
     const manages = reads && managesAgent(a, viewerId, membership);
-    const computer = machine && (manages || a.ownerUserId === viewerId) ? machine.name : undefined;
+    const computer =
+      machine && (manages || ownsAgent(a, viewerId, membership?.roleIds ?? [])) ? machine.name : undefined;
     const row = kind !== "model" && a.brainAccountId ? accountById.get(a.brainAccountId) : undefined;
     const provider = kind === "claude_code" ? (row?.provider ?? undefined) : undefined;
     const ownPlan = kind === "claude_code" ? machine?.executors?.claude?.plan : undefined;

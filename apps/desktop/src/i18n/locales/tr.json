@@ -156,8 +156,8 @@
     "cloudText": "Hep açık. Her şeyle biz ilgileniriz, siz yalnızca kullanırsınız.",
     "here": "Bu {{device}} üzerinde",
     "hereText": "Ajanlarınız uygulama açık olduğu sürece çalışır.",
-    "box": "Hep açık bir bilgisayarda",
-    "boxText": "Bir Mac mini ya da ofis bilgisayarı, bir kez kurulur.",
+    "box": "Bir sunucuda veya VPS'te",
+    "boxText": "Bu uygulama kapalıyken bile hep açık. Bir kez kurarsınız.",
     "goCloud": "Bulutta devam et",
     "goHere": "Bu {{device}} cihazını hazırla",
     "goBox": "Nasıl kurulacağını gör",
@@ -165,15 +165,15 @@
     "haveOneLink": "Adresiyle giriş yap"
   },
   "install": {
-    "title": "Hep açık bir bilgisayara kur",
+    "title": "Bir sunucuya veya VPS'e kur",
     "lead": "Bir kez yapılır. Sonra bu uygulama kapalıyken bile kendi kendine çalışmaya devam eder.",
-    "step1": "Açık kalacak bilgisayarda Terminal'i açın ve bunu yapıştırın",
+    "step1": "Sunucuda Terminal'i açın (ya da SSH ile bağlanın) ve bunu yapıştırın",
     "step2": "Sonunda bir bağlantı çıkar. Burada açın, o kadar.",
     "noLink": "Bağlantı yok mu?",
     "someoneElse": "Başka biri mi kuracak?",
     "copy": "Talimatları kopyala",
     "copied": "Talimatlar kopyalandı",
-    "text": "agentes.chat'i hep açık kalan bir bilgisayara (bir Mac mini, bir ofis bilgisayarı ya da bir sunucu) kurmak için:\n\n1. O bilgisayarda Terminal'i açın ve bunu yapıştırın:\n{{command}}\n\n2. Sonunda bir bağlantı çıkar. Onu bana gönderin: workspace'i uygulamada açar."
+    "text": "agentes.chat'i bir sunucuya veya VPS'e (ya da Mac mini gibi hep açık kalan bir bilgisayara) kurmak için:\n\n1. Sunucuda Terminal'i açın (ya da SSH ile bağlanın) ve bunu yapıştırın:\n{{command}}\n\n2. Sonunda bir bağlantı çıkar. Onu bana gönderin: workspace'i uygulamada açar."
   },
   "connect": {
     "title": "Var olan bir workspace'e giriş yap",

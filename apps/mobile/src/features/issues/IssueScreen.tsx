@@ -664,20 +664,37 @@ function Criteria({ issue: i }: { issue: Issue }) {
   );
 }
 
+/** `remove`: what a held touch (and VoiceOver's actions) offers to take the row off. */
 function LinkRow({
   icon,
   label,
   onPress,
   first,
+  remove,
 }: {
   icon: IconName;
   label: string;
   onPress: () => void;
   first: boolean;
+  remove?: LinkRemove | undefined;
 }) {
   const c = useColors();
   return (
-    <RowPressable hold onPress={onPress} accessibilityRole="link" style={styles.link}>
+    <RowPressable
+      hold
+      onPress={onPress}
+      accessibilityRole="link"
+      style={styles.link}
+      {...(remove
+        ? {
+            onLongPress: remove.run,
+            accessibilityActions: [{ name: "remove", label: remove.label }],
+            onAccessibilityAction: (e) => {
+              if (e.nativeEvent.actionName === "remove") remove.run();
+            },
+          }
+        : {})}
+    >
       {!first ? <View style={[styles.linkLine, { backgroundColor: c.line }]} /> : null}
       <View style={[styles.tile, { backgroundColor: c.sunken }]}>
         <Icon name={icon} size={16} color={c.muted} />
@@ -690,13 +707,52 @@ function LinkRow({
   );
 }
 
-/** Ligados: the message it came from, the Drive files, the pull requests. */
+interface LinkRemove {
+  label: string;
+  run: () => void;
+}
+
+/**
+ * A Drive file held in Ligados: asks, then takes it off the task (an `artifact_unlinked` in its activity), never out
+ * of the Drive. Anyone who sees the task may change it, as on the web.
+ */
+function useRemoveFile(i: Issue) {
+  const { t } = useTranslation();
+  const action = useIssueAction(useOrgId());
+  const toast = useToast();
+  return (file: { id: string; title: string }): LinkRemove => ({
+    label: t("issues.files.removeShort"),
+    run: () => {
+      tapHaptic();
+      confirmAction({
+        title: t("issues.files.remove", { name: file.title }),
+        text: t("mobile.issues.removeFileText"),
+        action: t("issues.files.removeShort"),
+        cancel: t("common.cancel"),
+        onConfirm: () =>
+          action.mutate(
+            { type: "update", id: i.id, patch: { removeFiles: [file.id] } },
+            {
+              onSuccess: () => toast({ title: t("issues.files.removed", { name: file.title }) }),
+              onError: (error) => {
+                errorHaptic();
+                toast({ title: errorText(t, error), icon: "x" });
+              },
+            },
+          ),
+      });
+    },
+  });
+}
+
+/** Ligados: the message it came from, the Drive files (held, one comes off the task), the pull requests. */
 function Linked({ issue: i }: { issue: Issue }) {
   const { t } = useTranslation();
   const surface = useSurface();
   const orgId = useOrgId();
   const channels = useChannels(orgId);
-  const rows: { key: string; icon: IconName; label: string; onPress: () => void }[] = [];
+  const removeFile = useRemoveFile(i);
+  const rows: { key: string; icon: IconName; label: string; onPress: () => void; remove?: LinkRemove }[] = [];
   const dms = useDms(orgId);
   const source = i.source;
   const dm =
@@ -727,6 +783,7 @@ function Linked({ issue: i }: { issue: Issue }) {
       icon: "doc",
       label: a.title,
       onPress: () => openFile({ id: a.id, title: a.title }),
+      remove: removeFile(a),
     });
   for (const pr of i.pullRequests)
     rows.push({
@@ -744,7 +801,7 @@ function Linked({ issue: i }: { issue: Issue }) {
     <Group title={t("issues.links")}>
       <View style={[styles.card, surface]}>
         {rows.map((r, k) => (
-          <LinkRow key={r.key} icon={r.icon} label={r.label} onPress={r.onPress} first={k === 0} />
+          <LinkRow key={r.key} icon={r.icon} label={r.label} onPress={r.onPress} first={k === 0} remove={r.remove} />
         ))}
       </View>
     </Group>

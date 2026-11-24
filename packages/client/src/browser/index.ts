@@ -5,6 +5,7 @@ import { useApi } from "../api/context";
 import { keys } from "../api/keys";
 import type { AgentBrowserSettings, BrowserHandoff, DesktopStatus, PageTarget, ScreenKind } from "../api/types";
 import { timeLeft } from "../lib/format";
+import { edit, optimistic } from "../lib/optimistic";
 import { can } from "../lib/permissions";
 import { screenId } from "../lib/seat";
 import { useSeat, useSeatFor } from "../lib/seat-context";
@@ -253,6 +254,9 @@ export function useUpdateAgentBrowserSettings(orgId: string, agentId: string) {
   return useMutation({
     mutationFn: (allowedDomains: string[] | null) => api.browser.setDomains(orgId, agentId, allowedDomains),
     meta: { silent: true },
+    ...optimistic(qc, (allowedDomains: string[] | null) => [
+      edit<AgentBrowserSettings>(keys.agentBrowser(orgId, agentId), (settings) => ({ ...settings, allowedDomains })),
+    ]),
     onSuccess: (saved: AgentBrowserSettings) => qc.setQueryData(keys.agentBrowser(orgId, agentId), saved),
   });
 }

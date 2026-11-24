@@ -27,6 +27,7 @@ import {
   updateSkillFromSource,
   zip,
 } from "../src";
+import { dailySlot } from "../src/format";
 import { addMember, type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -184,10 +185,14 @@ describe("updating by itself, every day", () => {
     expect(await setSkillAutoUpdate(f.db, f.owner.id, f.org.id, skill.id, true)).toMatchObject({ autoUpdate: true });
     const now = new Date("2026-11-03T10:00:00Z");
     expect(await enqueueSkillUpdates(f.db, now)).toBe(1);
-    await enqueueSkillUpdates(f.db, new Date("2026-11-03T11:00:00Z"));
+    // A later tick before the workspace's time of day queues nothing new.
+    const slot = dailySlot(f.org.id, now);
+    await enqueueSkillUpdates(f.db, new Date(slot.at.getTime() - 1));
     const jobs = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, SKILL_UPDATES_JOB));
-    expect(jobs).toHaveLength(1);
-    expect(jobs[0]?.nextAttemptAt.getTime()).toBeGreaterThanOrEqual(now.getTime());
+    expect(jobs.map((j) => [j.dedupeKey, j.nextAttemptAt])).toEqual([
+      [`${SKILL_UPDATES_JOB}:${f.org.id}:${slot.day}`, slot.at],
+    ]);
+    expect(slot.at.getTime()).toBeGreaterThanOrEqual(now.getTime());
 
     gh.state.files = { "deploy/SKILL.md": skillMd("# v2") };
     expect(await runSkillUpdates(deps, f.org.id)).toEqual({ updated: 1, waiting: 0, failed: 0 });
@@ -452,9 +457,13 @@ describe("agents installing and updating skills", () => {
     expect(again.content).toContain("already installed as the skill deploy");
     // Installed but off for this agent: it asks on its own settings card, never another install card.
     expect(again.content).toContain("not on for you: ask for it with request_settings_change");
+    // Who manages skills has it read to manage, still told how the agent gets it for itself.
     const load = await call(deps, await runFor(f, f.owner.id), "load_skill", { name: "deploy" });
-    expect(load).toMatchObject({ isError: true });
-    expect(load.content).toContain("The skill deploy is installed here but not on for you: ask for it with");
+    expect(load.isError).toBeFalsy();
+    expect(load.content).toContain("to use it yourself, ask for it with request_settings_change");
+    const theirs = await call(deps, await runFor(f, member.id), "load_skill", { name: "deploy" });
+    expect(theirs).toMatchObject({ isError: true });
+    expect(theirs.content).toContain("The skill deploy is installed here but not on for you: ask for it with");
     expect(await cardsOf(f)).toHaveLength(1);
   });
 

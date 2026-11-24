@@ -1,5 +1,6 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { getAgentCached } from "../agents";
+import { recordCodeSessionPr } from "../code-sessions";
 import { connectorScope } from "../connectors/catalog";
 import { activeConnections, type ConnectorDeps } from "../connectors/connections";
 import { publishChannelEvent } from "../events";
@@ -43,7 +44,7 @@ export interface GitToolDeps {
   app?: GitHubAppConfig | null;
   /** GitHub's REST API (tests: a fake). */
   github?: { apiUrl: string; fetch: typeof fetch };
-  /** Live clone progress on a connected machine (`agent.tool.output`). */
+  /** Live clone progress on a connected machine (`agent.tool.output`), and a code session's new pull request. */
   pubsub?: PubSub;
 }
 
@@ -334,12 +335,21 @@ export function createGitToolSource(deps: GitToolDeps): ToolSource {
                 const why = [body.message, ...(body.errors ?? []).map((e) => e.message)].filter(Boolean).join("; ");
                 return { content: `GitHub refused the pull request (${res.status}): ${why}`, isError: true };
               }
-              if (typeof body.number === "number")
+              if (typeof body.number === "number") {
                 await recordGitHubItem(c, {
                   repo: `${repo.owner}/${repo.repo}`,
                   number: body.number,
                   authored: true,
                 }).catch(() => {});
+                // From a code session's branch: the session keeps its pull request (ADR 0215).
+                await recordCodeSessionPr(
+                  { db: c.db, pubsub: deps.pubsub },
+                  c.orgId,
+                  `${repo.owner}/${repo.repo}`,
+                  str(input.branch),
+                  { number: body.number, url: body.html_url ?? null },
+                ).catch(() => {});
+              }
               return {
                 content: `Opened PR #${body.number}: ${body.html_url}`,
                 data: { pullRequest: { number: body.number, url: body.html_url, repo: `${repo.owner}/${repo.repo}` } },

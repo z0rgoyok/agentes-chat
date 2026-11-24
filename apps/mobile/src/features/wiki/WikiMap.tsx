@@ -6,7 +6,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Button, Filters, Icon, Text } from "@/ui";
+import { Button, Filters, Icon, insetPastFold, Text, useFoldRoom } from "@/ui";
 import { Constellation } from "../constellation/Constellation";
 import { linkCount, mostLinked, pagesMap, type StarMap } from "../constellation/logic";
 import { useOrgId } from "../shared/hooks";
@@ -54,6 +54,9 @@ export function WikiMapScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { height } = useWindowDimensions();
+  // Folded like a book (ADR 0212), the line that opens the page (a button as wide as the screen) keeps to the half
+  // past the fold; the night passes under it.
+  const foldSide = useFoldRoom();
   const [filter, setFilter] = useState<MapFilter>("all");
   const [picked, setPicked] = useState<string | null>(null);
   const full = useMemo(() => (graph.data ? pagesMap(graph.data) : null), [graph.data]);
@@ -117,7 +120,12 @@ export function WikiMapScreen() {
           accessibilityRole="button"
           accessibilityHint={t("mobile.constellation.openHint")}
           onPress={() => openWikiPage(star.id)}
-          style={({ pressed }) => [styles.foot, { paddingBottom: insets.bottom + 12 }, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.foot,
+            { paddingBottom: insets.bottom + 12 },
+            foldSide && insetPastFold(foldSide, 0),
+            pressed && styles.pressed,
+          ]}
         >
           <View style={styles.footText}>
             <Text variant="body" style={styles.footTitle} numberOfLines={1}>

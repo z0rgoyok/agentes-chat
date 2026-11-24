@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { existsSync, writeFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ACCESS_LIMITS, parseAccess, type RunnerAccess } from "@agenteschat/adapters/machine-protocol";
 import { allowedFor, foldersFor } from "../../runner/access";
@@ -9,6 +10,8 @@ import {
   duGb,
   ensureSingleShared,
   ensureSystemShared,
+  OWN_FILES_FIX,
+  shareAgentFiles,
   sharedSizeGb,
   systemShared,
   withShared,
@@ -129,4 +132,53 @@ test("the desktop's file manager has a Shared bookmark only where there is a sha
       ?.data.toString();
   expect(bookmarks("/srv/agentes/shared")).toBe("file:///srv/agentes/shared Shared\n");
   expect(bookmarks()).toBeUndefined();
+});
+
+test("files agents moved or copied in are handed to the group, each agent fixing its own, only where some are", async () => {
+  const calls: string[][] = [];
+  const exec = async (file: string, args: string[]) => {
+    calls.push([file, ...args]);
+    // Root's listing: who owns what the group can't change (uid 0's bin/ never is an agent).
+    return { stdout: args.includes("runuser") || args.includes("/usr/sbin/runuser") ? "" : "0\n20001\n" };
+  };
+  const users = [
+    { user: "ag-0a1b2c3d", uid: 20001 },
+    { user: "ag-4e5f6a7b", uid: 20002 },
+  ];
+  expect(await shareAgentFiles(systemShared(), users, exec)).toEqual([]);
+  expect(calls).toHaveLength(2);
+  expect(calls[0]?.slice(0, 5)).toEqual(["nice", "-n", "19", "sh", "-c"]);
+  expect(calls[0]?.slice(-2)).toEqual(["/srv/agentes/shared", "agentes-shared"]);
+  // As the owner itself, never root: only ag-0a1b2c3d has such files.
+  expect(calls[1]?.slice(0, 7)).toEqual(["nice", "-n", "19", "/usr/sbin/runuser", "-u", "ag-0a1b2c3d", "--"]);
+  expect(calls[1]?.slice(-3)).toEqual([
+    "/srv/agentes/shared",
+    "agentes-shared",
+    "g:agentes-shared:rwx,d:g:agentes-shared:rwX,d:m::rwX,d:o::-",
+  ]);
+  const failing = async () => {
+    throw new Error("find: not found");
+  };
+  expect(await shareAgentFiles(systemShared(), users, failing)).toEqual([
+    "couldn't list the shared folder: find: not found",
+  ]);
+});
+
+test("the owner's fix: a moved-in folder gets setgid and the group's rwx, a 644 file the group's read and write", () => {
+  if (process.platform === "win32") return;
+  const dir = tempDir("shared-fix-");
+  dirs.push(dir);
+  const group = spawnSync("id", ["-gn"]).stdout.toString().trim();
+  mkdirSync(path.join(dir, "render"));
+  chmodSync(path.join(dir, "render"), 0o755);
+  writeFileSync(path.join(dir, "render", "cut.mp4"), "x");
+  chmodSync(path.join(dir, "render", "cut.mp4"), 0o644);
+  writeFileSync(path.join(dir, "run.sh"), "x");
+  chmodSync(path.join(dir, "run.sh"), 0o755);
+  const r = spawnSync("sh", ["-c", OWN_FILES_FIX, "sh", dir, group, `g:${group}:rwx`]);
+  expect(r.status).toBe(0);
+  const mode = (p: string) => statSync(path.join(dir, p)).mode & 0o7777;
+  expect(mode("render") & 0o2070).toBe(0o2070);
+  expect(mode("render/cut.mp4") & 0o060).toBe(0o060);
+  expect(mode("run.sh") & 0o070).toBe(0o070);
 });

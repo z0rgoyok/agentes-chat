@@ -1,6 +1,15 @@
 import { type OrgRole, type RunConsultation, useConsultations, useRoles } from "@agenteschat/client";
 import { asExchanges, groupsByRun } from "@agenteschat/client/lib/consult-group";
-import { createContext, type ReactNode, useContext, useLayoutEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useContext,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useOrgMaybe } from "@/providers/org";
 import { type Directory, useDirectory, useMeId, useMyHandle, useNamesComputers, useOrgId } from "../shared/hooks";
 
@@ -16,6 +25,10 @@ import { type Directory, useDirectory, useMeId, useMyHandle, useNamesComputers, 
  *
  * Separate contexts, so what changes often (the questions, read again while one is open) never redraws what only reads
  * the directory (the faces). Each hook only reads its context: one stands above every row of the app.
+ *
+ * The questions change while one is out (reloaded every 10 s, its progress moving each time): a row reads only its own
+ * part of them (`useRowConsultsPart`) and draws again only when that part changes. Read whole through the context,
+ * every message row on screen drew again on each reload, a person's message as much as the agent's that asked.
  */
 
 interface RowPeople {
@@ -53,7 +66,35 @@ const NO_PEOPLE: RowPeople = { meId: null, myHandle: null, roles: undefined, nam
 
 const RowDirectoryContext = createContext<Directory>(NO_ONE);
 const RowPeopleContext = createContext<RowPeople>(NO_PEOPLE);
-const RowConsultsContext = createContext<RowConsults | null>(null);
+/** The conversation's questions as a store: each row follows its own part of them (`useRowConsultsPart`). */
+interface ConsultsStore {
+  get: () => RowConsults | null;
+  /** The latest, taken while the conversation draws, so a row mounting in the same pass reads it already. */
+  put: (next: RowConsults) => void;
+  /** Tells the rows once the new questions are in (after the pass that took them). */
+  tell: () => void;
+  subscribe: (listener: () => void) => () => void;
+}
+
+function consultsStore(first: RowConsults): ConsultsStore {
+  let now = first;
+  const listeners = new Set<() => void>();
+  return {
+    get: () => now,
+    put: (next) => {
+      now = next;
+    },
+    tell: () => {
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+  };
+}
+
+const RowConsultsStoreContext = createContext<ConsultsStore | null>(null);
 
 export function consultsOf(channelId: string, list: RunConsultation[] | undefined, loaded: boolean): RowConsults {
   const byId = new Map<string, RunConsultation>();
@@ -126,7 +167,12 @@ export function ConversationRowData({ channelId, children }: { channelId: string
     () => consultsOf(channelId, list.data, list.isSuccess),
     [channelId, list.data, list.isSuccess],
   );
-  return <RowConsultsContext.Provider value={consults}>{children}</RowConsultsContext.Provider>;
+  const [store] = useState(() => consultsStore(consults));
+  // Only the value: idempotent, and a row mounting in this same pass reads it. The rows already drawn are told after.
+  store.put(consults);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: told again each time the questions are new.
+  useLayoutEffect(() => store.tell(), [store, consults]);
+  return <RowConsultsStoreContext.Provider value={store}>{children}</RowConsultsStoreContext.Provider>;
 }
 
 /** The organization's agents and people (`useDirectory`). */
@@ -144,11 +190,42 @@ export const useRowRoles = (): OrgRole[] | undefined => useContext(RowPeopleCont
 /** Whether lines about where things run name the computer (`useNamesComputers`). */
 export const useRowNamesComputers = (): boolean => useContext(RowPeopleContext).namesComputers;
 
-/** Nothing asked here, nothing read: a row outside its conversation's screen. */
-const noConsults = (channelId: string): RowConsults => consultsOf(channelId, undefined, false);
+/** Nothing asked here, nothing read: a row outside its conversation's screen (one object per conversation). */
+const none = new Map<string, RowConsults>();
+const noConsults = (channelId: string): RowConsults => {
+  let empty = none.get(channelId);
+  if (!empty) {
+    empty = consultsOf(channelId, undefined, false);
+    none.set(channelId, empty);
+  }
+  return empty;
+};
 
-/** The questions agents asked from conversation `channelId`, as its screen read them (`ConversationRowData`). */
-export function useRowConsults(channelId: string): RowConsults {
-  const shared = useContext(RowConsultsContext);
-  return useMemo(() => (shared?.channelId === channelId ? shared : noConsults(channelId)), [shared, channelId]);
+const noSubscription = () => () => undefined;
+
+/** Two lists with the same items, in order (a run's questions the reload left as they were). */
+export const sameItems = <T,>(a: readonly T[] | undefined, b: readonly T[] | undefined): boolean =>
+  a === b || (a !== undefined && b !== undefined && a.length === b.length && a.every((x, i) => Object.is(x, b[i])));
+
+/**
+ * A row's own part of the questions asked from conversation `channelId` (`part`): the row draws again only when that
+ * part changes (`same`; by identity unless told otherwise), not on every reload of the conversation's questions. The
+ * reload keeps the questions that didn't change as they were, so a part made of them holds.
+ */
+export function useRowConsultsPart<T>(
+  channelId: string,
+  part: (consults: RowConsults) => T,
+  same: (a: T, b: T) => boolean = Object.is,
+): T {
+  const store = useContext(RowConsultsStoreContext);
+  const kept = useRef<{ value: T } | null>(null);
+  const read = () => {
+    const shared = store?.get();
+    const next = part(shared?.channelId === channelId ? shared : noConsults(channelId));
+    const was = kept.current;
+    if (was && same(was.value, next)) return was.value;
+    kept.current = { value: next };
+    return next;
+  };
+  return useSyncExternalStore(store?.subscribe ?? noSubscription, read, read);
 }

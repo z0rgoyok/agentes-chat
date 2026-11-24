@@ -1,7 +1,7 @@
 import type { PlanUsage, PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, type Executor, eq, inArray, type SQL, schema, sql } from "@agenteschat/db";
 import { extraUsageLeft, PLAN_PAUSE, planBinding, planState } from "@agenteschat/ui/plan-state";
-import { ACCESS_COLUMNS, type AgentAccessFields, managesRoutinesOf, REACH_COLUMNS } from "./audience";
+import { ACCESS_COLUMNS, type AgentAccessFields, managesRoutinesOf, OWNER_COLUMNS, REACH_COLUMNS } from "./audience";
 import { recordAudit } from "./audit";
 import { UUID } from "./authority";
 import { forgetPlanLimit, storedPlanUsage } from "./brains/select";
@@ -15,6 +15,7 @@ import { type Membership, requireActiveMembership } from "./organizations";
 import { enqueue } from "./outbox";
 import { isRightHand } from "./right-hand";
 import { missStaleRoutineRun } from "./routine-firing";
+import { runState } from "./run-state";
 import { isTerminal } from "./runs";
 import { effectiveAgentBudget, monthStartUtc } from "./usage";
 
@@ -71,8 +72,8 @@ export function planOfWaitKey(key: unknown): { machineId: string | null; account
 const lineRank = (r: { background: boolean; workId: string | null }) => (r.background ? 2 : r.workId ? 1 : 0);
 
 /** When a waiting run first paused, across its re-parks (`waitingForBrain.since`; older waits: its start). */
-const waitSinceSql = sql<string>`coalesce(${schema.agentRuns.transcript}->'waitingForBrain'->>'since',
-  ${schema.agentRuns.transcript}->'usageWait'->>'since',
+const waitSinceSql = sql<string>`coalesce(${runState}->'waitingForBrain'->>'since',
+  ${runState}->'usageWait'->>'since',
   (extract(epoch from ${schema.agentRuns.createdAt}) * 1000)::bigint::text)`;
 
 interface LineRow {
@@ -86,8 +87,8 @@ interface LineRow {
 }
 
 /** A plan wait's model, as `LineRow.model`. */
-const waitModelSql = sql<string | null>`case when ${schema.agentRuns.transcript}->'waitingForBrain' ? 'model'
-  then coalesce(${schema.agentRuns.transcript}->'waitingForBrain'->>'model', '') end`;
+const waitModelSql = sql<string | null>`case when ${runState}->'waitingForBrain' ? 'model'
+  then coalesce(${runState}->'waitingForBrain'->>'model', '') end`;
 
 /**
  * Two waits on one sign-in wait for the same reset unless they are on different models (a model's own weekly limit):
@@ -117,7 +118,7 @@ async function lineRows(db: Executor, orgId: string, key: string): Promise<LineR
       and(
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'waitKey' = ${key}`,
+        sql`${runState}->'waitingForBrain'->>'waitKey' = ${key}`,
       ),
     )
     .limit(500);
@@ -180,9 +181,9 @@ export async function lineHeadLooks(db: Executor, orgId: string, key: string, no
   for (const head of heads) {
     const [row] = await db
       .select({
-        waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
-        resetsAt: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'resetsAt'`,
-        until: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'until'`,
+        waitId: sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`,
+        resetsAt: sql<string | null>`${runState}->'waitingForBrain'->>'resetsAt'`,
+        until: sql<string | null>`${runState}->'waitingForBrain'->>'until'`,
       })
       .from(agentRuns)
       .where(eq(agentRuns.id, head.id));
@@ -225,10 +226,10 @@ export async function wakePlanWaits(
     id: agentRuns.id,
     background: agentRuns.background,
     workId: agentRuns.workId,
-    waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
-    until: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'until'`,
+    waitId: sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`,
+    until: sql<string | null>`${runState}->'waitingForBrain'->>'until'`,
     since: waitSinceSql,
-    parkedAt: sql<string | null>`${agentRuns.transcript}->'usageWait'->>'parkedAt'`,
+    parkedAt: sql<string | null>`${runState}->'usageWait'->>'parkedAt'`,
     createdAt: agentRuns.createdAt,
   };
   const parked = (code: SQL) =>
@@ -236,17 +237,17 @@ export async function wakePlanWaits(
       eq(agentRuns.orgId, orgId),
       eq(agentRuns.status, "waiting_input"),
       code,
-      sql`${agentRuns.transcript}->'waitingForBrain'->>'waitKey' = ${key}`,
-      sql`(not (${agentRuns.transcript}->'waitingForBrain' ? 'steady')
-        or coalesce((${agentRuns.transcript}->'usageWait'->>'parkedAt')::bigint, 0) < ${now - REPARK_STEADY_MS})`,
+      sql`${runState}->'waitingForBrain'->>'waitKey' = ${key}`,
+      sql`(not (${runState}->'waitingForBrain' ? 'steady')
+        or coalesce((${runState}->'usageWait'->>'parkedAt')::bigint, 0) < ${now - REPARK_STEADY_MS})`,
       room
-        ? sql`not (${agentRuns.transcript}->'waitingForBrain' ? 'scope')`
-        : sql`(not (${agentRuns.transcript}->'waitingForBrain' ? 'model') or ${agentRuns.transcript}->'waitingForBrain'->>'model' is not distinct from ${model})`,
+        ? sql`not (${runState}->'waitingForBrain' ? 'scope')`
+        : sql`(not (${runState}->'waitingForBrain' ? 'model') or ${runState}->'waitingForBrain'->>'model' is not distinct from ${model})`,
     );
   const limits = await db
     .select(fields)
     .from(agentRuns)
-    .where(parked(sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'plan_limit'`))
+    .where(parked(sql`${runState}->'waitingForBrain'->>'code' = 'plan_limit'`))
     .orderBy(agentRuns.createdAt)
     .limit(100);
   // Pauses have a query of their own, so the ones the reading leaves paused never take the limit waits' places.
@@ -256,13 +257,13 @@ export async function wakePlanWaits(
         await db
           .select({
             ...fields,
-            waitModel: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'model'`,
+            waitModel: sql<string | null>`${runState}->'waitingForBrain'->>'model'`,
             brainAccountLentBy: runLentBy,
             builtin: agents.builtin,
           })
           .from(agentRuns)
           .innerJoin(agents, eq(agents.id, agentRuns.agentId))
-          .where(parked(sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'usage_pause'`))
+          .where(parked(sql`${runState}->'waitingForBrain'->>'code' = 'usage_pause'`))
           .orderBy(agentRuns.createdAt)
           .limit(100)
       ).filter((r) => longWorkHasRoom(planReading(reading, r.waitModel, paysExtraUsage(r), now)))
@@ -320,7 +321,7 @@ export async function resumeBudgetWaits(
   const found = await db
     .select({
       id: agentRuns.id,
-      waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
+      waitId: sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`,
       background: agentRuns.background,
       workId: agentRuns.workId,
       since: waitSinceSql,
@@ -332,7 +333,7 @@ export async function resumeBudgetWaits(
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.status, "waiting_input"),
         ...(agentId ? [eq(agentRuns.agentId, agentId)] : []),
-        sql`(${agentRuns.transcript}->'waitingForBrain'->>'code' = 'budget' or (${agentRuns.transcript}->'waitingForBrain'->>'code' = 'usage_pause' and ${agentRuns.transcript}->'waitingForBrain'->>'source' = 'budget'))`,
+        sql`(${runState}->'waitingForBrain'->>'code' = 'budget' or (${runState}->'waitingForBrain'->>'code' = 'usage_pause' and ${runState}->'waitingForBrain'->>'source' = 'budget'))`,
       ),
     )
     .limit(500);
@@ -433,8 +434,8 @@ export const paysExtraUsage = (agent: { brainAccountLentBy?: string | null; buil
   !agent.brainAccountLentBy && !isRightHand(agent);
 
 /** Whose plan lent to a run it thinks with (`paysExtraUsage`): the account it moved to's (`AccountMove.lentBy`), else its agent's. */
-const runLentBy = sql<string | null>`case when ${schema.agentRuns.transcript} ? 'accountMove'
-  then ${schema.agentRuns.transcript}->'accountMove'->>'lentBy' else ${schema.agents.brainAccountLentBy} end`;
+const runLentBy = sql<string | null>`case when ${runState} ? 'accountMove'
+  then ${runState}->'accountMove'->>'lentBy' else ${schema.agents.brainAccountLentBy} end`;
 
 /**
  * Why Continuar agora is refused (`continuesPastPlan`), in the words both places use: the agent's long work never
@@ -472,7 +473,7 @@ export async function pauseContinuesPastPlan(
   const { agentRuns, agents } = schema;
   const [row] = await db
     .select({
-      wait: sql<Record<string, unknown> | null>`${agentRuns.transcript}->'waitingForBrain'`,
+      wait: sql<Record<string, unknown> | null>`${runState}->'waitingForBrain'`,
       brainAccountLentBy: runLentBy,
       builtin: agents.builtin,
     })
@@ -555,7 +556,7 @@ export async function usageGranted(db: Executor, runId: string, t?: { usageGrant
   if (t?.usageGrant) return true;
   const { agentRuns } = schema;
   const [row] = await db
-    .select({ granted: sql<boolean>`${agentRuns.transcript} ? 'usageGrant'` })
+    .select({ granted: sql<boolean>`${runState} ? 'usageGrant'` })
     .from(agentRuns)
     .where(eq(agentRuns.id, runId));
   return row?.granted === true;
@@ -891,7 +892,7 @@ export async function overrideUsagePause(
     .update(agentRuns)
     .set({
       transcript: sql`${agentRuns.transcript} || jsonb_build_object('usagePause',
-        coalesce(${agentRuns.transcript}->'usagePause', '{}'::jsonb) || jsonb_build_object('override', ${JSON.stringify(override)}::jsonb))
+        coalesce(${runState}->'usagePause', '{}'::jsonb) || jsonb_build_object('override', ${JSON.stringify(override)}::jsonb))
         || ${JSON.stringify(grant)}::jsonb`,
     })
     .where(
@@ -899,8 +900,8 @@ export async function overrideUsagePause(
         eq(agentRuns.orgId, p.orgId),
         eq(agentRuns.id, p.runId),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'waitId' = ${p.waitId}`,
-        sql`${agentRuns.transcript}->'usagePause'->'override' is null`,
+        sql`${runState}->'waitingForBrain'->>'waitId' = ${p.waitId}`,
+        sql`${runState}->'usagePause'->'override' is null`,
       ),
     )
     .returning({ id: agentRuns.id });
@@ -977,13 +978,14 @@ export async function continuePausedRuns(
       // What `mayContinuePause` reads of each run's agent, read with the runs.
       agent: ACCESS_COLUMNS,
       ownerUserId: agents.ownerUserId,
+      ownerRoleId: agents.ownerRoleId,
       requester: runRequester,
       routineId: routines.id,
       routineCreatorId: routines.createdByUserId,
-      cardId: sql<string | null>`${agentRuns.transcript}->'usagePause'->>'cardId'`,
-      waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
-      source: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'source'`,
-      resetsAt: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'resetsAt'`,
+      cardId: sql<string | null>`${runState}->'usagePause'->>'cardId'`,
+      waitId: sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`,
+      source: sql<string | null>`${runState}->'waitingForBrain'->>'source'`,
+      resetsAt: sql<string | null>`${runState}->'waitingForBrain'->>'resetsAt'`,
     })
     .from(agentRuns)
     .innerJoin(agents, eq(agents.id, agentRuns.agentId))
@@ -995,7 +997,7 @@ export async function continuePausedRuns(
         eq(agentRuns.orgId, orgId),
         inArray(agentRuns.id, runIds),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'usage_pause'`,
+        sql`${runState}->'waitingForBrain'->>'code' = 'usage_pause'`,
       ),
     );
   let continued = 0;
@@ -1051,7 +1053,7 @@ export async function grantUsageOverride(
   const { agentRuns, agents, messages } = schema;
   const membership = await requireActiveMembership(db, userId, orgId);
   const [row] = await db
-    .select({ run: agentRuns, ownerUserId: agents.ownerUserId, requester: runRequester })
+    .select({ run: agentRuns, ...OWNER_COLUMNS, requester: runRequester })
     .from(agentRuns)
     .innerJoin(agents, eq(agents.id, agentRuns.agentId))
     .leftJoin(messages, and(eq(messages.id, agentRuns.triggerMessageId), eq(messages.orgId, agentRuns.orgId)))
@@ -1080,7 +1082,7 @@ export async function grantUsageOverride(
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.agentId, agentId),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'code' = 'usage_pause'`,
+        sql`${runState}->'waitingForBrain'->>'code' = 'usage_pause'`,
       ),
     )
     .limit(100);
@@ -1113,7 +1115,7 @@ export async function continueUsagePause(
   const { db } = deps;
   const { agentRuns, agents, messages } = schema;
   const [row] = await db
-    .select({ run: agentRuns, agent: REACH_COLUMNS, ownerUserId: agents.ownerUserId, requester: runRequester })
+    .select({ run: agentRuns, agent: REACH_COLUMNS, ...OWNER_COLUMNS, requester: runRequester })
     .from(agentRuns)
     .innerJoin(agents, eq(agents.id, agentRuns.agentId))
     .leftJoin(messages, and(eq(messages.id, agentRuns.triggerMessageId), eq(messages.orgId, agentRuns.orgId)))
@@ -1225,7 +1227,7 @@ export async function stopAgentUsageWaits(deps: { db: Database; pubsub?: PubSub 
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.agentId, agentId),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript}->'waitingForBrain'->>'code' in ('plan_limit', 'budget', 'usage_pause')`,
+        sql`${runState}->'waitingForBrain'->>'code' in ('plan_limit', 'budget', 'usage_pause')`,
       ),
     );
   for (const { run, channelKind } of rows) {
@@ -1252,8 +1254,8 @@ export async function wakeAgentUsageWaits(
   const found = await db
     .select({
       id: agentRuns.id,
-      waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
-      code: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'code'`,
+      waitId: sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`,
+      code: sql<string | null>`${runState}->'waitingForBrain'->>'code'`,
       executed: sql<number>`coalesce(jsonb_array_length(${agentRuns.transcript}->'interruptedTurn'->'executed'), 0)`,
       cut: sql<string | null>`${agentRuns.transcript}->'interruptedTurn'->>'cause'`,
       background: agentRuns.background,
@@ -1267,7 +1269,7 @@ export async function wakeAgentUsageWaits(
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.agentId, agentId),
         eq(agentRuns.status, "waiting_input"),
-        sql`${agentRuns.transcript} ? 'waitingForBrain'`,
+        sql`${runState} ? 'waitingForBrain'`,
       ),
     )
     .limit(500);
@@ -1317,7 +1319,7 @@ export async function agentsMovedOnto(db: Executor, orgId: string, accountIds: r
       and(
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.status, "waiting_input"),
-        inArray(sql`${agentRuns.transcript}->'accountMove'->>'to'`, [...accountIds]),
+        inArray(sql`${runState}->'accountMove'->>'to'`, [...accountIds]),
       ),
     );
   return rows.map((r) => r.id);

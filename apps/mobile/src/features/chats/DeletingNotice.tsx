@@ -1,10 +1,11 @@
-import { type OrgDeletion, type OrgSummary, useClosingMe, useRestoreWorkspace } from "@agenteschat/client";
+import { type OrgDeletion, type OrgSummary, useClosingMe, usePlanMove, useRestoreWorkspace } from "@agenteschat/client";
 import { deletedByText, deletingText, restorable } from "@agenteschat/client/lib/deletion";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import { Button, LineIcon, Text, useToast } from "@/ui";
+import { PlanMoveButtons } from "../settings/PlanMove";
 import { useColors } from "../shared/hooks";
 import { useSurface } from "../shared/parts";
 
@@ -25,11 +26,18 @@ function Deleting({ org, deletion }: { org: OrgSummary; deletion: OrgDeletion })
   const surface = useSurface();
   const toast = useToast();
   const restore = useRestoreWorkspace(org.id);
+  const plan = usePlanMove(org.id);
   const me = useClosingMe().data;
   const owner = restorable(org);
   const due = !!deletion.dueAt && Date.parse(deletion.dueAt) > Date.now();
+  const moves = due && plan.targets.length > 0 && !plan.movedTo;
   const title = deletingText(t, i18n.language, org.name, deletion);
-  const sub = [deletedByText(t, i18n.language, deletion, me?.user.id), due && !owner ? t("deleting.membersOnly") : null]
+  const sub = [
+    deletedByText(t, i18n.language, deletion, me?.user.id),
+    due && !owner ? t("deleting.membersOnly") : null,
+    moves ? t("common.joinSentences", { a: t("planMove.deleting"), b: t("planMove.how") }) : null,
+    plan.movedTo ? t("planMove.moving", { name: plan.movedTo }) : null,
+  ]
     .filter(Boolean)
     .join(" ");
   return (
@@ -53,6 +61,7 @@ function Deleting({ org, deletion }: { org: OrgSummary; deletion: OrgDeletion })
             ) : null}
           </View>
         </View>
+        {moves ? <PlanMoveButtons plan={plan} size="sm" /> : null}
         {owner ? (
           <Button
             variant="primary"

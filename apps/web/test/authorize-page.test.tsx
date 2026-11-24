@@ -67,7 +67,7 @@ describe("/autorizar: an AI app asks to act as this person (ADR 0119)", () => {
     ).toBe("true");
     const can = page().querySelector(".consent__list--can") as HTMLElement;
     expect([...can.querySelectorAll("li")].map((li) => li.textContent)).toEqual([
-      "Ver os agentes e os canais que você vê.",
+      "Ver os agentes, os canais e as páginas da wiki que você vê.",
       "Mandar mensagens como você, marcadas com via Claude.",
       "Ler as respostas e o que os agentes estão fazendo.",
     ]);
@@ -254,7 +254,8 @@ describe("/autorizar: an AI app asks to act as this person (ADR 0119)", () => {
     expect(can.textContent).toContain("Mandar mensagens como você");
     expect(can.textContent).not.toContain("Criar e editar");
     await click(within(page()).getByRole("radio", { name: /Criar e editar agentes, rotinas e skills/ }));
-    expect(can.textContent).toContain("Criar e editar agentes, rotinas e skills como você.");
+    expect(can.textContent).toContain("Criar e editar agentes, rotinas e skills como você, com um aviso");
+    expect(can.textContent).toContain("Escrever páginas da wiki e mandá-las para a lixeira como você.");
     await click(within(page()).getByRole("button", { name: "Permitir" }));
     expect(calls(state, "apps.decide")).toEqual([[REQ, { decision: "allow", orgId: ORG_ID, access: "manage" }]]);
   });

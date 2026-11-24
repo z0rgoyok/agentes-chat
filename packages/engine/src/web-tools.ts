@@ -1,10 +1,14 @@
 import { decodeEntities, htmlToText } from "@agenteschat/adapters";
 import { bytesToBase64, type ToolImage } from "@agenteschat/providers";
+import { type ArtifactActor, type ArtifactDeps, createFileArtifact } from "./artifacts";
 import { MODEL_IMAGE_BYTES } from "./avatars";
 import { cutText } from "./format";
+import { pictureSize } from "./image-size";
+import { rasterPicture, SVG_TYPE, sanitizeSvg } from "./live/svg";
 import { fetchWebPicture } from "./live/web-pictures";
 import { assertPublicHttpsUrl, outboundFetch, type ResolveHost } from "./net-guard";
 import { outboundRefusal } from "./outbound";
+import { replyThreadOf } from "./runs";
 import type { ToolContext, ToolDefinition, ToolSource } from "./tools/types";
 import { withoutTrailingSlashes } from "./url-text";
 
@@ -29,6 +33,15 @@ export const WEB_FETCH_TOOL = "web_fetch";
  * shows the model the first ones' thumbnails, fetched through the same guard as a picture.
  */
 export const IMAGE_SEARCH_TOOL = "image_search";
+/**
+ * A picture from the public web shown in the conversation (ADR 0217): the server downloads it through the same guard
+ * as a live file's picture and saves it as a picture file where the run posts, so it goes on the reply as a picture
+ * people see. The apps never load a picture from an address an agent wrote: that would tell the site who is reading,
+ * and an address can carry what the run read. Offered only where files can be saved (`WebToolDeps.artifacts`).
+ */
+export const SHOW_IMAGE_TOOL = "show_image";
+/** Pictures one call shows, and one run in all: a reply carries about that many cards. */
+export const SHOW_IMAGE_LIMITS = { perCall: 6, perRun: 10 } as const;
 
 export interface SearchResult {
   title: string;
@@ -63,6 +76,8 @@ export interface WebToolDeps {
   browser?: BrowserPageReader | null;
   fetch?: (url: string, init?: RequestInit) => Promise<Response>;
   resolveHost?: ResolveHost;
+  /** Where `show_image` saves its pictures; absent: the tool isn't offered. */
+  artifacts?: ArtifactDeps | null;
   usage?: {
     recordExternalUsage(input: {
       orgId: string;
@@ -516,8 +531,168 @@ export function createWebToolSource(deps: WebToolDeps = {}): ToolSource {
     },
   };
 
-  return { name: "web", tools: async () => [search, fetchTool, imageSearch] };
+  /** Pictures each run has shown (`SHOW_IMAGE_LIMITS.perRun`), for the newest runs this process served. */
+  const shownByRun = new Map<string, number>();
+  const shownIn = (runId: string) => shownByRun.get(runId) ?? 0;
+  const countShown = (runId: string, n: number) => {
+    const now = shownIn(runId) + n;
+    shownByRun.delete(runId);
+    if (shownByRun.size >= SHOWN_RUNS) shownByRun.delete(shownByRun.keys().next().value as string);
+    shownByRun.set(runId, now);
+  };
+
+  const showImage = (artifacts: ArtifactDeps): ToolDefinition => ({
+    name: SHOW_IMAGE_TOOL,
+    scope: "",
+    description:
+      "Show pictures from the web in this conversation: each one whose address you have (a photo, a product, a cover, a chart someone published) goes on your reply as a picture people see, instead of a link they must open. Use it whenever a picture is what you are talking about; give the picture's own address (https://…jpg, .png, .webp, .gif), not its page's. After it, don't paste those addresses again or describe the pictures at length: people see them.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        images: {
+          type: "array",
+          minItems: 1,
+          maxItems: SHOW_IMAGE_LIMITS.perCall,
+          items: {
+            type: "object",
+            properties: {
+              url: { type: "string", minLength: 1, maxLength: 2048, description: "The picture's own address." },
+              title: { type: "string", maxLength: 120, description: "What it is, in a few words (its file's name)." },
+            },
+            required: ["url"],
+            additionalProperties: false,
+          },
+        },
+      },
+      required: ["images"],
+      additionalProperties: false,
+    },
+    describe: (input) => ({
+      title: "Show pictures",
+      detail: askedPictures(input)
+        .map((p) => p.url)
+        .join("\n"),
+    }),
+    async execute(input, ctx) {
+      const asked = askedPictures(input).slice(0, SHOW_IMAGE_LIMITS.perCall);
+      if (asked.length === 0) return { content: "Give at least one picture's address.", isError: true };
+      const room = SHOW_IMAGE_LIMITS.perRun - shownIn(ctx.runId);
+      if (room <= 0) {
+        return {
+          content: `You already showed ${SHOW_IMAGE_LIMITS.perRun} pictures in this turn: give the others as links.`,
+          isError: true,
+        };
+      }
+      const actor: ArtifactActor = {
+        type: "agent",
+        agentId: ctx.agentId,
+        channelId: ctx.channelId,
+        threadId: replyThreadOf(ctx),
+        runId: ctx.runId,
+      };
+      const files: { id: string; version: number; title: string; width?: number; height?: number }[] = [];
+      const failed: string[] = [];
+      for (const [index, p] of asked.entries()) {
+        if (files.length >= room) {
+          failed.push(`${p.url}: over ${SHOW_IMAGE_LIMITS.perRun} pictures in one turn`);
+          continue;
+        }
+        try {
+          // The address may not carry what the run read in private (ADR 0117), like any address it asks for.
+          const refused = await outboundRefusal(ctx, p.url);
+          if (refused) throw new Error(refused.content);
+          const got = await fetchWebPicture(p.url, { fetch: deps.fetch, resolveHost: deps.resolveHost }, ctx.signal);
+          // An SVG is shown as the PNG drawn from what the sanitizer rebuilt, never as the web's own markup.
+          const picture =
+            got.contentType === SVG_TYPE
+              ? await rasterPicture({ bytes: sanitizeSvg(got.bytes).bytes, contentType: SVG_TYPE })
+              : got;
+          if (!picture) throw new Error("an SVG can't be shown here: pick a PNG, JPEG, WebP or GIF of it");
+          const title = p.title || pictureTitle(got.url, index);
+          const file = await createFileArtifact(artifacts, actor, ctx.orgId, {
+            title,
+            name: `${fileSlug(title)}.${PICTURE_EXTENSIONS[picture.contentType] ?? "png"}`,
+            bytes: picture.bytes,
+            contentType: picture.contentType,
+            note: `From ${new URL(got.url).host}`,
+          });
+          const content = file.content.kind === "file" ? file.content : null;
+          files.push({ id: file.id, version: file.version, title: file.title, ...pictureSize(content ?? {}) });
+        } catch (error) {
+          failed.push(`${p.url.slice(0, 200)}: ${errorText(error)}`);
+        }
+      }
+      if (files.length > 0) {
+        countShown(ctx.runId, files.length);
+        await record(ctx, "show-image");
+      }
+      const missed =
+        failed.length > 0
+          ? `\nNot shown (give these as links, or try the picture's own address):\n${failed.join("\n")}`
+          : "";
+      if (files.length === 0) return { content: `No picture was shown.${missed}`, isError: true };
+      return {
+        content: `${files.length === 1 ? "The picture goes" : `${files.length} pictures go`} on your reply, in this order, as pictures people see in the chat (file ids: ${files.map((f) => f.id).join(", ")}). Don't paste their addresses again or describe them at length.${missed}`,
+        data: { artifacts: files },
+      };
+    },
+  });
+
+  return {
+    name: "web",
+    tools: async () => [search, fetchTool, imageSearch, ...(deps.artifacts ? [showImage(deps.artifacts)] : [])],
+  };
 }
+
+/** Runs whose shown pictures are counted at once: past it the oldest count is dropped. */
+const SHOWN_RUNS = 500;
+
+const PICTURE_EXTENSIONS: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+  "image/gif": "gif",
+};
+
+/** What `show_image` was asked: each picture's address (http becomes https when it is downloaded) and its title. */
+function askedPictures(input: Record<string, unknown>): { url: string; title: string }[] {
+  const list = Array.isArray(input.images) ? (input.images as unknown[]) : [];
+  return list
+    .map((raw) => {
+      const p = obj(raw);
+      return { url: text(p.url).trim(), title: text(p.title).replace(/\s+/g, " ").trim().slice(0, 120) };
+    })
+    .filter((p) => p.url);
+}
+
+/** A picture's title when the agent gave none: its file's name in the address, else "Picture N". */
+function pictureTitle(url: string, index: number): string {
+  let name = "";
+  try {
+    name = decodeURIComponent(new URL(url).pathname.split("/").pop() ?? "");
+  } catch {
+    name = "";
+  }
+  const words = name
+    .replace(/\.[a-z0-9]{2,5}$/i, "")
+    .replace(/[-_+]+/g, " ")
+    .trim();
+  // A hash or an id says nothing to a person.
+  return words && words.length <= 60 && /[a-z]{3}/i.test(words) && !/^[0-9a-f\s]{16,}$/i.test(words)
+    ? words
+    : `Picture ${index + 1}`;
+}
+
+/** A file name from a title: its letters and digits, dashed. */
+const fileSlug = (title: string) =>
+  title
+    .normalize("NFKD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+/, "")
+    .slice(0, 48)
+    .replace(/-+$/, "") || "picture";
 
 type ImageProvider = {
   id: string;

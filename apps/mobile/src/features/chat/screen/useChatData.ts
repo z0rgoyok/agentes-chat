@@ -8,6 +8,7 @@ import {
   type LiveRun,
   MESSAGES_PAGE,
   type Message,
+  replyingUnder,
   useAgentsBrowserHandoffs,
   type useApi,
   useChannelThreads,
@@ -39,6 +40,7 @@ import { useSetupSteps } from "../../agents/setup/SetupCard";
 import { usePlanHold } from "../../ai/parts";
 import type { Directory } from "../../shared/hooks";
 import { agentLook } from "../../shared/logic";
+import { ownsIn } from "../../shared/owner";
 import { browsingRuns } from "../LiveRows";
 import { useChatLive } from "../live";
 import { mayStopRun, mergeTimeline, pinnedAsListed, quietInset, sameItems, stoppableInLine } from "../logic";
@@ -187,6 +189,12 @@ export function useChatData({
     () => live.consults.filter((x) => (isThread ? x.threadId === threadId : inMainTimeline(x, topIds))),
     [live.consults, isThread, threadId, topIds],
   );
+  // A channel whose agents reply in threads (ADR 0214): "Ada is replying in the thread" under the message that asked,
+  // until its thread has a link of its own.
+  const replying = useMemo(
+    () => (isThread ? new Map<string, string[]>() : replyingUnder(live.runs, topIds, linkThreads)),
+    [live.runs, isThread, topIds, linkThreads],
+  );
 
   // "Parar" in the working line (as on the web): who manages the agent (the server's `canManage`), its owner, or who
   // started it.
@@ -197,9 +205,11 @@ export function useChatData({
         meId,
         manageAgents: managesAgent(dir.agentById.get(r.agentId)),
         agentOwnerId: dir.agentById.get(r.agentId)?.ownerUserId,
+        // Holding the role that answers for it counts as its owner (ADR 0085, addendum of 2026-11-21).
+        owns: ownsIn(dir.memberById, meId, dir.agentById.get(r.agentId)),
         messages: list,
       }),
-    [meId, dir.agentById, list],
+    [meId, dir.agentById, dir.memberById, list],
   );
   const { stop } = live;
   const stopRun = useCallback(
@@ -388,6 +398,7 @@ export function useChatData({
     planHeld,
     quiet,
     readable,
+    replying,
     rhythm,
     rightHand,
     rightHandId,

@@ -6,7 +6,8 @@ setupDom();
 import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
 import { AddressBar } from "../src/components/browser/AddressBar";
 import { RequestCard } from "../src/components/RequestCard";
-import { createFakeApi, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { notification } from "./fakes/notifications";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
@@ -35,12 +36,13 @@ describe("a form whose action is on its way", () => {
     expect(photo).toContain("if (!busy) void choose(");
   });
 
-  test("the island's reply and a mission's join role lock with their send", async () => {
+  test("the island's reply locks with its send; a mission's join answer takes its row away at once, with no lock", async () => {
     const read = (path: string) => Bun.file(new URL(path, import.meta.url).pathname).text();
     const island = await read("../src/components/NoticeIsland.tsx");
     expect(island).toMatch(/<Locked when=\{reply\.isPending\}>\s*<input/);
     const mission = await read("../src/components/missions/MissionDialogs.tsx");
-    expect(mission).toMatch(/<Locked when=\{decide\.isPending\}>\s*<Select/);
+    expect(mission).not.toMatch(/<Locked when=\{decide\.isPending\}>/);
+    expect(mission).toMatch(/decide\.mutateAsync\(/);
   });
 
   const card = (locked: boolean) => (
@@ -75,9 +77,33 @@ describe("a form whose action is on its way", () => {
   });
 
   test("one button deciding a request turns off the others on it, whichever mutation each runs", async () => {
-    const state = seedState();
-    // One click decides it, with no hold.
-    state.approvals = state.approvals.filter((a) => a.id === "ap-merge");
+    // Three requests on one card, waiting on me in the inbox, where they are decided (ADR 0218).
+    const state = seedState({
+      notifications: [
+        notification({
+          id: "n-merge",
+          kind: "approval",
+          waiting: true,
+          actors: [{ type: "agent", id: ADA_ID }],
+          source: { approvalId: "ap-merge", channelId: ENG_ID },
+        }),
+      ],
+    });
+    const merge = state.approvals.find((a) => a.id === "ap-merge");
+    if (!merge) throw new Error("the seed's merge request");
+    const other = (id: string, tool: string, title: string, minutes: number) => ({
+      ...merge,
+      id,
+      tool,
+      title,
+      detail: tool,
+      createdAt: new Date(Date.parse(merge.createdAt) + minutes * 60_000).toISOString(),
+    });
+    state.approvals = [
+      merge,
+      other("ap-issue", "create_issue", "Create issue", 1),
+      other("ap-comment", "add_issue_comment", "Add issue comment", 2),
+    ];
     const api = createFakeApi(state);
     let finish = () => {};
     const approve = api.approvals.approve;
@@ -87,17 +113,22 @@ describe("a form whose action is on its way", () => {
       });
       return approve(...args);
     };
-    await renderApp(`/org/${ORG_ID}/approvals`, { api });
+    await renderApp(`/org/${ORG_ID}/notifications`, { api });
     await settle(4);
-    const bar = document.querySelector(".ap-bar__acts") as HTMLElement;
-    const refuse = within(bar).getByRole("button", { name: /Recusar/ });
-    const approveButton = bar.querySelector("[data-approve]") as HTMLElement;
-    expect(off(refuse)).toBe(false);
-    await act(async () => fireEvent.click(approveButton));
+    const card = document.querySelector(".ib-read .rq") as HTMLElement;
+    // One request's own button approves it alone; "Approve all" over the card is another mutation.
+    const all = () => within(card).getByRole("button", { name: "Aprovar tudo" });
+    const others = () => [...card.querySelectorAll<HTMLElement>('.rq__item[data-status="pending"] [data-approve]')];
+    expect(others()).toHaveLength(3);
+    expect(off(all())).toBe(false);
+    await act(async () => fireEvent.click(card.querySelector('[data-approve="ap-merge"]') as HTMLElement));
     await settle(2);
-    expect(off(refuse)).toBe(true);
+    expect(others().map((b) => b.getAttribute("data-approve"))).toEqual(["ap-issue", "ap-comment"]);
+    expect(off(all())).toBe(true);
+    for (const button of others()) expect(off(button)).toBe(true);
     await act(async () => finish());
     await settle(4);
+    expect(off(all())).toBe(false);
   });
 
   const failing = (open: () => Promise<void>) => (

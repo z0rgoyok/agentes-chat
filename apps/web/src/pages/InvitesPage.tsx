@@ -48,7 +48,7 @@ import {
 import { useSearch } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { usePlanHold } from "@/components/ai/ConnectAiSteps";
+import { usePlanHold } from "@/components/ai/plan-hold";
 import { useFilterCopy } from "@/components/filters";
 import { useCopied } from "@/components/invite/copied";
 import { EditInvitationDialog, EditLinkDialog } from "@/components/invite/EditDialogs";

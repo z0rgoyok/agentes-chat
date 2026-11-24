@@ -80,8 +80,15 @@ export function stepLine(kind: string, data: Record<string, unknown>): string | 
           ? "a step stopped responding on its computer and was started again from where it was"
           : "a step stopped responding on its computer twice, so that work stopped";
       return typeof data.reason === "string" ? `hit a problem: ${data.reason}` : "hit a problem";
-    case "context":
+    case "context": {
+      // A call of the brain's own in a code session (ADR 0215): which and on what, never what it gave back.
+      const cli = data.cliTool as { name?: unknown; target?: unknown; ok?: unknown } | undefined;
+      if (typeof cli?.name === "string") {
+        const on = typeof cli.target === "string" && cli.target ? ` (${clip(cli.target, 120)})` : "";
+        return `ran its own tool ${cli.name}${on}${cli.ok === false ? ", which failed" : ""}`;
+      }
       return Array.isArray(data.steeredMessageIds) ? "read new messages from people" : null;
+    }
     default:
       return null;
   }

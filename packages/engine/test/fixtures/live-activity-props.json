@@ -1,0 +1,77 @@
+{
+  "waiting": {
+    "v": 1,
+    "tone": "waiting",
+    "headline": "Iris pede aprovação",
+    "trailing": "Aprovar?",
+    "agents": [
+      {
+        "id": "0193a000-0000-7000-8000-000000000001",
+        "name": "Iris",
+        "face": "file:///private/var/mobile/Containers/Shared/AppGroup/0A1B2C3D/widgets/faces/0193a000-0000-7000-8000-000000000001.png",
+        "step": "Para publicar a versão 2.4 que você pediu",
+        "since": 1800000000000,
+        "state": "waiting",
+        "where": "#lançamentos"
+      },
+      {
+        "id": "0193a000-0000-7000-8000-000000000002",
+        "name": "Dev",
+        "face": "file:///private/var/mobile/Containers/Shared/AppGroup/0A1B2C3D/widgets/faces/0193a000-0000-7000-8000-000000000002.png",
+        "step": "Programando",
+        "since": 1799999990000,
+        "state": "working",
+        "where": "#geral"
+      },
+      {
+        "id": "0193a000-0000-7000-8000-000000000003",
+        "name": "Lia",
+        "face": "file:///private/var/mobile/Containers/Shared/AppGroup/0A1B2C3D/widgets/faces/0193a000-0000-7000-8000-000000000003.png",
+        "step": "Revisando o PR #12",
+        "since": 1799999980000,
+        "state": "working",
+        "where": "Acme"
+      }
+    ],
+    "more": 1,
+    "url": "agenteschat://island?org=0193a000-0000-7000-8000-0000000000a0&channel=0193a000-0000-7000-8000-0000000000c1&thread=0193a000-0000-7000-8000-0000000000d1&message=0193a000-0000-7000-8000-0000000000e1"
+  },
+  "working": {
+    "v": 1,
+    "tone": "working",
+    "headline": "Dev",
+    "trailing": null,
+    "agents": [
+      {
+        "id": "0193a000-0000-7000-8000-000000000002",
+        "name": "Dev",
+        "face": "file:///private/var/mobile/Containers/Shared/AppGroup/0A1B2C3D/widgets/faces/0193a000-0000-7000-8000-000000000002.png",
+        "step": "Programando",
+        "since": 1799999990000,
+        "state": "working",
+        "where": "#geral"
+      }
+    ],
+    "more": 0,
+    "url": "agenteschat://island?org=0193a000-0000-7000-8000-0000000000a0&channel=0193a000-0000-7000-8000-0000000000c2&message=0193a000-0000-7000-8000-0000000000e2"
+  },
+  "done": {
+    "v": 1,
+    "tone": "done",
+    "headline": "Pronto",
+    "trailing": "Pronto",
+    "agents": [
+      {
+        "id": "0193a000-0000-7000-8000-000000000002",
+        "name": "Dev",
+        "face": "file:///private/var/mobile/Containers/Shared/AppGroup/0A1B2C3D/widgets/faces/0193a000-0000-7000-8000-000000000002.png",
+        "step": "Pronto",
+        "since": 1799999990000,
+        "state": "done",
+        "where": "#geral"
+      }
+    ],
+    "more": 0,
+    "url": "agenteschat://island?org=0193a000-0000-7000-8000-0000000000a0&channel=0193a000-0000-7000-8000-0000000000c2&message=0193a000-0000-7000-8000-0000000000e2"
+  }
+}

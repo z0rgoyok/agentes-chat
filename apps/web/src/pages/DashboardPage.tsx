@@ -287,10 +287,12 @@ function RenameBody({ board, onClose }: { board: Dashboard; onClose: () => void 
       onSubmit={(e) => {
         e.preventDefault();
         if (!ready) return;
-        update.mutate(
-          { dashboardId: board.id, title: title.trim(), about: about.trim() },
-          { onSuccess: onClose, onError: (error) => toast.show(errorText(t, error), "error") },
-        );
+        // The new name shows at once and the dialog closes; a refusal puts the old one back and says why (the call's
+        // own promise: this form is gone by then).
+        void update
+          .mutateAsync({ dashboardId: board.id, title: title.trim(), about: about.trim() })
+          .catch((error: unknown) => toast.show(errorText(t, error), "error"));
+        onClose();
       }}
     >
       <Locked when={update.isPending}>
@@ -340,16 +342,16 @@ function DeleteDialog({ board, open, onClose }: { board: Dashboard; open: boolea
         <Button
           variant="danger"
           loading={remove.isPending}
-          onClick={() =>
-            remove.mutate(board.id, {
-              onSuccess: () => {
-                toast.show(t("dashboards.delete.done", { title: board.title }));
-                onClose();
-                void navigate({ to: "/org/$orgId/dashboards", params: { orgId: org.id } });
-              },
-              onError: (error) => toast.show(errorText(t, error), "error"),
-            })
-          }
+          onClick={() => {
+            // Gone from the list at once, and the page with it; a refusal puts it back there and says why (the call's
+            // own promise: this page is gone by then).
+            void remove.mutateAsync(board.id).then(
+              () => toast.show(t("dashboards.delete.done", { title: board.title })),
+              (error: unknown) => toast.show(errorText(t, error), "error"),
+            );
+            onClose();
+            void navigate({ to: "/org/$orgId/dashboards", params: { orgId: org.id } });
+          }}
         >
           {t("dashboards.delete.confirm")}
         </Button>

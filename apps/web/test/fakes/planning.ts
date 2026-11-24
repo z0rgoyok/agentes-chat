@@ -83,7 +83,7 @@ const webhookOf = (s: { webhooks: Map<WebhookProvider, WebhookSetup> }, provider
 };
 
 const hookOf = (s: { hooks: Map<string, RoutineHook> }, routineId: string) => {
-  const hook = s.hooks.get(routineId) ?? { url: hookUrl(), signed: false, methods: ["POST"], calls: [] };
+  const hook = s.hooks.get(routineId) ?? { url: hookUrl(), signed: false, methods: ["POST"], groupBy: null, calls: [] };
   s.hooks.set(routineId, hook);
   return hook;
 };
@@ -574,9 +574,22 @@ export function createMockPlanning(
         const i = await findIssue(orgId, id);
         const author = await me();
         const s = await columnsOf(orgId);
-        const { columnId, criteria, projectId, ...rest } = patch;
-        let change: Omit<IssuePatch, "columnId" | "criteria" | "projectId"> = rest;
+        const { columnId, criteria, projectId, removeFiles, ...rest } = patch;
+        let change: Omit<IssuePatch, "columnId" | "criteria" | "projectId" | "removeFiles"> = rest;
         if (projectId !== undefined) i.project = (await store(orgId)).projects.find((p) => p.id === projectId) ?? null;
+        // As the server does: off the task's attachments, still in the Drive.
+        const taken = i.artifacts.filter((f) => removeFiles?.includes(f.id));
+        if (taken.length) {
+          i.artifacts = i.artifacts.filter((f) => !taken.includes(f));
+          await log(orgId, i, {
+            kind: "event",
+            author,
+            event: "artifact_unlinked",
+            text: "removeu um arquivo",
+            textCode: "files_removed",
+            textParams: { names: taken.map((f) => f.title).join(", ") },
+          });
+        }
         // The whole list, as the backend takes it: an id keeps that criterion (and its check), none is a new one.
         if (criteria) {
           const list = criteria.filter((c) => c.text.trim());
@@ -847,7 +860,13 @@ export function createMockPlanning(
             description: input.trigger.at,
           };
         else if (input.trigger.type === "webhook")
-          trigger = { type: "webhook", url: null, signed: false, methods: input.trigger.methods ?? ["POST"] };
+          trigger = {
+            type: "webhook",
+            url: null,
+            signed: false,
+            methods: input.trigger.methods ?? ["POST"],
+            groupBy: input.trigger.groupBy ?? null,
+          };
         else if (input.trigger.type === "connector") trigger = { ...input.trigger, status: "active", lastError: null };
         else trigger = input.trigger;
         const agents = await ctx.lookup.agents(orgId);
@@ -894,7 +913,8 @@ export function createMockPlanning(
         else if (patch.trigger?.type === "webhook") {
           const hook = hookOf(await store(orgId), id);
           if (patch.trigger.methods) hook.methods = patch.trigger.methods;
-          r.trigger = { type: "webhook", url: hook.url, signed: false, methods: hook.methods };
+          if (patch.trigger.groupBy !== undefined) hook.groupBy = patch.trigger.groupBy?.trim() || null;
+          r.trigger = { type: "webhook", url: hook.url, signed: false, methods: hook.methods, groupBy: hook.groupBy };
         } else if (patch.trigger?.type === "connector")
           r.trigger = { ...patch.trigger, status: "active", lastError: null };
         else if (patch.trigger) r.trigger = patch.trigger;

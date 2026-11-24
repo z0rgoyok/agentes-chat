@@ -788,18 +788,22 @@ describe("a board's notices in Waiting on you", () => {
     expect(state.calls).toContainEqual({ method: "notifications.read", args: [ORG_ID, "n-alert", true] });
   });
 
-  test("in the inbox too: a dashboard's chip, and the request decided in its row", async () => {
+  test("in the inbox too: where it is from on its row, and the request decided in the open item", async () => {
     const s = noticed();
     const { state } = await open(`/org/${ORG_ID}/notifications`, s);
     const row = document.querySelector('[data-n="n-proposal"]') as HTMLElement;
     expect(row.textContent).toContain("Ada quer publicar um painel");
     expect(row.textContent).toContain("Painel");
-    await click(within(row).getByRole("button", { name: "Publicar para o workspace" }));
-    await settle(3);
-    expect(last(state, "dashboards.decideProposal")).toEqual([ORG_ID, s.board.id, "publish"]);
+    // A row has no buttons (ADR 0218): the open item, beside the list, decides.
     const failed = document.querySelector('[data-n="n-failed"]') as HTMLElement;
     expect(failed.textContent).toContain("A última atualização terminou sem dados.");
-    expect(within(failed).getByRole("button", { name: "Resolver" })).toBeTruthy();
+    await click(failed);
+    const read = () => document.querySelector(".ib-read") as HTMLElement;
+    expect(within(read()).getByRole("button", { name: "Resolver" })).toBeTruthy();
+    await click(row);
+    await click(within(read()).getByRole("button", { name: "Publicar para o workspace" }));
+    await settle(3);
+    expect(last(state, "dashboards.decideProposal")).toEqual([ORG_ID, s.board.id, "publish"]);
   });
 });
 

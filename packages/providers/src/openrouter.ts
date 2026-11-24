@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import type { ChatCompletionCreateParamsStreaming } from "openai/resources/chat/completions";
 import {
+  effortWithin,
   isCustomModel,
   type ModelInfo,
   type ModelTier,
@@ -422,7 +423,8 @@ function toBody(request: ModelRequest, compatible: boolean) {
   const reasoning = compatible ? undefined : reasoningFor(request.effort, modelInfo(request.model));
   // A workspace endpoint (#432): Chat Completions' own `reasoning_effort`, which OpenAI, vLLM, LiteLLM and most gateways
   // take. `none` is left out, since not every model can turn thinking off, and so is a request with no effort.
-  const reasoningEffort = compatible && request.effort && request.effort !== "none" ? request.effort : undefined;
+  const reasoningEffort =
+    compatible && request.effort && request.effort !== "none" ? effortWithin(request.effort) : undefined;
   return {
     model: request.model,
     messages: toMessages(request, claude),

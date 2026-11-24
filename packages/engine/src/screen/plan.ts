@@ -1,6 +1,6 @@
 import type { ScreenKind } from "@agenteschat/adapters";
 import type { Judge } from "../judge";
-import { type ConditionResult, checkCondition, findDismiss, findInPage } from "./checks";
+import { type ConditionResult, checkCondition, findDismiss, findInPage, type ScreenJudgmentShadow } from "./checks";
 import {
   diffObservations,
   SCREEN_NOUN,
@@ -206,6 +206,8 @@ export interface PlanDeps {
   /** How long an `expect` that isn't true yet may take to become true (default `EXPECT_GRACE_MS`). */
   expectGraceMs?: number;
   now?: () => number;
+  /** Where a `shadow` workspace's screen judgments are recorded (`setScreenJudgments`). */
+  shadow?: ScreenJudgmentShadow[];
 }
 
 export type StepStatus = "done" | "failed" | "skipped";
@@ -342,7 +344,7 @@ export async function runPlan(deps: PlanDeps, steps: ScreenStep[]): Promise<Plan
   const started = now();
   const kind = deps.surface.kind ?? "browser";
   const noun = SCREEN_NOUN[kind];
-  const ids = { judge: deps.judge, orgId: deps.orgId, agentId: deps.agentId, runId: deps.runId };
+  const ids = { judge: deps.judge, orgId: deps.orgId, agentId: deps.agentId, runId: deps.runId, shadow: deps.shadow };
   const reports: StepReport[] = steps.map((step) => ({ step, status: "skipped", ms: 0 }));
   let screen: ScreenObservation | null = deps.last ?? null;
   const before = deps.before ?? screen;
@@ -712,8 +714,9 @@ export async function runPlan(deps: PlanDeps, steps: ScreenStep[]): Promise<Plan
       report.ran = true;
       if (step.expect?.trim()) {
         const condition = step.expect.trim();
+        const focus = step.target?.trim();
         const judgeOn = (o: ScreenObservation) =>
-          checkCondition({ ...ids, condition, observation: o, changes: diffObservations(prior, o) });
+          checkCondition({ ...ids, condition, observation: o, changes: diffObservations(prior, o), focus });
         let after = screen ?? (await look());
         let check = await judgeOn(after);
         // Not true yet: the page may still be on its way (a submit that navigates later, a server's answer).

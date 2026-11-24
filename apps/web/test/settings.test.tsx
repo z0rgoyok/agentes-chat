@@ -8,11 +8,11 @@ import { localeInfo } from "@agenteschat/i18n/locale";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { detectedLocale } from "@/i18n";
 import { setNavigateAway } from "@/lib/navigate";
-import { pick, rowMenu } from "./catalog";
+import { connectedNames, connectionLine, openConnection, openStore, pick, searchStore } from "./catalog";
 import { createFakeApi, OPENROUTER_KEY, OPENROUTER_MODELS, ORG_ID, seedState } from "./fake-api";
 import { shownText } from "./hint";
 import { pick as pickOption } from "./new-agent-flow";
-import { openDetails, shareRow } from "./plan-rows";
+import { openDetails, shareRow, usageTab } from "./plan-rows";
 import { renderApp, screen, settle, showIn } from "./render";
 
 afterEach(() => cleanup());
@@ -188,11 +188,11 @@ describe("Configurações do workspace", () => {
       seedState({ githubApp: { installable: true, installations: [] } }),
       "settings/connectors",
     );
-    const section = screen().getByRole("region", { name: "Conectores" });
-    // The card's head is its title and Add; the GitHub app's purpose is its title's ⓘ.
-    expect(section.querySelector("#sec-conn")?.closest(".ac-card__head")?.textContent).toBe(
-      "ConectoresAdicionar conector",
-    );
+    const section = document.querySelector(".store") as HTMLElement;
+    // Over the list, the way to the store: a few services and Browse connectors.
+    expect(
+      within(section.querySelector(".store-band") as HTMLElement).getByRole("button", { name: "Ver conectores" }),
+    ).toBeTruthy();
     const github = screen().getByRole("region", { name: "Repositórios do GitHub" });
     expect(hintOf("Repositórios do GitHub", github).text).toBe(
       "Onde o app agentes.chat está instalado, os agentes abrem pull requests, issues, comentários e commits como o app, com o nome do agente e de quem pediu.",
@@ -202,52 +202,42 @@ describe("Configurações do workspace", () => {
         .getAllByText(/^Onde o app agentes.chat está instalado/)
         .map((el) => el.hidden),
     ).toEqual([true]);
-    // A connected service is one line (its name, its pill, who uses it) that opens to its details and actions.
-    const line = within(section).getByRole("button", { name: /^GitHub/ });
-    expect(line.getAttribute("aria-expanded")).toBe("false");
-    expect(line.querySelector(".list-title")?.textContent).toBe("GitHubAtivo");
-    expect(line.querySelector(".connected-row__who")?.textContent).toBe("Nenhum agente ainda");
+    // A connected service is one line (its name, under it the account and its tools, who uses it) that opens its page.
+    expect(connectedNames()).toEqual(["GitHub"]);
+    const line = connectionLine("GitHub");
+    // Nothing needs the person: no state on the line, who uses it instead of a button.
+    expect(line.querySelector(".store-state")).toBeNull();
+    expect(line.querySelector(".store-who")?.textContent).toBe("Nenhum agente ainda");
     expect(line.textContent).not.toContain("Conectado como");
     expect(within(section).queryByRole("button", { name: "Quem usa GitHub" })).toBeNull();
-    await click(line);
-    expect(line.getAttribute("aria-expanded")).toBe("true");
-    const more = document.getElementById(line.getAttribute("aria-controls") ?? "") as HTMLElement;
-    expect(more.inert).toBe(false);
-    expect(more.textContent).toContain("Conectado como acme");
-    // Its actions are one row of bare words, the ⋯ last.
-    expect([...more.querySelectorAll(".ac-acts > button")].map((b) => b.className)).toEqual([
-      "ac-link ac-link--action",
-      "ac-link ac-link--action",
-      "ac-btn ac-btn--ghost ac-btn--sm ac-btn--icon",
-    ]);
-    expect(within(more).getByRole("button", { name: "Quem usa GitHub" }).textContent).toBe("Quem usa");
-    await click(line);
-    expect(line.getAttribute("aria-expanded")).toBe("false");
-    expect(more.inert).toBe(true);
-    expect(within(section).queryByRole("button", { name: "Quem usa GitHub" })).toBeNull();
-    expect(section.textContent).toContain("GitHub");
-    expect(section.textContent).toContain("Ativo");
-    expect(section.textContent).toContain("Conectado como acme");
-    expect(section.textContent).toContain("3 ferramentas");
-    expect(section.textContent).toContain("Nenhum agente ainda");
-    await click(within(await rowMenu("GitHub")).getByRole("menuitem", { name: "Desconectar" }));
+    const page = await openConnection("GitHub");
+    expect(page.querySelector(".store-page__title p")?.textContent).toContain("Conectado");
+    expect(page.textContent).toContain("Conectado como acme");
+    expect(page.textContent).toContain("3 ferramentas");
+    expect(page.textContent).toContain("Nenhum agente ainda");
+    // Each line says what is set and has its own button.
+    expect(within(page).getByRole("button", { name: "Quem usa GitHub" }).textContent).toBe("Alterar");
+    expect(within(page).getByRole("button", { name: "Ferramentas de GitHub" }).textContent).toBe("Ver");
+    expect(within(page).getByRole("button", { name: "Reconectar GitHub" }).textContent).toBe("Reconectar");
+    await click(within(page).getByRole("button", { name: "Desconectar GitHub" }));
+    await settle(2);
     const dialog = screen().getByRole("dialog", { name: "Desconectar GitHub?" });
     expect(dialog.textContent).toContain("Nenhum agente usa agora.");
     await click(within(dialog).getByRole("button", { name: "Desconectar" }));
     await settle(4);
     expect(state.calls.find((c) => c.method === "connectors.disconnect")?.args).toEqual([ORG_ID, "conn-gh"]);
-    expect(screen().getByRole("region", { name: "Conectores" }).textContent).toContain("Conecte os apps do seu time");
+    // Its page went with it: back on the list, which has nothing now.
+    expect((document.querySelector(".store") as HTMLElement).textContent).toContain("Conecte os apps do seu time");
   });
 
-  test("add a connector from the searchable catalog with an API key, then review what it does", async () => {
+  test("add a connector from the searchable store with an API key, then review what it does", async () => {
     const { state } = await go(seedState(), "settings/connectors");
-    await click(screen().getByRole("button", { name: "Adicionar conector" }));
-    const add = screen().getByRole("dialog", { name: "Adicionar conector" });
-    expect(add.textContent).toContain("Código, PRs, issues e Actions.");
-    await type(within(add).getByRole("searchbox", { name: "Buscar conector" }), "sentry");
-    // Sentry, and the card for any other MCP server.
-    expect(within(add).getAllByRole("listitem")).toHaveLength(2);
-    await pick(add, "Sentry");
+    const store = await openStore();
+    expect(within(store).getByRole("heading", { name: "Conectores" })).toBeTruthy();
+    await searchStore(store, "sentry");
+    // Only Sentry stays, with its own Connect.
+    expect(within(store).getAllByRole("listitem")).toHaveLength(1);
+    await pick(store, "Sentry");
     const connect = screen().getByRole("dialog", { name: "Conectar Sentry" });
     // Sentry has no OAuth app on this server: API key only.
     expect(within(connect).queryByRole("button", { name: "Continuar no Sentry" })).toBeNull();
@@ -261,7 +251,7 @@ describe("Configurações do workspace", () => {
       apiKey: "[redacted]",
       serverUrl: undefined,
     });
-    // Connecting ends on the confirmation; the tools are one step further, under Ajustar.
+    // Connecting ends on the confirmation; the tools are one step further, under Adjust.
     await click(
       within(screen().getByRole("dialog", { name: "Sentry conectado" })).getByRole("button", { name: "Ajustar" }),
     );
@@ -277,17 +267,19 @@ describe("Configurações do workspace", () => {
     expect(hit.textContent).toContain("search_issues");
     await click(within(tools).getByRole("button", { name: "Cancelar" }));
     await settle(2);
-    expect(screen().getByRole("region", { name: "Conectores" }).textContent).toContain("Sentry");
+    // In the store it now reads as connected; back in Settings it's on the list.
+    expect(within(document.querySelector(".store") as HTMLElement).getByText("Conectado")).toBeTruthy();
+    await click(screen().getByRole("link", { name: "Configurações" }));
+    await settle(6);
+    expect(connectedNames()).toContain("Sentry");
   });
 
   test("Google Drive connects through Composio: its page, no address or key of ours", async () => {
     const left: string[] = [];
     setNavigateAway((url) => left.push(url));
     const { state } = await go(seedState({ connections: [] }), "settings/connectors");
-    await click(screen().getByRole("button", { name: "Adicionar conector" }));
-    const add = screen().getByRole("dialog", { name: "Adicionar conector" });
-    await type(within(add).getByRole("searchbox", { name: "Buscar conector" }), "drive");
-    await pick(add, "Google Drive");
+    const store = await openStore();
+    await pick(store, "Google Drive");
     const connect = screen().getByRole("dialog", { name: "Conectar Google Drive" });
     expect(connect.textContent).toContain("Você entra na página da Composio, em inglês, e volta para cá.");
     expect(within(connect).queryByLabelText("Endereço do servidor MCP")).toBeNull();
@@ -556,8 +548,9 @@ describe("Configurações do workspace", () => {
       router.navigate({ to: "/org/$orgId/settings/$section", params: { orgId: ORG_ID, section: "usage" } }),
     );
     await settle(4);
-    // The plan accounts, each a row that opens to its windows with every agent's part, then the API per agent
+    // On Uso, the plan accounts, each a row that opens to its windows with every agent's part, then the API per agent
     // (ADR 0063).
+    await usageTab();
     const plans = screen().getByRole("region", { name: "Contas" });
     const head = within(plans).getByRole("button", { name: /^A conta que os seus agentes dividem/ });
     // Closed: its name, plan and owner, and one meter, the fullest window. One computer: it isn't named.
@@ -699,6 +692,8 @@ describe("Configurações do workspace", () => {
     cleanup();
     // IA e uso: the plans in percentages, never the workspace's keys, money or report.
     await go(state, "settings/usage");
+    expect(screen().queryByRole("region", { name: "Chaves de provedor" })).toBeNull();
+    await usageTab();
     const plans = screen().getByRole("region", { name: "Contas" });
     expect(within(plans).getByRole("meter", { name: "5 horas" }).getAttribute("aria-valuenow")).toBe("62");
     expect(screen().queryByRole("region", { name: "Chaves de provedor" })).toBeNull();
@@ -734,7 +729,8 @@ describe("Configurações do workspace", () => {
     await click(screen().getByRole("button", { name: "Abrir plano e cobrança" }));
     await settle(4);
     expect(state.calls.find((c) => c.method === "orgs.billingLink")?.args).toEqual([ORG_ID, "settings"]);
-    expect(left).toEqual(["https://billing.example.com/link?t=settings"]);
+    // The app's theme rides along, outside the signed token, for the billing service's pages to open in.
+    expect(left).toEqual(["https://billing.example.com/link?t=settings&theme=light"]);
     cleanup();
 
     if (state.me?.organizations[0]) state.me.organizations[0].role = "member";
@@ -745,6 +741,7 @@ describe("Configurações do workspace", () => {
 
   test("AI and usage: the plans' estimate is their title's ⓘ, no card has a subtitle or footer; no plans, one line", async () => {
     await go(seedState(), "settings/usage");
+    await usageTab();
     const plans = screen().getByRole("region", { name: "Contas" });
     expect(hintOf("Contas", plans)).toMatchObject({
       text: "Os planos só dizem quanto a conta inteira usou. A parte de cada agente é uma estimativa, pelo que cada um gastou nela.",
@@ -758,6 +755,7 @@ describe("Configurações do workspace", () => {
     api.orgs.planUsage = async () => ({ month: "2026-10", money: true, accounts: [], api: [] });
     await renderApp(`/org/${ORG_ID}/settings/usage`, { api });
     await settle(5);
+    await usageTab();
     const empty = screen().getByRole("region", { name: "Contas" });
     expect(shownText(empty)).toBe(
       "ContasUse o plano de IA que você já pagaConecte um plano e acompanhe aqui o quanto cada agente usa dele.Conectar uma IA",
@@ -794,6 +792,7 @@ describe("a plan account's agents (IA e uso › Contas)", () => {
   test("the bar split in each agent's color, then one list biggest share first, then when it renews and the month", async () => {
     await renderApp(`/org/${ORG_ID}/settings/usage`, { api: crowded() });
     await settle(5);
+    await usageTab();
     const plans = screen().getByRole("region", { name: "Contas" });
     await click(within(plans).getByRole("button", { name: /^A conta que os seus agentes dividem/ }));
     await act(async () => openDetails(plans));

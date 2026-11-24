@@ -49,5 +49,10 @@ test("a dialog's foot never holds a button wider than the dialog: its words end 
   // Beside a note, the buttons are one group no wider than the foot, which goes under the note when both can't share
   // a line (the action line).
   expect(rule(".ac-dialog__foot-acts")).toContain("max-width: 100%");
+  // A ghost at its end reaches its plate past the group: as much wider than it, or its words end cut.
+  const endGhost =
+    ".ac-dialog__foot > .ac-btn--ghost:not(.ac-btn--icon):last-child,\n.ac-dialog__foot-acts > .ac-btn--ghost:not(.ac-btn--icon):last-child";
+  expect(rule(endGhost)).toContain("margin-inline-end: calc(-1 * var(--ghost-plate))");
+  expect(rule(endGhost)).toContain("max-width: calc(100% + var(--ghost-plate))");
   expect(rule(".ac-dialog__foot-acts")).toContain("flex: none");
 });

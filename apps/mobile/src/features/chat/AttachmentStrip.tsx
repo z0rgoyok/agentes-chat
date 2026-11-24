@@ -4,8 +4,9 @@ import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Text as RNText, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { Easing, FadeIn, FadeOut, LinearTransition } from "react-native-reanimated";
 import { Icon, PressScale, Text, useTheme } from "@/ui";
-import { extensionOf, extLabel, videoClock } from "../files/logic";
+import { extensionOf, extLabel, isLocalPdf, videoClock } from "../files/logic";
 import { FileTile } from "../files/MessageFiles";
+import { LocalPdfPage } from "../files/pdf-preview";
 import { VideoFirstFrame } from "../files/VideoPlayer";
 import { TILE_H, tileWidth } from "./attachment-size";
 
@@ -115,7 +116,15 @@ function Tile({ file: f, onRemove }: { file: PendingFile; onRemove: () => void }
         <VideoFirstFrame uri={f.uri} />
       ) : (
         <>
-          <FileTile ext={extLabel(extensionOf(f.name))} />
+          {isLocalPdf(f) ? (
+            // A PDF: its first page over its type's tile, read from the phone's own file.
+            <View style={styles.page}>
+              <FileTile ext={extLabel(extensionOf(f.name))} />
+              <LocalPdfPage uri={f.uri} />
+            </View>
+          ) : (
+            <FileTile ext={extLabel(extensionOf(f.name))} />
+          )}
           <View style={styles.fileText}>
             <Text variant="caption" style={styles.fileName} numberOfLines={2}>
               {f.name}
@@ -172,6 +181,8 @@ const styles = StyleSheet.create({
   // A file: its type's tile and its words side by side, room on the right for the ×.
   preparing: { alignItems: "center", justifyContent: "center" },
   fileTile: { flexDirection: "row", alignItems: "center", gap: 10, paddingLeft: 12, paddingRight: 28 },
+  // A PDF's page in the type tile's own box (`FileTile`: 40 by 48, its corners).
+  page: { width: 40, height: 48, borderRadius: 8, overflow: "hidden" },
   fileText: { flex: 1, minWidth: 0, gap: 2 },
   fileName: { fontWeight: "600" },
   length: {

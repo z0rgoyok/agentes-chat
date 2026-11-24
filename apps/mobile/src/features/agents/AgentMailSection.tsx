@@ -6,7 +6,7 @@ import { defaultPolicy, mailAccessOf, mailboxName, onlyForOwner, toMailLevel } f
 import { useTranslation } from "react-i18next";
 import { useToast } from "@/ui";
 import { pickLevel } from "../connectors/pick-level";
-import { useDirectory, useMeId, useOrgId } from "../shared/hooks";
+import { useDirectory, useMeId, useOrgId, useOwnsAgent } from "../shared/hooks";
 
 const toLevel = (l: AgentMailbox["level"]): Level => (l === "read_write" ? "write" : l);
 
@@ -38,6 +38,7 @@ export function useAgentMailboxes(agentId: string, enabled = true): MailboxLine[
   const orgId = useOrgId();
   const meId = useMeId();
   const dir = useDirectory();
+  const owns = useOwnsAgent();
   const toast = useToast();
   const agent = dir.agentById.get(agentId);
   // Someone else's mailbox shows only while this agent holds it (who manages connectors gets those, named by label).
@@ -50,8 +51,9 @@ export function useAgentMailboxes(agentId: string, enabled = true): MailboxLine[
   const mail = useAgentMail(orgId, agentId, enabled && list.length > 0);
   const set = useSetAgentMail(orgId);
   if (!enabled || list.length === 0 || !mail.data) return [];
-  // Who manages it (the server's `canManage`) or its owner takes a mailbox away.
-  const manages = managesAgent(agent) || (!!meId && agent?.ownerUserId === meId);
+  // Who manages it (the server's `canManage`) or its owner (or one who holds its owner role, ADR 0085, addendum of
+  // 2026-11-21) takes a mailbox away.
+  const manages = managesAgent(agent) || owns(agent);
   const save = (accountId: string, saved: AgentMailbox | undefined, level: Level) =>
     set.mutate(
       {

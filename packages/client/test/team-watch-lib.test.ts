@@ -3,8 +3,9 @@ import { resources } from "@agenteschat/i18n";
 import i18next from "i18next";
 import type { AppNotification } from "../src/api/types";
 import { openTarget, sortWaiting, TEAM_WATCH_CAUSES, teamWatchOf, waitingCardOf } from "../src/lib/notifications";
+import { settingLineText } from "../src/lib/proposals";
 import { soundForNotification } from "../src/lib/sounds";
-import { teamWatchLine } from "../src/lib/team-watch";
+import { budgetPausedIds, budgetStalledText, teamWatchLine } from "../src/lib/team-watch";
 
 const notice = (latest: AppNotification["latest"], extra: Partial<AppNotification> = {}): AppNotification => ({
   id: "n1",
@@ -119,4 +120,34 @@ test("a build from before the kind shows the stored sentence and opens nothing",
   } as unknown as AppNotification;
   expect(waitingCardOf(unknown).title).toBe("The sign-in for Work ended.");
   expect(openTarget(unknown)).toBeNull();
+});
+
+test("#general's team-stalled line names the agents paused on their budget, in words", () => {
+  const ids = budgetPausedIds([
+    { agentId: "a", budgetPaused: true },
+    { agentId: "b" },
+    { agentId: "c", budgetPaused: true },
+  ]);
+  expect(ids).toEqual(["a", "c"]);
+  expect(budgetPausedIds(undefined)).toEqual([]);
+  const t = i18next.createInstance();
+  void t.init({ lng: "pt-BR", fallbackLng: "en", resources, initAsync: false });
+  expect(budgetStalledText(t.t, ["Ada"])).toBe("O orçamento de Ada acabou.");
+  expect(budgetStalledText(t.t, ["Ada", "Theo"])).toBe("Os orçamentos de Ada e Theo acabaram.");
+  expect(t.t("channel.teamStalled")).toBe("Time parado");
+});
+
+test("a budget card line that stops the agent says so after the amount", () => {
+  const t = i18next.createInstance();
+  void t.init({ lng: "en", fallbackLng: "en", resources, initAsync: false });
+  const names = { model: (id: string) => id, person: () => undefined, channel: () => undefined, role: () => undefined };
+  const line = (pausesNow?: boolean) =>
+    settingLineText(
+      t.t,
+      "en",
+      { field: "budget", from: null, to: 5_000_000_000, ...(pausesNow ? { pausesNow } : {}) },
+      names,
+    );
+  expect(line(true).to).toBe(`${line().to} · pauses at once`);
+  expect(line().to).not.toContain("pauses");
 });

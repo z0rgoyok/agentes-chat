@@ -11,7 +11,7 @@ import { CONTROL_PROTOCOL_VERSION, type ControlEvent, type ControlOut } from "@a
 import { configPath, readStoredConfig, type StoredConfig, writeConfig } from "../../runner/config";
 import type { Dial, Socket, SocketHandlers } from "../../runner/connection";
 import { EXIT_LOCKED, type RunControlOptions, runControl } from "../../runner/control";
-import { DEFAULT_LIMITS, RunnerDaemon } from "../../runner/daemon";
+import { DEFAULT_LIMITS, RunnerDaemon, sizedTaskLimit } from "../../runner/daemon";
 import { RUNNER_VERSION } from "../../runner/errors";
 import { ORG_LOGO_MAX_BYTES, orgLogoPath } from "../../runner/org-logo";
 import type { FetchFn } from "../../runner/pairing";
@@ -265,8 +265,13 @@ test("paired: status and hello carry pause and access; pause/resume persist, go 
     exec: false,
     paused: { paused: false },
     access: { folders: [sharedGrant()], tools: { claude: false, codex: false, commands: false } },
-    // Protocol 22: how big this computer is.
-    size: { cpus: expect.any(Number), memoryGb: expect.any(Number), diskGb: expect.any(Number) },
+    // Protocol 22: how big this computer is; `TASK_LIMIT_PROTOCOL`: the tasks it runs at once.
+    size: {
+      cpus: expect.any(Number),
+      memoryGb: expect.any(Number),
+      diskGb: expect.any(Number),
+      maxTasks: DEFAULT_LIMITS.maxConcurrentTasks,
+    },
   });
   await waitFor(() => c.events("status").some((e) => e.kind === "status" && e.status.connection === "online"));
   s.frame({ type: "agents", agents: [{ id: AGENT.id, handle: "dev", name: "Dev", look: { color: "amber" } }] });
@@ -291,6 +296,19 @@ test("paired: status and hello carry pause and access; pause/resume persist, go 
   s.frame({ type: "request", id: "q1", op: "list", path: "", depth: 1, agent: AGENT });
   await waitFor(() => s.sent.some((f) => f.id === "q1"));
   expect(s.sent.find((f) => f.id === "q1")).toMatchObject({ ok: false, error: { code: "paused" } });
+
+  // Its task limit from the apps, paused or not: stored, and said back to the server.
+  s.frame({ type: "request", id: "l1", op: "limits.set", maxTasks: 1 });
+  await waitFor(() => s.sent.some((f) => f.id === "l1"));
+  expect(s.sent.find((f) => f.id === "l1")).toMatchObject({ ok: true, data: { maxTasks: 1 } });
+  expect(stored(home).maxConcurrentTasks).toBe(1);
+  expect(s.of("runner.state").at(-1)).toMatchObject({ type: "runner.state", maxTasks: 1 });
+  s.frame({ type: "request", id: "l2", op: "limits.set", maxTasks: 21 });
+  await waitFor(() => s.sent.some((f) => f.id === "l2"));
+  expect(s.sent.find((f) => f.id === "l2")).toMatchObject({ ok: false, error: { code: "bad_request" } });
+  // Changed on the computer (its app): the server hears it too.
+  await c.data({ type: "config.set", patch: { maxConcurrentTasks: 2 } });
+  expect(s.of("runner.state").at(-1)).toMatchObject({ type: "runner.state", maxTasks: 2 });
 
   expect(await c.data({ type: "resume" })).toEqual({ paused: { paused: false } });
   expect(stored(home).paused).toBeUndefined();
@@ -356,6 +374,24 @@ test("Grok Build's models are the ones a signed-in account listed, not the compu
   const c = control(home, { executors: undefined, executorRun });
   const s = await c.connect();
   expect(s.of("hello")[0]?.executors).toEqual({ grok: { ...grok, models: [{ id: "grok-4.7" }, { id: "grok-4.6" }] } });
+});
+
+test("Antigravity's models are the ones its signed-in accounts listed: the computer's own `agy models` lists none", async () => {
+  const { home } = pairedHome();
+  // Signed out, the computer's own look finds the CLI and no models.
+  const antigravity = { version: "agy 1.5.12" };
+  writeFileSync(path.join(home, "executors.json"), JSON.stringify({ antigravity }));
+  const account = "0193eeee-0000-7000-8000-0000000000f1";
+  mkdirSync(path.join(home, "accounts", "antigravity", account), { recursive: true });
+  const listed = [
+    { id: "gemini-4-neon-high", label: "Gemini 4 Neon (High)" },
+    { id: "gemini-4-hydrogen-medium", label: "Gemini 4 Hydrogen (Medium)" },
+  ];
+  writeFileSync(path.join(home, "accounts", "agy-models.json"), JSON.stringify({ [account]: listed }));
+  const executorRun = () => new Promise<never>(() => {});
+  const c = control(home, { executors: undefined, executorRun });
+  const s = await c.connect();
+  expect(s.of("hello")[0]?.executors).toEqual({ antigravity: { ...antigravity, models: listed } });
 });
 
 test("a new install's hello leaves the CLIs out until the first look, then sends what it found", async () => {
@@ -722,11 +758,12 @@ test("folders, tools and settings from the app: system folders refused, everythi
 
   expect(await c.data({ type: "config.get" })).toEqual({
     name: "box",
-    maxConcurrentTasks: 3,
+    maxConcurrentTasks: DEFAULT_LIMITS.maxConcurrentTasks,
     taskMaxSeconds: 14400,
     brainIdleMinutes: DEFAULT_LIMITS.brainIdleMinutes,
     brainMaxProcesses: DEFAULT_LIMITS.brainMaxProcesses,
     workspace: expect.any(String),
+    defaultMaxConcurrentTasks: DEFAULT_LIMITS.maxConcurrentTasks,
     managedBy: "desktop",
   });
   expect(await c.data({ type: "config.set", patch: { name: "Notebook", maxConcurrentTasks: 5 } })).toMatchObject({
@@ -742,6 +779,19 @@ test("folders, tools and settings from the app: system folders refused, everythi
   const diag = await c.data<{ text: string }>({ type: "diagnostics" });
   expect(diag.text).toContain(`agentes runner ${RUNNER_VERSION}`);
   expect(diag.text).not.toContain(TOKEN);
+});
+
+test("the task limit is sized to the memory: one per 1.5 GiB past 4, at least 3, at most 20, whatever the CPUs", () => {
+  for (const cpus of [2, 4, 8]) {
+    const sizes = [4, 8, 12, 16, 32].map((memoryGb) => ({ cpus, memoryGb }));
+    expect(sizes.map(sizedTaskLimit)).toEqual([3, 3, 5, 8, 18]);
+  }
+  // A 12 GB computer reads a little less than 12 GiB.
+  expect(sizedTaskLimit({ memoryGb: 11.5 })).toBe(5);
+  expect(sizedTaskLimit({ memoryGb: 512 })).toBe(20);
+  // A container's limit, not the host's.
+  expect(sizedTaskLimit({ memoryGb: 256, limit: { cpus: 4, memoryGb: 8 } })).toBe(3);
+  expect(DEFAULT_LIMITS.maxConcurrentTasks).toBeGreaterThanOrEqual(3);
 });
 
 test("report: facts and the end of the log, with no paths, names, addresses or token", async () => {

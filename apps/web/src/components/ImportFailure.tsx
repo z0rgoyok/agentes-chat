@@ -6,7 +6,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { failedOffline } from "@/chat/offline";
 import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { useOrgIfAny } from "@/components/org-context";
 import { type ImportFailure, importFailureText, retryable } from "@/lib/import-flow";
 

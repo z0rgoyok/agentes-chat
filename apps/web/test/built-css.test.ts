@@ -163,15 +163,18 @@ test("the built stylesheet keeps touch's bar for the keyboard only, and the lit 
 });
 
 test("the built stylesheet keeps a tip on the floating layer, fixed to the window, a word too long for it broken inside", async () => {
-  const tip = declarations(await builtCss(), ".ac-tip");
+  const built = await builtCss();
+  const tip = declarations(built, ".ac-tip");
   for (const kept of [
     ["position", "fixed"],
     ["z-index", "var(--z-floating)"],
     ["max-width", "calc(100vw - 24px)"],
     ["overflow-wrap", "anywhere"],
-    ["pointer-events", "none"],
   ] as const)
     expect(tip).toContainEqual(kept);
+  // The pointer may rest on a tip to click a link in it; a `title`'s tooltip holds only words and lets clicks through.
+  expect(tip).not.toContainEqual(["pointer-events", "none"]);
+  expect(declarations(built, ".ac-tip--title")).toContainEqual(["pointer-events", "none"]);
 });
 
 test("no rule sets translate, rotate or scale beside transform: the build's minifier drops or merges them", async () => {

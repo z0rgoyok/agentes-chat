@@ -38,7 +38,7 @@ describe("swiping a message to answer it", () => {
     expect(swipe).toContain("{marked ? <ReplyMark x={x} armed={armed} /> : null}");
     const chat = chatScreenSource();
     expect(chat).toContain("<SwipeReply enabled={canReply && !m.local} onReply={reply}>");
-    expect(chat).toMatch(/\{NATIVE_MENU \? \(\s*<MessageMenuFor/);
+    expect(chat).toMatch(/\{NATIVE_MENU \? \(?\s*<MessageMenuFor/);
     expect(chat).not.toContain("NATIVE_MENU && !m.local");
     // Its menu then holds what works before the server has it: no reactions, no empty palette.
     const menu = src("features/chat/MessageMenu.tsx");
@@ -46,7 +46,13 @@ describe("swiping a message to answer it", () => {
     expect(menu).toContain("{reactions.length > 0 ? (");
     // Built once a finger lands on the row (or with a screen reader on), never for every row a scroll mounts.
     expect(menu).toContain("onArm={armed ? undefined : arm}");
-    expect(menu).toContain("{groups === null ? <Link.MenuAction hidden onPress={noop} /> : null}");
+    expect(menu).toContain(
+      '{groups === null ? <NativeLinkPreviewAction identifier="building" title="" hidden onSelected={noop} /> : null}',
+    );
+    // A plain box around the row, never expo-router's Link: its native view takes `display: contents`, and in there the
+    // row's frames went stale as its words changed size (a long message's bubble drew empty space under its words).
+    expect(menu).toContain("<NativeLinkPreview previewActivationPath={undefined}>");
+    expect(menu).not.toMatch(/<Link[\s.>]/);
   });
 });
 

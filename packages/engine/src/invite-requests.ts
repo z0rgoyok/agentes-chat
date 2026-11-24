@@ -1777,7 +1777,6 @@ export async function pruneJoinRequests(deps: Deps, now = new Date()) {
     .delete(codes)
     .where(and(lt(codes.expiresAt, dayAgo), or(isNull(codes.verifiedUntil), lt(codes.verifiedUntil, dayAgo))));
   await deps.db.delete(codeEvents).where(lt(codeEvents.at, dayAgo));
-  // ponytail: a scan of the outbox once a day; an index on the key's prefix if the outbox grows past millions.
   await deps.db
     .delete(outbox)
     .where(

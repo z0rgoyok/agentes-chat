@@ -11,6 +11,7 @@ export {
   count,
   desc,
   eq,
+  getTableColumns,
   gt,
   gte,
   inArray,

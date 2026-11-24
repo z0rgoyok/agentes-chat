@@ -104,6 +104,8 @@ export interface MachineSizeRecord {
   memoryGb: number;
   diskGb: number;
   limit?: { cpus: number; memoryGb: number };
+  /** Background tasks it runs at once (protocol 75), also as `runner.state` and `limits.set` said it since. */
+  maxTasks?: number;
 }
 
 /** How busy a computer got over the last day (protocol 22: `MachineLoad` in the protocol), and when it said so. */
@@ -376,6 +378,22 @@ export const machineAccounts = pgTable(
      * `owner`'s. Only the person who connected it changes it, for every login of that account.
      */
     serves: text().notNull().default("everyone"),
+    /**
+     * Its three permissions, each an audience of people besides its owner, who always holds them: `owner` (nobody
+     * else), `admins` (administrators), `roles` or `people` (the ids below) or `everyone`. "Gerenciar" renames,
+     * removes it and sets "Usar em agentes"; "Usar em agentes" is whose agents (by the agent's owner) and right hand
+     * may think with it, and replaces `serves`, which stays only for older apps; "Atender todos" is whom an agent on it
+     * answers besides the agent's owner (`owner` there: the agent's owner alone).
+     */
+    manageMode: text().notNull().default("admins"),
+    manageUserIds: text().array().notNull().default(sql`'{}'::text[]`),
+    manageRoleIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    useMode: text().notNull().default("everyone"),
+    useUserIds: text().array().notNull().default(sql`'{}'::text[]`),
+    useRoleIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    replyMode: text().notNull().default("owner"),
+    replyUserIds: text().array().notNull().default(sql`'{}'::text[]`),
+    replyRoleIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
     /**
      * Its place in the workspace's order of use (ADR 0041 §6): at a plan's limit a run goes on with the next account
      * that serves its agent, lowest first; null after every numbered one, oldest first.

@@ -1,10 +1,17 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
-import { setOrgLimits } from "@agenteschat/engine";
+import {
+  createOrganization,
+  enableOperatorEvents,
+  scheduleDeletion,
+  setBillingHold,
+  setOrgLimits,
+} from "@agenteschat/engine";
 import { type Browser, browser, createTestServer, joinByInvitation, signUp, type TestServer } from "./harness";
 
 let t: TestServer | undefined;
 afterEach(async () => {
+  enableOperatorEvents(false);
   await t?.close();
   t = undefined;
 });
@@ -112,6 +119,7 @@ describe("the workspace's limits", () => {
       members: { used: 2, limit: null, max: null, canAddSeats: false, payer: null },
       storage: { usedBytes: 0, limitBytes: null, ownStorage: false },
       uploads: { usedBytes24h: 0, limitBytesPerDay: null },
+      connectors: { usedUsd: 0, limitUsd: null },
     });
     const limits = {
       members: 2,
@@ -126,6 +134,7 @@ describe("the workspace's limits", () => {
       members: { used: 2, limit: 2, max: 3, canAddSeats: true, payer: null },
       storage: { usedBytes: 0, limitBytes: 1000, ownStorage: false },
       uploads: { usedBytes24h: 0, limitBytesPerDay: 500 },
+      connectors: { usedUsd: 0, limitUsd: null },
     });
     const stranger = browser(t);
     await signUp(stranger, "eve@example.com");
@@ -170,5 +179,56 @@ describe("the workspace's limits", () => {
     // Someone not in the workspace: no name to say.
     expect(await seen(admin, "user_gone")).toEqual({ you: false, name: null });
     expect(await seen(admin, null)).toBeNull();
+  });
+});
+
+describe("moving a plan to another workspace", () => {
+  test("its payer moves it, while the workspace is being deleted too; GET /me says whose plan it is; none without billing", async () => {
+    t = await createTestServer({ env: { ...BILLING, ALLOW_SIGNUP: "true", OPERATOR_API_TOKEN: "o".repeat(40) } });
+    enableOperatorEvents();
+    const server = t;
+    const { owner, orgId } = await ownerWithWorkspace(server);
+    const [payer] = await server.db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(eq(schema.users.email, "owner@example.com"));
+    const payerUserId = payer?.id ?? "";
+    const other = (await createOrganization(server.db, payerUserId, { name: "Second" })).organization.id;
+    await setBillingHold({ db: server.db }, other, "payment");
+    await setOrgLimits(server.db, orgId, {
+      members: null,
+      membersMax: null,
+      payerUserId,
+      storageBytes: null,
+      uploadBytesPerDay: null,
+      platformUsdPerMonth: null,
+    });
+    const me = (await (await owner("/api/app/me")).json()) as { organizations: { id: string; paysPlan?: true }[] };
+    expect(me.organizations.map((o) => [o.id, o.paysPlan])).toEqual([
+      [orgId, true],
+      [other, undefined],
+    ]);
+
+    await scheduleDeletion({ db: server.db, pubsub: server.adapters.pubsub }, payerUserId, orgId, "owner");
+    const move = (to: string) => owner(`/api/app/organizations/${orgId}/plan-move`, { json: { to } });
+    expect((await move(other)).status).toBe(202);
+    const asked = await server.db
+      .select()
+      .from(schema.operatorEvents)
+      .where(eq(schema.operatorEvents.type, "organization.plan_move_requested"));
+    expect(asked).toMatchObject([{ orgId, userId: payerUserId, data: { to: other } }]);
+    const back = await move(orgId);
+    expect([back.status, ((await back.json()) as { error: { code: string } }).error.code]).toEqual([
+      400,
+      "plan_move.same",
+    ]);
+  });
+
+  test("no billing service: 404 billing.off", async () => {
+    t = await createTestServer();
+    const { owner, orgId } = await ownerWithWorkspace(t);
+    const res = await owner(`/api/app/organizations/${orgId}/plan-move`, { json: { to: orgId } });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ error: { code: "billing.off" } });
   });
 });

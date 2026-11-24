@@ -18,23 +18,35 @@ export function DatePill({ scroller, ref }: { scroller: RefObject<HTMLElement | 
   const [day, setDay] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const frame = useRef(0);
   useImperativeHandle(
     ref,
     () => ({
+      // Once a frame, however many scroll events came in it: finding the day reads where the day lines are.
       poke() {
-        const list = scroller.current;
-        const top = list ? dayAtTop(list) : null;
-        clearTimeout(timer.current);
-        // Scrolled up past the first day, onto the conversation's start: it goes at once, never left over a card.
-        if (!top) return setShown(false);
-        setDay(top);
-        setShown(true);
-        timer.current = setTimeout(() => setShown(false), DATE_PILL_IDLE_MS);
+        if (frame.current) return;
+        frame.current = requestAnimationFrame(() => {
+          frame.current = 0;
+          const list = scroller.current;
+          const top = list ? dayAtTop(list) : null;
+          clearTimeout(timer.current);
+          // Scrolled up past the first day, onto the conversation's start: it goes at once, never left over a card.
+          if (!top) return setShown(false);
+          setDay(top);
+          setShown(true);
+          timer.current = setTimeout(() => setShown(false), DATE_PILL_IDLE_MS);
+        });
       },
     }),
     [scroller],
   );
-  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(
+    () => () => {
+      clearTimeout(timer.current);
+      cancelAnimationFrame(frame.current);
+    },
+    [],
+  );
   if (!day) return null;
   return (
     <div className="channel__date" data-shown={shown || undefined} aria-hidden="true">

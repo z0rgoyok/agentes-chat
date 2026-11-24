@@ -55,5 +55,12 @@ export const notifications = pgTable(
     index("notifications_group").on(t.orgId, t.groupKey),
     // Snoozed rows coming back (worker).
     index("notifications_snoozed").on(t.snoozedUntil).where(sql`${t.snoozedUntil} is not null and ${t.doneAt} is null`),
+    // The sweeps that settle open rows of one kind across every workspace, by group key prefix (an approval or a
+    // question that closed, a budget period that ended): without it each scanned every row ever notified. Built
+    // concurrently.
+    index("notifications_open_kind_idx")
+      .on(t.kind, t.groupKey.op("text_pattern_ops"))
+      .where(sql`${t.doneAt} is null`)
+      .concurrently(),
   ],
 );

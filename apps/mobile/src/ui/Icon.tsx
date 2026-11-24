@@ -3,6 +3,7 @@ import { useState } from "react";
 import { type ImageStyle, Platform, type TextStyle } from "react-native";
 import Svg, { Circle, Path, Rect } from "react-native-svg";
 import { ICONS, type IconName } from "./icons.data";
+import { MATERIAL_VIEWBOX, materialPathOf } from "./icons.material";
 import { SF_POINT_SCALE, sfSymbolOf } from "./icons.sf";
 import { useTheme } from "./theme";
 
@@ -17,13 +18,14 @@ export interface IconProps {
   size?: number;
   /** Default: the theme's ink2. */
   color?: string;
-  /** The system's filled symbol where it has one (iOS): a white glyph on a colored tile. */
+  /** The system's filled symbol where it has one (iOS, Android): a white glyph on a colored tile, a selected tab. */
   filled?: boolean;
   /** The system symbol's weight (iOS, default regular): semibold for the marks at a row's end, as the system's. */
   weight?: IconWeight;
 }
 
 const IOS = Platform.OS === "ios";
+const ANDROID = Platform.OS === "android";
 
 const WEIGHTS = { regular: "400", medium: "500", semibold: "600", bold: "700" } as const;
 
@@ -50,14 +52,22 @@ const boxOf = (size: number, weight: IconWeight) => {
 
 /**
  * An icon. On iOS the system's own symbol (SF Symbols, drawn by the system through expo-image's `sf:` source, at the
- * weight asked and tinted), so the app's icons are the ones every iPhone app shows; our line icon where the system has
- * none (the agent, the waiting fuse) or if a symbol can't be drawn on an older iOS. Android draws our line icons.
+ * weight asked and tinted), so the app's icons are the ones every iPhone app shows. On Android Google's (Material
+ * Symbols, Rounded: `icons.material.ts`), the ones every Android app shows, drawn from their path data. Our line icon
+ * where the system has none (the agent, the waiting fuse) or if a symbol can't be drawn on an older iOS.
  */
 export function Icon({ name, size = 20, color, filled = false, weight = "regular" }: IconProps) {
   const { colors } = useTheme();
   const tint = color ?? colors.ink2;
   const symbol = IOS ? sfSymbolOf(name, filled) : null;
   const [failed, setFailed] = useState(false);
+  const material = ANDROID ? materialPathOf(name, filled) : null;
+  if (material)
+    return (
+      <Svg width={size} height={size} viewBox={MATERIAL_VIEWBOX} accessible={false}>
+        <Path d={material} fill={tint} />
+      </Svg>
+    );
   if (symbol && !failed)
     return (
       <Image

@@ -15,7 +15,10 @@ afterEach(() => {
 });
 
 const click = (el: Element) => act(async () => fireEvent.click(el));
-const APP_STEP = "Instale o app agentes no celular.App StoreEm breveGoogle PlayEm breve";
+/** On agentes.chat's own servers: the iPhone beta and Google Play. */
+const APP_STEP = "Instale o app agentes no celular.TestFlightGoogle Play";
+/** On any other server: Google Play, and the App Store still to come. */
+const APP_STEP_OWN_SERVER = "Instale o app agentes no celular.App StoreEm breveGoogle Play";
 
 /** Configurações › Sua conta → Abrir no celular. */
 async function openPhoneDialog(state: ReturnType<typeof seedState>) {
@@ -44,34 +47,45 @@ describe("Abrir no celular", () => {
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual([APP_STEP, "Aponte a câmera do celular para o código."]);
-    // Our phone app is in neither store yet: each one disabled, marked Em breve, and no link.
+    // Where to get our phone app: a link each, nothing disabled.
     const app = within(dialog).getAllByRole("listitem")[0] as HTMLElement;
     expect(
       within(app)
-        .getAllByRole("button")
-        .map((b) => [b.textContent, (b as HTMLButtonElement).disabled]),
+        .getAllByRole("link")
+        .map((a) => [a.textContent, a.getAttribute("href")]),
     ).toEqual([
-      ["App StoreEm breve", true],
-      ["Google PlayEm breve", true],
+      ["TestFlight", "https://testflight.apple.com/join/f5QtGMkg"],
+      ["Google Play", "https://play.google.com/store/apps/details?id=chat.agentes.app"],
     ]);
-    expect(within(app).queryAllByRole("link")).toEqual([]);
+    expect(within(app).queryAllByRole("button")).toEqual([]);
     expect(dialog.textContent).toContain("Quem escanear este código entra na sua conta.");
   });
 
   test("on a tailnet, installing Tailscale comes before scanning", async () => {
     const state = seedState();
     state.phoneServer = "https://box.tail1234.ts.net";
+    state.instance = { cloud: false };
     const dialog = await openPhoneDialog(state);
     expect(
       within(dialog)
         .getAllByRole("listitem")
         .map((li) => li.textContent),
     ).toEqual([
-      APP_STEP,
+      APP_STEP_OWN_SERVER,
       "Instale o Tailscale no celular e entre com a mesma conta do Tailscale deste servidor. App Store · Google Play",
       "Aponte a câmera do celular para o código.",
     ]);
-    expect(within(dialog).getByRole("link", { name: "Google Play" }).getAttribute("href")).toBe(
+    // No iPhone beta outside agentes.chat's own servers: the App Store disabled, Google Play a link.
+    const [app, tailscale] = within(dialog).getAllByRole("listitem") as [HTMLElement, HTMLElement];
+    expect(
+      within(app)
+        .getAllByRole("button")
+        .map((b) => [b.textContent, (b as HTMLButtonElement).disabled]),
+    ).toEqual([["App StoreEm breve", true]]);
+    expect(within(app).getByRole("link", { name: "Google Play" }).getAttribute("href")).toBe(
+      "https://play.google.com/store/apps/details?id=chat.agentes.app",
+    );
+    expect(within(tailscale).getByRole("link", { name: "Google Play" }).getAttribute("href")).toBe(
       "https://play.google.com/store/apps/details?id=com.tailscale.ipn",
     );
   });
@@ -79,14 +93,13 @@ describe("Abrir no celular", () => {
   test("the longest store marks (Dutch), beside the Tailscale step, for the layout check", async () => {
     const state = seedState();
     state.phoneServer = "https://box.tail1234.ts.net";
+    state.instance = { cloud: false };
     const dialog = await openPhoneDialog(state);
     await showIn(dialog.app.services, "nl");
     const app = within(dialog).getAllByRole("listitem")[0] as HTMLElement;
     expect(
-      within(app)
-        .getAllByRole("button")
-        .map((b) => b.textContent),
-    ).toEqual(["App StoreBinnenkort", "Google PlayBinnenkort"]);
+      [...within(app).getAllByRole("button"), ...within(app).getAllByRole("link")].map((b) => b.textContent),
+    ).toEqual(["App StoreBinnenkort", "Google Play"]);
   });
 
   test("a server only its own computer answers at: how to turn on access, never a QR code that opens nothing", async () => {

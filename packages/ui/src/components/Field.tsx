@@ -194,10 +194,16 @@ export function Locked({ when, children }: { when: boolean; children: ReactNode 
   );
 }
 
-/** A border-box height that fits the text: `scrollHeight` leaves the border out. */
-function fitText(el: HTMLTextAreaElement) {
-  el.style.height = "auto";
-  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
+/**
+ * A border-box height that fits the text: `scrollHeight` leaves the border out. `grows`: text only added at the end,
+ * which can't take a line away, so the height is read as it stands; the "auto" that lets it shrink would lay out
+ * everything around the box twice per key.
+ */
+function fitText(el: HTMLTextAreaElement, grows = false) {
+  const border = el.offsetHeight - el.clientHeight;
+  if (!grows) el.style.height = "auto";
+  const height = `${el.scrollHeight + border}px`;
+  if (el.style.height !== height) el.style.height = height;
 }
 
 /**
@@ -218,9 +224,12 @@ export function PickerHeading({ label, description }: { label: ReactNode; descri
  * width rewraps it (a window resize, a sidebar opening). `on` false leaves its height alone.
  */
 export function useAutoGrow(ref: RefObject<HTMLTextAreaElement | null>, value: string, on = true) {
-  // biome-ignore lint/correctness/useExhaustiveDependencies: measured again whenever the text changes
+  const measured = useRef<string | null>(null);
   useLayoutEffect(() => {
-    if (on && ref.current) fitText(ref.current);
+    if (!on || !ref.current) return;
+    const before = measured.current;
+    fitText(ref.current, before !== null && value.startsWith(before));
+    measured.current = value;
   }, [ref, value, on]);
   useLayoutEffect(() => {
     const el = ref.current;
@@ -288,6 +297,20 @@ export interface TextareaProps extends TextareaHTMLAttributes<HTMLTextAreaElemen
   limit?: TextLimit;
 }
 
+/**
+ * Keeps a controlled textarea's default text as its value. React writes `defaultValue` (the box's text node) on every
+ * change of `value`: a change of the page's tree under its `:has()` rules, which restyled the whole conversation around
+ * the composer on every key (40 ms a key in a long one). No form here is ever reset, so nothing reads the default.
+ */
+export function useStillDefaultText(box: RefObject<HTMLTextAreaElement | null>) {
+  // After every render: a box shown again (the composer after a voice note) is a new element.
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (el && !Object.hasOwn(el, "defaultValue"))
+      Object.defineProperty(el, "defaultValue", { configurable: true, get: () => el.value, set: () => {} });
+  });
+}
+
 export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
   { className, invalid, rows = 4, autoGrow = false, limit, ...rest },
   ref,
@@ -302,6 +325,7 @@ export const Textarea = forwardRef<HTMLTextAreaElement, TextareaProps>(function 
   const box = useRef<HTMLTextAreaElement>(null);
   useImperativeHandle(ref, () => box.current as HTMLTextAreaElement, []);
   useAutoGrow(box, value, autoGrow);
+  useStillDefaultText(box);
   const area = (
     <textarea
       ref={box}

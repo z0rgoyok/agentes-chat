@@ -1,9 +1,13 @@
 import { useIssue } from "@agenteschat/client";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, type ReactNode, Suspense, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
+import { lazyDialog } from "@/lib/lazy-dialog";
 import { useToast } from "@/lib/toast";
-import { IssueDialog } from "@/pages/IssuePage";
+
+// The task's page comes when one opens: a message's text links tasks everywhere (the Home's feed too), and the task
+// page brings its conversation, which brings the whole chat.
+const IssueDialog = lazyDialog(() => import("@/pages/IssuePage").then((m) => m.IssueDialog));
 
 /** Opens a task a conversation names in its dialog, over the conversation (routines: `DetailsLink`). */
 export interface InPlace {
@@ -48,5 +52,9 @@ function IssueOver({ number, onClose }: { number: number; onClose: () => void })
     toast.show(t("issues.notFound"), "error");
     onClose();
   }, [issue.isError, toast, t, onClose]);
-  return issue.data ? <IssueDialog issue={issue.data} onClose={onClose} /> : null;
+  return issue.data ? (
+    <Suspense fallback={null}>
+      <IssueDialog issue={issue.data} onClose={onClose} />
+    </Suspense>
+  ) : null;
 }

@@ -1225,7 +1225,8 @@ const styles = StyleSheet.create({
     gap: 3,
     paddingLeft: 3,
     paddingRight: 7,
-    borderRadius: PIN_H / 2,
+    // Its corners follow the face's, as a picture's pins do (`PicturePins`).
+    borderRadius: 8,
     // The corner on the spot it points at, cut as the app's cards are.
     borderBottomLeftRadius: 3,
   },

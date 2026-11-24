@@ -112,7 +112,7 @@ describe("the kit's press, not one of its own", () => {
     const work = src("chat/issue-work.tsx");
     expect(work).not.toContain("Pressable");
     expect(work).not.toMatch(/\n {2}pressed: \{/);
-    expect(style(work, "card")).toContain("padding: CARD_PAD");
+    expect(style(work, "card")).toContain("paddingHorizontal: MESSAGE_CARD_X");
     expect(work).toContain("minHeight: TOUCH,");
     // A content-sized chip collapses a `flex: 1` title to nothing.
     expect(work).toContain("style={[styles.fit, styles.bold]}");

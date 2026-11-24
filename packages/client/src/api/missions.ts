@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { type CacheEdit, edit, editAll, optimistic, patchIn } from "../lib/optimistic";
 import { useApi } from "./context";
 import { ApiError } from "./http";
 import { keys } from "./keys";
@@ -7,11 +8,15 @@ import type {
   CommandApproval,
   MachineTask,
   Mission,
+  MissionBrain,
   MissionControl,
   MissionCreateInput,
   MissionExecutor,
+  MissionJoinRequest,
+  MissionList,
   MissionListQuery,
   MissionParticipantRole,
+  MissionSettings,
 } from "./types";
 
 /**
@@ -29,6 +34,24 @@ export function cacheMission(qc: QC, orgId: string, mission: Mission) {
   void qc.invalidateQueries({ queryKey: [...keys.missions(orgId), "list"] });
   void qc.invalidateQueries({ queryKey: keys.threads(orgId), predicate: (q) => q.queryKey[3] !== "one" });
 }
+
+/** A field changed before the server answers: the mission by id, by its thread, and in every list. */
+function missionEdits(orgId: string, missionId: string, patch: Partial<Mission>): CacheEdit[] {
+  return [
+    edit<Mission>(keys.mission(orgId, missionId), (m) => ({ ...m, ...patch })),
+    editAll<Mission | null>([...keys.missions(orgId), "thread"], (m) =>
+      m && m.id === missionId ? { ...m, ...patch } : m,
+    ),
+    editAll<MissionList>([...keys.missions(orgId), "list"], (list) => ({
+      ...list,
+      missions: patchIn<Mission>(missionId, patch)(list.missions),
+    })),
+  ];
+}
+
+/** A mission's settings (its settings dialog) changed before the server answers. */
+const settingsEdit = (orgId: string, missionId: string, change: (settings: MissionSettings) => MissionSettings) =>
+  edit<MissionSettings>(keys.missionPart(orgId, missionId, "settings"), change);
 
 /** The sidebar's count of the missions waiting for me (`counts.waitingYou`): the device's snapshot keeps it. */
 export const MISSIONS_WAITING_COUNT: MissionListQuery = { status: "waiting_you", limit: 1 };
@@ -194,17 +217,20 @@ export function useRequestJoin(orgId: string, missionId: string) {
 export function useDecideJoin(orgId: string, missionId: string) {
   const api = useApi();
   const qc = useQueryClient();
+  type Decision = { userId: string; outcome: "accept" | "decline"; role?: MissionParticipantRole };
   return useMutation({
     meta: { silent: true },
-    mutationFn: ({
-      userId,
-      outcome,
-      role,
-    }: {
-      userId: string;
-      outcome: "accept" | "decline";
-      role?: MissionParticipantRole;
-    }) => api.missions.decideJoin(orgId, missionId, userId, outcome, role),
+    mutationFn: ({ userId, outcome, role }: Decision) =>
+      api.missions.decideJoin(orgId, missionId, userId, outcome, role),
+    // The request leaves the pending ones at once; who takes part comes with the refetch.
+    ...optimistic(qc, ({ userId, outcome }: Decision) => {
+      const status: MissionJoinRequest["status"] = outcome === "accept" ? "accepted" : "declined";
+      return [
+        edit<MissionJoinRequest[]>(keys.missionPart(orgId, missionId, "joinRequests"), (list) =>
+          list.map((r) => (r.userId === userId && r.status === "pending" ? { ...r, status } : r)),
+        ),
+      ];
+    }),
     onSuccess: () => refreshMission(qc, orgId, missionId, ["joinRequests", "participants"]),
   });
 }
@@ -251,6 +277,7 @@ export function useSetCommandApproval(orgId: string, missionId: string) {
     meta: { silent: true },
     mutationFn: (commandApproval: CommandApproval) =>
       api.missions.setCommandApproval(orgId, missionId, commandApproval),
+    ...optimistic(qc, (commandApproval: CommandApproval) => missionEdits(orgId, missionId, { commandApproval })),
     onSuccess: (out) => {
       patchMission(qc, orgId, missionId, { commandApproval: out.commandApproval });
       refreshMission(qc, orgId, missionId, ["settings"]);
@@ -287,6 +314,16 @@ export function useSetMissionBrain(orgId: string, missionId: string) {
     meta: { silent: true },
     mutationFn: (input: { brain?: BrainKind | null; model?: string | null }) =>
       api.missions.setBrain(orgId, missionId, input),
+    // The choice shows at once; what a cleared one falls back to comes with the answer.
+    ...optimistic(qc, ({ brain, model }: { brain?: BrainKind | null; model?: string | null }) => [
+      edit<MissionBrain>(keys.missionPart(orgId, missionId, "brain"), (view) => ({
+        ...view,
+        ...(brain !== undefined ? { brain } : {}),
+        ...(brain ? { effectiveBrain: brain } : {}),
+        ...(model !== undefined ? { model } : {}),
+        ...(model ? { effectiveModel: model } : {}),
+      })),
+    ]),
     onSuccess: (brain) => qc.setQueryData(keys.missionPart(orgId, missionId, "brain"), brain),
   });
 }
@@ -298,6 +335,12 @@ export function useRemoveCommandRule(orgId: string, missionId: string) {
   return useMutation({
     meta: { silent: true },
     mutationFn: (ruleId: string) => api.missions.removeCommandRule(orgId, missionId, ruleId),
+    ...optimistic(qc, (ruleId: string) => [
+      settingsEdit(orgId, missionId, (settings) => ({
+        ...settings,
+        rules: settings.rules.filter((r) => r.id !== ruleId),
+      })),
+    ]),
     onSuccess: () => refreshMission(qc, orgId, missionId, ["settings", "commands"]),
   });
 }
@@ -309,6 +352,7 @@ export function useSetResumeTasks(orgId: string, missionId: string) {
   return useMutation({
     meta: { silent: true },
     mutationFn: (resumeTasks: boolean) => api.missions.setResumeTasks(orgId, missionId, resumeTasks),
+    ...optimistic(qc, (resumeTasks: boolean) => missionEdits(orgId, missionId, { resumeTasks })),
     onSuccess: (mission) => cacheMission(qc, orgId, mission),
   });
 }
@@ -320,6 +364,12 @@ export function useSetAgentMissionDefault(orgId: string, missionId: string, agen
   return useMutation({
     meta: { silent: true },
     mutationFn: (commandApproval: CommandApproval) => api.missions.setAgentDefault(orgId, agentId, commandApproval),
+    ...optimistic(qc, (commandApproval: CommandApproval) => [
+      settingsEdit(orgId, missionId, (settings) => ({
+        ...settings,
+        agentDefault: { ...settings.agentDefault, commandApproval },
+      })),
+    ]),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: keys.missionPart(orgId, missionId, "settings") });
       void qc.invalidateQueries({ queryKey: [...keys.missions(orgId), "eligible"] });
@@ -379,12 +429,21 @@ export function useRetryMissionWorktree(orgId: string, missionId: string) {
   });
 }
 
-/** Decide, review, suggestions, approve provisional: one mutation that refreshes the mission after. */
-export function useMissionAct<I, O>(orgId: string, missionId: string, run: (input: I) => Promise<O>) {
+/**
+ * Decide, review, suggestions, approve provisional: one mutation that refreshes the mission after. `edits`: what the
+ * screen shows at once, when the answer is known before it comes (a checklist's tick).
+ */
+export function useMissionAct<I, O>(
+  orgId: string,
+  missionId: string,
+  run: (input: I) => Promise<O>,
+  edits: (input: I) => CacheEdit[] = () => [],
+) {
   const qc = useQueryClient();
   return useMutation({
     meta: { silent: true },
     mutationFn: run,
+    ...optimistic(qc, edits),
     onSuccess: () => refreshMission(qc, orgId, missionId),
   });
 }

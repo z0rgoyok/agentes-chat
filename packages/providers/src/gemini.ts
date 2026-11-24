@@ -1,4 +1,4 @@
-import { MODEL_CATALOG } from "./catalog";
+import { effortWithin, MODEL_CATALOG } from "./catalog";
 import {
   decodeImage,
   type ImageRequest,
@@ -340,7 +340,7 @@ async function geminiImages(http: typeof fetch, request: ImageRequest, apiKey: s
 
 function toBody(request: ModelRequest) {
   const least = MODEL_CATALOG[request.model]?.leastThinking === "minimal" ? "minimal" : "low";
-  const level = request.effort === "none" ? least : request.effort;
+  const level = request.effort === "none" ? least : effortWithin(request.effort);
   const system = systemText(request.system);
   return {
     model: request.model,

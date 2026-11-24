@@ -43,7 +43,7 @@ import { setIslandLive } from "@/lib/push";
 import { useAppActive } from "@/lib/useAppActive";
 import { useOrg } from "@/providers/org";
 import { useRealtime } from "@/providers/realtime";
-import { haptics, Icon, type IconName, LineIcon, Text, useTheme } from "@/ui";
+import { haptics, Icon, type IconName, LineIcon, Text, useFoldRoom, useTheme } from "@/ui";
 import { router } from "@/ui/navigation";
 import { variantStyle } from "@/ui/Text";
 import { useNoticeTitle } from "../activity/noticeTitle";
@@ -103,7 +103,8 @@ export function NoticeIsland() {
   const { t } = useTranslation();
   const { reducedMotion } = useTheme();
   const insets = useSafeAreaInsets();
-  const { width, height: screenHeight } = useWindowDimensions();
+  const { width: windowWidth, height: screenHeight } = useWindowDimensions();
+  const foldRoom = useFoldRoom();
   const { status } = useRealtime();
   const snap = useSyncExternalStore(island.subscribe, island.get, island.get);
   const [open, setOpen] = useState(false);
@@ -150,6 +151,10 @@ export function NoticeIsland() {
   }, [snap.seq, snap.items.length]);
 
   const camera = Platform.OS === "ios" && insets.top >= CAMERA_INSET;
+  // Folded like a book (ADR 0212), it drops into the half past the fold, as a toast does, never across the curve; one
+  // grown out of the camera stays with the camera. Its shapes take that half's width.
+  const room = camera ? null : foldRoom;
+  const width = windowWidth - (room ? room.left + room.right : 0);
   const top = camera ? CAMERA.top : insets.top + 6;
   const shape: Shape = !lead ? "none" : open ? "open" : small ? "small" : "pill";
   // Grown out of the camera, the pill and the open island cover the status bar's line: their content starts under
@@ -238,7 +243,7 @@ export function NoticeIsland() {
         />
       ) : null}
       {camera ? <StatusBar hidden={coversBar} animated /> : null}
-      <View pointerEvents="box-none" style={[styles.place, { top }]}>
+      <View pointerEvents="box-none" style={[styles.place, { top }, room && { left: room.left, right: room.right }]}>
         <GestureDetector gesture={pan}>
           {/* Touches and the swipe land on the shape's final size; the backdrop and the content center in it. */}
           <Animated.View
@@ -383,7 +388,7 @@ function Title({ n, lines }: { n: AppNotification; lines: number }) {
 const useLine = (n: AppNotification) => {
   const { t } = useTranslation();
   // What the right hand found is its headline: nothing under it says it again.
-  return n.kind === "team_watch" ? "" : noticeLine(n, (kind) => mediaWord(t, kind));
+  return n.kind === "team_watch" || n.kind === "budget_paused" ? "" : noticeLine(n, (kind) => mediaWord(t, kind));
 };
 
 /** Closed: the face, who did what and the line; how many more; "Ver" (where it happened) at its end. */

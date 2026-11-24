@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "sideEffects": [
+    "**/*.css"
+  ],
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
@@ -38,6 +41,7 @@
     "./sky/workspace": "./src/sky/workspace.ts",
     "./sky/team": "./src/sky/team.ts",
     "./agent-talk": "./src/agent-talk.ts",
+    "./bounded-map": "./src/bounded-map.ts",
     "./channel-refs": "./src/channel-refs.ts",
     "./diff": "./src/diff.ts",
     "./format": "./src/format.ts",

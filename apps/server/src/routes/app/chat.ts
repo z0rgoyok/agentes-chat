@@ -110,6 +110,7 @@ export function chatRoutes(deps: AppDeps) {
             createdAt: r.createdAt.toISOString(),
             categoryId: r.categoryId,
             position: r.position,
+            replyInThreads: r.replyInThreads,
             unreadCount: r.unreadCount,
             mentionCount: r.mentionCount,
             lastReadAt: iso(r.lastReadAt),
@@ -229,6 +230,7 @@ export function chatRoutes(deps: AppDeps) {
           createdAt: r.createdAt.toISOString(),
           categoryId: r.categoryId,
           position: r.position,
+          replyInThreads: r.replyInThreads,
         },
         201,
       );
@@ -440,6 +442,10 @@ export function chatRoutes(deps: AppDeps) {
                 background: z.boolean().openapi({
                   description:
                     "Work in the background (a routine's, or long work, ADR 0121): not the conversation's working row.",
+                }),
+                replyInThread: z.boolean().openapi({
+                  description:
+                    "Asked in the main timeline, it answers in the thread under that message, as its channel said when it was asked (ADR 0214). `threadId` stays its conversation's root either way.",
                 }),
               }),
             ),

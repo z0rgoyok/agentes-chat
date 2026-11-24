@@ -190,6 +190,10 @@ const AgentFields = z.object({
     .optional()
     .openapi({ description: "Provider credential of this organization. Null = platform key (Cloud only)." }),
   ownerUserId: z.string().nullable().optional(),
+  ownerRoleId: z.uuid().nullable().optional().openapi({
+    description:
+      "A role that answers for it instead of a person (ADR 0085, addendum of 2026-11-21): one of the workspace's own. Naming it clears `ownerUserId`, and naming a person clears it.",
+  }),
   monthlyBudgetUsd: z.number().min(0).nullable().optional().openapi({
     description:
       "Spend cap per calendar month (UTC), admins only. Null = the workspace default (every agent has a budget).",
@@ -865,6 +869,9 @@ export function agentRoutes(deps: AppDeps) {
                   description:
                     "Something of its own thinks now (a run, or long work at work): drawn at work whatever its AI reads as for the viewer.",
                 }),
+                budgetPaused: z.literal(true).optional().openapi({
+                  description: "Work of its waits on its monthly budget: #general's team-stalled line names it.",
+                }),
                 work: z
                   .object({
                     state: WorkState.openapi({
@@ -881,7 +888,7 @@ export function agentRoutes(deps: AppDeps) {
                       description:
                         "Where it shows when you read it: its conversation, or for work another agent handed it, where that agent handed it off. Null otherwise.",
                     }),
-                    channelKind: z.enum(["channel", "dm", "task", "file"]).nullable(),
+                    channelKind: z.enum(["channel", "dm", "task", "file", "code"]).nullable(),
                     channelName: z.string().nullable(),
                     threadId: z.uuid().nullable(),
                     messageId: z
@@ -918,6 +925,7 @@ export function agentRoutes(deps: AppDeps) {
     role: z.string(),
     appearance: AgentAppearance.nullable(),
     ownerUserId: z.string().nullable(),
+    ownerRoleId: z.uuid().nullable().openapi({ description: "A role that answers for it instead of a person." }),
     reportsToAgentId: z.uuid().nullable().openapi({ description: "Responde a: the agent it reports to, if any." }),
     capabilities: z.array(z.string()).openapi({
       description:
@@ -1078,7 +1086,7 @@ export function agentRoutes(deps: AppDeps) {
           },
           // New agents start on "Automático".
           NEW_AGENT_DEFAULTS,
-          // The person's Criar agente: what they pick is what the next one starts with (ADR 0094).
+          // The person's Criar agente: where it thinks is where the next one starts (ADR 0094; its model starts on Automático).
           { remember: true, pubsub: adapters.pubsub },
         );
       const agent = proposal
@@ -1594,7 +1602,8 @@ export function agentRoutes(deps: AppDeps) {
         (rest.name !== undefined ||
           rest.handle !== undefined ||
           appearance !== undefined ||
-          rest.ownerUserId !== undefined)
+          rest.ownerUserId !== undefined ||
+          rest.ownerRoleId !== undefined)
       ) {
         await publishMachineAgentsChanged(adapters.pubsub, orgId);
       }

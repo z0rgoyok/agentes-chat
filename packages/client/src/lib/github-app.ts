@@ -58,6 +58,7 @@ const GITHUB_EVENT_LABELS: Record<string, string> = {
   pull_request_review_thread: "Pull request review thread",
   discussion: "Discussion",
   discussion_comment: "Discussion comment",
+  check_run: "Check run",
 };
 
 /** What the server's owner ticks on the app for agents to hear GitHub (`setup.events`); null when nothing is missing. */

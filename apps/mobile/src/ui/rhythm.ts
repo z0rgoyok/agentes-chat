@@ -8,6 +8,11 @@
  */
 export const SCREEN_X = 16;
 export const CARD_PAD = 16;
+/**
+ * A card's side room in a message: a bubble's own (its words' 14), so a card's content starts where the words over it
+ * do, whatever the card (a request, its tools, what it changed, a poll, the work it handed).
+ */
+export const MESSAGE_CARD_X = 14;
 export const TOOL_H = 32;
 export const TOUCH = 44;
 export const GROUPED_ROW = { minHeight: 52, padX: 16, padY: 10, tallPadY: (52 - 22) / 2, lead: 36 } as const;

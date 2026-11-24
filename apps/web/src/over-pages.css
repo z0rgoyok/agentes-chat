@@ -5,7 +5,7 @@
  */
 
 /*
- * A list or a nav beside what it opens (Aprovações, Propostas, Settings), or the task board: `.page-split` holds the
+ * A list or a nav beside what it opens (Propostas, Settings), or the task board: `.page-split` holds the
  * columns, and ends its page. Where they sit side by side, the page fills the work area: the split takes the height
  * under what sits above it and each of its columns scrolls on its own, so the header, a column's head and a footer
  * floating at its bottom stay put. Every element between the work area and the split hands the height down. When what

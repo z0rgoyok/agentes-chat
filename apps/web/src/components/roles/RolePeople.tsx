@@ -71,10 +71,12 @@ export function MailLoss({ lost }: { lost: readonly RoleMailLoss[] }) {
       <List className="roles-mail">
         {lost.map((m) => (
           <div key={`${m.agentId}-${m.accountId}`} className="ac-list__row roles-mail__row">
-            <Icon name="mail" size={18} />
-            <span className="roles-mail__text">
-              <b>{m.address}</b>
-              <span>{t("rolesPage.mail.of", { owner: m.ownerName ?? m.address, agent: m.agentName })}</span>
+            <span className="ac-iconline roles-mail__line">
+              <Icon name="mail" size={18} />
+              <span className="roles-mail__text">
+                <b>{m.address}</b>
+                <span>{t("rolesPage.mail.of", { owner: m.ownerName ?? m.address, agent: m.agentName })}</span>
+              </span>
             </span>
           </div>
         ))}

@@ -1,0 +1,9 @@
+/* A suggested session's "Ver o pedido" (ADR 0215 §11): the person's words it starts with, as they wrote them. */
+.code-suggest__request {
+  margin: 0;
+  color: var(--ink2);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

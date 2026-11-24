@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
 import { ApiError } from "../src/api/http";
-import type { AppNotification } from "../src/api/types";
-import { BILLING_HOLDS, billingHoldOf, planOfferOf } from "../src/lib/billing";
+import type { AppNotification, OrgSummary } from "../src/api/types";
+import { BILLING_HOLDS, billingHoldOf, planMoveTargets, planOfferOf } from "../src/lib/billing";
 import { errorText, holdText, restrictionLine } from "../src/lib/errors";
 import { workspaceHeadline } from "../src/lib/notifications";
 import { can } from "../src/lib/permissions";
@@ -89,4 +89,27 @@ describe("the plan the onboarding offers (the billing service's plan list)", () 
     expect(planOfferOf(list([{ key: "Team!", name: "Equipe" }], "Team!"))).toBeNull();
     expect(planOfferOf(list([{ key: "team", name: "x".repeat(41) }]))).toBeNull();
   });
+});
+
+test("a plan moves only from what its payer pays, to their other workspaces on a billing hold where they manage billing", () => {
+  const hold = (reason: string) => ({ state: "hold" as const, reason });
+  const ws = (id: string, extra: Partial<OrgSummary> = {}): OrgSummary => ({
+    id,
+    name: id,
+    role: "owner",
+    permissions: ["manage_billing"],
+    ...extra,
+  });
+  const paid = ws("paid", { paysPlan: true });
+  const orgs = [
+    paid,
+    ws("unpaid", { standing: hold("payment") }),
+    ws("ended", { standing: hold("ended") }),
+    ws("active"),
+    ws("review", { standing: hold("review") }),
+    ws("member", { standing: hold("payment"), permissions: [] }),
+    ws("deleting", { standing: hold("payment"), deletion: { dueAt: null, requestedAt: null, requestedBy: null } }),
+  ];
+  expect(planMoveTargets(orgs, paid).map((o) => o.id)).toEqual(["unpaid", "ended"]);
+  expect(planMoveTargets(orgs, ws("paid"))).toEqual([]);
 });

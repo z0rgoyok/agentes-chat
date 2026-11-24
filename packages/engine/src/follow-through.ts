@@ -14,10 +14,11 @@ import {
   sql,
 } from "@agenteschat/db";
 import { announceAgentStatus } from "./agent-status";
-import { agentsOnlyIn } from "./agent-work";
-import { managesAgent, managesAgentSql, REACH_COLUMNS } from "./audience";
+import { agentsOnlyIn, viewerFacts } from "./agent-work";
+import { managesAgent, ownsAgent, REACH_COLUMNS } from "./audience";
 import { runAuthority } from "./authority";
 import { askStillOpen, unrequested } from "./brakes";
+import { caches } from "./cache";
 import { requireChannelAccess } from "./channels";
 import { handOffsFrom, sentOpen } from "./consultations";
 import { getChannelCached } from "./context";
@@ -34,6 +35,7 @@ import { can } from "./organizations";
 import { enqueue } from "./outbox";
 import { personCanPost } from "./routine-state";
 import { deliverNoticeToRun, lateNoticeSent } from "./run-resume";
+import { runColumns } from "./run-state";
 import { type AgentRun, replyThreadOf } from "./runs";
 import { refusedAtLimit, runStretchOf } from "./stretch";
 import { channelReaderSql } from "./task-access";
@@ -151,7 +153,7 @@ const isFollowUpLine = (m: Pick<Message, "meta">) =>
  */
 async function pendingFollowUps(
   db: Executor,
-  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId"> & {
+  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread"> & {
     confidential?: boolean;
   },
   personId: string | null,
@@ -240,7 +242,10 @@ export async function comesBackHere(db: Executor, run: AgentRun) {
  */
 export async function wakesLater(
   db: Executor,
-  run: Pick<AgentRun, "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "createdAt">,
+  run: Pick<
+    AgentRun,
+    "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "createdAt"
+  >,
   detachedWaits: { waitId: string }[] = [],
 ) {
   const channel = await getChannelCached(db, run.orgId, run.channelId);
@@ -309,21 +314,22 @@ const publishLine = async (pubsub: PubSub | undefined, line: Message) => {
 };
 
 /**
- * The run a tool call belongs to: a conversation's run, never a routine's background work or a mission task.
+ * The run a tool call belongs to: a conversation's run or a routine's background work (the run policy lets a
+ * routine set its own resume, which wakes it where it reports: `deliverNoticeToRun`), never a mission task.
  * `confidential`: its lines live where it answers, under its thread's root (`replyThreadOf`, ADR 0190).
  */
 async function conversationRun(ctx: ToolContext) {
-  if (!ctx.runId || ctx.background || ctx.bridge?.taskId) return null;
+  if (!ctx.runId || ctx.bridge?.taskId) return null;
   const [run] = await ctx.db
-    .select()
+    .select(runColumns)
     .from(agentRuns)
     .where(and(eq(agentRuns.id, ctx.runId), eq(agentRuns.orgId, ctx.orgId), eq(agentRuns.agentId, ctx.agentId)));
-  return run && !run.background ? { ...run, confidential: ctx.confidential === true } : null;
+  return run ? { ...run, confidential: ctx.confidential === true } : null;
 }
 
 /**
- * `follow_up` and `cancel_follow_up`, for every agent (no scope; routines' background runs are refused by
- * the run policy: they run again on their own schedule). Setting one posts its line in the run's
+ * `follow_up` and `cancel_follow_up`, for every agent (no scope; a routine's background run may set one to come
+ * back to work it is blocked on, besides firing again on its own schedule). Setting one posts its line in the run's
  * conversation (a `follow_up` notice that wakes nobody, `refs.state` `pending`) and queues the job that
  * wakes the agent there at its time (`wakeFollowUp`).
  */
@@ -350,7 +356,8 @@ export function createFollowUpToolSource(deps: { pubsub?: PubSub }): ToolSource 
         const run = await conversationRun(ctx);
         if (!run) return refused("Only a conversation's run can come back to it.");
         const channel = await getChannelCached(ctx.db, run.orgId, run.channelId);
-        if (channel && isAgentOnlyDm(channel))
+        // A routine's room is no agents' DM: its resume wakes it where it reports.
+        if (channel && isAgentOnlyDm(channel) && !run.background)
           return refused("Answer the agent that asked now: no person reads this conversation to come back to.");
         // Its wake is one more run this agent starts on its own (ADR 0089): past the stretch's limits it would be held.
         const atLimit = await refusedAtLimit(ctx.db, run, run.agentId);
@@ -530,13 +537,14 @@ async function stillHere(tx: Executor, run: AgentRun) {
 
 /**
  * Who may cancel a return (ADR 0037, amended 2026-11-13): the person it is for (who is behind the run that set it), the
- * agent's owner, and admins (who manage agents). Everyone else who reads the conversation sees it without the control.
+ * agent's owner (`owns`: or who holds its owner role, ADR 0085, addendum of 2026-11-21), and admins (who manage
+ * agents). Everyone else who reads the conversation sees it without the control.
  */
 export const mayCancelReturn = (
-  line: { personId: string | null; ownerUserId: string | null },
+  line: { personId: string | null; owns: boolean },
   userId: string,
   managesAgents: boolean,
-) => managesAgents || line.personId === userId || line.ownerUserId === userId;
+) => managesAgents || line.personId === userId || line.owns;
 
 /** A person cancels a follow-up (the bar's list, the task manager): who may (`mayCancelReturn`), reading its conversation. */
 export async function cancelFollowUp(
@@ -552,7 +560,8 @@ export async function cancelFollowUp(
   const [agent] = line.authorAgentId
     ? await deps.db.select(REACH_COLUMNS).from(agents).where(eq(agents.id, line.authorAgentId))
     : [];
-  const who = { personId: refsOf(line).personId ?? null, ownerUserId: agent?.ownerUserId ?? null };
+  const owns = !!agent && ownsAgent(agent, userId, workspace.roleIds);
+  const who = { personId: refsOf(line).personId ?? null, owns };
   // An admin's override is who manages that agent (ADR 0085 addendum of 2026-11-17), not any holder of the key.
   const manages = agent ? managesAgent(agent, userId, workspace) : can(workspace, "manage_agents");
   if (!mayCancelReturn(who, userId, manages))
@@ -576,7 +585,7 @@ export interface PendingReturn {
   messageId: string;
   agentId: string;
   channelId: string;
-  channelKind: "channel" | "dm" | "task" | "file";
+  channelKind: "channel" | "dm" | "task" | "file" | "code";
   /** A channel's name; null for a DM or a task's conversation. */
   channelName: string | null;
   /** Null: the conversation's main timeline. */
@@ -601,7 +610,7 @@ export interface CanceledReturn {
   messageId: string;
   agentId: string;
   channelId: string;
-  channelKind: "channel" | "dm" | "task" | "file";
+  channelKind: "channel" | "dm" | "task" | "file" | "code";
   channelName: string | null;
   threadId: string | null;
   at: string;
@@ -618,15 +627,12 @@ type ReturnRow = {
   id: string;
   agent_id: string;
   channel_id: string;
-  channel_kind: "channel" | "dm" | "task" | "file";
+  channel_kind: "channel" | "dm" | "task" | "file" | "code";
   channel_name: string | null;
   thread_id: string | null;
   refs: Record<string, string> | string | null;
-  owner_user_id: string | null;
   reply_message_id: string | null;
   canceler_name: string | null;
-  /** Whether the viewer manages its agent (`managesAgentSql`); only `pendingReturns` reads it. */
-  manages?: boolean | null;
 };
 
 const refsOfRow = (r: Pick<ReturnRow, "refs">) =>
@@ -643,9 +649,9 @@ const placeOf = (r: ReturnRow) => ({
 
 /**
  * The returns still to come that `viewerId` reads (`channelReaderSql` of the line's conversation), the soonest first,
- * in `channelId` only when given. One statement, from the outbox's pending wakes (its partial index) to their lines by
- * id: a return is a line still pending whose wake will come. `canCancel` by `mayCancelReturn`, an admin's override
- * being who manages that agent (`managesAgentSql`, ADR 0085 addendum of 2026-11-17).
+ * in `channelId` only when given: the workspace's (`orgReturns`) with what this person may see of them
+ * (`viewerFacts`). `canCancel` by `mayCancelReturn`, an admin's override being who manages that agent
+ * (`managesAgentSql`, ADR 0085 addendum of 2026-11-17).
  */
 export async function pendingReturns(
   db: Executor,
@@ -653,25 +659,15 @@ export async function pendingReturns(
   orgId: string,
   options: { channelId?: string } = {},
 ): Promise<PendingReturn[]> {
-  const now = Date.now();
-  const rows = rowsOf<ReturnRow>(
-    await db.execute(sql`select m.id, m.author_agent_id as agent_id, m.channel_id, c.kind as channel_kind,
-        c.name as channel_name, m.thread_id, m.meta->'notice'->'refs' as refs, g.owner_user_id, rr.reply_message_id,
-        null as canceler_name, ${managesAgentSql("g", sql`${viewerId}::text`)} as manages
-      from ${messages} m
-      join ${channels} c on c.id = m.channel_id and c.org_id = m.org_id and c.archived_at is null
-      join ${agents} g on g.id = m.author_agent_id
-      left join ${agentRuns} rr on rr.id = (m.meta->'notice'->'refs'->>'runId')::uuid
-      where m.id in (select (o.payload->>'messageId')::uuid from ${outbox} o
-          where o.org_id = ${orgId}::uuid and o.kind = ${FOLLOW_UP_JOB} and o.status = 'pending')
-        and m.created_at > ${new Date(now - RETURN_LIVES_MS).toISOString()}::timestamptz
-        and m.org_id = ${orgId}::uuid and m.deleted_at is null
-        and m.meta->'notice'->>'kind' = 'follow_up' and m.meta->'notice'->'refs'->>'state' = 'pending'
-        and m.meta->'notice'->'refs'->>'wake' is null
-        ${options.channelId ? sql`and m.channel_id = ${options.channelId}::uuid` : sql``}
-        and not ${agentsOnlyIn("c")} and ${channelReaderSql(sql`c.id`, sql`${viewerId}::text`)}`),
-  );
+  const all = await orgReturns(db, orgId);
+  const rows = options.channelId ? all.filter((r) => r.channel_id === options.channelId) : all;
+  if (rows.length === 0) return [];
+  const facts = await viewerFacts(db, viewerId, orgId, {
+    channelIds: rows.map((r) => r.channel_id),
+    agentIds: rows.map((r) => r.agent_id),
+  });
   return rows
+    .filter((r) => facts.reads.has(r.channel_id))
     .map((r) => {
       const refs = refsOfRow(r);
       const at = refs.at ?? "";
@@ -683,14 +679,37 @@ export async function pendingReturns(
         replyMessageId: r.reply_message_id,
         held: refs.held === "1",
         canCancel: mayCancelReturn(
-          { personId: refs.personId ?? null, ownerUserId: r.owner_user_id },
+          { personId: refs.personId ?? null, owns: facts.owns.has(r.agent_id) },
           viewerId,
-          r.manages === true,
+          facts.manages.has(r.agent_id),
         ),
       };
     })
     .sort((a, b) => a.at.localeCompare(b.at) || a.messageId.localeCompare(b.messageId));
 }
+
+/**
+ * The workspace's returns still to come, before anything about who asks: one statement, from the outbox's pending
+ * wakes to their lines by id (a return is a line still pending whose wake will come), kept a moment for every member
+ * (`caches.orgReads`). Setting, waking and canceling one announce its agent's status, which forgets it.
+ */
+const orgReturns = (db: Executor, orgId: string) =>
+  caches.orgReads.getOrLoad(`${orgId}:returns`, async () =>
+    rowsOf<ReturnRow>(
+      await db.execute(sql`select m.id, m.author_agent_id as agent_id, m.channel_id, c.kind as channel_kind,
+          c.name as channel_name, m.thread_id, m.meta->'notice'->'refs' as refs, rr.reply_message_id, null as canceler_name
+        from ${messages} m
+        join ${channels} c on c.id = m.channel_id and c.org_id = m.org_id and c.archived_at is null
+        left join ${agentRuns} rr on rr.id = (m.meta->'notice'->'refs'->>'runId')::uuid
+        where m.id in (select (o.payload->>'messageId')::uuid from ${outbox} o
+            where o.org_id = ${orgId}::uuid and o.kind = ${FOLLOW_UP_JOB} and o.status = 'pending')
+          and m.created_at > ${new Date(Date.now() - RETURN_LIVES_MS).toISOString()}::timestamptz
+          and m.org_id = ${orgId}::uuid and m.deleted_at is null and m.author_agent_id is not null
+          and m.meta->'notice'->>'kind' = 'follow_up' and m.meta->'notice'->'refs'->>'state' = 'pending'
+          and m.meta->'notice'->'refs'->>'wake' is null
+          and not ${agentsOnlyIn("c")}`),
+    ),
+  ) as Promise<ReturnRow[]>;
 
 /**
  * The returns canceled since `since` that `viewerId` reads, the latest first (at most `limit`): by its conversations'
@@ -705,7 +724,7 @@ export async function canceledReturns(
 ): Promise<CanceledReturn[]> {
   const rows = rowsOf<ReturnRow>(
     await db.execute(sql`select m.id, m.author_agent_id as agent_id, m.channel_id, c.kind as channel_kind,
-        c.name as channel_name, m.thread_id, m.meta->'notice'->'refs' as refs, null as owner_user_id,
+        c.name as channel_name, m.thread_id, m.meta->'notice'->'refs' as refs,
         null as reply_message_id, u.name as canceler_name
       from ${channels} c
       join ${messages} m on m.channel_id = c.id and m.org_id = c.org_id

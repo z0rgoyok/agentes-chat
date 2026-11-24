@@ -3,6 +3,7 @@ import { quoteText } from "@agenteschat/client/lib/media";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, Text, TOUCH } from "@/ui";
+import { RADIUS } from "@/ui/radius";
 import { Face } from "../shared/Face";
 import { useColors } from "../shared/hooks";
 import { COMPACT_FACE, MSG_INSET, ROW_BODY_INSET, rowBodyInset } from "./logic";
@@ -156,5 +157,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
   },
   barName: { flex: 1, fontWeight: "600" },
-  plate: { alignSelf: "stretch", paddingHorizontal: 8, paddingVertical: 2, borderRadius: 8, marginBottom: 4 },
+  // One line on a plate: the plates' side room and the scale's item corner, as the other plates in the words.
+  plate: { alignSelf: "stretch", paddingHorizontal: 12, paddingVertical: 6, borderRadius: RADIUS.md, marginBottom: 6 },
 });

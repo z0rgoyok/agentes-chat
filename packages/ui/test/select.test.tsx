@@ -144,7 +144,7 @@ describe("Select", () => {
     const rows = rule(`${list} .ac-menu__item`);
     expect(rows).toContain("padding: calc((var(--option-h) - var(--option-face)) / 2) var(--menu-item-px);");
     expect(rows).toContain("min-height: var(--option-h);");
-    // Every row of that list leads with a face's width, so a glyph-led choice ("Sem responsável") lines up and matches.
+    // Every row of that list leads with a face's width, so a glyph-led choice ("Admins") lines up and matches.
     expect(rule(`${list} .ac-menu__item > .ac-menu__leading`)).toContain("min-width: var(--option-face);");
     expect(rule(`${list} .ac-menu__item > .ac-menu__leading`)).toContain("translate: none;");
     expect(rule(`${list} .ac-menu__label`)).toContain("flex-direction: row;");
@@ -152,7 +152,7 @@ describe("Select", () => {
     expect(css).not.toContain(".ac-menu--select .ac-menu__leading > .ac-avatar {\n  width: 32px;");
   });
 
-  test("every option keeps a check's room at its end, shown on the chosen one; the trigger shows the chosen face", async () => {
+  test("no option has a check column: the chosen one is marked by its state; the trigger shows the chosen face", async () => {
     const faces = [
       { value: "ada", label: "Ada", description: "Dona", leading: <span className="ac-avatar">A</span> },
       { value: "bia", label: "Bia", leading: <span className="ac-avatar">B</span> },
@@ -166,7 +166,7 @@ describe("Select", () => {
     trigger.focus();
     await key(trigger, "Enter");
     const options = body().getAllByRole("option");
-    for (const option of options) expect(option.lastElementChild?.getAttribute("class")).toBe("ac-menu__check");
+    for (const option of options) expect(option.querySelector(".ac-menu__check")).toBeNull();
     expect(options[0]?.getAttribute("data-state")).toBe("checked");
     expect(options[1]?.getAttribute("data-state")).toBe("unchecked");
   });

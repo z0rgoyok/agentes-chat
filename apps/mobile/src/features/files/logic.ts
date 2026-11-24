@@ -1,5 +1,5 @@
 import type { ArtifactDetail, ArtifactKind } from "@agenteschat/client";
-import { fileIcon, previewKind, previewType } from "@agenteschat/client/lib/files";
+import { extensionOf, fileIcon, isMarkdownFile, previewKind, previewType } from "@agenteschat/client/lib/files";
 import { filePath } from "@agenteschat/client/lib/message-links";
 import { type LiveScreen, liveRoute, opensLive, type PhoneLiveKind } from "../live-files/routes";
 
@@ -65,7 +65,6 @@ const VIDEO_TYPES = new Set(["video/mp4", "video/quicktime", "video/x-m4v", "vid
 export const VIDEO_EXT = new Set(["mp4", "mov", "m4v", "webm"]);
 /** Names that say "picture": while the details load, and when the stored type doesn't (an upload typed as bytes). */
 export const IMAGE_EXT = new Set(["png", "jpg", "jpeg", "gif", "webp", "heic", "heif"]);
-const MARKDOWN_EXT = new Set(["md", "markdown", "mdx"]);
 const TEXT_EXT = new Set(["txt", "log", "csv", "tsv", "json", "yml", "yaml", "toml", "xml", "ini", "env"]);
 
 /** Non-file artifacts: the extension their download gets (as the server names them). */
@@ -98,21 +97,7 @@ const KIND_TYPE: Record<Exclude<ArtifactKind, "file">, FileTypeKey> = {
   canvas: "canvas",
 };
 
-/** Code files read in the code font; any other text in the app's. */
-const CODE_EXT = new Set(
-  "ts tsx js jsx mjs cjs json py rb go rs java kt swift c h cc cpp hpp cs php sh bash zsh yml yaml toml sql css scss html xml vue svelte lua dart".split(
-    " ",
-  ),
-);
-
-/** A file whose name says it is code ("app.ts"), read in the code font. */
-export const isCodeName = (name: string) => CODE_EXT.has(extensionOf(name));
-
-/** "relatorio.final.PDF" → "pdf" ("" without one). */
-export function extensionOf(name: string): string {
-  const m = /\.([a-z0-9]{1,8})$/i.exec(name.trim());
-  return m?.[1]?.toLowerCase() ?? "";
-}
+export { extensionOf, isCodeName } from "@agenteschat/client/lib/files";
 
 /** The tile's label: "MD", "PDF", "JPEG" (4 letters at most); "" → the caller shows an icon. */
 export const extLabel = (ext: string) => ext.slice(0, 4).toUpperCase();
@@ -156,7 +141,7 @@ export function fileInfo(a: Pick<ArtifactDetail, "kind" | "title" | "content">):
     else if (office) view = office;
     // A page is shown as a page (its source isn't the point), before the text types it is one of.
     else if (mime === "text/html" || ext === "html" || ext === "htm") view = "html";
-    else if (MARKDOWN_EXT.has(ext) || mime === "text/markdown") view = "markdown";
+    else if (isMarkdownFile(name, mime)) view = "markdown";
     else if (TEXT_EXT.has(ext) || mime.startsWith("text/")) view = "text";
     return { name, view, type: fileType(name, mime, view), ext: extLabel(ext), size: c.size, mime };
   }
@@ -478,4 +463,40 @@ function lineParts(line: string, size: number): string[] {
   }
   parts.push(line.slice(at));
   return parts;
+}
+
+// ── A PDF's first page on its cards (`pdf-preview.tsx`) ──────────────────────────────────────────────────────────
+
+/**
+ * The most a PDF may weigh for a card to draw its first page: the phone's renderer reads the whole file, and past this
+ * a card would download a large file only to show the top of a page. Heavier ones keep their type's tile.
+ */
+export const PDF_PREVIEW_MAX_BYTES = 15 * 1024 * 1024;
+
+/** The query a PDF's copy in the cache and its pages' sizes are read under: its screen and its previews share it. */
+export const pdfCopyKey = (orgId: string, id: string, version: number) =>
+  ["org", orgId, "artifacts", "pdf", id, version] as const;
+
+/** A PDF whose first page a card draws: a file read as a PDF, of a known size up to `PDF_PREVIEW_MAX_BYTES`. */
+export function pdfPreviewable(detail: Pick<ArtifactDetail, "kind" | "title" | "content"> | undefined): boolean {
+  if (detail?.content.kind !== "file") return false;
+  const info = fileInfo(detail);
+  return info.view === "pdf" && info.size !== null && info.size > 0 && info.size <= PDF_PREVIEW_MAX_BYTES;
+}
+
+/** A file picked on the phone that is a PDF (by its type, else by its name). */
+export const isLocalPdf = (f: { type: string; name: string }) =>
+  f.type === "application/pdf" || extensionOf(f.name) === "pdf";
+
+/**
+ * The path the renderer reads for a file on the phone: it takes a path, not a link, and only drops `file://` from one
+ * (a picked file's name keeps its spaces and accents escaped in the link, which the path must not have).
+ */
+export function localPdfPath(uri: string): string {
+  const path = uri.replace(/^file:\/\//, "");
+  try {
+    return decodeURIComponent(path);
+  } catch {
+    return path;
+  }
 }

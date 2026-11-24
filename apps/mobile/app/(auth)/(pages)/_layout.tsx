@@ -1,6 +1,6 @@
 import { type NativeStackNavigationOptions, Stack } from "expo-router";
 import { useMemo } from "react";
-import { coverBarOptions, usePushedOptions, useScrollUnderPushedOptions } from "@/ui/navigation";
+import { coverBarOptions, usePushedOptions, useScrollUnderPushedOptions, useSideInsets } from "@/ui/navigation";
 import { useTheme } from "@/ui/theme";
 
 /**
@@ -13,14 +13,15 @@ export default function AuthPages() {
   const { colors } = useTheme();
   const pushed = usePushedOptions();
   const scrollUnder = useScrollUnderPushedOptions();
+  const side = useSideInsets();
   const screenOptions = useMemo(() => {
     const sky: NativeStackNavigationOptions = {
       ...pushed,
       ...coverBarOptions,
-      contentStyle: { backgroundColor: colors.bg },
+      contentStyle: { backgroundColor: colors.bg, ...side },
     };
     const list: NativeStackNavigationOptions = { ...pushed, ...scrollUnder };
     return ({ route }: { route: { name: string } }) => (route.name === "language" ? list : sky);
-  }, [colors.bg, pushed, scrollUnder]);
+  }, [colors.bg, pushed, scrollUnder, side]);
   return <Stack screenOptions={screenOptions} />;
 }

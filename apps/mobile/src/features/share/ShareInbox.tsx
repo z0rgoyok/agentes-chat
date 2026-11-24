@@ -6,6 +6,7 @@ import { Platform } from "react-native";
 import { reportError } from "@/lib/error-reports";
 import { router } from "@/ui/navigation";
 import { receiveShare, SHARE_ROUTE, sharedFromIntent } from "./inbox";
+import { pickedOfShareLink } from "./picked";
 
 /**
  * After the app opens on a share's link, when to ask the system again for what was shared (ms). The extension writes
@@ -47,7 +48,8 @@ export function ShareInbox() {
     resetShareIntent();
     if (!shared) return;
     settled.current = link.current;
-    receiveShare(shared);
+    // Through one of the share sheet's suggestions, its link names the agent (ADR 0213).
+    receiveShare({ ...shared, to: pickedOfShareLink(link.current) });
     if (where.current !== SHARE_ROUTE) router.push(SHARE_ROUTE);
   }, [hasShareIntent, shareIntent, resetShareIntent]);
 

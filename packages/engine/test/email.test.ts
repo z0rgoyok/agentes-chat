@@ -146,6 +146,7 @@ describe("every email, in both languages", () => {
       account_deleting: true,
       app_connected: true,
       plan_opened: true,
+      account_opened: true,
       plan_lent: true,
       plan_waiting: true,
       support_reply: true,

@@ -430,6 +430,14 @@ export function taskWhere(
   return `#${task.channelName ?? ""}`;
 }
 
+/**
+ * Whether "Abrir na conversa" has a conversation to open: not a routine's background run, and work between agents only
+ * where it was handed off from.
+ */
+export const opensInChat = (
+  task: Pick<ManagedTask, "background" | "betweenAgents"> & { delegation?: ManagedTask["delegation"] },
+) => !task.background && (!task.betweenAgents || Boolean(task.delegation?.from));
+
 /** "ajudando a Ada": work another agent handed it, by that agent's name. */
 export function taskHelping(
   t: TFunction,

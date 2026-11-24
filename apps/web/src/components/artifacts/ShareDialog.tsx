@@ -1,50 +1,29 @@
-import type { Artifact, ArtifactSharing } from "@agenteschat/client";
-import { keys, useRoles, useSetArtifactSharing } from "@agenteschat/client";
-import { CONVERSATION_ONLY, livesInPrivate, onlyItsConversation, toggledSharing } from "@agenteschat/client/lib/drive";
+import type { AccessLevel, Artifact, ArtifactAccess, ArtifactAccessRow } from "@agenteschat/client";
+import { useRoles, useSetArtifactAccess } from "@agenteschat/client";
+import { onlyItsConversation } from "@agenteschat/client/lib/drive";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames } from "@agenteschat/client/lib/format";
 import { rolePicksInSight } from "@agenteschat/client/lib/personal-view";
 import { isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
+  type AccessBase,
+  AccessDialog,
+  type AccessLevel as AccessOption,
+  type AccessSubject,
   Avatar,
   Button,
-  Dialog,
-  DialogBody,
-  DialogFooter,
   Icon,
-  type IconName,
-  Locked,
-  OptionCard,
   RoleMark,
-  SearchSelect,
 } from "@agenteschat/ui";
-import { useQueryClient } from "@tanstack/react-query";
-import { type ReactNode, useRef, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useApi } from "@/api/context";
-import { ActorAvatar } from "@/components/AgentAvatar";
+import { ActorAvatar, AgentAvatar } from "@/components/AgentAvatar";
+import { artifactLink, useAuthorName } from "@/components/artifacts/viewer-context";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
-import { usePersonalView } from "@/hooks/usePersonalView";
 import { copyText } from "@/lib/context-menu";
 import { useToast } from "@/lib/toast";
-import { artifactLink, useAuthorName } from "./ArtifactViewer";
-import "../who-sees.css";
-
-type Mode = ArtifactSharing["mode"];
-
-const MODES: { mode: Mode; icon: IconName }[] = [
-  { mode: "conversation", icon: "lock" },
-  { mode: "people", icon: "personAdd" },
-  { mode: "everyone", icon: "audienceEveryone" },
-];
-
-const SAVED = {
-  conversation: "share.savedConversation",
-  people: "share.savedPeople",
-  everyone: "share.savedEveryone",
-} as const satisfies Record<Mode, string>;
 
 /**
  * Compartilhar, for any file (ADR 0157), and Copiar link: a link copies at once when everyone it may reach opens it;
@@ -66,127 +45,70 @@ export function useFileShare() {
   };
 }
 
+type Row = "view" | "edit";
+type Group = "users" | "roles" | "agentRows";
+
+/** A file from an older server: everyone where it lives edits it, nobody more sees it. */
+const PLACE_ONLY: ArtifactAccess = {
+  place: "edit",
+  workspace: "none",
+  users: [],
+  roles: [],
+  agents: "edit",
+  agentRows: [],
+  limited: false,
+};
+
+interface Draft {
+  place: Row;
+  workspace: AccessLevel;
+  agents: AccessLevel;
+  users: Record<string, Row>;
+  roles: Record<string, Row>;
+  agentRows: Record<string, Row>;
+}
+
+const recordOf = (rows: ArtifactAccessRow[]): Record<string, Row> =>
+  Object.fromEntries(rows.map((r) => [r.id, r.level]));
+const listOf = (rows: Record<string, Row>): ArtifactAccessRow[] =>
+  Object.entries(rows).map(([id, level]) => ({ id, level }));
+
 /**
- * The share dialog, Google Drive style: the file's name, who sees it with who has access, changed in place (with
- * Desfazer), and Copiar link at the bottom, an address of the app. While only a private conversation sees it, the
- * dialog says plainly that people outside won't open the link, with the way to choose them right there. A file of the
- * Drive itself lives with its maker (ADR 0157, amendment 2026-11-17): its first choice is "Só você" (to its maker),
- * and its maker and administrators change it.
+ * Compartilhar (ADR 0157, 0202), as the wiki's Acesso: one list with a level for each row. Always there: who reads it
+ * where it lives (a file of the Drive itself: its maker, who always edits), the whole workspace and the agents (every
+ * agent of the workspace, or the agents where it lives); added: people, roles and agents, each to view or edit.
+ * Whoever may not change it sees the list as it is. Copiar link stays at the foot.
  */
 export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose: () => void }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
-  const api = useApi();
-  const qc = useQueryClient();
   const dir = useDirectory(org.id);
   const roles = useRoles(org.id);
   const toast = useToast();
   const authorName = useAuthorName();
-  const save = useSetArtifactSharing(org.id);
-  const [file, setFile] = useState(artifact);
-  const sharing = file.sharing ?? CONVERSATION_ONLY;
-  // "people" is chosen before anyone is added: it's saved with the first one.
-  const [mode, setMode] = useState<Mode>(sharing.mode);
-  const add = useRef<HTMLDivElement>(null);
-  const closed = livesInPrivate(file.audience);
-  const canShare = closed && Boolean(file.canShare);
-  const busy = save.isPending;
-  // A file of the Drive itself: where it lives is its maker.
-  const drive = file.audience.kind === "workspace";
-  const maker = file.createdBy;
+  const save = useSetArtifactAccess(org.id);
+  const access = artifact.access ?? PLACE_ONLY;
+  const [draft, setDraft] = useState<Draft>(() => ({
+    place: access.place,
+    workspace: access.workspace,
+    agents: access.agents,
+    users: recordOf(access.users),
+    roles: recordOf(access.roles),
+    agentRows: recordOf(access.agentRows),
+  }));
+  const aud = artifact.audience;
+  const drive = aud.kind === "workspace";
+  const publicChannel = aud.kind === "channel" && !aud.private;
+  const maker = artifact.createdBy;
   const mine = maker.type === "person" && maker.id === me.user.id;
   const makerName = authorName(maker);
-  const onlyText = mine ? t("share.onlyYou") : t("share.onlyMaker", { name: makerName });
-  const onlyLink = mine ? t("share.onlyYouLink") : t("share.onlyMakerLink", { name: makerName });
-
-  const apply = (next: ArtifactSharing) => {
-    const before = sharing;
-    setMode(next.mode);
-    save.mutate(
-      { id: file.id, sharing: next },
-      {
-        onSuccess: (saved) => {
-          setFile(saved);
-          setMode(saved.sharing?.mode ?? "conversation");
-          const savedMode = saved.sharing?.mode ?? "conversation";
-          const words =
-            drive && savedMode === "conversation"
-              ? mine
-                ? t("share.savedOnlyYou")
-                : t("share.savedOnlyMaker", { name: makerName })
-              : t(savedMode === "everyone" ? modeKey(org, SAVED.everyone) : SAVED[savedMode]);
-          toast.show(words, "success", {
-            label: t("share.undo"),
-            // Through the API itself: the dialog may be closed by then (and shows it if it's still open).
-            run: () =>
-              void api.artifacts
-                .setSharing(org.id, file.id, before)
-                .then((restored) => {
-                  setFile(restored);
-                  setMode(restored.sharing?.mode ?? "conversation");
-                  return qc.invalidateQueries({ queryKey: keys.artifacts(org.id) });
-                })
-                .catch((e: unknown) => toast.show(errorText(t, e, i18n.language), "error")),
-          });
-        },
-        onError: (e) => {
-          setMode(before.mode);
-          toast.show(errorText(t, e, i18n.language), "error");
-        },
-      },
-    );
+  const readOnly = !artifact.canShare || artifact.myAccess === "view";
+  const names: Record<AccessLevel, string> = {
+    none: t("share.level.none"),
+    view: t("share.level.view"),
+    edit: t("share.level.edit"),
   };
-  const listed = sharing.mode === "people" ? sharing : CONVERSATION_ONLY;
-  const toggle = (kind: "user" | "role", id: string) => apply(toggledSharing(sharing, { kind, id }));
-  const choose = (m: Mode) => {
-    if (m === mode) return;
-    if (m === "people" && listed.userIds.length + listed.roleIds.length === 0) {
-      setMode("people");
-      requestAnimationFrame(() => add.current?.querySelector<HTMLElement>("button")?.focus());
-      return;
-    }
-    apply(m === "people" ? listed : { mode: m, userIds: [], roleIds: [] });
-  };
-
-  const roleList = sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r)));
-  // A personal workspace's family picks people: roles to add only when one is worth it or already listed, and alone,
-  // no word on who else sees it (ADR 0159).
-  const offersRoles = rolePicksInSight(org, roles.data?.roles ?? [], listed.roleIds);
-  const { solo } = usePersonalView();
-  const everyoneText = t(modeKey(org, "share.everyone"));
-  const modeLabel = (m: Mode) =>
-    m === "everyone"
-      ? everyoneText
-      : m === "people"
-        ? t(offersRoles ? "share.people" : "share.peoplePersonal")
-        : drive
-          ? onlyText
-          : t("share.conversation");
-  const addText = t(offersRoles ? "share.add" : "share.addPersonal");
-  const addSearchText = t(offersRoles ? "share.addSearch" : "share.addSearchPersonal");
-  // Who sees it where it lives (I do, to be here; a Drive file's maker) has nothing to gain from the list.
-  const seesThere = (userId: string) => userId === me.user.id || (drive && userId === maker.id);
-  const addable = [
-    ...dir.members
-      .filter((m) => !seesThere(m.userId) && !listed.userIds.includes(m.userId))
-      .map((m) => ({
-        value: `u:${m.userId}`,
-        label: m.name,
-        description: m.email,
-        group: t("share.groupPeople"),
-        leading: <Avatar kind="person" size="sm" name={m.name} imageUrl={m.image} />,
-      })),
-    ...(offersRoles ? roleList : [])
-      .filter((r) => !listed.roleIds.includes(r.id))
-      .map((r) => ({
-        value: `r:${r.id}`,
-        label: r.name,
-        description: t("share.role"),
-        group: t("share.groupRoles"),
-        leading: <RoleMark color={r.color} icon={r.icon} size={24} />,
-      })),
-  ];
-  const aud = file.audience;
+  const level = (value: AccessLevel): AccessOption<AccessLevel> => ({ value, label: names[value] });
   const where =
     aud.kind === "dm"
       ? aud.between
@@ -199,190 +121,169 @@ export function ShareDialog({ artifact, onClose }: { artifact: Artifact; onClose
         : mine
           ? t("share.you", { name: makerName })
           : makerName;
-
-  return (
-    <Dialog
-      open
-      onOpenChange={(o) => {
-        if (!o && !busy) onClose();
-      }}
-      title={t("share.title", { name: file.title })}
-      closeLabel={t("common.close")}
-      width={480}
-      className="share"
-    >
-      <DialogBody>
-        <Locked when={busy}>
-          {closed ? (
-            <section className="share__section" aria-label={t("whoSees.label")}>
-              <h3 className="ac-eyebrow">{t("whoSees.label")}</h3>
-              <div className="who-sees__options">
-                {MODES.map((m) => (
-                  <OptionCard
-                    key={m.mode}
-                    className="ac-mediarow ac-mediarow--row"
-                    pressed={mode === m.mode}
-                    disabled={!canShare}
-                    onClick={() => choose(m.mode)}
-                  >
-                    <span className="ac-mediarow__face">
-                      <Icon name={m.icon} size={16} />
-                    </span>
-                    <span className="ac-mediarow__head">
-                      <span className="ac-option__title">{modeLabel(m.mode)}</span>
-                    </span>
-                  </OptionCard>
-                ))}
-              </div>
-              {!canShare && (
-                <p className="small muted share__note">{t(drive ? "share.readOnlyDrive" : "share.readOnly")}</p>
-              )}
-              {canShare && mode === "people" && (
-                <div ref={add}>
-                  <SearchSelect
-                    className="share__add"
-                    value={undefined}
-                    placeholder={addText}
-                    aria-label={addText}
-                    labels={{
-                      search: addSearchText,
-                      searchPlaceholder: addSearchText,
-                      noResults: t("share.noResults"),
-                      list: addText,
-                    }}
-                    options={() => addable}
-                    onValueChange={(v) => toggle(v.startsWith("u:") ? "user" : "role", v.slice(2))}
-                  />
-                </div>
-              )}
-            </section>
-          ) : (
-            <p className="share__open ac-iconline">
-              <Icon name="audienceEveryone" size={16} />
-              <span>{t(modeKey(org, "share.open"))}</span>
-            </p>
-          )}
-          {closed && (
-            <section className="share__section" aria-label={t("share.access")}>
-              <h3 className="ac-eyebrow">{t("share.access")}</h3>
-              <ul className="share__list">
-                {sharing.mode === "everyone" ? (
-                  <Row lead={<Icon name="audienceEveryone" size={16} />} name={everyoneText} />
-                ) : (
-                  <Row
-                    lead={
-                      aud.kind === "dm" && aud.with ? (
-                        <ActorAvatar size="sm" actor={aud.with} name={authorName(aud.with)} />
-                      ) : drive ? (
-                        <ActorAvatar size="sm" actor={maker} name={makerName} />
-                      ) : (
-                        <Icon name={aud.kind === "dm" ? "message" : "channel"} size={16} />
-                      )
-                    }
-                    name={where}
-                  />
-                )}
-                {listed.userIds.map((id) => {
-                  const m = dir.memberById.get(id);
-                  const name = m?.name ?? t("channel.unknownPerson");
-                  return (
-                    <Row
-                      key={id}
-                      lead={<Avatar kind="person" size="sm" name={name} imageUrl={m?.image} />}
-                      name={id === me.user.id ? t("share.you", { name }) : name}
-                      onRemove={canShare ? () => toggle("user", id) : undefined}
-                    />
-                  );
-                })}
-                {listed.roleIds.map((id) => {
-                  const r = roleList.find((role) => role.id === id);
-                  const name = r?.name ?? t("share.role");
-                  return (
-                    <Row
-                      key={id}
-                      lead={
-                        r ? <RoleMark color={r.color} icon={r.icon} size={24} /> : <Icon name="members" size={16} />
-                      }
-                      name={name}
-                      detail={t("share.role")}
-                      onRemove={canShare ? () => toggle("role", id) : undefined}
-                    />
-                  );
-                })}
-              </ul>
-              {(sharing.mode === "people" || (drive && sharing.mode === "conversation")) && !solo && (
-                <p className="small muted share__note">{t(modeKey(org, "share.admins"))}</p>
-              )}
-            </section>
-          )}
-        </Locked>
-      </DialogBody>
-      <DialogFooter
-        className="share__foot"
-        note={
-          closed && sharing.mode === "conversation" ? (
-            <span className="share__warn ac-iconline">
-              <Icon name="lock" size={16} />
-              <span>
-                {drive ? onlyLink : t("share.onlyHere")}{" "}
-                {canShare && mode !== "people" && (
-                  <button type="button" className="ac-link" onClick={() => choose("people")}>
-                    {t("share.choosePeople")}
-                  </button>
-                )}
-              </span>
-            </span>
-          ) : undefined
+  const base: AccessBase<AccessLevel>[] = [
+    drive
+      ? {
+          id: "place",
+          name: where,
+          detail: t("share.madeIt"),
+          lead: <ActorAvatar size="sm" actor={maker} name={makerName} />,
+          level: "edit",
+          levels: [level("edit")],
+          onChange: () => {},
         }
-      >
+      : {
+          id: "place",
+          name: where,
+          detail: t("share.placeText"),
+          lead: <Icon name={aud.kind === "dm" ? "message" : "channel"} size={20} />,
+          level: draft.place,
+          levels: [level("view"), level("edit")],
+          onChange: (v) => setDraft((d) => ({ ...d, place: v === "view" ? "view" : "edit" })),
+        },
+    ...(publicChannel
+      ? []
+      : [
+          {
+            id: "workspace",
+            name: t(modeKey(org, "share.everyone")),
+            detail: t(modeKey(org, "share.everyoneText")),
+            lead: <Icon name="audienceEveryone" size={20} />,
+            level: draft.workspace,
+            levels: [level("none"), level("view"), level("edit")],
+            onChange: (workspace: AccessLevel) => setDraft((d) => ({ ...d, workspace })),
+          },
+        ]),
+    {
+      id: "agents",
+      name: drive ? t("share.agentsAll") : t("share.agentsHere"),
+      detail: drive ? t("share.agentsAllText") : t("share.agentsHereText"),
+      lead: <Icon name="agent" size={20} />,
+      level: draft.agents,
+      levels: [level("none"), level("view"), level("edit")],
+      onChange: (agents) => setDraft((d) => ({ ...d, agents })),
+    },
+  ];
+  // A personal workspace's family picks people: roles only when one is worth it or already listed (ADR 0159).
+  const offersRoles = rolePicksInSight(org, roles.data?.roles ?? [], Object.keys(draft.roles));
+  const subjects: AccessSubject[] = [
+    ...dir.members
+      .filter((m) => !(drive && maker.type === "person" && m.userId === maker.id))
+      .map((m) => ({
+        id: `u:${m.userId}`,
+        name: m.userId === me.user.id ? t("share.you", { name: m.name }) : m.name,
+        detail: m.email,
+        group: t("share.groupPeople"),
+        lead: <Avatar kind="person" size="sm" name={m.name} imageUrl={m.image} />,
+      })),
+    ...(offersRoles ? sortRoles((roles.data?.roles ?? []).filter((r) => !isEveryone(r))) : []).map((r) => ({
+      id: `r:${r.id}`,
+      name: r.name,
+      detail: t("share.role"),
+      group: t("share.groupRoles"),
+      lead: <RoleMark color={r.color} icon={r.icon} size={24} />,
+    })),
+    ...dir.agents.map((a) => ({
+      id: `a:${a.id}`,
+      name: a.name,
+      detail: t("share.agent"),
+      group: t("share.groupAgents"),
+      lead: <AgentAvatar agent={a} size="sm" name={a.name} />,
+    })),
+  ];
+  const parts = (s: AccessSubject): { group: Group; id: string } => ({
+    group: s.id[0] === "u" ? "users" : s.id[0] === "r" ? "roles" : "agentRows",
+    id: s.id.slice(2),
+  });
+  const baseOf = (group: Group) => (group === "agentRows" ? draft.agents : draft.workspace);
+  // As the wiki: with everyone editing a row says nothing; with everyone viewing a row can only edit.
+  const levelsFor = (s: AccessSubject) =>
+    baseOf(parts(s).group) === "view" ? [level("edit")] : [level("view"), level("edit")];
+  const levelOf = (s: AccessSubject) => {
+    const { group, id } = parts(s);
+    const value = draft[group][id];
+    if (!value || baseOf(group) === "edit" || (baseOf(group) === "view" && value !== "edit")) return undefined;
+    return value;
+  };
+  return (
+    <AccessDialog<AccessLevel>
+      title={t("share.title", { name: artifact.title })}
+      note={
+        // Copiar link of a file only its conversation sees opens here: the link opens for no one else.
+        onlyItsConversation(artifact)
+          ? drive
+            ? mine
+              ? t("share.onlyYouLink")
+              : t("share.onlyMakerLink", { name: makerName })
+            : t("share.onlyHere")
+          : readOnly
+            ? t(drive ? "share.readOnlyDrive" : "share.readOnly")
+            : undefined
+      }
+      base={base}
+      subjects={subjects}
+      levelOf={levelOf}
+      levelsFor={levelsFor}
+      onLevelChange={(s, value) => {
+        const { group, id } = parts(s);
+        const key = group === "agentRows" ? "agents" : "workspace";
+        setDraft((d) => {
+          const rows = { ...d[group] };
+          if (value === null || value === "none") delete rows[id];
+          else rows[id] = value === "view" ? "view" : "edit";
+          // Adding someone while everyone edits means limiting it, in plain sight, until Salvar (as the wiki).
+          const limits = value !== null && value !== "none" && d[key] === "edit";
+          return { ...d, [group]: rows, ...(limits ? { [key]: "none" } : {}) };
+        });
+      }}
+      labels={{
+        add: t(offersRoles ? "share.addAll" : "share.addAllPersonal"),
+        addList: t(offersRoles ? "share.addAll" : "share.addAllPersonal"),
+        addSearch: t(offersRoles ? "share.addAllSearch" : "share.addAllSearchPersonal"),
+        noResults: t("share.noResults"),
+        removeOf: (name) => t("share.remove", { name }),
+        levelOf: (name) => t("share.levelOf", { name }),
+        close: t("common.close"),
+        cancel: t("common.cancel"),
+        save: t("common.save"),
+      }}
+      footerStart={
         <Button
           icon="link"
-          disabled={busy}
           onClick={() =>
-            void copyText(artifactLink(window.location.origin, org.id, file.id), () => toast.show(t("share.copied")))
+            void copyText(artifactLink(window.location.origin, org.id, artifact.id), () =>
+              toast.show(t("share.copied")),
+            )
           }
         >
           {t("share.copyLink")}
         </Button>
-        <Button variant="primary" disabled={busy} onClick={onClose}>
-          {t("share.done")}
-        </Button>
-      </DialogFooter>
-    </Dialog>
-  );
-}
-
-/** One who has access: a face or mark, a name with what it is, and Tirar when it may be taken out. */
-function Row({
-  lead,
-  name,
-  detail,
-  onRemove,
-}: {
-  lead: ReactNode;
-  name: string;
-  detail?: string;
-  onRemove?: () => void;
-}) {
-  const { t } = useTranslation();
-  return (
-    <li className="share__row">
-      <span className="share__lead">{lead}</span>
-      <span className="share__name">
-        {name}
-        {detail && <span className="muted"> · {detail}</span>}
-      </span>
-      {onRemove && (
-        <Button
-          size="sm"
-          variant="ghost"
-          iconOnly
-          icon="close"
-          aria-label={t("share.remove", { name })}
-          title={t("share.remove", { name })}
-          onClick={onRemove}
-        />
-      )}
-    </li>
+      }
+      readOnly={readOnly}
+      saving={save.isPending}
+      onSave={() =>
+        save.mutate(
+          {
+            id: artifact.id,
+            access: {
+              place: draft.place,
+              workspace: draft.workspace,
+              users: listOf(draft.users),
+              roles: listOf(draft.roles),
+              agents: draft.agents,
+              agentRows: listOf(draft.agentRows),
+            },
+          },
+          {
+            onSuccess: () => {
+              toast.show(t("share.saved"), "success");
+              onClose();
+            },
+            onError: (e) => toast.show(errorText(t, e, i18n.language), "error"),
+          },
+        )
+      }
+      onClose={onClose}
+    />
   );
 }

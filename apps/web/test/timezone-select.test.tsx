@@ -42,7 +42,7 @@ function Harness() {
 }
 
 describe("TimezoneSelect", () => {
-  test("the trigger reads 'Horário de Brasília · UTC−3'; the selected row has a check; search and Enter pick", async () => {
+  test("the trigger reads 'Horário de Brasília · UTC−3'; the selected row is marked, with no check column; search and Enter pick", async () => {
     render(<Harness />);
     const box = document.body.querySelector('[role="combobox"]') as HTMLElement;
     expect(box.textContent).toContain("Horário de Brasília · UTC−3");
@@ -53,7 +53,7 @@ describe("TimezoneSelect", () => {
       .getAllByRole("option")
       .find((o) => o.getAttribute("aria-selected") === "true");
     expect(selected?.textContent).toContain("Horário de Brasília");
-    expect(selected?.querySelector(".ac-tz__check svg")).not.toBeNull();
+    expect(selected?.querySelector(".ac-tz__check")).toBeNull();
     const search = within(document.body).getByRole("combobox", { name: "Buscar fuso" });
     await act(async () => fireEvent.change(search, { target: { value: "lisboa" } }));
     await act(async () => fireEvent.keyDown(search, { key: "Enter" }));

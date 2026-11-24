@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { eq, schema } from "@agenteschat/db";
+import { eq, rowsOf, schema, sql } from "@agenteschat/db";
+import { conditionWords, issuedBy } from "@agenteschat/db/testing";
 import { summedCostNanoUsd } from "@agenteschat/providers";
 import {
   createAgent,
@@ -297,6 +298,39 @@ test("waits by cause, how computer turns started and where a run's time went", a
   const theirs = await operatorOrgWorkAnalytics(f.db, nova.id, range);
   expect(theirs.totals.computerStarts.turns).toBe(0);
   expect(theirs.totals.stages).toEqual([]);
+});
+
+test("a computer's waits and a provider's in one answer, across workspaces and in one", async () => {
+  const provider = { cause: "provider_outage", waits: 1, medianSec: 60, p90Sec: 60 };
+  expect((await operatorWorkAnalytics(f.db, range)).totals.waitsByCause).toMatchObject([
+    { cause: "brain_unavailable:busy", waits: 4 },
+    provider,
+  ]);
+  expect((await operatorOrgWorkAnalytics(f.db, f.org.id, range)).totals.waitsByCause).toMatchObject([
+    { cause: "brain_unavailable:busy", waits: 2 },
+    provider,
+  ]);
+  expect((await operatorOrgWorkAnalytics(f.db, nova.id, range)).totals.waitsByCause).toMatchObject([
+    { cause: "brain_unavailable:busy", waits: 2 },
+  ]);
+});
+
+test("each cause's waits are asked for in the words of the index that finds them, every read bounded in time", async () => {
+  const issued = await issuedBy(() => operatorWorkAnalytics(f.db, range));
+  // The planner reads a run's waits through a partial index only when the statement holds that index's condition.
+  const conditions = rowsOf<{ condition: string }>(
+    await f.db.execute(
+      sql`select pg_get_expr(indpred, indrelid) as condition from pg_index where indexrelid in
+        ('agent_run_steps_run_id_index'::regclass, 'agent_run_steps_provider_outage_idx'::regclass)`,
+    ),
+  ).map((index) => conditionWords(index.condition));
+  expect(conditions.length).toBe(2);
+  const byCause = issued.filter((statement) => statement.includes(" as cause"));
+  expect(byCause.length).toBe(1);
+  for (const condition of conditions) expect(conditionWords(byCause[0] ?? "")).toContain(condition);
+
+  const set = (setting: string) => issued.filter((statement) => statement === `set local ${setting}`).length;
+  expect([set("jit = off"), set("statement_timeout = '20s'")]).toEqual([6, 6]);
 });
 
 test("one workspace, per agent; by day past two days; at most 90 days", async () => {

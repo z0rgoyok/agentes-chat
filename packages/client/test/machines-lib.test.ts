@@ -12,6 +12,9 @@ import {
   brainTool,
   browserNoAnswerMessage,
   browserOffMessage,
+  CLI_HOME_ONLY,
+  cliCommandWayOut,
+  cliInstallCommand,
   cliInstallFailure,
   cliOneClick,
   commandInReason,
@@ -50,6 +53,7 @@ import {
   toolOnCommand,
   toolOneClick,
 } from "../src/lib/machines";
+import { gateLine } from "../src/lib/no-ai";
 import { openTarget, workspaceHeadline } from "../src/lib/notifications";
 import { accessOf, applyComputerEvent, applyMachineEvent, pauseOf } from "../src/realtime/machines";
 
@@ -400,9 +404,9 @@ describe("connected computers helpers (ADR 0036)", () => {
   });
 
   test("a sign-in's status that can't be read: reconnecting for 90 s from the first failed read, if it passes", () => {
-    // A restart that misses the runner's fifth dial (`backoffDelay`: 1, 2, 4, 8, 16, then 32 s after a drop, each up
-    // to 20 % late) has it back at the sixth: still waiting then, and for the next read 2 s on.
-    const sixthDial = [1, 2, 4, 8, 16, 32].reduce((at, s) => at + s * 1.2, 0) * 1000;
+    // A restart that misses the runner's fifth dial (`reconnectDelay`: within 1, 2, 4, 8, 16, then 32 s after a drop)
+    // has it back at the sixth: still waiting then, and for the next read 2 s on.
+    const sixthDial = [1, 2, 4, 8, 16, 32].reduce((at, s) => at + s, 0) * 1000;
     expect(LOGIN_RECONNECT_MS).toBeGreaterThan(sixthDial + 2_000);
     // The server restarting (no answer, or only the proxy's) or the computer reconnecting (offline, late).
     for (const error of [
@@ -631,6 +635,60 @@ describe("one click where a tool is off (ADR 0036 §8)", () => {
       'connectAi.cli.failed {"computer":"PC","message":"curl: (6)"}',
     );
     expect(installableCli("cursor")).toBeNull();
+  });
+
+  test("a CLI the apps don't install: the line to run there, for every agent's user in system mode", async () => {
+    const { ptBR, resources } = await import("@agenteschat/i18n");
+    const i18next = (await import("i18next")).default;
+    const instance = i18next.createInstance();
+    void instance.init({ lng: "pt-BR", fallbackLng: "en", resources, initAsync: false });
+    const t = instance.t;
+    const server = { kind: "connected", os: "linux", mode: "single", cliErrors: null } as Pick<
+      Machine,
+      "kind" | "os" | "mode" | "cliErrors"
+    >;
+    const system = { ...server, mode: "system" as const };
+    expect(cliInstallCommand("antigravity", server)).toBe(
+      "curl -fsSL https://antigravity.google/cli/install.sh | bash",
+    );
+    expect(cliInstallCommand("antigravity", system)).toBe(
+      "sudo env HOME=/opt/agy sh -c 'curl -fsSL https://antigravity.google/cli/install.sh | bash -s -- --skip-path' && sudo chmod -R a+rX /opt/agy && sudo ln -sf /opt/agy/.local/bin/agy /usr/local/bin/agy",
+    );
+    expect(cliInstallCommand("cursor", system)).toContain(
+      "sudo ln -sf /opt/cursor/.local/bin/agent /usr/local/bin/agent",
+    );
+    for (const no of [
+      cliInstallCommand("claude_code", server),
+      cliInstallCommand("opencode", server),
+      cliInstallCommand("grok", { ...server, os: "windows" }),
+      cliInstallCommand("grok", { ...server, kind: "managed" }),
+    ])
+      expect(no).toBeNull();
+
+    const words = { program: "Antigravity CLI", computer: "srv-1" };
+    expect(cliCommandWayOut(t, "antigravity", server, "not_installed", "srv-1")?.text).toBe(
+      `${t("connectAi.cli.missing", words)} ${ptBR.connectAi.cli.runThis}`,
+    );
+    expect(cliCommandWayOut(t, "antigravity", system, "not_installed", "srv-1")?.text).toBe(
+      t("connectAi.cli.missingSystem", words),
+    );
+    const rootOnly = { ...system, cliErrors: { antigravity: CLI_HOME_ONLY } };
+    expect(cliCommandWayOut(t, "antigravity", rootOnly, "cant_start", "srv-1")).toEqual({
+      text: t("connectAi.cli.homeOnly", words),
+      command: cliInstallCommand("antigravity", system) ?? "",
+    });
+    // There and failing on its own: the CLI's own error says why, not a command.
+    const crashing = { ...system, cliErrors: { antigravity: "segfault" } };
+    expect(cliCommandWayOut(t, "antigravity", crashing, "cant_start", "srv-1")).toBeNull();
+    expect(
+      gateLine(t, {
+        gate: { state: "unsupported", reason: "cant_start" },
+        edition: "selfhost",
+        kind: "antigravity",
+        computer: "srv-1",
+        machine: rootOnly,
+      })?.text,
+    ).toBe(t("brain.reasons.home_only", words));
   });
 
   test("Prefiro no Terminal: the same switches as one command, only for who turns them on, where there may be no app", () => {

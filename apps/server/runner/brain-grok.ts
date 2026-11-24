@@ -407,6 +407,11 @@ export async function runGrokTurn(input: GrokTurnInput, opts: GrokTurnOptions): 
         if ((event.type === "tool_call" || event.type === "tool_started") && GROK_META_TOOLS.includes(event.name))
           continue;
         flush("", true);
+        if (event.type === "tool_started") {
+          // Without the input the parser reads: only a code session shows it, never Grok Build's (ADR 0215).
+          opts.emit({ type: "tool_started", id: event.id, name: event.name });
+          continue;
+        }
         opts.emit(
           event.type === "tool_call"
             ? {

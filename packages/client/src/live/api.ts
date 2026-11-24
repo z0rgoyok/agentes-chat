@@ -18,6 +18,7 @@ import {
   type LiveVersionSaved,
   type OfficePreview,
   type PresenceSummary,
+  type ResolvedMark,
 } from "./types";
 
 /**
@@ -49,6 +50,13 @@ export interface LiveApi {
   copyAsset(orgId: string, fileId: string, from: LiveAssetSource): Promise<LiveAsset>;
   /** The address of a picture of the file (same origin on the web; the server's on the phone). */
   assetUrl(orgId: string, fileId: string, assetId: string): string;
+  /**
+   * The app's picture of the place a comment points at in a picture, a video or a PDF (ADR 0208): a small PNG or
+   * JPEG, named in the message's `liveRef.selection` (`crop`, `frame`) and served by `assetUrl`.
+   */
+  uploadMark(orgId: string, fileId: string, picture: Blob): Promise<LiveAsset>;
+  /** "Resolve" on a comment with a pin (or opening it again): who resolved it and when, or null when open. */
+  resolveComment(orgId: string, messageId: string, resolved: boolean): Promise<{ resolved: ResolvedMark | null }>;
   /** "Perguntar a um agente": the message to the agent, carrying the file and what is selected. */
   ask(orgId: string, fileId: string, input: AskAgentInput): Promise<AskAgentResult>;
   /** An uploaded Office file as the apps draw it (ADR 0198), at a version (default: the latest). */
@@ -128,6 +136,15 @@ export function createLiveApi(request: Requester, options: { upload?: LiveUpload
     },
     copyAsset: (orgId, fileId, from) => request<LiveAsset>(`${file(orgId, fileId)}/assets/copy`, { json: from }),
     assetUrl: (orgId, fileId, assetId) => `${base}${file(orgId, fileId)}/assets/${enc(assetId)}`,
+    uploadMark: (orgId, fileId, picture) => {
+      const form = new FormData();
+      form.append("file", picture, picture.type === "image/png" ? "mark.png" : "mark.jpg");
+      return upload<LiveAsset>(`${file(orgId, fileId)}/marks`, form);
+    },
+    resolveComment: (orgId, messageId, resolved) =>
+      request<{ resolved: ResolvedMark | null }>(`${org(orgId)}/messages/${enc(messageId)}/resolve`, {
+        json: { resolved },
+      }),
     ask: (orgId, fileId, input) => request<AskAgentResult>(`${file(orgId, fileId)}/live/ask`, { json: input }),
     officePreview: async (orgId, fileId, version) =>
       officePreviewOf(await request<unknown>(`${file(orgId, fileId)}/preview`, { query: { version } }), base),

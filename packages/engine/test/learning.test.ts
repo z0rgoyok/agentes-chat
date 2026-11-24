@@ -659,7 +659,7 @@ describe("agents learn on their own (ADR 0120)", () => {
     ]);
 
     // update_skill: only after load_skill in the run, never a locked skill or another agent's; a person's skill
-    // changes at once while agents improve skills by themselves (the default), else it becomes a proposal.
+    // changes at once while agents improve skills by themselves (the default), else agents leave it alone.
     const skill = async (slug: string, extra: Partial<typeof schema.skills.$inferInsert> = {}) => {
       const [s] = await f.db
         .insert(schema.skills)
@@ -686,17 +686,13 @@ describe("agents learn on their own (ADR 0120)", () => {
     const member = await addMember(f.db, f.org.id, "member");
     const { run: memberRun } = await personRun("@dev fix the handbook", false, undefined, member.id);
     await step(memberRun, "load_skill", { name: "handbook" }, "loaded");
-    const proposed = await invoke(memberRun, "update_skill", {
+    const refused = await invoke(memberRun, "update_skill", {
       name: "handbook",
       body: "# handbook\n1. Another step.",
     });
-    expect(proposed.content).toContain("Agents don't change this skill by themselves here");
-    const [proposal] = await f.db.select().from(schema.contextProposals);
-    expect([proposal?.target, proposal?.access?.[0]?.label, proposal?.proposedText]).toEqual([
-      "skill",
-      "handbook",
-      "# handbook\n1. Another step.",
-    ]);
+    expect(refused).toMatchObject({ isError: true });
+    expect(refused.content).toContain("Agents don't change this skill on their own");
+    expect(await f.db.select().from(schema.contextProposals)).toEqual([]);
     expect(
       (await receipts()).filter((r) => r.kind === "skill.updated").map((r) => (r.before as { body: string }).body),
     ).toEqual(["# mine", "# handbook"]);

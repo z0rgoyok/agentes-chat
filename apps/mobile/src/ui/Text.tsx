@@ -24,7 +24,9 @@ export type TextVariant =
   | "small"
   | "footnote"
   | "label"
-  | "caption";
+  | "caption"
+  | "cardTitle"
+  | "cardKind";
 export type TextTone = "ink" | "ink2" | "muted" | "faint" | "danger" | "ok";
 
 export interface TextProps extends RNTextProps {
@@ -45,6 +47,8 @@ const DEFAULT_TONE: Record<TextVariant, TextTone> = {
   footnote: "muted",
   label: "faint",
   caption: "faint",
+  cardTitle: "ink",
+  cardKind: "muted",
 };
 
 export const os: OS = Platform.OS === "android" ? "android" : "ios";
@@ -95,6 +99,8 @@ const VARIANT_STYLE: Record<TextVariant, [TypeStyle, Weight?]> = {
   footnote: ["footnote"],
   label: ["footnote", weights.semibold],
   caption: ["caption"],
+  cardTitle: ["subhead", weights.semibold],
+  cardKind: ["footnote", weights.semibold],
 };
 
 /**
@@ -102,6 +108,11 @@ const VARIANT_STYLE: Record<TextVariant, [TypeStyle, Weight?]> = {
  * "O que você precisa?", an empty state), title2 22 semibold, title 17 semibold (headline), body 17/22,
  * callout 16/21, subhead/small 15/20, footnote 13/18, label 13 semibold, caption 12/16 (iOS HIG sizes;
  * Material 3 on Android). All in the system font, so titles sit with the rest of the OS.
+ *
+ * A card in a message has one hierarchy, a step under the message's words (17), whatever the card: `cardKind` what it
+ * is, over its title (13 semibold, muted: "Mission", "Approval"); `cardTitle` its title (15 semibold, ink); `small`
+ * its own text (15); `footnote` what supports it (its state, a time, a count, a detail: 13, the state's word semibold
+ * in the state's color); `label` an action said as a word (13 semibold).
  */
 export function variantStyle(variant: TextVariant): TextStyle {
   const [style, weight] = VARIANT_STYLE[variant];

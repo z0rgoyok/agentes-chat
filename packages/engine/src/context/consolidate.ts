@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-import { and, asc, eq, inArray, isNull, lt, lte, ne, or, schema, sql } from "@agenteschat/db";
+import { and, asc, type Database, eq, inArray, isNull, lt, lte, ne, or, rowsOf, schema, sql } from "@agenteschat/db";
 import { isPlaybook } from "../audience";
-import { enqueue } from "../outbox";
+import { dailySlot } from "../format";
+import { enqueue, enqueueBatch } from "../outbox";
 import {
   accessSql,
   type ContextItem,
@@ -33,12 +33,30 @@ export const LEARNED_EXPIRE_DAYS = 14;
 /** An unconfirmed fact unused this long is archived (ADR 0167). */
 export const UNCONFIRMED_FACT_DAYS = 30;
 
-/** The daily `context.consolidate` jobs start over this long after the tick, so every workspace's doesn't land at once. */
-export const CONSOLIDATE_SPREAD_MS = 6 * 3600_000;
+/** A channel with this many messages in the last week gets that week's summary. */
+const BUSY_WEEK_MESSAGES = 30;
 
-/** When a workspace's daily consolidation runs: a stable offset into the spread, from a hash of its id. */
-export const consolidateRunAt = (orgId: string, tickAt: Date) =>
-  new Date(tickAt.getTime() + (createHash("sha256").update(orgId).digest().readUInt32BE(0) % CONSOLIDATE_SPREAD_MS));
+/**
+ * Every workspace's daily `context.consolidate`, at its own time of day (`dailySlot`, whose date is in the dedupe key),
+ * queued ahead by a tick each hour: replicas and restarts queue the same rows, and no hour of the day gets them all.
+ * They share the long lane with agent runs. Returns how many it queued.
+ */
+export async function enqueueConsolidations(db: Database, now = new Date()) {
+  const orgs = await db.select({ id: schema.organizations.id }).from(schema.organizations);
+  return enqueueBatch(
+    db,
+    orgs.map(({ id }) => {
+      const slot = dailySlot(id, now);
+      return {
+        orgId: id,
+        kind: "context.consolidate",
+        payload: {},
+        dedupeKey: `context.consolidate:${id}:${slot.day}`,
+        runAt: slot.at,
+      };
+    }),
+  );
+}
 
 /** Comparisons between yields to the event loop: a workspace with thousands of notes makes millions of pairs. */
 const PAIRS_PER_YIELD = 5_000;
@@ -209,22 +227,18 @@ export async function consolidateOrg(deps: ContextDeps, orgId: string, now = new
   for (const s of [...stale, ...fleeting, ...unconfirmed])
     await enqueue(db, { orgId, kind: "search.index", payload: { kind: "context_item", sourceId: s.id } });
 
-  // Last week's summary per channel that was busy (≥ 30 messages).
+  // Last week's summary per channel that was busy. Each of the org's channels is counted from its own index
+  // (`(channel_id, created_at)`), and only up to the threshold: `messages` has no index by org, so a filter on its
+  // org reads the week of every workspace.
   const weekStart = new Date(now.getTime() - 7 * 86_400_000);
-  const busy = await db
-    .select({ channelId: messages.channelId, n: sql<number>`count(*)::int` })
-    .from(messages)
-    .innerJoin(channels, eq(channels.id, messages.channelId))
-    .where(
-      and(
-        eq(messages.orgId, orgId),
-        sql`${messages.createdAt} >= ${weekStart.toISOString()}::timestamptz`,
-        isNull(channels.archivedAt),
-      ),
-    )
-    .groupBy(messages.channelId);
-  for (const c of busy.filter((b) => b.n >= 30)) {
-    await ensurePeriodSummary(deps, orgId, c.channelId, { from: weekStart, to: now }).catch(() => null);
+  const busy = rowsOf<{ id: string }>(
+    await db.execute(sql`select c.id from ${channels} c
+      where c.org_id = ${orgId}::uuid and c.archived_at is null
+        and (select count(*) from (select 1 from ${messages} m where m.channel_id = c.id and m.org_id = c.org_id
+          and m.created_at >= ${weekStart.toISOString()}::timestamptz limit ${BUSY_WEEK_MESSAGES}) w) >= ${BUSY_WEEK_MESSAGES}`),
+  );
+  for (const c of busy) {
+    await ensurePeriodSummary(deps, orgId, c.id, { from: weekStart, to: now }).catch(() => null);
   }
 
   let proposals = 0;
@@ -241,7 +255,7 @@ export async function consolidateOrg(deps: ContextDeps, orgId: string, now = new
         inArray(contextItems.kind, ["lesson", "preference", "decision", "fact"]),
       ),
     );
-  // Nobody is asked to confirm the agent's own technical lessons (its playbook).
+  // The agent's own technical lessons (its playbook) stay in memory; the rest goes to the review (ADR 0219).
   for (const item of candidates) if (!isPlaybook(item) && (await proposeFromItem(deps, item))) proposals++;
   const skills = await promoteHowTos(deps, orgId, learnConfig(deps).skillAfter).catch(() => 0);
   const shared = await shareAcrossAgents(deps, orgId).catch(() => 0);

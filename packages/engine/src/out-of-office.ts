@@ -1,7 +1,9 @@
 import type { PlanUsage } from "@agenteschat/adapters";
-import { and, type Database, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
+import { and, type Database, eq, inArray, schema } from "@agenteschat/db";
 import { NEXT_ACCOUNT_KINDS } from "@agenteschat/providers/plans";
 import type { Agent } from "./agents";
+import { movableKindSql } from "./ai-accounts/chain";
+import { accountsServing } from "./ai-accounts/serves";
 import { brainOf } from "./brain-settings";
 import { planLimitOf } from "./brains/select";
 import { isComputerBrain } from "./brains/types";
@@ -74,12 +76,29 @@ export async function outOfOffice(
   }
   if (chained.length === 0) return out;
   const next = await nextAccounts(db, orgId, chained);
+  const owners = [...new Set(chained.map((c) => c.agent.ownerUserId ?? null))];
+  const serving = new Map(
+    await Promise.all(
+      owners.map(
+        async (o) =>
+          [
+            o,
+            await accountsServing(
+              db,
+              orgId,
+              o,
+              next.map((r) => r.id),
+            ),
+          ] as const,
+      ),
+    ),
+  );
   for (const { agent: a, own, until } of chained) {
     let earliest = until;
     let room = false;
     for (const r of next) {
       if (r.machineId !== own.machineId || r.kind !== own.kind || r.id === own.id) continue;
-      if (r.createdBy !== a.ownerUserId && r.serves !== "everyone") continue;
+      if (!serving.get(a.ownerUserId ?? null)?.has(r.id)) continue;
       const limit = planLimitOf(own.machineId, brainOf(a.brain), r.id, r.usage as PlanUsage | null, ms);
       if (!limit) {
         room = true;
@@ -101,20 +120,17 @@ const movesOn = (a: OutOfOfficeAgent, own: AccountUsage) =>
   Boolean(a.ownerUserId) &&
   !isRightHand(a);
 
-/** The shared signed-in CLI accounts on the computers and kinds of `chained`, whose owner is still a member. */
+/** The shared signed-in CLI accounts on the computers and kinds of `chained` (whom each serves is `accountsServing`'s). */
 function nextAccounts(db: Database, orgId: string, chained: { own: AccountUsage }[]) {
-  const { machineAccounts, organizationMembers: members } = schema;
+  const { machineAccounts } = schema;
   return db
     .select({
       id: machineAccounts.id,
       machineId: machineAccounts.machineId,
       kind: machineAccounts.kind,
       usage: machineAccounts.usage,
-      createdBy: machineAccounts.createdBy,
-      serves: machineAccounts.serves,
     })
     .from(machineAccounts)
-    .innerJoin(members, and(eq(members.orgId, machineAccounts.orgId), eq(members.userId, machineAccounts.createdBy)))
     .where(
       and(
         eq(machineAccounts.orgId, orgId),
@@ -122,8 +138,7 @@ function nextAccounts(db: Database, orgId: string, chained: { own: AccountUsage 
         inArray(machineAccounts.kind, [...new Set(chained.map((c) => c.own.kind))]),
         eq(machineAccounts.status, "active"),
         eq(machineAccounts.shared, true),
-        isNull(machineAccounts.provider),
-        sql`${machineAccounts.authMethod} is distinct from 'api_key'`,
+        movableKindSql,
       ),
     );
 }

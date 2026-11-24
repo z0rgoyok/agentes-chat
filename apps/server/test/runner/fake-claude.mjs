@@ -16,9 +16,12 @@
 // with what it got back, "ECHOSHAPE" prints a token-shaped text in two deltas, "ECHOLONGSHAPE" one that goes on over
 // three after its prefix, "KEY403" is forbidden by it (a model or account switched off), "HANG…" (the API's pings
 // going on in "HANGPING", inside an open thinking block in "HANGTHINK"), "LONGTHINK", "LONGTOOL", "OURTOOLWAIT",
-// "RETRYWAIT" and "QUIETWAIT" go quiet (see below). Control requests: `initialize`, and `get_usage`
-// as $FAKE_CLAUDE_USAGE says ("" a Max plan's windows, "signed_out", "error",
-// "hang": never).
+// "RETRYWAIT" and "QUIETWAIT" go quiet (see below), "THOUGHT" thinks in two blocks first (one with 10 characters of text,
+// one whose text is left out), "ECHOMODEL" answers with the model and effort it runs on. Control requests:
+// `initialize`, `get_usage` as $FAKE_CLAUDE_USAGE says ("" a Max plan's windows, "signed_out", "error", "hang": never),
+// and `set_model` and `apply_flag_settings` (`effortLevel`), which switch what "ECHOMODEL" says (and `get_settings`
+// shows) unless $FAKE_CLAUDE_NO_SWITCH is "refuse" (an error answer), "silent" (none) or "flag_wins" (the effort says
+// success and stays the `--effort` one).
 // With `--json-schema` it is a route (`brain.route`): the prompt on stdin, one JSON result whose
 // `structured_output` gives the schema's first handle 0.9, and a line with the system prompt and the
 // prompt in the log. "SLOW_ROUTE" never answers, "BAD_ROUTE" answers no JSON.
@@ -63,8 +66,11 @@ if (log) {
   const autoMemoryOff = process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY ?? null;
   const at = args.indexOf("--settings");
   let settingsEnv = null;
+  let cleanupDays = null;
   try {
-    settingsEnv = at >= 0 ? (JSON.parse(readFileSync(args[at + 1], "utf8")).env ?? null) : null;
+    const settings = at >= 0 ? JSON.parse(readFileSync(args[at + 1], "utf8")) : {};
+    settingsEnv = settings.env ?? null;
+    cleanupDays = settings.cleanupPeriodDays ?? null;
   } catch {}
   const sysAt = args.indexOf("--append-system-prompt-file");
   let system = null;
@@ -73,7 +79,7 @@ if (log) {
   } catch {}
   appendFileSync(
     log,
-    `${JSON.stringify({ pid: process.pid, args, configDir, cwd: process.cwd(), apiKey, authToken, oauthToken, oauthEnv, oauthFd, baseUrl, settingsEnv, compactWindow, autoMemoryOff, system })}\n`,
+    `${JSON.stringify({ pid: process.pid, args, configDir, cwd: process.cwd(), apiKey, authToken, oauthToken, oauthEnv, oauthFd, baseUrl, settingsEnv, cleanupDays, compactWindow, autoMemoryOff, system })}\n`,
   );
 }
 const flag = (name) => {
@@ -194,6 +200,8 @@ const queue = [];
 let wake = null;
 let closed = false;
 let controlAnswer = null;
+let liveModel = flag("--model") ?? null;
+let liveEffort = flag("--effort") ?? null;
 const rl = createInterface({ input: process.stdin });
 rl.on("line", (line) => {
   let control = null;
@@ -392,6 +400,18 @@ async function answer(line) {
     clearInterval(pings);
     ev({ type: "content_block_stop", index: 0 });
   }
+  if (prompt.includes("THOUGHT")) {
+    out({
+      type: "stream_event",
+      event: { type: "message_start", message: { id: "msg_thought" } },
+      parent_tool_use_id: null,
+    });
+    await sleep(50);
+    const block = (b) =>
+      out({ type: "assistant", message: { id: "msg_thought", content: [b] }, parent_tool_use_id: null });
+    block({ type: "thinking", thinking: "abcdefghij", signature: "sig" });
+    block({ type: "redacted_thinking", data: "opaque" });
+  }
   if (prompt.includes("LONGTOOL")) {
     out({
       type: "assistant",
@@ -582,9 +602,11 @@ async function answer(line) {
         ? said.join("")
         : prompt.includes("ASKCONTROL")
           ? `control ${controlAnswer?.subtype}: ${controlAnswer?.error}`
-          : `echo ${turns}: ${prompt}${steered}`,
+          : prompt.includes("ECHOMODEL")
+            ? `model ${liveModel} effort ${liveEffort}`
+            : `echo ${turns}: ${prompt}${steered}`,
     usage: { input_tokens: 10, cache_read_input_tokens: 5, cache_creation_input_tokens: 1, output_tokens: 7 },
-    modelUsage: { [flag("--model") ?? "claude-sonnet"]: { inputTokens: 10, outputTokens: 7 } },
+    modelUsage: { [liveModel ?? "claude-sonnet"]: { inputTokens: 10, outputTokens: 7 } },
     ...(read.length && resultUuids ? { user_message_uuid: read.at(-1), user_message_uuids: read } : {}),
     ...(version ? { queued_turn_count: queue.length } : {}),
   });
@@ -607,6 +629,19 @@ function answerControl(req) {
     );
   const mode = process.env.FAKE_CLAUDE_USAGE ?? "";
   if (req.request?.subtype === "initialize") return reply("success", { response: { commands: [] } });
+  const switching = req.request?.subtype === "set_model" || req.request?.subtype === "apply_flag_settings";
+  if (switching && process.env.FAKE_CLAUDE_NO_SWITCH === "silent") return;
+  if (switching && process.env.FAKE_CLAUDE_NO_SWITCH === "refuse") return reply("error", { error: "not supported" });
+  if (req.request?.subtype === "set_model") {
+    liveModel = req.request.model ?? null;
+    return reply("success", { response: { model: liveModel } });
+  }
+  if (req.request?.subtype === "apply_flag_settings") {
+    if (process.env.FAKE_CLAUDE_NO_SWITCH !== "flag_wins") liveEffort = req.request.settings?.effortLevel ?? null;
+    return reply("success", {});
+  }
+  if (req.request?.subtype === "get_settings")
+    return reply("success", { response: { applied: { model: liveModel, effort: liveEffort } } });
   if (req.request?.subtype !== "get_usage") return reply("error", { error: "not supported" });
   if (mode === "hang") return;
   if (mode === "error") return reply("error", { error: "get_usage failed" });

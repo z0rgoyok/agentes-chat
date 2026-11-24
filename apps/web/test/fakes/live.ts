@@ -403,6 +403,23 @@ export function createFakeLive(
         return view;
       },
       assetUrl: (orgId, fileId, assetId) => `/api/app/organizations/${orgId}/artifacts/${fileId}/assets/${assetId}`,
+      // A comment's pictures on a picture, a video or a PDF (ADR 0208): stored nowhere, an id back.
+      uploadMark: async (orgId, fileId, picture) => {
+        record("live.uploadMark", orgId, fileId, picture.type);
+        return {
+          id: crypto.randomUUID(),
+          contentType: picture.type || "image/jpeg",
+          size: picture.size,
+          width: null,
+          height: null,
+        };
+      },
+      // As the server: resolved by the signed-in person, now.
+      resolveComment: async (orgId, messageId, resolved) => {
+        record("live.resolveComment", orgId, messageId, resolved);
+        const by = { type: "person" as const, id: (await me()).id };
+        return { resolved: resolved ? { by, at: ctx.now().toISOString() } : null };
+      },
       ask: async (orgId, fileId, input) => {
         record("live.ask", orgId, fileId, input);
         if (!input.text.trim()) throw new ApiError(400, "validation", "Say what you want");

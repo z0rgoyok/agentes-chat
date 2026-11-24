@@ -14,18 +14,17 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type GestureResponderEvent, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, LayoutAnimationConfig } from "react-native-reanimated";
-import { Disclosure, GroupedFooter, LineIcon, Text, useReducedMotion, useToast } from "@/ui";
+import { Disclosure, GroupedFooter, LineIcon, MESSAGE_CARD_X, Text, useReducedMotion, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { agoOf } from "../agents/logic";
 import { agoText } from "../agents/work";
-import { useBubblePart } from "../shared/bubble-part";
 import { useColors, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { ActionList, copyText, tapHaptic } from "../shared/parts";
 import { useSheetIfAny } from "../shared/SheetHost";
 import { groupStart, receiptIcon, receiptLayout, targetHref } from "./actions";
 import { DOUBLE_TAP_MS } from "./logic";
-import { useCardTop, useMessageCardCorners } from "./look";
+import { useCardTop, useMessageCardFrame } from "./look";
 import { useRowDirectory, useRowMeId } from "./row-data";
 
 /**
@@ -48,8 +47,7 @@ export function Receipts({
 }) {
   const { t } = useTranslation();
   const c = useColors();
-  const part = useBubblePart();
-  const cardCorners = useMessageCardCorners();
+  const card = useMessageCardFrame();
   const meId = useRowMeId();
   const dir = useRowDirectory();
   const sheet = useSheetIfAny();
@@ -99,9 +97,7 @@ export function Receipts({
   };
   const start = groupStart(list);
   // In a conversation of bubbles, a bubble of the message it came with (its fill, joined to it); else the card.
-  const frame = part
-    ? [styles.card, { backgroundColor: part.fill, borderWidth: 0 }, cardCorners, part.edge]
-    : [styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners];
+  const frame = [styles.card, card.style];
   // What changes while it shows (undone from somewhere else) fades in; what is there when it mounts just shows.
   return (
     <View style={cardTop}>
@@ -342,18 +338,24 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 6,
   },
   // The icon on the sentence's line (as the conversation's event lines): a list row's 12 above and below, one line 44.
-  one: { flexDirection: "row", alignItems: "flex-start", gap: 8, paddingVertical: 12, paddingHorizontal: 12 },
+  one: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: MESSAGE_CARD_X,
+  },
   pressed: { opacity: 0.6 },
   under: { marginTop: 2 },
   copyHook: { alignSelf: "flex-start", marginTop: 6, paddingVertical: 2 },
   group: { overflow: "hidden" },
-  hd: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: 12 },
+  hd: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, paddingHorizontal: MESSAGE_CARD_X },
   it: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
     paddingVertical: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: MESSAGE_CARD_X,
     borderTopWidth: StyleSheet.hairlineWidth,
   },
 });

@@ -79,7 +79,8 @@ export function DmPage({ target, focusMessageId }: { target: DmTarget; focusMess
   }
   if (!dm.data || dir.loading) return <ChannelSkeleton dm={kind} />;
 
-  const owner = agent?.ownerUserId ? dir.memberById.get(agent.ownerUserId) : undefined;
+  // A person's name or, when a role answers for it, the role's (ADR 0085, addendum of 2026-11-21).
+  const owner = agent ? dir.ownerName(agent) : undefined;
   const role = agent ? agent.role || `@${agent.handle}` : "";
   // The right hand (ADR 0137) says what it is and whose permissions it acts with, never an owner, nor a model: each
   // person's DM with it thinks with their own AI, shown with its maker's logo in the side panel's Como pensa.
@@ -87,7 +88,7 @@ export function DmPage({ target, focusMessageId }: { target: DmTarget; focusMess
     ? rightHand
       ? `${t("rightHand.label")} · ${t("rightHand.actsAsYou")}`
       : owner
-        ? t("dm.subtitle", { role, owner: owner.name })
+        ? t("dm.subtitle", { role, owner })
         : t("dm.subtitleNoOwner", { role })
     : undefined;
   const header = ({

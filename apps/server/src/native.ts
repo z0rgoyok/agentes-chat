@@ -39,7 +39,7 @@ import { INSTALL_DOCS_URL } from "@agenteschat/i18n/help";
 import { envEntries, upsertEnv } from "@agenteschat/setup/src/lib";
 import { expandHome } from "../runner/config";
 import { acquireLock, type LockResult } from "../runner/lock";
-import { RotatingFile } from "../runner/logfile";
+import { batchedAppend, RotatingFile } from "../runner/logfile";
 import {
   removeUserService,
   type ServiceDefinition,
@@ -153,24 +153,32 @@ async function nativeEnv(dir: string, env: NodeJS.ProcessEnv = process.env) {
   env.INSTALL_MODE ??= "native";
   env.WEB_DIR ??= join(PACKAGE, "web");
   env.DATABASE_URL = pgliteUrl(files.db);
+  // One process with its database inside: its jobs share one event loop and one database connection, so fewer run
+  // at once than in a server on Postgres (48, 12 of them quick).
+  env.OUTBOX_MAX_IN_FLIGHT ??= "16";
+  env.OUTBOX_QUICK_SLOTS ??= "4";
   env.FILES_DIR = files.files;
   env.HOST = "127.0.0.1";
   env.NODE_ENV = "production";
   return { port: Number(env.PORT), publicUrl: env.PUBLIC_URL };
 }
 
-/** Everything the console prints also goes to `logs/server.log`. */
+/** Everything the console prints also goes to `logs/server.log`, in batches (`batchedAppend`), the rest as it exits. */
 function teeLogs(file: string) {
   const log = new RotatingFile(file);
+  const batch = batchedAppend((text) => {
+    try {
+      log.append(text);
+    } catch {
+      // a full disk never stops the server
+    }
+  });
+  process.once("exit", batch.flush);
   for (const name of ["log", "info", "warn", "error", "debug"] as const) {
     const print = console[name].bind(console);
     console[name] = (...args: unknown[]) => {
       print(...args);
-      try {
-        log.append(`${format(...args)}\n`);
-      } catch {
-        // a full disk never stops the server
-      }
+      batch.write(`${format(...args)}\n`);
     };
   }
 }

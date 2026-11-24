@@ -148,7 +148,7 @@ describe("Conversas with the strip and one list", () => {
   });
 
   test("loading stands as the one section it will be; nothing yet invites the first conversation", () => {
-    const loading = home.slice(home.indexOf(") : list.loading ? ("), home.indexOf("<HomeWidgets"));
+    const loading = home.slice(home.indexOf("<SkeletonOver"), home.indexOf("<HomeWidgets"));
     expect(loading).toContain('title={t("mobile.chats.recent")}');
     expect(loading).toContain("<SkeletonList rows={6} />");
     expect(loading).not.toContain("count=");
@@ -192,7 +192,8 @@ describe("Conversas with the strip and one list", () => {
     expect(strip).toContain("<Count");
     expect(strip).toContain("paddingHorizontal: SCREEN_X");
     expect(strip).toContain("if (items.length === 0) return null;");
-    expect(strip).toContain("<ScrollView horizontal showsHorizontalScrollIndicator={false}");
+    // The kit's sideways strip: a fade at the edge where more pinned faces wait.
+    expect(strip).toContain("<SideScroll contentContainerStyle={styles.strip}>");
     expect(strip).not.toMatch(/entering=|withTiming|withSpring|snapToInterval/);
     // Only a pinned agent at work moves, within the home's budget, and none while the strip is closed.
     expect(home).toContain('const moves = !collapsed.includes("pinned") && facts.face === "run" && live < LIVE_ROWS;');

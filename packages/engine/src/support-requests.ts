@@ -193,8 +193,7 @@ const REPLY_SWEEP_DAYS = 2;
  */
 export async function forgetReplyWords(db: Executor, job?: OutboxJob, now = new Date()) {
   if (job && (job.payload.template as { kind?: unknown } | undefined)?.kind !== "support_reply") return;
-  // ponytail: without a job, one daily read of those days' jobs by their time index; an index on the email's kind if
-  // they grow too long to scan.
+  // Without a job: one daily read of those days' emails along `outbox_email_created_idx`.
   await db
     .update(outbox)
     .set({ payload: sql`${outbox.payload} #- '{template,text}'` })

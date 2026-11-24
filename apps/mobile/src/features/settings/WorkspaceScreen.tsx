@@ -19,29 +19,20 @@ import { useOrg } from "@/providers/org";
 import { GroupedFooter, GroupedHeader, GroupedList, GroupedRow, haptics } from "@/ui";
 import { router } from "@/ui/navigation";
 import { OrgAvatar } from "../shared/OrgAvatar";
+import { useLitPage, useOpenPage } from "../shared/SplitPanes";
 import { usePersonalView } from "./hooks";
 import {
   areaValues,
   GROUP_LABEL,
   PERSONAL_ICON,
   personalSections,
+  SECTION_SHORT,
   SETTINGS_GROUPS,
   type SettingsEntry,
   type SettingsGroup,
-  type SettingsSection,
   visibleSections,
 } from "./logic";
 import { confirmAction, Gap, SettingsPage } from "./parts";
-
-/** The rows whose group already says the rest get a shorter name (`mobile.settings.section.*`). */
-const SHORT: Partial<Record<SettingsSection, string>> = {
-  computers: "mobile.devices.title",
-  members: "mobile.settings.section.members",
-  invites: "settings.section.invites",
-  roles: "mobile.settings.section.roles",
-  access: "mobile.settings.section.access",
-  connectors: "mobile.settings.section.connectors",
-};
 
 /**
  * The workspace's settings, a screen pushed from Você on the grouped gray, as the phone's own settings: the web's
@@ -51,7 +42,8 @@ const SHORT: Partial<Record<SettingsSection, string>> = {
  * system's alert (one firm haptic as it confirms), then the proof and the hold. A list of places to go, so it takes the
  * pushed lists' large title. Opened often, so nothing animates here beyond the rows' press highlight and the
  * platform's push. A personal workspace gets its short list instead
- * (ADR 0159 §3, `PersonalSettingsList`).
+ * (ADR 0159 §3, `PersonalSettingsList`). On a large screen (ADR 0212) this is the left pane of `SettingsScreen`: a row
+ * opens its screen beside the list (`useOpenPage`) and stays lit while it shows (`useLitPage`).
  */
 export function WorkspaceScreen() {
   const { personal, others } = usePersonalView();
@@ -81,6 +73,9 @@ function PersonalSettingsList({ others }: { others: number | undefined }) {
   const { org } = useOrg();
   const { main } = personalSections(org, others);
   const values = useAreaValues(main);
+  // Pushed as always; beside the list on a large screen (ADR 0212), lit while it shows.
+  const open = useOpenPage();
+  const lit = useLitPage();
   return (
     <SettingsPage title={t("settings.title")} largeTitle>
       <Gap />
@@ -89,8 +84,9 @@ function PersonalSettingsList({ others }: { others: number | undefined }) {
           key="account"
           icon="person"
           label={t("settings.section.account")}
+          {...lit("/me/account")}
           chevron
-          onPress={() => router.push("/me/account")}
+          onPress={() => open("/me/account")}
         />
         {main.map((s) => (
           <GroupedRow
@@ -98,8 +94,9 @@ function PersonalSettingsList({ others }: { others: number | undefined }) {
             icon={PERSONAL_ICON[s.id] ?? s.icon}
             label={t(settingsSectionNameKey(org, s.id))}
             {...(values[s.id] ? { value: values[s.id] } : {})}
+            {...lit(s.href)}
             chevron
-            onPress={() => router.push(s.href as never)}
+            onPress={() => open(s.href)}
           />
         ))}
       </GroupedList>
@@ -109,8 +106,9 @@ function PersonalSettingsList({ others }: { others: number | undefined }) {
           key="advanced"
           icon="list"
           label={t("settings.advanced")}
+          {...lit("/settings/advanced")}
           chevron
-          onPress={() => router.push("/settings/advanced")}
+          onPress={() => open("/settings/advanced")}
         />
       </GroupedList>
     </SettingsPage>
@@ -136,6 +134,10 @@ export function SectionGroups({
   const { org } = useOrg();
   const values = useAreaValues(areas);
   const name = org?.name ?? "";
+  // Pushed as always (Advanced's own rows too); beside the settings' list on a large screen (ADR 0212), lit while it
+  // shows.
+  const open = useOpenPage();
+  const lit = useLitPage();
   return (
     <>
       {SETTINGS_GROUPS.map((group) => {
@@ -153,17 +155,19 @@ export function SectionGroups({
                     leading={<OrgAvatar logo={org?.logo} size={36} />}
                     label={name}
                     sub={t("mobile.settings.editSub")}
+                    {...lit(s.href)}
                     chevron
-                    onPress={() => router.push(s.href as never)}
+                    onPress={() => open(s.href)}
                   />
                 ) : (
                   <GroupedRow
                     key={s.id}
                     icon={s.icon}
-                    label={t(SHORT[s.id] ?? `settings.section.${s.id}`)}
+                    label={t(SECTION_SHORT[s.id] ?? `settings.section.${s.id}`)}
                     {...(values[s.id] ? { value: values[s.id] } : {})}
+                    {...lit(s.href)}
                     chevron
-                    onPress={() => router.push(s.href as never)}
+                    onPress={() => open(s.href)}
                   />
                 ),
               )}

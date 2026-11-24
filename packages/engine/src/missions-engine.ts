@@ -7,6 +7,7 @@ import { publishChannelEvent, publishMessageCreated } from "./events";
 import type { RunIdentity } from "./executor";
 import { wakesLater } from "./follow-through";
 import { cutText } from "./format";
+import { queueLiveActivityRun } from "./live-activity-queue";
 import { insertMessage, messageView } from "./messages";
 import { MISSION_LIMITS } from "./mission-limits";
 import { enqueueRunJob } from "./mission-runs";
@@ -711,6 +712,7 @@ async function cancelThreadRuns(
     if (deps.pubsub) await deps.pubsub.publish(RUN_CANCEL_TOPIC, { type: "run.cancel", runId: run.id }).catch(() => {});
     const where = { channelId: run.channelId, threadId: run.threadRootId, agentId: run.agentId, runId: run.id };
     await publishChannelEvent(deps.pubsub, { type: "agent.run", ...where, status: "canceled" });
+    await queueLiveActivityRun(deps.db, run).catch(() => {});
     if (from !== "running") {
       await publishChannelEvent(deps.pubsub, { type: "agent.idle", ...where });
       await publishChannelEvent(deps.pubsub, { type: "run.finished", ...where, status: "canceled" });

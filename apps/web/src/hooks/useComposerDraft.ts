@@ -1,5 +1,5 @@
 import { type ComposerDraft, readDraftBook, withDraft } from "@agenteschat/client/lib/composer-drafts";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import type { AuthClient } from "@/auth/client";
 import { STORAGE_KEYS, storage } from "@/lib/storage";
 
@@ -42,14 +42,21 @@ export function withComposerDraftsSignOut(auth: AuthClient): AuthClient {
   };
 }
 
+/** A composer's text as a store: the box reads it (`useDraftText`), what sends it reads it at that moment (`get`). */
+export interface DraftStore {
+  get(): string;
+  set(next: string | ((old: string) => string)): void;
+  subscribe(listener: () => void): () => void;
+}
+
 /**
  * A composer's text that survives switching conversations and reloading: it starts from `handed` (text another
  * screen gave it, like ⌘K "Pedir a um agente") or what was left unsent here, and every change is written down
  * shortly after typing settles, at once when the conversation closes or the page goes away. Sending clears it the
- * same way, with the text set to "".
+ * same way, with the text set to "". A store, not state: a key typed draws the box (`useDraftText`), never the
+ * conversation that holds it.
  */
-export function useComposerDraft(userId: string, key: string, handed?: string) {
-  const [text, setText] = useState(() => handed ?? readComposerDraft(userId, key)?.text ?? "");
+export function useComposerDraft(userId: string, key: string, handed?: string): DraftStore {
   const pending = useRef<string | null>(handed ?? null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -60,19 +67,31 @@ export function useComposerDraft(userId: string, key: string, handed?: string) {
     writeComposerDraft(userId, key, pending.current);
     pending.current = null;
   }, [userId, key]);
+  const flushNow = useRef(flush);
+  flushNow.current = flush;
 
-  const set = useCallback(
-    (next: string | ((old: string) => string)) => {
-      setText((old) => {
-        const value = typeof next === "function" ? next(old) : next;
+  const [store] = useState(() => {
+    let text = handed ?? readComposerDraft(userId, key)?.text ?? "";
+    const listeners = new Set<() => void>();
+    return {
+      get: () => text,
+      set(next: string | ((old: string) => string)) {
+        const value = typeof next === "function" ? next(text) : next;
+        if (value === text) return;
+        text = value;
         pending.current = value;
-        return value;
-      });
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(flush, SAVE_DELAY_MS);
-    },
-    [flush],
-  );
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = setTimeout(() => flushNow.current(), SAVE_DELAY_MS);
+        for (const l of listeners) l();
+      },
+      subscribe(listener: () => void) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    };
+  });
 
   // Handed text replaces what was left here: written down at once, like any change.
   useEffect(() => {
@@ -87,5 +106,8 @@ export function useComposerDraft(userId: string, key: string, handed?: string) {
     };
   }, [flush]);
 
-  return [text, set] as const;
+  return store;
 }
+
+/** The text in a draft, for what draws it: a change draws only the caller. */
+export const useDraftText = (draft: DraftStore) => useSyncExternalStore(draft.subscribe, draft.get, draft.get);

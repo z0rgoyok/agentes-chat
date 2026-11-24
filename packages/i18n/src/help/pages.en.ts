@@ -411,7 +411,7 @@ export const helpEn: Record<HelpSlug, HelpDocument> = {
         id: "proposals",
         heading: "Proposed changes",
         blocks: [
-          "When a lesson repeats, the agent may propose changing its own instructions or the workspace's context. Nothing changes until someone accepts, and the text can be adjusted first. The previous version stays in the history. A refused proposal is kept as a lesson, so it isn't proposed again.",
+          "When a lesson repeats, the agent may propose changing its own instructions or the workspace's context. The agent's review applies it if it makes sense, written as one short rule, or leaves it out and says why. Every change shows in Agent improvements, where you can undo it. An undone change is kept as a lesson, so the agent doesn't make it again.",
         ],
       },
     ],

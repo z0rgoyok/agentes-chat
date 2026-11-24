@@ -683,9 +683,6 @@ html:not([data-pointer]) .nt-nb:focus-visible {
 
 /* ── Phones ─────────────────────────────────────────────────────────────── */
 @media (max-width: 720px) {
-  .nt .ac-pagehead__actions {
-    width: 100%;
-  }
   .nt-tb {
     margin-bottom: 14px;
   }
@@ -810,4 +807,378 @@ html:not([data-pointer]) .nt-fails .nt-rep:focus-visible {
 .nt-wr__card {
   min-width: 0;
   cursor: auto;
+}
+
+/*
+ * The inbox: one list of everything that involves me and, beside it, the open item. The list has no cards and no
+ * buttons (who, what they want, when); the open item is a page with the agent on its own sky, where the answer is given.
+ */
+/* The inbox fills the work area: its two columns scroll on their own, so the area itself doesn't. */
+.shell__main:has(> .ib) {
+  position: relative;
+  overflow: hidden;
+}
+.ib {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+/* The columns keep their own room at the foot: none under them. */
+.nt.ib {
+  padding-bottom: 0;
+}
+.ib-read__link {
+  align-self: flex-start;
+  margin-top: 20px;
+}
+.ib-list {
+  flex: 0 0 380px;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding: 0 12px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-right: 1px solid var(--line);
+}
+/* The page's header (`PageHeader`), kept in sight over the list as it scrolls: the list's top room is the header's. */
+.ib-head {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  margin: 0 -12px;
+  padding: var(--page-top) 16px 12px 24px;
+  background: var(--pane);
+}
+/* The filter and Mark all as read are small: beside the title while it fits whole, under it when it doesn't (a long
+   filter's name, a narrow column), on a phone too, where page buttons take a row of their own. */
+.ib-head .ac-pagehead__actions {
+  flex-basis: auto;
+}
+.ib-filter {
+  flex: none;
+  color: var(--muted);
+}
+.ib-readall {
+  flex: none;
+  color: var(--muted);
+}
+/* A filter and how many it holds, on one line. */
+.ib-menu__opt {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ib-menu__n {
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+.ib-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 12px;
+}
+.ib-group > .ac-grouphead {
+  padding: 0 12px 6px;
+}
+.ib-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  column-gap: 12px;
+  align-items: start;
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.ib-row:hover {
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+}
+.ib-row.is-on {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+}
+html:not([data-pointer]) .ib-row:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring-inset);
+}
+.ib-row.is-leaving {
+  opacity: 0;
+  transform: translateX(16px);
+  transition:
+    opacity 0.18s var(--out),
+    transform 0.18s var(--out);
+}
+.ib-row__face {
+  display: inline-flex;
+  margin-top: 1px;
+}
+.ib-row__text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ib-row__line {
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Unread is the weight of the name and a dot under the time (no bar on the side). */
+.ib-row__line.nt-what b {
+  font-weight: 500;
+}
+.ib-row.is-unread .ib-row__line {
+  color: var(--ink);
+}
+/* A read row whose headline names nobody is as quiet as any read row. */
+.ib-row:not(.is-unread) .ib-row__line.nt-what:not(:has(b)) {
+  color: var(--muted);
+  font-weight: 500;
+}
+.ib-row.is-unread .ib-row__line.nt-what b {
+  font-weight: 700;
+}
+.ib-row__sub {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--faint);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ib-row__end {
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ib-row__end.is-urgent {
+  color: var(--warn);
+  font-weight: 600;
+}
+/* The unread dot: under the time, on the second line's middle. */
+.ib-row.is-unread .ib-row__end {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+.ib-row.is-unread .ib-row__end::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--danger);
+}
+
+.ib-read {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow-y: auto;
+}
+.ib-read.is-leaving {
+  opacity: 0.4;
+  transition: opacity 0.18s var(--out);
+}
+/* The agent's sky, across the top of the open item. */
+.ib-read > .ac-approval__sky {
+  height: 132px;
+  border-radius: 0;
+}
+.ib-read__in {
+  position: relative;
+  box-sizing: border-box;
+  max-width: 664px;
+  margin: 0 auto;
+  padding: 44px 32px 64px;
+  display: flex;
+  flex-direction: column;
+}
+.ib-read__top {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.ib-read__face {
+  display: inline-flex;
+  margin-inline-end: auto;
+}
+.ib-read__face .ac-avatar--lg {
+  width: 64px;
+  height: 64px;
+}
+.nt-av40 {
+  width: 40px;
+  height: 40px;
+}
+/* Back to the list: only where the screen shows one of the two. */
+.ib-read__back {
+  display: none;
+}
+.ib-read__who {
+  margin: 0 0 6px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--faint);
+}
+.ib-read__title {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.ib-read__title.nt-what b {
+  font-weight: 600;
+}
+.ib-read__say {
+  margin: 12px 0 0;
+  font-size: 17px;
+  line-height: 26px;
+  color: var(--ink2);
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
+.ib-read__warn {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--warn);
+}
+.ib-decide {
+  margin-top: 28px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.ib-item > .nt-steprow,
+.ib-item > .nt-cmp,
+.ib-item > .nt-replied {
+  margin-top: 20px;
+}
+/* What an item groups, read flat: no plate behind the replies. */
+.ib-item > .nt-reps {
+  margin-top: 24px;
+  border-radius: 0;
+  background: none;
+}
+
+/* An approval and a question are the conversation's cards, drawn flat here: the page is their surface, their sky the
+   open item's own, their title the page's. The inbox's own class leads each rule, so the card's rules never tie with them
+   whichever sheet loads first. */
+.ib .ib-read .rq {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+.ib .ib-read .rq > .ac-approval__sky {
+  display: none;
+}
+.ib .ib-read .rq__kind {
+  font-size: 14px;
+  font-weight: 400;
+  color: var(--faint);
+}
+.ib .ib-read .rq__who {
+  font-weight: 600;
+  color: var(--ink);
+}
+.ib .ib-read .rq__lead {
+  margin-top: 8px;
+  font-size: 17px;
+  line-height: 26px;
+  color: var(--ink2);
+}
+.ib .ib-read .rq[data-ask-kind="question"] .rq__lead {
+  font-size: 26px;
+  line-height: 1.2;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+.ib .ib-read .rq__well,
+.ib .ib-read .rq__preview,
+.ib .ib-read .rq__foot,
+.ib .ib-read .rq__items {
+  margin-inline: 0;
+  padding-inline: 0;
+}
+.ib .ib-read .rq__well {
+  margin-top: 20px;
+  padding-block: 16px;
+}
+.ib .ib-read .rq__wt b {
+  font-size: 20px;
+  line-height: 26px;
+}
+/* The mark stands on the larger title's line. */
+.ib .ib-read .rq__well > .rq__logo {
+  height: 25px;
+}
+.ib .ib-read .rq__wt small {
+  font-size: 15px;
+  line-height: 22px;
+}
+.ib .ib-read .rq__foot {
+  margin-top: 20px;
+  padding-block: 16px 0;
+}
+.ib .ib-read .rq__choices {
+  margin-top: 24px;
+}
+
+/* Nothing at all: one calm screen. */
+.ib-calm {
+  min-height: 100%;
+  justify-content: center;
+}
+
+/* One of the two at a time: the list, or the open item over it with its way back. */
+@media (max-width: 900px) {
+  .ib-list {
+    flex: 1 1 auto;
+    border-right: 0;
+  }
+  .ib-read {
+    display: none;
+  }
+  .ib--open > .ib-list {
+    display: none;
+  }
+  .ib--open > .ib-read {
+    display: block;
+  }
+  .ib-read__back {
+    display: inline-flex;
+  }
+  .ib-read__in {
+    padding: 32px 16px 48px;
+  }
+  /* A narrow page: the title a size down, so a long name keeps to its words. */
+  .ib-read__title,
+  .ib .ib-read .rq[data-ask-kind="question"] .rq__lead {
+    font-size: 20px;
+    line-height: 26px;
+  }
 }

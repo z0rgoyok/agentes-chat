@@ -23,6 +23,7 @@ import {
   type SkillRow,
   skillFilesOf,
   skillFolderFiles,
+  skillPersonMayChange,
   skillsOf,
   validateSkill,
   writeSkillBody,
@@ -140,12 +141,15 @@ async function readsInRun(ctx: RunCtx & { db: Database }, name: string) {
  * `load_skill`. Credentials and permission rules never go in.
  * Applied at once as a new version, with a `skill.updated` receipt (Desfazer): its own agent-made, unlocked skill,
  * and a skill a person made while "Agentes melhoram as skills sozinhos" is on for it (`agentsImproveSkill`), its
- * author told. Otherwise each part becomes a proposal a person who manages agents accepts. A file that runs (a
- * script, an executable: `runsCode`) is always a proposal, whatever the setting.
+ * author told. Otherwise each part becomes a proposal the review weighs and applies (ADR 0219). A file that runs (a
+ * script, an executable: `runsCode`) is always a proposal, whatever the setting. A person's word on the skill stands:
+ * locked, or with that setting off, agents don't change it at all.
  * `trust` is the run's (`learnTrust`): after outside content (the web, mail, a connected app) nothing applies at
  * once, since skills load as trusted instructions and can be shared with other agents. `asked`: who is behind the run
  * and, with `decides`, that they asked in their own words and may decide it (`ownWords`, ADR 0092 §5): it applies at
  * once whatever the setting or a lock, a file that runs aside.
+ * A skill not on for this agent is one `asked.person` may change (`skillPersonMayChange`): the agent manages it for
+ * them (another agent's), applied at once only when they decide it, else a proposal.
  */
 export async function changeSkillAsAgent(
   deps: { db: Database; pubsub?: PubSub; judge?: Judge; blobs?: BlobStoreResolver },
@@ -153,7 +157,7 @@ export async function changeSkillAsAgent(
   slug: string,
   change: string | { body?: string; files?: SkillFileEdit[] },
   trust: "high" | "low",
-  asked?: { person: string | null; decides: boolean },
+  asked?: { person: string | null; decides: boolean; words?: string | null },
 ): Promise<SkillChange> {
   const name = slug.trim().toLowerCase();
   const { body: rawBody, files = [] } = typeof change === "string" ? { body: change } : change;
@@ -165,13 +169,16 @@ export async function changeSkillAsAgent(
     if (looksLikeSecret(t)) throw new ValidationError("This looks like a credential, so it can't go in a skill.");
   const reads = await readsInRun(ctx, name);
   if (!reads.loaded) throw new ValidationError(`Load the skill ${name} with load_skill first, then change it.`);
-  const skill = await agentSkillByName(ctx.db, ctx.orgId, ctx.agentId, name, ctx.runId);
+  const mine = await agentSkillByName(ctx.db, ctx.orgId, ctx.agentId, name, ctx.runId);
+  // Not one of its own: a skill the person behind the run may change, which they manage through it (other agents').
+  const skill = mine ?? (asked?.person ? await skillPersonMayChange(ctx.db, ctx.orgId, name, asked.person) : null);
   if (!skill) throw new NotFoundError(`No skill named ${name} is enabled for you.`);
-  const own = skill.origin === "agent";
-  if (own) {
-    if (skill.ownerAgentId !== ctx.agentId) throw new ForbiddenError("That skill belongs to another agent.");
-    if (skill.locked) throw new ForbiddenError("A person locked this skill, so it can't be changed.");
-  }
+  const managed = !mine;
+  const own = skill.origin === "agent" && skill.ownerAgentId === ctx.agentId;
+  if (skill.origin === "agent" && !own && !managed) throw new ForbiddenError("That skill belongs to another agent.");
+  if (own && skill.locked) throw new ForbiddenError("A person locked this skill, so it can't be changed.");
+  // Their own personal skill, asked in their own words: theirs to decide, as on its page.
+  const decides = asked?.decides || (managed && !!skill.ownerUserId && skill.ownerUserId === asked?.words);
   const existing = new Map((await skillFilesOf(ctx.db, skill)).map((f) => [f.path, f]));
   const kept =
     edits.length > 0 && deps.blobs
@@ -209,16 +216,17 @@ export async function changeSkillAsAgent(
     return { action: "unchanged", proposalIds: [], scripts: [] };
   await assertSkillChangeRoom(ctx.db, ctx, skill.id);
 
-  const why =
-    trust === "low"
-      ? "outside"
-      : own || asked?.decides
-        ? undefined
-        : skill.locked
-          ? "locked"
-          : (await agentsImproveSkill(ctx.db, skill))
-            ? undefined
-            : "person";
+  // A person's own word on the skill stands (ADR 0219): locked, or "Agentes melhoram as skills sozinhos" off, agents
+  // don't change it, so nothing goes to the review either.
+  if (!own && !decides && !managed) {
+    if (skill.locked)
+      throw new ForbiddenError("A person locked this skill, so agents don't change it: tell them what to change.");
+    if (!(await agentsImproveSkill(ctx.db, skill)))
+      throw new ForbiddenError(
+        "Agents don't change this skill on their own (a person turned that off for it): tell them what to change.",
+      );
+  }
+  const why = trust === "low" ? "outside" : own || decides ? undefined : managed ? "person" : undefined;
   // A proposal shows the skill's text to who reviews it: a personal skill's is its person's alone.
   if (skill.ownerUserId && (why || scripts.length > 0))
     throw new ValidationError(
@@ -228,7 +236,15 @@ export async function changeSkillAsAgent(
   const propose = async (body: string, file?: { path: string; text: string }) => {
     const p = await proposeSkillChange(
       { db: ctx.db, pubsub: deps.pubsub },
-      { orgId: ctx.orgId, agentId: ctx.agentId, skill, body, file, requesterId: asked?.person },
+      {
+        orgId: ctx.orgId,
+        agentId: ctx.agentId,
+        skill,
+        body,
+        file,
+        requesterId: asked?.person,
+        origin: why === "outside" ? "outside" : decides ? "asked" : asked?.person ? "asked_other" : "agent",
+      },
     );
     if (p) proposalIds.push(p.id);
   };

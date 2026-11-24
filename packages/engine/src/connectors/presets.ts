@@ -13,7 +13,8 @@ import { canonicalResource } from "./oauth-mcp";
  *
  * A preset marked `soon` is one whose vendor doesn't accept the registration
  * yet (its redirect URI or client name, or registration itself is limited to
- * clients the vendor approved); it stays `soon` until the vendor does.
+ * clients the vendor approved); it stays `soon` until the vendor does. Meta
+ * Ads isn't: it takes an admin's own Meta app (ADR 0016, 2026-11-21).
  * Calendly accepts only letters, digits, hyphens and spaces in the client
  * name: `ensureOAuthClient` registers it again without the dot.
  *
@@ -556,12 +557,52 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     serverUrl: "https://mcp.zapier.com/api/mcp/mcp",
   },
   {
+    // TikTok for Business' own server, every tool at once (the big ones reach agents as a directory).
+    id: "tiktok-ads",
+    category: "marketing",
+    label: "TikTok Ads",
+    description: "TikTok ad campaigns, ad groups, ads and their results.",
+    icon: "tiktok",
+    serverUrl: "https://business-api.tiktok.com/open_mcp/tt-ads-mcp-flat",
+  },
+  {
     id: "canva",
     category: "marketing",
     label: "Canva",
     description: "Canva designs and templates.",
     icon: "canva",
     serverUrl: "https://mcp.canva.com/mcp",
+    // Its server registers any client, then refuses the sign-in of one whose redirect URI Canva hasn't listed
+    // ("Invalid redirect URI." at `/authorize`, checked 2026-11-22).
+    soon: true,
+    // Left out: deleting assets and folders, and uploads from a file (an image comes in by its address).
+    composio: {
+      toolkit: "canva",
+      version: "20261116_00",
+      auth: "managed",
+      actions: [
+        "CANVA_LIST_USER_DESIGNS",
+        "CANVA_FETCH_DESIGN_METADATA_AND_ACCESS_INFORMATION",
+        "CANVA_LIST_DESIGN_PAGES_WITH_PAGINATION",
+        "CANVA_LIST_FOLDER_ITEMS_BY_TYPE_WITH_SORTING",
+        "CANVA_ACCESS_USER_SPECIFIC_BRAND_TEMPLATES_LIST",
+        "CANVA_RETRIEVE_BRAND_TEMPLATE_DATASET_DEFINITION",
+        "CANVA_GET_DESIGNS_DESIGNID_COMMENTS_THREADID",
+        "CANVA_GET_DESIGN_COMMENT_REPLIES",
+        "CANVA_GET_DESIGNS_DESIGNID_EXPORT_FORMATS",
+        "CANVA_POST_DESIGNS",
+        "CANVA_POST_EXPORTS",
+        "CANVA_GET_DESIGN_EXPORT_JOB_RESULT",
+        "CANVA_CREATE_URL_ASSET_UPLOAD_JOB",
+        "CANVA_GET_URL_ASSET_UPLOADS_JOBID",
+        "CANVA_INITIATE_CANVA_DESIGN_AUTOFILL_JOB",
+        "CANVA_RETRIEVE_DESIGN_AUTOFILL_JOB_STATUS",
+        "CANVA_CREATE_DESIGN_RESIZE_JOB",
+        "CANVA_RETRIEVE_DESIGN_RESIZE_JOB_STATUS",
+        "CANVA_POST_DESIGNS_DESIGNID_COMMENTS",
+        "CANVA_POST_DESIGNS_DESIGNID_COMMENTS_THREADID_REPLIES",
+      ],
+    },
   },
   {
     id: "gitlab",
@@ -948,8 +989,9 @@ export const MCP_PRESETS: readonly McpPreset[] = [
     label: "Meta Ads",
     description: "Meta (Facebook and Instagram) ad campaigns and results.",
     icon: "meta",
+    // Meta takes only apps a business made in Meta for Developers: without this server's own Meta app (the native
+    // connector, ADR 0170), an admin pastes theirs (`setOwnOAuthClient`).
     serverUrl: "https://mcp.facebook.com/ads",
-    soon: true,
   },
   {
     id: "klaviyo",

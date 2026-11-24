@@ -15,7 +15,6 @@ import { BackHandler, Platform, Pressable, StyleSheet, View } from "react-native
 import { LayoutAnimationConfig } from "react-native-reanimated";
 import { signOut } from "@/features/account";
 import { agentLook } from "@/features/shared/logic";
-import { authClient } from "@/lib/auth";
 import { paysHere } from "@/lib/store";
 import { useOrgGate } from "@/providers/org";
 import { Button, LineIcon, Locked, OptionTile, Text, useTheme } from "@/ui";
@@ -31,6 +30,7 @@ import { openWebPath } from "../links/open-web";
 import { ZoneSheet } from "../me/AccountPage";
 import { chooseAction } from "../settings/parts";
 import { usePersonPhoto } from "../shared/photo";
+import { ConfirmEmailScreen, sendConfirmationLink } from "./ConfirmEmail";
 import {
   endOnboarding,
   isRootPage,
@@ -105,7 +105,14 @@ export function OnboardingPage({ step: pushed }: { step?: PushedStep | null }) {
     }, [root]),
   );
   if (orphan) return null;
-  return <FirstRunStep pushed={pushed ?? undefined} />;
+  return <FirstRun pushed={pushed ?? undefined} />;
+}
+
+/** The first run, after "check your inbox" for an address never confirmed (ADR 0006, addendum 2026-11-22). */
+function FirstRun({ pushed }: { pushed: PushedStep | undefined }) {
+  const user = useQuery(meQuery(useApi())).data?.user;
+  if (user?.emailConfirmation === "required") return <ConfirmEmailScreen email={user.email} />;
+  return <FirstRunStep pushed={pushed} />;
 }
 
 function FirstRunStep({ pushed }: { pushed: PushedStep | undefined }) {
@@ -630,10 +637,7 @@ function ConfirmationNote({ email }: { email: string }) {
   const [sent, setSent] = useState<"no" | "sending" | "sent" | "failed">("no");
   const resend = async () => {
     setSent("sending");
-    const res = await authClient()
-      .sendVerificationEmail({ email })
-      .catch(() => null);
-    setSent(res && !res.error ? "sent" : "failed");
+    setSent((await sendConfirmationLink(email)) ? "sent" : "failed");
   };
   return (
     <View style={styles.note} accessibilityLiveRegion="polite">

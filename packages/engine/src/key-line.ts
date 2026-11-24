@@ -2,6 +2,7 @@ import { and, type Database, type Executor, eq, inArray, schema, sql } from "@ag
 import { modelProvider, ProviderError, parseCustomModel } from "@agenteschat/providers";
 import type { Agent } from "./agents";
 import { enqueue } from "./outbox";
+import { runState } from "./run-state";
 
 const { agentRuns } = schema;
 
@@ -44,7 +45,7 @@ export const keyLineOf = (agent: Pick<Agent, "credentialId" | "model">) =>
   agent.credentialId ??
   `default:${modelProvider(agent.model) ?? agent.model}`;
 
-const outage = (field: string) => sql`${agentRuns.transcript}->'outage'->>${sql.raw(`'${field}'`)}`;
+const outage = (field: string) => sql`${runState}->'outage'->>${sql.raw(`'${field}'`)}`;
 const inLine = (orgId: string, line: string) => and(eq(agentRuns.orgId, orgId), sql`${outage("line")} = ${line}`);
 const peopleSql = sql`coalesce((${outage("people")})::boolean, false)`;
 const sinceSql = sql`coalesce((${outage("since")})::bigint, 0)`;
@@ -56,7 +57,7 @@ const atSql = sql`coalesce((${outage("at")})::bigint, 0)`;
  * budget, for a month) keeps its `outage` until a model call answers, and must not hold the runs behind it.
  */
 const holdsPlace = (now: number) =>
-  and(sql`${agentRuns.transcript}->>'waitingForBrain' is null`, sql`${atSql} > ${now - KEY_LINE_TRY_MS}::bigint`);
+  and(sql`${runState}->>'waitingForBrain' is null`, sql`${atSql} > ${now - KEY_LINE_TRY_MS}::bigint`);
 
 const setOutage = (db: Executor, id: string, field: "at" | "triedAt", value: number) =>
   db

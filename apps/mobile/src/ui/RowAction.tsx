@@ -1,5 +1,6 @@
 import { type AccessibilityRole, Text as RNText, StyleSheet, View } from "react-native";
 import { PressScale } from "./PressScale";
+import { MESSAGE_CARD_X } from "./rhythm";
 import { systemText } from "./Text";
 import { useTheme } from "./theme";
 import { CHROME_MAX_SCALE, weights } from "./type-scale";
@@ -55,9 +56,9 @@ const FACE_PAD = 4;
 
 /**
  * The side padding of a card whose row can end in a `RowAction` (a team check, a mention's reach): its first icon and
- * the action's word as far from the card's edges, 12 each.
+ * the action's word as far from the card's edges as every card's content in a message (`MESSAGE_CARD_X`).
  */
-export const ROW_CARD_INSET = { paddingLeft: 12, paddingRight: 12 - FACE_PAD } as const;
+export const ROW_CARD_INSET = { paddingLeft: MESSAGE_CARD_X, paddingRight: MESSAGE_CARD_X - FACE_PAD } as const;
 
 const styles = StyleSheet.create({
   row: { height: 32 },

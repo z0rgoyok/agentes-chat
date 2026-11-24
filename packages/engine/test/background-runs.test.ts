@@ -12,6 +12,7 @@ import {
   createAgent,
   createAgentRuns,
   createChannel,
+  type createFakeJudge,
   createJobHandlers,
   createPassToolSource,
   drainOutbox,
@@ -225,6 +226,17 @@ describe("a routine's background run never posts by itself", () => {
     expect(await agentMessages()).toEqual([]);
     expect(ends()).toEqual([{ runId: run.id, status: "done", text: "Nada novo desde ontem." }]);
     expect(await routineRunById(routineRun.id)).toMatchObject({ status: "silent", summary: "Nada novo desde ontem." });
+  });
+
+  test("a silent run picks no line: its routine's line shows", async () => {
+    f = await setup({ reply: () => ({ chunks: ["Nada novo desde ontem."] }) });
+    const judge = f.context.judge as ReturnType<typeof createFakeJudge>;
+    await backgroundRun();
+    await drainOutbox(f.db, f.handlers);
+    expect(judge.calls.map((c) => c.kind)).not.toContain("agent_status");
+    expect((await f.db.select().from(schema.agents).where(eq(schema.agents.id, f.agent.id)))[0]?.statusKind).toBe(
+      "routine",
+    );
   });
 
   test("a failure: nothing posted, the ledger fails with the run's error code", async () => {

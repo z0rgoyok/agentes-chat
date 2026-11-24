@@ -87,11 +87,11 @@ test("a reply is posted whole at the end: what a person sent while it was writte
   expect(deltas).toEqual([]);
 });
 
-test("a draft sent back for another try never shows: the text that replaces it is posted at the end", async () => {
+test("a give-up sent back for another try goes out at its turn's end, below what came meanwhile; the answer below it", async () => {
   let dmId = "";
   let verdicts = 0;
   f = await setup({
-    // Its first answer gives up with ways left: one more try, never posted; the second is the answer.
+    // Its first answer gives up with ways left: posted, then one more try; the second is the answer.
     judge: (kind) => (kind === "follow_through" ? (++verdicts === 1 ? "untried" : "done") : undefined),
     reply: (_request, call) =>
       call === 1
@@ -107,10 +107,12 @@ test("a draft sent back for another try never shows: the text that replaces it i
   await drainOutbox(f.db, f.handlers);
 
   const dm = await listMessages(f.db, f.owner.id, f.org.id, dmId);
-  expect(dm.some((m) => m.body.startsWith("Não consegui"))).toBe(false);
-  const final = dm.find((m) => m.body.startsWith("Achei"));
-  const urgent = dm.find((m) => m.body === "é urgente");
-  expect(dm.indexOf(final as (typeof dm)[number])).toBeGreaterThan(dm.indexOf(urgent as (typeof dm)[number]));
+  const giveUp = dm.findIndex((m) => m.body.startsWith("Não consegui"));
+  const final = dm.findIndex((m) => m.body.startsWith("Achei"));
+  const urgent = dm.findIndex((m) => m.body === "é urgente");
+  expect(urgent).toBeGreaterThan(-1);
+  expect(giveUp).toBeGreaterThan(urgent);
+  expect(final).toBeGreaterThan(giveUp);
   expect(deltas).toEqual([]);
 });
 
@@ -185,6 +187,7 @@ test("posted after someone read, in a place before their read: unread for them, 
       channelId: f.general.id,
       threadRootId: trigger.id,
       triggerMessageId: trigger.id,
+      replyInThread: false,
       pendingMessageIds: [],
     },
     trigger,

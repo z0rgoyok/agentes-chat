@@ -7,7 +7,7 @@ import { useOrg } from "@/providers/org";
 import { GroupedList, GroupedRow } from "@/ui";
 import { usePersonalView } from "../settings/hooks";
 import { Gap } from "../settings/parts";
-import { useMeId } from "../shared/hooks";
+import { useMeId, useMyRoleIds } from "../shared/hooks";
 import { openAgentEditors, useEditorsSummary } from "./AgentEditorsScreen";
 
 /**
@@ -23,8 +23,10 @@ export function EditorsSection({ agent }: { agent: Agent }) {
   const meId = useMeId();
   const { solo } = usePersonalView();
   const summary = useEditorsSummary();
+  const myRoleIds = useMyRoleIds();
   if (isRightHand(agent) || !seesDetails(agent) || (solo && editorsMode(editorsOf(agent)) === "owner")) return null;
-  const changes = canEditAudience(org ?? undefined, agent, meId ?? "");
+  // Who holds the role that answers for it changes it too (ADR 0085, addendum of 2026-11-21).
+  const changes = canEditAudience(org ?? undefined, agent, meId ?? "", myRoleIds);
   return (
     <>
       <Gap />

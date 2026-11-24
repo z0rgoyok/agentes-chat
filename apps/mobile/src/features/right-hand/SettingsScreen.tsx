@@ -1,13 +1,8 @@
 import {
   type Agent,
-  type AgentBrain,
-  type AgentBrainInput,
-  keys,
   useAgentBrain,
   useAiAccounts,
-  useApi,
   useAuthConfig,
-  useModelLabel,
   usePlatformKey,
   useRoles,
   useSetTeamWeekPrefs,
@@ -18,21 +13,22 @@ import {
   useWorkspaceUsesApi,
 } from "@agenteschat/client";
 import { selfHosted } from "@agenteschat/client/lib/about";
-import { accountChoices, accountTitle, ownSignInTitle } from "@agenteschat/client/lib/ai-accounts";
+import { accountTitle, ownSignInTitle } from "@agenteschat/client/lib/ai-accounts";
 import { agentsReach, audienceOf, audiencePatch, managesAgent } from "@agenteschat/client/lib/audience";
-import { modelRows } from "@agenteschat/client/lib/brain-picker";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { readBudget } from "@agenteschat/client/lib/new-agent";
 import { rightHandUnusable } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
-import { brainPlan } from "@agenteschat/client/lib/plans";
-import { AUTO } from "@agenteschat/client/lib/providers";
-import { mineStatus, RIGHT_HAND_POWERS, rightHandNoComputer, rightHandOf } from "@agenteschat/client/lib/right-hand";
+import {
+  mineStatus,
+  RIGHT_HAND_POWERS,
+  rightHandComputerLine,
+  rightHandNoComputer,
+  rightHandOf,
+} from "@agenteschat/client/lib/right-hand";
 import { type LodiPrefsPatch, type LodiSwitch, teamWeekOn } from "@agenteschat/client/lib/right-hand-prefs";
 import { helpUrl } from "@agenteschat/client/lib/server";
 import { dayText, hourText } from "@agenteschat/client/lib/team-week";
-import { useQueryClient } from "@tanstack/react-query";
-import type { TFunction } from "i18next";
 import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { StyleSheet } from "react-native";
@@ -51,7 +47,7 @@ import {
 import { router } from "@/ui/navigation";
 import { openAgentEdit } from "../agents/AgentEditScreen";
 import { BudgetField } from "../agents/BudgetSection";
-import { openAgentAi, openAgentModel } from "../ai/AgentAiScreen";
+import { AiChoiceFields } from "../ai/AiChoice";
 import { openConnectAi } from "../ai/NoAiCard";
 import { openPage, PlanHoldNote, usePlanHold } from "../ai/parts";
 import { openComputer } from "../computer/AgentComputerRow";
@@ -61,7 +57,7 @@ import { usePersonalView } from "../settings/hooks";
 import { Gap, SettingsPage } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
 import { type Directory, useDirectory, useEdition, useMeId } from "../shared/hooks";
-import { type PickLeading, pickOne } from "../shared/PickerSheet";
+import { pickOne } from "../shared/PickerSheet";
 import { RightHandApprovalsGroup } from "./Approvals";
 
 /** Opens Configurações › the right hand (ADR 0137). */
@@ -116,7 +112,7 @@ export function RightHandSettingsScreen() {
 /**
  * "Computador": the row opens the computer every agent's profile opens, which for the right hand is the viewer's own
  * seat on the workspace's computer and nobody else's. Where it has none for anyone (the workspace has no computer of
- * its own, or one that can't keep people apart) the row stays and says why, with nothing to open.
+ * its own) the row stays and says why, with nothing to open.
  */
 function Computer({ agentId }: { agentId: string }) {
   const { t, i18n } = useTranslation();
@@ -166,51 +162,28 @@ function Computer({ agentId }: { agentId: string }) {
             }}
           />
         ) : (
-          t(none ?? "rightHand.computerYours")
+          t(none ?? rightHandComputerLine(view.machine))
         )}
       </GroupedFooter>
     </>
   );
 }
 
-/** The model a plan's view runs, by its name (Automático included). */
-const planModelLabel = (t: TFunction, view: AgentBrain) =>
-  modelRows(t, view, brainPlan(view)).find((r) => r.checked)?.label ?? view.effectiveModel ?? undefined;
-
-/** The choices of "Sua IA": the person's own plan, connecting another one, the workspace's AI. */
-const MINE = "mine";
-const MODEL = "model";
+/** "Sua IA"'s own option: connecting another plan. */
 const OTHER = "other";
-const WORKSPACE = "workspace";
 
 /**
- * "Sua IA" (ADR 0137 §11) as one row that opens, as on the web (`mineStatus`): the logo of what answers the person in
- * their own DM with the right hand, its name and what it is to them (Claude, chave do workspace). Its sheet holds the
- * choice, the one in use checked: their own plan and, under it, its model (which opens the model's page), connecting
- * another, or the workspace's AI. When nothing
- * answers them the row is the call to connect a plan. Why it is theirs alone is the row's ⓘ. Everyone has it, on the
- * right hand's profile.
+ * "Sua IA" (ADR 0137 §11): what answers the person in their own DM with the right hand, as the one choice every picker
+ * shares (Conta, Modelo, Esforço), "A do workspace" first and "Conectar uma IA" at the end. When nothing answers them
+ * the row is the call to connect a plan. Everyone has it, on the right hand's profile too.
  */
 export function RightHandMine({ agent }: { agent: Agent }) {
   const { t } = useTranslation();
   const { orgId } = useOrg();
-  const api = useApi();
-  const qc = useQueryClient();
-  const failed = useFailed();
-  const dir = useDirectory();
   const meId = useMeId();
   const view = useAgentBrain(orgId, agent.id).data;
   const platform = usePlatformKey(orgId).data === true;
   const status = mineStatus(view, meId ?? "", platform, agent.brain?.maker);
-  const first = (id: string) => dir.memberById.get(id)?.name.split(" ")[0] ?? "";
-  const back = () =>
-    void api.agents
-      .setBrain(orgId, agent.id, { scope: "mine", brain: "model" })
-      .then(() => {
-        void qc.invalidateQueries({ queryKey: keys.agentBrain(orgId, agent.id) });
-        void qc.invalidateQueries({ queryKey: keys.aiStatus(orgId) });
-      })
-      .catch(failed);
   if (!status) return null;
   const connect = () => openConnectAi({ agentId: agent.id });
   const hint = {
@@ -230,199 +203,46 @@ export function RightHandMine({ agent }: { agent: Agent }) {
         />
       </GroupedList>
     );
-  const own = status.kind === "own";
-  const logo =
-    status.kind === "key" ? (
-      status.provider ? (
-        <ProviderLogo id={status.provider} size="sm" />
-      ) : null
-    ) : (
-      <ProviderLogo id={status.brain} size="sm" />
-    );
-  const label =
-    status.kind === "own"
-      ? (status.label ?? t(`aiAccounts.connect.${status.brain}`))
-      : status.kind === "key"
-        ? (status.label ?? t("rightHand.settings.mineKeyName"))
-        : t(`aiAccounts.connect.${status.brain}`);
-  const model = own && view ? planModelLabel(t, view) : undefined;
-  const sub =
-    status.kind === "own"
-      ? status.ownerId
-        ? t("rightHand.settings.mineOf", { owner: first(status.ownerId) })
-        : t("rightHand.settings.mineYours")
-      : t(status.kind === "key" ? "rightHand.settings.mineKey" : "rightHand.settings.minePlan");
-  const leading: PickLeading = logo ? { kind: "node", node: logo } : { kind: "icon", name: "key" };
-  const choose = async () => {
-    const picked = await pickOne({
-      title: t("rightHand.settings.mine"),
-      value: own ? MINE : WORKSPACE,
-      options: own
-        ? [
-            { key: MINE, label, sub, leading },
-            {
-              key: MODEL,
-              label: t("agentPage.work.brain.planModel"),
-              sub: model,
-              leading: { kind: "icon", name: "brain" },
-            },
-            { key: OTHER, label: t("agentPage.work.brain.connectPlan"), leading: { kind: "icon", name: "plus" } },
-            { key: WORKSPACE, label: t("rightHand.settings.useWorkspace"), leading: { kind: "icon", name: "members" } },
-          ]
-        : [
-            { key: MINE, label: t("rightHand.settings.useMine"), leading: { kind: "icon", name: "bolt" } },
-            { key: WORKSPACE, label: t("rightHand.settings.useWorkspace"), sub: `${label} · ${sub}`, leading },
-          ],
-    });
-    if (picked === MODEL) openAgentModel(agent.id);
-    else if (picked === OTHER || (picked === MINE && !own)) connect();
-    else if (picked === WORKSPACE && own) back();
-  };
+  // The one choice (`AiChoiceFields`): "A do workspace" first, then the plans that may think for the person.
   return (
-    <GroupedList>
-      <GroupedRow
-        {...(logo ? { leading: logo } : { icon: "key" as const })}
-        label={label}
-        sub={model ? `${sub} · ${model}` : sub}
-        hint={hint}
-        // The choice opens over the screen, in place: the row's up-down mark, never a chevron (that pushes a screen).
-        menu
-        onPress={() => void choose()}
-      />
-    </GroupedList>
+    <AiChoiceFields
+      target={{ kind: "lodi", agentId: agent.id, scope: "mine" }}
+      extras={[
+        {
+          option: {
+            key: OTHER,
+            label: t("agentPage.work.brain.connectPlan"),
+            leading: { kind: "icon", name: "plus" },
+            section: " ",
+          },
+          onPick: connect,
+        },
+      ]}
+    />
   );
 }
 
-/** The API key among the plans in the choice of the workspace's AI. */
-const KEY = "key";
-
 /**
- * The AI of people with no plan of their own (ADR 0137 §11), as on the web: one row with what it is now (a plan and
- * whose account, or the API key) that opens the choice of the key or a plan the person may set (their own, everyone's
- * with `use_others_plans`). On the key, its model is the row under it. On a plan, the switch that lends it, as for any
- * agent on its owner's plan: the plan's owner chooses, an admin may override, the plan's owner hears it by email.
+ * The AI of people with no plan of their own (ADR 0137 §11), as on the web: the one choice (the workspace's API key or
+ * a plan open to everyone), then the plans it can't think with now and why.
  */
 function WorkspaceAi({ agent, dir }: { agent: Agent; dir: Directory }) {
   const { t } = useTranslation();
   const { orgId, org } = useOrg();
   const hold = usePlanHold(orgId, org) !== null;
-  const api = useApi();
-  const qc = useQueryClient();
-  const failed = useFailed();
   const meId = useMeId();
-  const modelLabel = useModelLabel();
   const aiAccounts = useAiAccounts(orgId).data;
   const edition = useEdition();
   const view = useAgentBrain(orgId, agent.id, true, false, "workspace").data;
-  const kind = agent.brain && agent.brain.kind !== "model" ? agent.brain.kind : null;
-  const signIn = view?.accounts.find((a) => a.id === view.account);
-  const key = view?.workspaceAi?.key;
-  const [busy, setBusy] = useState(false);
-  const set = (input: AgentBrainInput) => {
-    setBusy(true);
-    void api.agents
-      .setBrain(orgId, agent.id, { scope: "workspace", ...input })
-      .then(() =>
-        Promise.all(
-          [keys.agentBrain(orgId, agent.id), keys.agents(orgId), keys.aiStatus(orgId)].map((queryKey) =>
-            qc.invalidateQueries({ queryKey }),
-          ),
-        ),
-      )
-      .catch(failed)
-      .finally(() => setBusy(false));
-  };
   const theirs = (id: string | null | undefined) =>
     id && id !== meId ? dir.memberById.get(id)?.name.split(" ")[0] : undefined;
   const plans = (view?.accounts ?? []).filter((a) => a.status === "active");
   // Plans it can't think with now, under the choice with why, as on the web: it stands in on what can meanwhile.
   const cant = rightHandUnusable(aiAccounts, view?.account);
-  const away = new Set(cant.flatMap((u) => u.ids));
-  // A plan in use that is no longer active stays listed, so the choice never opens with nothing checked. Each plan
-  // once, its logins grouped, as on the web.
-  const listed = accountChoices(
-    (signIn && !plans.some((p) => p.id === signIn.id) ? [signIn, ...plans] : plans).filter((p) => !away.has(p.id)),
-    [view?.account],
-  ).map((c) => c.login);
-  const choose = async () => {
-    const picked = await pickOne({
-      title: t("rightHand.settings.workspace"),
-      value: kind ? (view?.account ?? null) : KEY,
-      options: [
-        {
-          key: KEY,
-          label: t("rightHand.settings.mineKeyName"),
-          sub: key?.label,
-          leading: key
-            ? { kind: "node", node: <ProviderLogo id={key.provider} size="sm" /> }
-            : { kind: "icon", name: "key" },
-        },
-        ...listed.map((a) => {
-          const owner = theirs(a.ownerId);
-          return {
-            key: a.id,
-            label: t("rightHand.settings.planName", { name: a.label }),
-            sub: owner ? t("rightHand.settings.planOwner", { owner }) : undefined,
-            leading: { kind: "node" as const, node: <ProviderLogo id={a.kind} size="sm" /> },
-          };
-        }),
-      ],
-    });
-    if (picked === null) return;
-    if (picked === KEY) {
-      if (kind) set({ brain: "model" });
-      return;
-    }
-    const plan = listed.find((p) => p.id === picked);
-    if (plan && plan.id !== view?.account) set({ brain: plan.kind, account: plan.id });
-  };
-  const owner = theirs(signIn?.ownerId);
   const g = agentGrammar(agent.name);
   return (
     <>
-      <GroupedList>
-        <GroupedRow
-          {...(kind
-            ? { leading: <ProviderLogo id={kind} size="sm" /> }
-            : key
-              ? { leading: <ProviderLogo id={key.provider} size="sm" /> }
-              : { icon: "key" as const })}
-          label={
-            kind
-              ? t("rightHand.settings.planName", { name: signIn?.label ?? t(`aiAccounts.connect.${kind}`) })
-              : t("rightHand.settings.mineKeyName")
-          }
-          labelLines={2}
-          {...(kind
-            ? owner
-              ? { sub: t("rightHand.settings.planOwner", { owner }) }
-              : {}
-            : key
-              ? { sub: key.label }
-              : {})}
-          // On a billing hold nothing changes before the plan (ADR 0162). The choice opens in place: the up-down mark.
-          menu={!hold}
-          disabled={busy || hold}
-          onPress={() => void choose()}
-        />
-        {kind ? (
-          view ? (
-            <GroupedRow
-              icon="brain"
-              label={planModelLabel(t, view) ?? t("agentPage.work.brain.planModel")}
-              chevron
-              onPress={() => openAgentModel(agent.id, "workspace")}
-            />
-          ) : null
-        ) : (
-          <GroupedRow
-            icon="brain"
-            label={agent.model === AUTO ? t("brain.auto.label") : (modelLabel(agent.model) ?? agent.model)}
-            chevron
-            onPress={() => openAgentAi(agent.id)}
-          />
-        )}
-      </GroupedList>
+      <AiChoiceFields target={{ kind: "lodi", agentId: agent.id, scope: "workspace" }} disabled={hold} />
       {hold ? (
         <PlanHoldNote org={org} />
       ) : plans.length === 0 ? (

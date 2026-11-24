@@ -127,9 +127,12 @@ describe("the other screens of tasks, requests and missions", () => {
     expect(screen).not.toContain("ActivityIndicator");
   });
 
-  test("a request's sheet has the task sheets' bar, and loads in its rows' shape", () => {
+  test("a request is a pushed screen under the system's bar, no sheet's bar of its own, and loads in its rows' shape", () => {
     const sheet = src("approvals/ApprovalSheet.tsx");
-    expect(sheet).toContain('<SheetBar title={t("mobile.approval.sheet.title")} onClose={onClose} inset />');
+    // ADR 0218 §6: the system's back in a collapsed bar, never the sheets' × and title.
+    expect(sheet).toContain('<PushedLargeTitle title="" collapsed grouped keyboard');
+    for (const gone of ["<SheetBar", "<SheetScreen"]) expect([gone, sheet.includes(gone)]).toEqual([gone, false]);
+    expect(sheet).toContain("<SkeletonList rows={2} />");
     expect(sheet).not.toContain("ActivityIndicator");
     expect(sheet).toContain("<LoadFailed onRetry={() => void approval.refetch()} />");
   });

@@ -279,7 +279,9 @@ describe("Início", () => {
     // A row opens where the inbox would, and reads the item.
     await click(within(rows("Esperando você")[1] as HTMLElement).getByRole("button"));
     await settle();
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/approvals`);
+    // A request is decided in the inbox (ADR 0218), which opens on it.
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/notifications`);
+    expect(router.state.location.search).toEqual({ approval: "ap-merge" });
     expect(state.calls).toContainEqual({ method: "notifications.read", args: [ORG_ID, "n-approval", true] });
   });
 

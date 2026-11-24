@@ -156,8 +156,8 @@
     "cloudText": "Altijd aan. Wij regelen alles, jij gebruikt het gewoon.",
     "here": "Op deze {{device}}",
     "hereText": "Je agents werken zolang de app open is.",
-    "box": "Op een computer die altijd aan staat",
-    "boxText": "Een Mac mini of een computer op kantoor, één keer geïnstalleerd.",
+    "box": "Op een server of VPS",
+    "boxText": "Altijd aan, ook als deze app dicht is. Je installeert het één keer.",
     "goCloud": "Verder in de cloud",
     "goHere": "Deze {{device}} klaarmaken",
     "goBox": "Bekijk hoe je hem installeert",
@@ -165,15 +165,15 @@
     "haveOneLink": "Inloggen met het adres"
   },
   "install": {
-    "title": "Installeren op een computer die altijd aan staat",
+    "title": "Installeren op een server of VPS",
     "lead": "Dat doe je één keer. Daarna draait hij vanzelf door, ook met deze app dicht.",
-    "step1": "Open op de computer die aan blijft de Terminal en plak dit",
+    "step1": "Open op de server de Terminal (of maak verbinding via SSH) en plak dit",
     "step2": "Aan het eind verschijnt een link. Open hem hier en klaar.",
     "noLink": "Geen link?",
     "someoneElse": "Installeert iemand anders hem?",
     "copy": "Instructies kopiëren",
     "copied": "Instructies gekopieerd",
-    "text": "Zo installeer je agentes.chat op een computer die altijd aan blijft (een Mac mini, een computer op kantoor of een server):\n\n1. Open op die computer de Terminal en plak dit:\n{{command}}\n\n2. Aan het eind verschijnt een link. Stuur hem naar mij: hij opent de workspace in de app."
+    "text": "Zo installeer je agentes.chat op een server of VPS (of een computer die altijd aan blijft, zoals een Mac mini):\n\n1. Open op de server de Terminal (of maak verbinding via SSH) en plak dit:\n{{command}}\n\n2. Aan het eind verschijnt een link. Stuur hem naar mij: hij opent de workspace in de app."
   },
   "connect": {
     "title": "Inloggen bij een workspace die al bestaat",

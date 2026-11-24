@@ -6,9 +6,10 @@ import { confidentialThread, isConfidential, stubOf, thinksAsThread, unsealed } 
 import { attachedLine, taskNotice } from "./context";
 import { publishChannelEvent } from "./events";
 import { ACTIVE_RUN_STATUSES, releaseInbox, stoppedToSend } from "./run-inbox";
+import type { RunRow } from "./run-state";
 import type { AgentRun } from "./runs";
 
-const { agentRuns, messages, users, agents } = schema;
+const { agentRuns, agentRunSteps, messages, users, agents } = schema;
 
 /**
  * Live steering: a person's message reaches a computer brain's turn in
@@ -55,7 +56,7 @@ const LIVE_STEER_RETRIES = 30;
  */
 export async function deliverLive(
   deps: { db: Database; pubsub: PubSub; waitMs?: number },
-  run: AgentRun,
+  run: Pick<RunRow, "id" | "status">,
   input: { messageId: string; urgent: boolean },
 ): Promise<boolean> {
   if (run.status !== "running") return false;
@@ -109,13 +110,35 @@ export const PASSED_ON_NOTE =
   "This is now part of your work: do what it asks before you finish, and say in your report what you did with it, or why not.";
 
 /**
+ * After a message the triage was sure corrects or adds to the task, where people read the conversation as it goes
+ * (`steerTriage.line`, `steering.ts`): the agent may tell them how it takes it (ADR 0207 addendum of 2026-11-24).
+ */
+export const SAY_HOW_YOU_TAKE_IT = "Before you go on, tell them in one short line with say_now how you take this.";
+
+/** The messages of `runId`'s inbox the agent may answer with a line of its own as it takes them in. */
+async function linesAllowed(db: Executor, runId: string, ids: string[]): Promise<Set<string>> {
+  const rows = await db
+    .select({ messageId: sql<string | null>`${agentRunSteps.data}->'steerTriage'->>'messageId'` })
+    .from(agentRunSteps)
+    .where(
+      and(
+        eq(agentRunSteps.runId, runId),
+        eq(agentRunSteps.kind, "context"),
+        sql`${agentRunSteps.data}->'steerTriage'->'line' = 'true'::jsonb`,
+      ),
+    );
+  return new Set(rows.map((r) => r.messageId).filter((id): id is string => id !== null && ids.includes(id)));
+}
+
+/**
  * Messages people (or events) sent while the run worked, oldest first, as the
  * agent reads them: "[New message from Ada, while you were working]: …", or
  * the notice a task or event carries. Deleted ones are left out. `beforeStart`:
  * read before its first model call (the rest of a burst, `waitForBurst`), they
  * are plain conversation lines, "[Ada]: …", part of the same request. `workId`:
  * the reading run's own background work, which reads what was passed on to it
- * as part of its job.
+ * as part of its job. `runId`: the reading run, whose triage may let it say how it takes a message
+ * (`SAY_HOW_YOU_TAKE_IT`).
  */
 export async function renderSteered(
   db: Executor,
@@ -126,6 +149,7 @@ export async function renderSteered(
     workId?: string | null;
     /** The reading run thinks through the Model Gateway: its thread, and what it thinks with (`thinksAsThread`). */
     unseal?: { threadRootId: string; thinksWith: string | undefined };
+    runId?: string;
   } = {},
 ): Promise<SteeredText[]> {
   if (ids.length === 0) return [];
@@ -156,6 +180,10 @@ export async function renderSteered(
   const rows = stored.map((m) => (!isConfidential(m.meta) ? m : reads && mine(m) ? unsealed(m) : stubOf(m)));
   // Messages written in one transaction share its time (a report's notices): their ids keep the order.
   rows.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1));
+  const sayHow =
+    options.runId && !options.beforeStart
+      ? await linesAllowed(db, options.runId, ids).catch(() => new Set<string>())
+      : new Set<string>();
   return rows.map((m) => {
     const name = m.name ?? "someone";
     const works = m.meta.steeredWorkIds;
@@ -170,7 +198,7 @@ export async function renderSteered(
       // A background task that ended while it worked: the notice with its result.
       text:
         taskNotice({ body: m.body, meta: m.meta }, true) ??
-        `${line}${attachedLine(m)}${passedOn ? `\n${PASSED_ON_NOTE}` : ""}`,
+        `${line}${attachedLine(m)}${passedOn ? `\n${PASSED_ON_NOTE}` : sayHow.has(m.id) ? `\n${SAY_HOW_YOU_TAKE_IT}` : ""}`,
     };
   });
 }
@@ -178,7 +206,7 @@ export async function renderSteered(
 /** The run fields `releaseInbox` needs. */
 type InboxRun = Pick<
   AgentRun,
-  "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "trigger"
+  "id" | "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread" | "trigger"
 >;
 
 /**
@@ -278,7 +306,7 @@ export function listenLiveSteering(
     if (!turn || turn !== steer || refused) return false;
     const ids = await hooks.take();
     if (ids.length === 0) return false;
-    const rows = await renderSteered(deps.db, run.orgId, ids, { workId: hooks.workId?.() ?? null });
+    const rows = await renderSteered(deps.db, run.orgId, ids, { workId: hooks.workId?.() ?? null, runId: run.id });
     if (rows.length === 0) return false;
     const sent = rows.map((r) => ({ row: r, uuid: randomUUID() }));
     const reply = await turn(

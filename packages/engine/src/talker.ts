@@ -32,6 +32,11 @@ export interface TalkerInput {
    * read answers only at the task's end.
    */
   handling?: SteerHandling | null;
+  /**
+   * The message is the agent's own to answer as it takes it in, with a line on the way (`say_now`, ADR 0207 addendum
+   * of 2026-11-24): nothing speaks for it.
+   */
+  ownLine?: boolean;
 }
 
 /**
@@ -60,7 +65,8 @@ export type TalkerSkip =
   | "held"
   | "answered"
   | "no_agent"
-  | "confidential";
+  | "confidential"
+  | "own_line";
 
 /**
  * Whether the conversation layer is worth a model call at all (code decides;
@@ -73,7 +79,8 @@ export type TalkerSkip =
  * message that ended the wait, a model-brain run moving along (it reads the
  * message within seconds at its next step), and a second reply within
  * `TALKER_MIN_GAP_MS` or with no new person message since the last one. A message the triage said is a quick question
- * or a separate request for after the task (`handling`) is considered from a run moving along too.
+ * or a separate request for after the task (`handling`) is considered from a run moving along too. A correction or an
+ * addition the agent answers itself as it takes it in (`ownLine`) is skipped: two voices would answer one message.
  */
 export function talkerPolicy(input: {
   run: Pick<AgentRun, "status" | "background"> & Partial<Pick<AgentRun, "startedAt" | "createdAt">>;
@@ -82,6 +89,8 @@ export function talkerPolicy(input: {
   waited: WaitMessageOutcome | null;
   /** How the triage said the agent takes the message (`TalkerInput.handling`). */
   handling?: SteerHandling | null;
+  /** The agent says its own line as it takes the message in (`TalkerInput.ownLine`). */
+  ownLine?: boolean;
   /** The run's latest sign of life (its last step, else its start). */
   lastActivityAt: Date;
   /** Its last fast reply on this run. */
@@ -93,6 +102,7 @@ export function talkerPolicy(input: {
   if (input.waited?.outcome === "resolved") return "resolved";
   // The message woke the run from its wait: the task itself reads it and answers now.
   if (input.waited?.outcome === "woke") return "reads_soon";
+  if (input.ownLine) return "own_line";
   const waiting = run.status === "waiting_input" || run.status === "waiting_approval" || input.waited !== null;
   // A computer brain that only just started takes it with its first turn (the rest of a burst, `waitForBurst`) or
   // live in it: "noted, after this step" would answer a request it is about to read.
@@ -190,7 +200,10 @@ async function lastActivityAt(db: Database, run: AgentRun): Promise<Date> {
   const [step] = await db
     .select({ createdAt: agentRunSteps.createdAt })
     .from(agentRunSteps)
-    .where(eq(agentRunSteps.runId, run.id))
+    // What was decided about a message (the triage, this layer's own decision) is no sign the task moves.
+    .where(
+      and(eq(agentRunSteps.runId, run.id), sql`not (${agentRunSteps.data} ?| array['steerTriage', 'talkerDecision'])`),
+    )
     .orderBy(desc(agentRunSteps.seq))
     .limit(1);
   const start = run.startedAt ?? run.createdAt;
@@ -227,14 +240,20 @@ const promptOf = (s: TalkerSnapshot) => JSON.stringify({ snapshot: s }, null, 1)
  * A reply is posted as the agent in the run's conversation (`meta.talker`,
  * `meta.notice` `talker_reply`) and queued on the run, so the task reads
  * "[You already told them, while you worked]: …" with the person's message
- * and doesn't say it twice. Any failure or timeout is a pass.
+ * and doesn't say it twice. Any failure or timeout is a pass. Each decision is kept on the run's trail (a `context`
+ * step with `talkerDecision`, its outcome as `reason`), so a message nobody answered fast can be told why.
  */
 export function createTalker(deps: TalkerDeps): Talker {
   const now = deps.now ?? (() => new Date());
   return {
-    async consider({ run: landed, message, live, waited, handling = null }) {
-      const decide = (outcome: TalkerSkip | "pass" | "reply" | "error") =>
+    async consider({ run: landed, message, live, waited, handling = null, ownLine = false }) {
+      const decide = async (outcome: TalkerSkip | "pass" | "reply" | "error") => {
         deps.onDecision?.({ runId: landed.id, messageId: message.id, outcome });
+        await addRunStep(deps.db, landed, "context", {
+          talkerDecision: { messageId: message.id },
+          reason: outcome,
+        }).catch(() => {});
+      };
       // Cheap checks first: most messages to a working run need no model call.
       if (landed.background) return decide("background");
       const agent = await getAgentCached(deps.db, landed.orgId, landed.agentId);
@@ -251,6 +270,7 @@ export function createTalker(deps: TalkerDeps): Talker {
         message,
         waited,
         handling,
+        ownLine,
         lastActivityAt: activity,
         lastReplyAt: replied,
         now: at,
@@ -286,9 +306,9 @@ export function createTalker(deps: TalkerDeps): Talker {
         if (typeof answer !== "string") return decide(answer === null ? "pass" : "error");
         const waits = run.status !== "running" || computerWaitOf(run) !== null;
         const posted = await postReply(deps, run, agent, message, answer, at, {}, waits);
-        decide(posted ?? "reply");
+        await decide(posted ?? "reply");
       } catch {
-        decide("error");
+        await decide("error");
       }
     },
   };

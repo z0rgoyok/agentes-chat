@@ -38,9 +38,10 @@ function signatureFields(url: URL, headers: Headers) {
 /**
  * An in-process S3 server for tests (no network): path-style and
  * virtual-hosted requests, SigV4 checked against the expected key pair and
- * region, PUT / GET / DELETE / ListObjectsV2, and switches for the failures a
- * storage test must explain (wrong key, missing bucket, wrong region, no
- * write or delete permission).
+ * region, PUT / GET (a byte range, a presigned link's `response-content-*`) /
+ * DELETE / ListObjectsV2, and switches for the failures a storage test must
+ * explain (wrong key, missing bucket, wrong region, no write or delete
+ * permission).
  */
 export function createFakeS3(options: {
   /** Host of the endpoint, e.g. `s3.example.com`. */
@@ -136,7 +137,21 @@ export function createFakeS3(options: {
     if (method === "GET") {
       const object = bucket.get(target.key);
       if (!object) return xmlError(404, "NoSuchKey", "The specified key does not exist.");
-      return new Response(object.body, { status: 200, headers: { "content-type": object.contentType } });
+      const described: Record<string, string> = {
+        "content-type": url.searchParams.get("response-content-type") ?? object.contentType,
+      };
+      const disposition = url.searchParams.get("response-content-disposition");
+      if (disposition) described["content-disposition"] = disposition;
+      const range = /^bytes=(\d+)-(\d+)$/.exec(headers.get("range") ?? "");
+      if (range) {
+        const start = Number(range[1]);
+        const end = Math.min(Number(range[2]), object.body.length - 1);
+        return new Response(object.body.slice(start, end + 1), {
+          status: 206,
+          headers: { ...described, "content-range": `bytes ${start}-${end}/${object.body.length}` },
+        });
+      }
+      return new Response(object.body, { status: 200, headers: described });
     }
     return xmlError(405, "MethodNotAllowed", "Not supported by the fake");
   };

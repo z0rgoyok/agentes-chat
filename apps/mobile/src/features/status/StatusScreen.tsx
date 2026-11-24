@@ -26,21 +26,18 @@ import {
   useToast,
   WithPresence,
 } from "@/ui";
-import { router } from "@/ui/navigation";
 import { chooseAction, Gap, SettingsPage } from "../settings/parts";
 import { Face } from "../shared/Face";
 import { useDirectory, useMeId, useOrgId } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { ActionList, successHaptic, tapHaptic } from "../shared/parts";
 import { SheetHostProvider, useSheet } from "../shared/SheetHost";
+import { useLeavePage } from "../shared/SplitPanes";
 import { useMyPerson } from "./hooks";
 import { draftOf, inputOf, isSuggestion, lineText, STATUS_EMOJIS, type StatusDraft, type UntilPick } from "./logic";
 
 /** A line is at most this long (the server's limit). */
 const TEXT_MAX = 100;
-
-/** Opens Status over Você. */
-export const openStatus = () => router.push("/me/status");
 
 /**
  * Status (ADR 0084), pushed from Você on the grouped gray, "Salvar" in the bar: how people see you (a preview that
@@ -67,6 +64,8 @@ function StatusEditor() {
   const toast = useToast();
   const sheet = useSheet();
   const set = useSetMyStatus(orgId, meId ?? undefined);
+  // Back to Você; beside its list on a large screen (ADR 0212) the page stays, drawn afresh with what was saved.
+  const leavePage = useLeavePage();
   const [draft, setDraft] = useState<StatusDraft | null>(null);
   const d = draft ?? draftOf(me);
   const edit = (patch: Partial<StatusDraft>) => setDraft((prev) => ({ ...(prev ?? draftOf(me)), ...patch }));
@@ -85,7 +84,7 @@ function StatusEditor() {
       },
       () => toast({ title: t("mobile.app.failed"), icon: "x" }),
     );
-    router.back();
+    leavePage();
   };
   const clear = () => {
     if (!meId) return;
@@ -93,7 +92,7 @@ function StatusEditor() {
       () => toast({ title: t("mobile.status.cleared") }),
       () => toast({ title: t("mobile.app.failed"), icon: "x" }),
     );
-    router.back();
+    leavePage();
   };
 
   const untilLabel = (u: UntilPick) =>

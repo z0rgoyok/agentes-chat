@@ -164,6 +164,9 @@ Amended by ADR 0107. The purge (`revokeGrants`) also deletes the workspace's con
 
 ## Addendum (2026-11-13): a new address takes the same proof
 
+Amended 2026-11-22 (ADR 0006): an address never confirmed changes at once, and the confirmation link goes to the
+new one.
+
 A new address for the account (Settings › Your account › Email, the phone's Account › Email) took only a session: a link
 to the new address, and the old one was never asked nor told. A stolen session could move the account to its thief's
 mailbox, then reset the password from there.

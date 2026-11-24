@@ -1,4 +1,4 @@
-import { isLiveFileKind, type LiveKind } from "@agenteschat/client";
+import { isLiveFileKind, type LiveKind, type TalkKind } from "@agenteschat/client";
 import type { SFSymbolName } from "../../ui/headerActions";
 import type { IconName } from "../../ui/icons.data";
 
@@ -55,6 +55,10 @@ export const LIVE_SF: Record<LiveKind, SFSymbolName> = {
   canvas: "square.on.circle",
   document: "doc.text",
 };
+
+/** A file's conversation's mark: its live kind's, or a picture's, a video's or a PDF's (ADR 0208). */
+export const talkIcon = (kind: TalkKind): IconName =>
+  kind === "image" ? "image" : kind === "video" ? "play" : kind === "pdf" ? "file" : LIVE_ICON[kind];
 
 /** The editors' tools, as line icons with their SF Symbols (the slides and canvas screens' bars and menus). */
 export const LIVE_TOOL_SF = {

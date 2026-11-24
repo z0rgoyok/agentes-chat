@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorAvatar } from "@/components/AgentAvatar";
 import { useActors } from "@/components/actors";
+import { MetaLine } from "@/components/MetaLine";
 import { NavToggle } from "@/components/NavDrawer";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
@@ -197,17 +198,15 @@ export function ThreadHeader({
         <h1 className="channel__title thread-title">
           <ThreadTitle thread={thread} />
         </h1>
-        <span className="channel__topic thread-head__meta">
-          <span className="thread-head__where">{who && thread.channelKind !== "dm" ? `${where} · ${who}` : where}</span>
-          {thread.replyCount > 0 && (
-            <>
-              <span aria-hidden="true">·</span>
-              <span>{t("threads.line.replies", { count: thread.replyCount })}</span>
-            </>
-          )}
-          <span aria-hidden="true">·</span>
-          <time dateTime={thread.lastActivityAt}>{relativeTime(t, i18n.language, thread.lastActivityAt)}</time>
-        </span>
+        <MetaLine
+          where={who && thread.channelKind !== "dm" ? `${where} · ${who}` : where}
+          parts={[
+            thread.replyCount > 0 && t("threads.line.replies", { count: thread.replyCount }),
+            <time key="at" dateTime={thread.lastActivityAt}>
+              {relativeTime(t, i18n.language, thread.lastActivityAt)}
+            </time>,
+          ]}
+        />
       </div>
       {thread.state !== "open" && <ThreadStatusChip thread={thread} />}
       <Menu

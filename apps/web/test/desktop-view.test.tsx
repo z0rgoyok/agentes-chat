@@ -1462,14 +1462,14 @@ describe("the dialog's size (computer.css)", () => {
     // body's 20 px on every side (the head's inset) and the line under it, kept whether a line shows there or not,
     // and 42 px of the page above and below, so a notice along its top stays whole.
     const frame = rule(text, ".ac-dialog.cmp-dialog:where(:has(.dsk, .cmp-stage, .cmp-prep, .brw-ac.is-surface))");
-    expect(frame).toContain("--cmp-around: calc(124px + var(--cmp-line))");
+    expect(frame).toContain("--cmp-around: calc(128px + var(--cmp-line))");
     expect(frame).toContain("--cmp-room: calc(100dvh - 84px - var(--cmp-bar, 0px) - var(--cmp-around))");
     expect(frame).toContain("--cmp-screen: min(96vw - 40px, 1280px, var(--cmp-room) * 1280 / 900)");
     expect(frame).toContain("width: calc(var(--cmp-screen) + 40px)");
     expect(frame).toContain("height: calc(var(--cmp-screen) * 900 / 1280 + var(--cmp-around))");
     // Sized once: nothing that comes and goes (a banner, a request, the note) gives the window room of its own.
     expect(text).not.toMatch(/--cmp-(extra|over|under)/);
-    expect(text).toContain(".ac-dialog.cmp-dialog {\n  --cmp-button: var(--control-h-sm);\n  --cmp-line: 22px;\n}");
+    expect(text).toContain(".ac-dialog.cmp-dialog {\n  --cmp-line: 22px;\n}");
     // No state sizes the dialog on its own: no rule but the frame's (and full screen's) gives it a height.
     expect(text.match(/\n {0,2}height: calc\(var\(--cmp-screen\)[^;]*;/g)).toHaveLength(1);
     expect(rule(text, ".cmp-body")).toContain("padding: 20px");
@@ -1719,31 +1719,33 @@ describe("the dialog's size (computer.css)", () => {
     expect(document.querySelector(".dsk-line")).toBeNull();
   });
 
-  test("the head's row stands one gap between what shows: the close and full screen reach out by their glyphs' air", async () => {
-    // Full screen's arrows leave 2.7 of their icon's 20 units on each side; the dialog's × (the kit's) 5.2.
+  test("the head's icon buttons are whole 32 px squares 8 apart, with no plate under the pointer", async () => {
     const text = await css();
-    expect(rule(text, ".cmp-acts > .cmp-full")).toContain("--glyph-air: calc(var(--control-icon-sm) * 2.7 / 20)");
+    // Full screen keeps its whole box: no air of its own that would shrink its square or bring it over the close's.
+    expect(text).not.toContain("--glyph-air");
     const kit = await Bun.file(
       new URL("../../../packages/ui/src/styles/components.css", import.meta.url).pathname,
     ).text();
-    expect(rule(kit, ".ac-dialog__close > .ac-btn--glyph")).toContain(
-      "--glyph-air: calc(var(--control-icon-sm) * 5.2 / 20)",
+    // After the head's actions the kit's close is one more whole square, 8 from the one before it.
+    expect(rule(kit, ".ac-actline:has(> .ac-dialog__acts) + .ac-dialog__close > .ac-btn--glyph")).toContain(
+      "--glyph-air: 0px",
     );
-    // The kit reaches out by that air; its plate and ring keep to the box less it on every side, a square under the
-    // glyph, so they end where a neighbour's plate starts.
-    expect(rule(kit, ".ac-acts > .ac-btn--glyph")).toContain(
-      "margin-inline: calc(-1 * (var(--ghost-plate) + var(--glyph-air, 0px)))",
+    expect(rule(kit, ".ac-actline:has(> .ac-dialog__acts) + .ac-dialog__close")).toContain(
+      "margin-inline-start: calc(var(--space-2) + 2 * var(--ghost-plate) - var(--space-3))",
     );
-    expect(rule(kit, ".ac-btn--ghost.ac-btn--glyph::before")).toContain("inset: var(--glyph-air, 0px)");
-    expect(rule(kit, ".ac-btn--ghost.ac-btn--glyph > *")).toContain("position: relative");
-    expect(rule(kit, ".ac-btn--ghost.ac-btn--glyph:hover::before")).toContain("background: var(--plate)");
-    // Rings only for the keys (`trackInput`): with the pointer, a focused button looks as it does unfocused.
-    expect(rule(kit, "html:not([data-pointer]) .ac-btn--ghost.ac-btn--glyph:focus-visible::before")).toContain(
-      "box-shadow: var(--focus-ring)",
+    expect(
+      rule(
+        kit,
+        ".ac-acts > :is(.ac-btn--ghost.ac-btn--icon, .ac-btn--glyph):has(+ :is(.ac-btn--ghost.ac-btn--icon, .ac-btn--glyph))",
+      ),
+    ).toContain("margin-inline-end: calc(var(--space-2) - var(--ghost-plate) - var(--glyph-air, 0px))");
+    // A hover only brightens the icon.
+    const hover = rule(
+      kit,
+      ':is(.ac-dialog__head, .ac-details__head)\n  .ac-btn--ghost:is(.ac-btn--icon, .ac-btn--glyph):is(:hover, [aria-pressed="true"], [data-state="open"])',
     );
-    expect(rule(kit, "html:not([data-pointer]) .ac-btn--ghost.ac-btn--glyph:focus-visible")).toContain(
-      "box-shadow: none",
-    );
+    expect(hover).toContain("background: transparent");
+    expect(hover).toContain("color: var(--ink)");
     await dialog();
     await connected();
     expect(view().getByRole("button", { name: "Tela cheia" }).className).toContain("cmp-full ac-btn--glyph");
@@ -1776,27 +1778,17 @@ describe("the dialog's size (computer.css)", () => {
     expect(view().getByRole("button", { name: "Assumir o controle" }).classList.contains("cmp-take")).toBe(true);
   });
 
-  test("the head's controls sit on the name's capitals in every state, as every dialog's close does", async () => {
+  test("the head is one centred block: as much room over the face, the name and its line as under them, the controls on its middle", async () => {
     const text = await css();
-    const head = rule(text, ".cmp-dialog :is(.ac-dialog__acts, .ac-dialog__close)");
-    expect(head).toContain("align-self: flex-start");
-    // The name's 24 px line round a 32 px control (40 on touch), lifted to its capitals' middle as the kit lifts a
-    // one-line head's, whatever the line under the name says, or while it says nothing.
-    expect(head).toContain("margin-top: calc((24px - var(--cmp-button)) / 2 - var(--title-cap-mid, var(--cap-mid)))");
-    const kit = await Bun.file(
-      new URL("../../../packages/ui/src/styles/components.css", import.meta.url).pathname,
-    ).text();
-    expect(rule(kit, ".ac-dialog__title")).toContain("line-height: 24px");
-    expect(
-      rule(kit, ".ac-dialog__title + .ac-dialog__acts,\n.ac-actline:has(> .ac-dialog__title) + .ac-dialog__close"),
-    ).toContain("translate: 0 calc(-1 * var(--title-cap-mid, var(--cap-mid)))");
+    expect(rule(text, ".cmp-dialog .ac-dialog__head")).toContain("padding-block: var(--space-4)");
+    expect(rule(text, ".cmp-dialog :is(.ac-dialog__acts, .ac-dialog__close)")).toContain("align-self: center");
+    expect(rule(text, ".cmp-dialog .ac-dialog__lead:has(+ .ac-actline > .ac-dialog__titles)")).toContain(
+      "align-self: center",
+    );
+    // No lift of their own: in full screen's bar too they sit on the middle of both lines.
+    expect(text).not.toMatch(/ac-dialog__close\) \{[^}]*margin-top/);
     // The line under the name keeps its room while empty, so the name and the controls stay where they are.
     expect(rule(text, ".cmp-sub:empty::before")).toContain('content: "\\00a0"');
-    // Full screen's bar is its own box: the controls in its middle, beside both lines (the kit's 24 + 18 px).
-    expect(rule(text, ".cmp-dialog.is-screen-only :is(.ac-dialog__acts, .ac-dialog__close)")).toContain(
-      "margin-top: calc((24px + 18px - var(--cmp-button)) / 2)",
-    );
-    expect(rule(kit, ".ac-dialog__sub")).toContain("line-height: 18px");
   });
 
   test("the head's gaps read even by what shows: Take control's ring and shadow get their room", async () => {
@@ -1811,7 +1803,7 @@ describe("the dialog's size (computer.css)", () => {
 
   test("what comes over or under the screen takes the screen's room, never the window's", async () => {
     const text = await css();
-    expect(text).toContain(".ac-dialog.cmp-dialog {\n  --cmp-button: var(--control-h-sm);\n  --cmp-line: 22px;\n}");
+    expect(text).toContain(".ac-dialog.cmp-dialog {\n  --cmp-line: 22px;\n}");
     // Its head's small buttons keep their 32 px plates on touch too.
     expect(text).not.toContain("@media (pointer: coarse) {\n  .ac-dialog.cmp-dialog {\n    --cmp-button:");
     // A banner, the request and the hand-back bar sit in the body's column with the screen's stage, which gets what they leave

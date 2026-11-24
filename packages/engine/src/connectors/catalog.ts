@@ -33,6 +33,8 @@ export interface ConnectorTool {
    * `Co-authored-by` and the person's credit when given.
    */
   sign?: { field: "body" | "message" | "commit_message"; always?: true };
+  /** A sensitive tool of ours that asks every time: no "Aprovar sempre" (it spends money or lets people in). */
+  askAlways?: true;
 }
 
 /** Catalog groups (the app translates them, `connectors.category.*`): development, product, docs, data (analytics), payments, sales, support, marketing, automation, social. */
@@ -53,10 +55,26 @@ export interface ConnectorDefinition {
   label: string;
   description: string;
   category: ConnectorCategory;
-  /** Its MCP endpoint (streamable HTTP). */
+  /** Its MCP endpoint (streamable HTTP); a `native` connector's vendor API base, stored and never opened. */
   serverUrl: string;
   auth: ("oauth" | "api_key")[];
-  oauth?: { authorizeUrl: string; tokenUrl: string; scopes: string[]; scopeSeparator?: string };
+  oauth?: {
+    authorizeUrl: string;
+    tokenUrl: string;
+    scopes: string[];
+    scopeSeparator?: string;
+    /** The client's id and secret go in HTTP Basic, never in the form (X refuses them there). */
+    clientAuth?: "basic";
+    /** What the vendor calls the client's id in the authorize URL, the token call and the refresh (`client_key`). */
+    clientIdParam?: string;
+    /** `false`: the vendor's web flow takes no PKCE. */
+    pkce?: false;
+  };
+  /**
+   * Served by agentes.chat itself (ADR 0170): no MCP server, every tool `ours`, run by `connectors/native/<id>.ts`
+   * through `createNativeConnectorToolSource`.
+   */
+  native?: true;
   /** Sent with every request to its MCP server, besides the sign-in. */
   headers?: Record<string, string>;
   scopes: Record<string, ConnectorScope>;
@@ -252,6 +270,211 @@ export const CONNECTOR_CATALOG: Record<string, ConnectorDefinition> = {
       create_issue: { scope: "issues.write" },
       update_issue: { scope: "issues.write" },
       create_comment: { scope: "issues.write" },
+    },
+  },
+  x: {
+    id: "x",
+    category: "social",
+    label: "X",
+    description: "Posts on your X account: write, read mentions and search.",
+    serverUrl: "https://api.x.com",
+    auth: ["oauth"],
+    native: true,
+    oauth: {
+      authorizeUrl: "https://x.com/i/oauth2/authorize",
+      tokenUrl: "https://api.x.com/2/oauth2/token",
+      scopes: ["tweet.read", "tweet.write", "users.read", "media.write", "offline.access"],
+      scopeSeparator: " ",
+      clientAuth: "basic",
+    },
+    scopes: {
+      "posts.read": s("Read posts", "Read the account's posts and mentions, posts by id and recent posts by search."),
+      "posts.write": s(
+        "Post",
+        "Post on the account, with pictures or a video from the Drive. Deleting a post asks for approval.",
+      ),
+    },
+    tools: {
+      get_my_posts: { scope: "posts.read", ours: true },
+      get_mentions: { scope: "posts.read", ours: true },
+      get_post: { scope: "posts.read", ours: true },
+      search_recent: { scope: "posts.read", ours: true },
+      get_user: { scope: "posts.read", ours: true },
+      create_post: { scope: "posts.write", ours: true },
+      delete_post: { scope: "posts.write", ours: true, sensitive: true, title: "Delete X post {id}" },
+    },
+  },
+  threads: {
+    id: "threads",
+    category: "social",
+    label: "Threads",
+    description: "Posts and replies on your Threads account.",
+    serverUrl: "https://graph.threads.com",
+    auth: ["oauth"],
+    native: true,
+    oauth: {
+      authorizeUrl: "https://threads.com/oauth/authorize",
+      tokenUrl: "https://graph.threads.com/oauth/access_token",
+      scopes: [
+        "threads_basic",
+        "threads_content_publish",
+        "threads_read_replies",
+        "threads_manage_replies",
+        "threads_manage_mentions",
+        "threads_manage_insights",
+        "threads_delete",
+      ],
+      scopeSeparator: ",",
+      pkce: false,
+    },
+    scopes: {
+      "posts.read": s("Read posts", "Read the account's posts, their replies, mentions and results."),
+      "posts.write": s(
+        "Post and reply",
+        "Post with pictures or videos from the Drive, reply and hide replies. Deleting a post asks for approval.",
+      ),
+    },
+    tools: {
+      get_my_posts: { scope: "posts.read", ours: true },
+      get_replies: { scope: "posts.read", ours: true },
+      get_mentions: { scope: "posts.read", ours: true },
+      get_insights: { scope: "posts.read", ours: true },
+      create_post: { scope: "posts.write", ours: true },
+      reply: { scope: "posts.write", ours: true },
+      hide_reply: { scope: "posts.write", ours: true },
+      delete_post: { scope: "posts.write", ours: true, sensitive: true, title: "Delete Threads post {id}" },
+    },
+  },
+  "meta-ads": {
+    id: "meta-ads",
+    category: "marketing",
+    label: "Meta Ads",
+    description: "Meta (Facebook and Instagram) ad campaigns and results.",
+    serverUrl: "https://graph.facebook.com",
+    auth: ["oauth"],
+    native: true,
+    oauth: {
+      authorizeUrl: "https://www.facebook.com/v27.0/dialog/oauth",
+      tokenUrl: "https://graph.facebook.com/v27.0/oauth/access_token",
+      scopes: ["ads_read", "ads_management", "business_management", "pages_show_list", "pages_read_engagement"],
+      scopeSeparator: ",",
+      pkce: false,
+    },
+    scopes: {
+      "ads.read": s("Read ads", "List ad accounts, campaigns, ad sets and ads, and read their results."),
+      "ads.write": s(
+        "Manage ads",
+        "Create campaigns, ad sets and ads (always paused), edit and pause them. Turning one on and changing a budget always ask; archiving and deleting ask.",
+      ),
+    },
+    tools: {
+      list_ad_accounts: { scope: "ads.read", ours: true },
+      list_campaigns: { scope: "ads.read", ours: true },
+      list_ad_sets: { scope: "ads.read", ours: true },
+      list_ads: { scope: "ads.read", ours: true },
+      get_insights: { scope: "ads.read", ours: true },
+      create_campaign: { scope: "ads.write", ours: true },
+      create_ad_set: { scope: "ads.write", ours: true },
+      create_ad: { scope: "ads.write", ours: true },
+      update: { scope: "ads.write", ours: true },
+      pause: { scope: "ads.write", ours: true },
+      activate: {
+        scope: "ads.write",
+        ours: true,
+        sensitive: true,
+        askAlways: true,
+        title: "Turn on Meta ad object {id} (it spends)",
+      },
+      set_budget: {
+        scope: "ads.write",
+        ours: true,
+        sensitive: true,
+        askAlways: true,
+        title: "Set the budget of Meta ad object {id}",
+      },
+      archive: { scope: "ads.write", ours: true, sensitive: true, title: "Archive Meta ad object {id}" },
+      delete: { scope: "ads.write", ours: true, sensitive: true, title: "Delete Meta ad object {id}" },
+    },
+  },
+  tiktok: {
+    id: "tiktok",
+    category: "social",
+    label: "TikTok",
+    description: "Your TikTok profile and videos, and videos sent to your drafts.",
+    serverUrl: "https://open.tiktokapis.com",
+    auth: ["oauth"],
+    native: true,
+    oauth: {
+      authorizeUrl: "https://www.tiktok.com/v2/auth/authorize/",
+      tokenUrl: "https://open.tiktokapis.com/v2/oauth/token/",
+      scopes: ["user.info.basic", "user.info.profile", "user.info.stats", "video.list", "video.upload"],
+      scopeSeparator: ",",
+      clientIdParam: "client_key",
+      pkce: false,
+    },
+    scopes: {
+      "videos.read": s("Read videos", "Read the creator's profile, public videos and what they may post."),
+      "videos.write": s(
+        "Send videos to drafts",
+        "Send a Drive video to the creator's TikTok drafts, where they finish the post. Each upload asks for approval.",
+      ),
+    },
+    tools: {
+      get_profile: { scope: "videos.read", ours: true },
+      list_videos: { scope: "videos.read", ours: true },
+      get_creator_info: { scope: "videos.read", ours: true },
+      get_post_status: { scope: "videos.read", ours: true },
+      upload_draft: {
+        scope: "videos.write",
+        ours: true,
+        sensitive: true,
+        askAlways: true,
+        title: "Send a video to the TikTok drafts",
+      },
+    },
+  },
+  telegram: {
+    id: "telegram",
+    category: "social",
+    label: "Telegram",
+    description: "A Telegram bot of yours: its chats, groups and channels.",
+    serverUrl: "https://api.telegram.org",
+    auth: ["api_key"],
+    native: true,
+    scopes: {
+      "messages.read": s("Read messages", "List the bot's chats and read what people wrote to it or where it is."),
+      "messages.write": s(
+        "Send messages",
+        "Send, edit and pin messages and files as the bot. Deleting messages, banning people and invite links ask for approval.",
+      ),
+    },
+    tools: {
+      list_chats: { scope: "messages.read", ours: true },
+      read_messages: { scope: "messages.read", ours: true },
+      get_chat: { scope: "messages.read", ours: true },
+      send_message: { scope: "messages.write", ours: true },
+      send_file: { scope: "messages.write", ours: true },
+      edit_message: { scope: "messages.write", ours: true },
+      pin_message: { scope: "messages.write", ours: true },
+      delete_message: {
+        scope: "messages.write",
+        ours: true,
+        sensitive: true,
+        title: "Delete message {message_id} in Telegram chat {chat_id}",
+      },
+      ban_member: {
+        scope: "messages.write",
+        ours: true,
+        sensitive: true,
+        title: "Ban {user_id} from Telegram chat {chat_id}",
+      },
+      create_invite_link: {
+        scope: "messages.write",
+        ours: true,
+        sensitive: true,
+        askAlways: true,
+        title: "Create an invite link to Telegram chat {chat_id}",
+      },
     },
   },
 };

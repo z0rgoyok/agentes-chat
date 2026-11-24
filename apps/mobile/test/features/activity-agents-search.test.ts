@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentAccess, AppNotification, WorkingRun } from "@agenteschat/client";
 import { resources } from "@agenteschat/i18n";
 import i18next from "i18next";
 import {
+  ACTIVITY_FILTERS,
   activitySections,
   dayGroupOf,
   emojisOf,
@@ -23,9 +24,10 @@ import {
 } from "../../src/features/agents/logic";
 import { featureKeysEn } from "../../src/features/i18n/keys.en";
 import { featureKeysPtBR } from "../../src/features/i18n/keys.pt-BR";
+import { notificationHref } from "../../src/features/links/logic";
 import { filterResults, fold, isEmpty, matches, searchCounts, searchResults } from "../../src/features/search/logic";
 import { withMobileKeys } from "../../src/i18n/merge";
-import { agent, mission, notification } from "./fixtures";
+import { agent, mission, notification, translator } from "./fixtures";
 
 const NOW = new Date(2026, 9, 17, 15, 0);
 const ago = (hours: number) => new Date(NOW.getTime() - hours * 3_600_000).toISOString();
@@ -65,18 +67,105 @@ describe("Atividade", () => {
     ]);
   });
 
-  test("waiting cards speak the chat card's words, decide an approval on the card, count once", () => {
+  test("what waits is rows of the list: who asks, how long is left, what and where; nothing is decided on them", () => {
     const screen = readFileSync(join(import.meta.dir, "../../src/features/activity/ActivityScreen.tsx"), "utf8");
-    // The kinds the chat asks keep the chat's words and icons ("Pede sua aprovação" with the shield).
-    expect(screen).toContain("label: t(`ask.kind.");
-    expect(screen).toContain("icon: ASK_ICON[ask]");
-    // One request this person may decide is decided on the card (the page's one primary on its first card); the rest
-    // open where they are decided.
-    expect(screen).toContain("request?.canDecide && onCard <= 1 ? request : null");
-    expect(screen).toContain("decision={decidable ? <ApproveHere approval={decidable} primary={first} /> : undefined}");
-    // How many wait is said once, on the section, not again on the filter.
+    const start = screen.indexOf("function WaitingRow(");
+    const end = screen.indexOf("function DecidedRequests(");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const row = screen.slice(start, end);
+    // ADR 0218 §6: the list's own row, no card and no buttons. Who asks is the title; the request in words (the
+    // chat's, with how many wait on its card) and where it happened are the line under it.
+    expect(row).toContain("<ListRow");
+    expect(row).toContain("title={name || title}");
+    expect(row).toContain(
+      '[approvalTitle(t, request), onCard > 1 ? t("approval.all.waitingCount", { count: onCard }) : null]',
+    );
+    expect(row).toContain('const sub = [title, placeOf(n)].filter(Boolean).join(" · ");');
+    // How long is left to decide, else when it came; in the waiting color within three hours of the deadline.
+    expect(row).toContain("time={left ?? when.short(n.updatedAt)}");
+    expect(row).toContain("timeWaiting={urgent}");
+    expect(row).toContain("new Date(card.expiresAt).getTime() - now <= URGENT_MS");
+    expect(screen).toContain("const URGENT_MS = 3 * 3_600_000;");
+    // The row reads whole to a screen reader: who, what and where, the time left.
+    expect(row).toContain('accessibilityLabel={[name, sub, left].filter(Boolean).join(", ")}');
+    // No request is approved or refused from the list.
+    for (const gone of ["<Button", "<HoldButton", "decision="])
+      expect([gone, row.includes(gone)]).toEqual([gone, false]);
+    for (const gone of ["ApproveHere", "WaitingCardView", "ApprovalSource", "useDecideApproval"])
+      expect([gone, screen.includes(gone)]).toEqual([gone, false]);
+    // A device's notice is decided on its own card, so it keeps it among the rows.
+    expect(screen).toMatch(/isDeviceNotice\(n\.kind\) \? \([\s\S]*?<DeviceNoticeCard item=\{n\} first=\{i === 0\} \/>/);
+    // How many wait is said once, on the section, not again in the filters' menu.
     expect(screen).toContain('<SectionHeader title={t("mobile.home.waiting")} count={waitingCount} />');
     expect(screen).not.toContain("count: waitingCount");
+  });
+
+  test("a request and a question open on screens of their own; anything else opens where it happened", () => {
+    const screen = readFileSync(join(import.meta.dir, "../../src/features/activity/ActivityScreen.tsx"), "utf8");
+    // A question is answered on its screen, named by its notification; a request's link is its own screen already.
+    expect(screen).toContain(
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: the screen's own template, read as source text
+      'card.kind === "question" && n.source.questionId ? (`/question/${n.id}` as AppHref) : notificationHref(n, ai);',
+    );
+    const request = notification({ id: "n1", kind: "approval", waiting: true, source: { approvalId: "ap1" } });
+    expect(notificationHref(request)).toBe("/approval/ap1");
+    for (const route of ["approval/[id].tsx", "question/[id].tsx"])
+      expect({ route, there: existsSync(join(import.meta.dir, "../../app/(app)/(main)", route)) }).toEqual({
+        route,
+        there: true,
+      });
+    // The question's screen answers with a suggestion's tap or the person's own words, then goes back to the inbox.
+    const question = readFileSync(join(import.meta.dir, "../../src/features/activity/QuestionScreen.tsx"), "utf8");
+    expect(question).toContain("onPress={() => answer(s, true)}");
+    expect(question).toContain("onPress={() => answer(draft)}");
+    expect(question).toMatch(/onSuccess: \(\) => \{[\s\S]*?goBack\(\);/);
+  });
+
+  test("the filters are the bar's menu, with what acts on the whole list; decided requests are their own list", async () => {
+    expect([...ACTIVITY_FILTERS]).toEqual(["all", "waiting", "mentions", "unread", "requests", "done"]);
+    const screen = readFileSync(join(import.meta.dir, "../../src/features/activity/ActivityScreen.tsx"), "utf8");
+    // One action in the bar: the system's menu on iOS, the app's sheet of the same items on Android. No pills.
+    expect(screen).toContain("...ACTIVITY_FILTERS.map((f) => ({");
+    expect(screen).toContain("onPress: () => setFilter(f),");
+    expect(screen).toMatch(/const filters: HeaderAction = \{[\s\S]*?menu,\s*onPress: \(\) =>\s*chooseAction\(/);
+    expect(screen).toContain("const header = { ...tabHeader, actions: [filters, ...tabHeader.actions] };");
+    expect(screen).not.toContain("<Filters");
+    // "Mark all as read" and "Clear all" close the same menu.
+    const menu = screen.slice(
+      screen.indexOf("const menu: HeaderMenuItem[] = ["),
+      screen.indexOf("const filters: HeaderAction"),
+    );
+    expect(menu).toContain('label: t("notifications.readAll"),');
+    expect(menu).toContain("label: clearAll.label, onPress: clearAll.onPress");
+    // Every filter has its word in both languages.
+    for (const lng of ["pt-BR", "en"] as const) {
+      const t = (await translator(lng)) as unknown as (key: string) => string;
+      for (const f of ACTIVITY_FILTERS) {
+        const key = `notifications.filter.${f}`;
+        expect({ lng, key, said: t(key) !== key && t(key) !== "" }).toEqual({ lng, key, said: true });
+      }
+    }
+    expect((await translator("en"))("notifications.filter.requests")).toBe("Decided requests");
+    // The decided requests come from the approvals' list, newest first, each opening the request with how it ended.
+    expect(screen).toContain('const listFilter = filter === "requests" ? "all" : filter;');
+    const decided = screen.slice(screen.indexOf("function DecidedRequests("), screen.indexOf("function AllClear("));
+    expect(decided).toContain('.filter((a) => a.status !== "pending")');
+    // biome-ignore lint/suspicious/noTemplateCurlyInString: the screen's own template, read as source text
+    expect(decided).toContain("onPress={() => router.push(`/approval/${a.id}`)}");
+    // How it ended, in one word after what it was (the request screen's status lines are whole sentences).
+    expect(decided).toContain("t(`approvals.status.");
+    expect(decided).not.toContain("mobile.approval.status");
+    // The notifications behind them stay where they were: the other filters sort them as before.
+    expect(activitySections(items, "requests", NOW).waiting.map((n) => n.id)).toEqual(["question", "approval"]);
+  });
+
+  test("the tab is the inbox, in name and in mark", () => {
+    const keys = { "pt-BR": featureKeysPtBR, en: featureKeysEn };
+    expect([keys["pt-BR"].activity.title, keys.en.activity.title]).toEqual(["Caixa de entrada", "Inbox"]);
+    expect([keys["pt-BR"].tabs.activity, keys.en.tabs.activity]).toEqual(["Caixa", "Inbox"]);
+    const tabs = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/(tabs)/_layout.tsx"), "utf8");
+    expect(tabs).toContain('sf: { default: "tray", selected: "tray.fill" },');
   });
 
   test("the waiting filter shows only what waits", () => {

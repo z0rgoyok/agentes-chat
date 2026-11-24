@@ -4,7 +4,6 @@ import { formatBytes } from "@agenteschat/client/lib/files";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import type { TFunction } from "i18next";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Text as RNText, StyleSheet, View } from "react-native";
 import { Icon, type IconName, LineIcon, PressScale, Text } from "@/ui";
@@ -13,9 +12,10 @@ import { MessageText } from "../chat/MessageText";
 import { LiveCover } from "../live-files/shared/LiveCover";
 import { useColors, useOrgId } from "../shared/hooks";
 import { MONO } from "../shared/parts";
-import { extensionOf, type FileRef, fileInfo, isCodeName } from "./logic";
+import { extensionOf, type FileInfo, type FileRef, fileInfo, isCodeName } from "./logic";
 import { openFile } from "./open";
-import { pictureDrawn, pictureFade, useRemoteFile } from "./source";
+import { PdfCover } from "./pdf-preview";
+import { pictureDrawn, pictureFade, usePicture } from "./source";
 
 /**
  * An attachment as a tile (as on the web): what it holds drawn small on top (its cover: a document's start, a table's
@@ -215,22 +215,28 @@ function Cover({
     case "file": {
       const info = fileInfo(detail);
       if (info.view === "image") return <PictureCover fileId={fileId} version={detail.shownVersion} />;
-      const ext = extensionOf(info.name);
-      const text = content.text;
-      if (text?.trim()) {
-        if (ext === "csv" || ext === "tsv") {
-          const [head = [], ...rows] = parseDelimited(text, ext === "tsv" ? "\t" : ",", COVER_ROWS + 1);
-          return <TableCover columns={head} rows={rows} />;
-        }
-        if (info.view === "markdown") return <TextCover markdown={documentStart(text, COVER_CHARS)} />;
-        return <LinesCover text={text} code={isCodeName(`x.${ext}`)} />;
-      }
-      return <TypeCover icon={fileIconOf(info.type)} label={ext.toUpperCase()} />;
+      // A PDF shows its first page (`PdfCover`), over what it showed before until the page is drawn.
+      if (info.view === "pdf") return <PdfCover detail={detail}>{fileCover(info, content.text)}</PdfCover>;
+      return fileCover(info, content.text);
     }
     default:
       // A diagram or a page draws only in the file screen (a web view): here its kind's icon.
       return <TypeCover icon={KIND_ICON[content.kind]} label="" />;
   }
+}
+
+/** A file's cover from what the server read of it: a table's first rows, a text's first lines, else its type. */
+function fileCover(info: FileInfo, text: string | undefined) {
+  const ext = extensionOf(info.name);
+  if (text?.trim()) {
+    if (ext === "csv" || ext === "tsv") {
+      const [head = [], ...rows] = parseDelimited(text, ext === "tsv" ? "\t" : ",", COVER_ROWS + 1);
+      return <TableCover columns={head} rows={rows} />;
+    }
+    if (info.view === "markdown") return <TextCover markdown={documentStart(text, COVER_CHARS)} />;
+    return <LinesCover text={text} code={isCodeName(`x.${ext}`)} />;
+  }
+  return <TypeCover icon={fileIconOf(info.type)} label={ext.toUpperCase()} />;
 }
 
 /** Fades a cover's text out at its foot. */
@@ -318,24 +324,24 @@ function FilesCover({ files }: { files: { path: string; patch: string }[] }) {
 function PictureCover({ fileId, version }: { fileId: string; version: number }) {
   const orgId = useOrgId();
   const c = useColors();
-  const link = useRemoteFile(orgId, fileId, version);
-  const [failed, setFailed] = useState(false);
+  const picture = usePicture(orgId, fileId, version);
+  const { key, source, failed } = picture;
   return (
     <View style={[StyleSheet.absoluteFill, { backgroundColor: c.sunken }]}>
-      {link.data && !failed ? (
+      {source && !failed ? (
         <Image
-          source={{ uri: link.data.uri, headers: link.data.headers, cacheKey: `${fileId}@${version}` }}
-          recyclingKey={`${fileId}@${version}`}
+          source={source}
+          recyclingKey={key}
           cachePolicy="memory-disk"
           contentFit="cover"
-          transition={pictureFade(`${fileId}@${version}`)}
-          onLoad={() => pictureDrawn(`${fileId}@${version}`)}
+          transition={pictureFade(key)}
+          onLoad={() => pictureDrawn(key)}
           style={StyleSheet.absoluteFill}
-          onError={() => setFailed(true)}
+          onError={picture.onError}
           accessible={false}
         />
       ) : null}
-      {failed || link.isError ? <TypeCover icon="image" label="" /> : null}
+      {failed ? <TypeCover icon="image" label="" /> : null}
     </View>
   );
 }

@@ -1,13 +1,14 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, desc, eq, gt, gte, inArray, ne, schema, sql } from "@agenteschat/db";
 import { planCheckedAt } from "@agenteschat/ui/plan-state";
-import { managesAgent, REACH_COLUMNS } from "./audience";
+import { managesAgent, ownsAgent, REACH_COLUMNS } from "./audience";
 import { cancelRun, mayStopRun, runRequester } from "./cancel";
 import { writtenSince } from "./catch-up";
 import { ANSWER_ANYWAY_MS, type ClosedNote } from "./catch-up-triage";
 import { readableChannelIds } from "./channels";
 import { ForbiddenError, NotFoundError } from "./errors";
 import { requirePermission } from "./organizations";
+import { runState } from "./run-state";
 import { replyThreadOf } from "./runs";
 
 const { agentRuns, agents, agentWorks, channels, messages, routineRuns, routines } = schema;
@@ -81,7 +82,7 @@ export interface UsageQueue {
   closed: UsageQueueClosedRow[];
 }
 
-const USAGE_CODES = sql`(${agentRuns.transcript}->'waitingForBrain'->>'code' in ('plan_limit', 'budget', 'usage_pause'))`;
+const USAGE_CODES = sql`(${runState}->'waitingForBrain'->>'code' in ('plan_limit', 'budget', 'usage_pause'))`;
 
 /** People's conversations first, then long work, then routines, each by when it first paused. */
 const rank = (r: { background: boolean; workId: string | null }) => (r.background ? 2 : r.workId ? 1 : 0);
@@ -97,14 +98,14 @@ export async function usageQueue(db: Database, viewerId: string, orgId: string, 
     .select({
       run: agentRuns,
       requester: runRequester,
-      code: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'code'`,
-      source: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'source'`,
-      waitKey: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitKey'`,
-      plan: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'plan'`,
-      resetsAt: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'resetsAt'`,
-      chain: sql<number | null>`(${agentRuns.transcript}->'waitingForBrain'->>'chain')::int`,
-      since: sql<string>`coalesce(${agentRuns.transcript}->'waitingForBrain'->>'since',
-        ${agentRuns.transcript}->'usageWait'->>'since', ${agentRuns.transcript}->'catchUp'->>'since',
+      code: sql<string | null>`${runState}->'waitingForBrain'->>'code'`,
+      source: sql<string | null>`${runState}->'waitingForBrain'->>'source'`,
+      waitKey: sql<string | null>`${runState}->'waitingForBrain'->>'waitKey'`,
+      plan: sql<string | null>`${runState}->'waitingForBrain'->>'plan'`,
+      resetsAt: sql<string | null>`${runState}->'waitingForBrain'->>'resetsAt'`,
+      chain: sql<number | null>`(${runState}->'waitingForBrain'->>'chain')::int`,
+      since: sql<string>`coalesce(${runState}->'waitingForBrain'->>'since',
+        ${runState}->'usageWait'->>'since', ${runState}->'catchUp'->>'since',
         (extract(epoch from ${agentRuns.createdAt}) * 1000)::bigint::text)`,
       channelKind: channels.kind,
       channelName: channels.name,
@@ -117,7 +118,7 @@ export async function usageQueue(db: Database, viewerId: string, orgId: string, 
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.agentId, agentId),
         sql`((${agentRuns.status} = 'waiting_input' and ${USAGE_CODES})
-          or (${agentRuns.status} = 'running' and ${agentRuns.transcript}->'catchUp' is not null))`,
+          or (${agentRuns.status} = 'running' and ${runState}->'catchUp' is not null))`,
       ),
     )
     .limit(500);
@@ -205,6 +206,7 @@ export async function usageQueue(db: Database, viewerId: string, orgId: string, 
           run: r.run,
           requester: r.requester,
           ownerUserId: agent.ownerUserId,
+          ownerRoleId: agent.ownerRoleId,
         })),
     });
   }
@@ -219,14 +221,14 @@ export async function usageQueue(db: Database, viewerId: string, orgId: string, 
             eq(agentRuns.orgId, orgId),
             eq(agentRuns.status, "waiting_input"),
             ne(agentRuns.agentId, agentId),
-            inArray(sql<string>`${agentRuns.transcript}->'waitingForBrain'->>'waitKey'`, keys),
+            inArray(sql<string>`${runState}->'waitingForBrain'->>'waitKey'`, keys),
           ),
         )
     : [];
   const budget = head?.code === "budget" || head?.source === "budget";
   const read = !budget && head?.waitKey ? await planKeyRead(db, orgId, head.waitKey) : null;
   // Its owner and who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17) stop all of it.
-  const mayAll = agent.ownerUserId === viewerId || managesAgent(agent, viewerId, membership);
+  const mayAll = ownsAgent(agent, viewerId, membership.roleIds) || managesAgent(agent, viewerId, membership);
   return {
     agentId,
     reason: head ? (budget ? "budget" : "plan") : null,
@@ -293,7 +295,7 @@ async function closedRows(
         eq(agentRuns.agentId, agentId),
         eq(agentRuns.status, "done"),
         gt(agentRuns.finishedAt, new Date(now - CLOSED_SHOWN_MS)),
-        sql`${agentRuns.transcript}->'catchUpTriage'->>'outcome' = 'closed'`,
+        sql`${runState}->'catchUpTriage'->>'outcome' = 'closed'`,
       ),
     )
     .orderBy(desc(agentRuns.finishedAt))

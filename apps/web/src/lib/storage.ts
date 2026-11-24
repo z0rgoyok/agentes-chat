@@ -69,6 +69,8 @@ export const STORAGE_KEYS = {
   thisMacReturn: "agentes.thisMac.return",
   /** "0" when the person switched off the picture viewer's hover lens (on by default). */
   imageLens: "agentes.image.lens",
+  /** A press on a file with its comments open marks it ("0" = it moves the file instead). */
+  fileMarking: "agentes.file.marking",
   /** The Drive's view: "grid" (default) or "list". */
   driveView: "agentes.drive.view",
   /** Equipe's view (ADR 0148): "list" (default), "chart", "map", "sectors" or "usage". */

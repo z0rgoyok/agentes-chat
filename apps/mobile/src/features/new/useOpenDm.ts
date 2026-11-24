@@ -3,6 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { router } from "@/ui/navigation";
 import { requestComposerText } from "../chat/composer-request";
+import { useChatOpener } from "../chats/split";
 import { chatHref } from "../links/logic";
 import { useErrorToast, useOrgId } from "../shared/hooks";
 import { closeSheetsAndOpen } from "./parts";
@@ -17,6 +18,8 @@ export function useOpenDm() {
   const orgId = useOrgId();
   const qc = useQueryClient();
   const failed = useErrorToast();
+  // Beside the list (ADR 0212) the conversation opens in the split's pane instead of being pushed.
+  const opener = useChatOpener();
   return useCallback(
     (
       target: { agentId: string } | { userId: string },
@@ -28,9 +31,10 @@ export function useOpenDm() {
           void qc.invalidateQueries({ queryKey: keys.dms(orgId) });
           if (how.compose) requestComposerText(channelId, how.text ?? "");
           if (how.replace) router.replace(chatHref(channelId));
+          else if (opener) opener.open({ channelId, threadId: null });
           else closeSheetsAndOpen(chatHref(channelId));
         })
         .catch(failed),
-    [api, orgId, qc, failed],
+    [api, orgId, qc, failed, opener],
   );
 }

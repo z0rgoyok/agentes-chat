@@ -68,8 +68,13 @@ export interface AgentEdit {
   goTo: (tab: AgentTab, sec?: AgentSection) => void;
   /** Opens the repositories picker (on Ferramentas e acesso), with `add` already checked ("Liberar"). */
   pickRepos: (add?: string) => void;
-  /** "João" (the saved owner's first name), or null. */
+  /** "João" (the saved owner's first name), or null; null too for a role (a plan or an account is one person's). */
   ownerFirst: string | null;
+  /**
+   * Who answers for it in a sentence ("Only admins and {{owner}} see…"): `ownerFirst`, or the name of the role that
+   * answers for it (ADR 0085, addendum of 2026-11-21); null for nobody.
+   */
+  ownerLabel: string | null;
   /** Opens a dialog of How it works (who thinks, where it works, the browser); each saves at once. */
   openWork: (dialog: "brain" | "computer" | "browser") => void;
   /** Which of those dialogs is open (the fact sheet marks its row). */
@@ -135,7 +140,7 @@ export function LockNote({ field }: { field: Field }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const adminsOnly = useAdminsLock();
-  const { viewer, ownerFirst } = useAgentEdit();
+  const { viewer, ownerLabel } = useAgentEdit();
   // Its owner edits how it works too (ADR 0085 addendum of 2026-11-17): instructions, role, skills, who edits it.
   const ownerToo =
     field === "instructions" ||
@@ -152,8 +157,8 @@ export function LockNote({ field }: { field: Field }) {
   return (
     <span className="agp-lock">
       <Icon name="lock" size={14} />
-      {ownerToo && ownerFirst && (viewer === "member" || viewer === "editor")
-        ? t(modeKey(org, "agentPage.lock.adminsAndOwner"), { name: ownerFirst })
+      {ownerToo && ownerLabel && (viewer === "member" || viewer === "editor")
+        ? t(modeKey(org, "agentPage.lock.adminsAndOwner"), { name: ownerLabel })
         : adminsOnly}
     </span>
   );

@@ -1,4 +1,12 @@
-import { ApiError, useApi, useAuthConfig, useDeleteWorkspace, useMe, useResetWorkspace } from "@agenteschat/client";
+import {
+  ApiError,
+  useApi,
+  useAuthConfig,
+  useDeleteWorkspace,
+  useMe,
+  usePlanMove,
+  useResetWorkspace,
+} from "@agenteschat/client";
 import { deletionProof, proofToSend } from "@agenteschat/client/lib/deletion";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { typedCode } from "@agenteschat/client/lib/join-requests";
@@ -22,6 +30,7 @@ import { PasswordField } from "@/ui/auth/PasswordField";
 import { router } from "@/ui/navigation";
 import { openWebPath } from "../links/open-web";
 import { errorHaptic } from "../shared/parts";
+import { PlanMoveSection } from "./PlanMove";
 import { Gap, ResendCode, SettingsPage } from "./parts";
 
 /**
@@ -42,6 +51,7 @@ export function DeleteWorkspaceScreen({ reset = false }: { reset?: boolean }) {
   const config = useAuthConfig().data;
   const deletion = useDeleteWorkspace(orgId);
   const restart = useResetWorkspace(orgId);
+  const plan = usePlanMove(orgId);
   const remove = reset ? restart : deletion;
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -118,6 +128,7 @@ export function DeleteWorkspaceScreen({ reset = false }: { reset?: boolean }) {
         </GroupedList>
       )}
       <GroupedFooter>{t(reset ? "resetOrg.now" : "mobile.settings.deleteFoot")}</GroupedFooter>
+      {reset ? null : <PlanMoveSection plan={plan} />}
 
       <View style={styles.proof}>
         {proof === "code" && !sent ? (

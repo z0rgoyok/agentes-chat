@@ -6,16 +6,18 @@ import { Button, EmptyState, type HeaderAction, type HeaderMenuItem, SCREEN_X, u
 import { router } from "@/ui/navigation";
 import { useFileActions } from "../../files/actions";
 import { chooseAction } from "../../settings/parts";
+import { useDirectory } from "../../shared/hooks";
 import { PushedHeader } from "../../shared/parts";
 import { hereFaces, type LiveClosed, liveStatusWord } from "../logic";
+import { useOpenFileTalk } from "../talk/hooks";
 import { HereFaces } from "./HereFaces";
 import type { LiveDoc } from "./useLiveDoc";
 
 /**
  * A live file's bar on the phone (ADR 0196), the same for a spreadsheet, a presentation and a canvas: the system's
  * back, the file's name as the system's own title (centred by it, as the system's document apps have theirs), then on
- * the right, in one capsule, the faces of who else is in it, Compartilhar (who sees it, ADR 0157) and the "…": the
- * screen's own choices first, then Desfazer and Refazer (only this person's changes, never an agent's), Enviar cópia
+ * the right, in one capsule, the faces of who else is in it, Compartilhar (who sees and edits it, ADR 0157, 0202) and
+ * the "…": Pedir para editar while only viewing it, the screen's own choices, then Desfazer and Refazer (only this person's changes, never an agent's), Enviar cópia
  * (as the Office file other apps open) and Ver no Drive. On Android the "…" lists the same choices in the app's sheet.
  * Saving goes without saying; what the person must know (read only, no connection) is the line under the title
  * (`useLiveStatus`).
@@ -37,12 +39,33 @@ export function LiveBar({
 }) {
   const { t } = useTranslation();
   const actions = useFileActions(detail);
+  const dir = useDirectory();
+  const openTalk = useOpenFileTalk(detail);
   const room = live.room;
   const others = hereFaces(useLivePeers(room)).shown.length > 0;
   const status = useLiveStatus(live);
   const { colors: c } = useTheme();
   const edit = live.mode === "edit";
+  // Only viewing it (ADR 0202): Pedir para editar opens its conversation with the words for who made it, mine to send.
+  const asksToEdit = live.mode === "view" && detail?.myAccess === "view";
+  const requestEdit = () => {
+    const maker = detail?.createdBy;
+    const handle = maker?.type === "person" ? dir.memberById.get(maker.id)?.handle : undefined;
+    openTalk({
+      text: handle ? `@${handle} ${t("live.shell.requestEditText")}` : t("live.shell.requestEditAnyone"),
+    });
+  };
   const choices: HeaderMenuItem[] = [
+    ...(asksToEdit
+      ? [
+          {
+            icon: "pen" as const,
+            sf: "pencil" as const,
+            label: t("live.shell.requestEdit"),
+            onPress: requestEdit,
+          },
+        ]
+      : []),
     ...menu,
     ...(room && edit
       ? [

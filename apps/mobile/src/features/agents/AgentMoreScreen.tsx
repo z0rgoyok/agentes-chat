@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { useOrg } from "@/providers/org";
 import { EmptyState, GroupedList, GroupedRow } from "@/ui";
 import { Gap, SettingsPage } from "../settings/parts";
-import { useDirectory, useMeId } from "../shared/hooks";
+import { useDirectory, useOwnsAgent } from "../shared/hooks";
 import { AlwaysApproved } from "./AgentProfileScreen";
 import { BrakesSection } from "./BrakesSection";
 import { openAgentDelete } from "./DeleteAgentScreen";
@@ -22,11 +22,12 @@ import { ReportsToSection } from "./ReportsToSection";
 export function AgentMoreScreen({ agentId }: { agentId: string }) {
   const { t } = useTranslation();
   const dir = useDirectory();
-  const meId = useMeId();
+  const owns = useOwnsAgent();
   const org = useOrg().org;
   const agent = dir.agentById.get(agentId);
   const name = agent?.name ?? "";
-  const mine = Boolean(meId && agent?.ownerUserId === meId);
+  // Its owner, or one who holds the role that answers for it (ADR 0085, addendum of 2026-11-21).
+  const mine = owns(agent);
   // Who manages it (the server's `canManage`: "Editar qualquer agente" where it reaches).
   const admin = managesAgent(agent);
   const rightHand = isRightHand(agent);

@@ -9,7 +9,10 @@ import { withoutTrailingSlashes } from "../url-text";
  * address shown in Settings never drift apart.
  */
 
-/** Each scope brings the ones before it: `write` sends tasks, `manage` creates agents, routines and skills. */
+/**
+ * Each scope brings the ones before it: `write` sends tasks, `manage` creates agents, routines and skills and writes
+ * wiki pages.
+ */
 export const APP_SCOPES = ["read", "write", "manage"] as const;
 export type AppScope = (typeof APP_SCOPES)[number];
 /** The access a person picks on the consent page or for a token: its widest scope. */
@@ -126,7 +129,7 @@ export async function reachableFromInternet(
   } catch {
     return false;
   }
-  const resolved = await publicHostAddress(host, resolve);
+  const resolved = await publicHostAddress(host, resolve, { internet: true });
   if (!resolved.ok && resolved.reason === "unreachable") return true;
   reachable.set(publicUrl, resolved.ok);
   return resolved.ok;

@@ -1,8 +1,8 @@
 import { useLocalSearchParams } from "expo-router";
 import { DeleteAgentScreen } from "@/features/agents/DeleteAgentScreen";
 
-/** "Apagar agente" (`?id=`), pushed over "Editar agente" or, with `?proposal=`, from a removal card's row. */
+/** "Delete agent" (`?id=`), pushed over "Edit agent". */
 export default function AgentDeleteRoute() {
-  const { id, proposal } = useLocalSearchParams<{ id: string; proposal?: string }>();
-  return <DeleteAgentScreen key={id} id={id} proposal={proposal} />;
+  const { id } = useLocalSearchParams<{ id: string }>();
+  return <DeleteAgentScreen key={id} id={id} />;
 }

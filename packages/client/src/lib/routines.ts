@@ -56,6 +56,9 @@ export const isRefusedHookCall = (outcome: RoutineHookOutcome) =>
  * A call to try a routine's address from a terminal. With `secret` (the signing secret, or a placeholder for it),
  * the body is signed the way a sending service signs it: its HMAC-SHA256 in `X-Agentes-Signature`.
  */
+/** The path "Group calls by" shows as its example. */
+export const GROUP_BY_EXAMPLE = "conversation.id";
+
 export function hookCurl(url: string, secret: string | null, methods: readonly string[] = ["POST"]) {
   const method = methods.includes("POST") ? "POST" : (methods.find((m) => m !== "GET") ?? "GET");
   const sign = (data: string) => `SIG=$(printf '%s' ${data} | openssl dgst -sha256 -hmac "$SECRET" | sed 's/^.* //')`;

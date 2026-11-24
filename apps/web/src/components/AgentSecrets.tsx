@@ -1,6 +1,8 @@
 import type { Agent, AgentSecret } from "@agenteschat/client";
 import { keys } from "@agenteschat/client";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { formatTime } from "@agenteschat/client/lib/format";
+import { edit, optimistic } from "@agenteschat/client/lib/optimistic";
 import { siteHost } from "@agenteschat/client/lib/secret-requests";
 import { Button } from "@agenteschat/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -22,20 +24,30 @@ export function AgentSecretsList({ agent, editable }: { agent: Agent; editable: 
   const qc = useQueryClient();
   const toast = useToast();
   const dir = useDirectory(org.id);
-  const canManage = editable || (agent.ownerUserId != null && agent.ownerUserId === me.user.id);
+  const canManage = editable || ownsAgentAs(agent, me.user.id, dir.rolesOf(me.user.id));
   const list = useQuery({
     queryKey: keys.agentSecrets(org.id, agent.id),
     queryFn: () => api.secrets.list(org.id, agent.id),
     enabled: canManage,
   });
+  // The row leaves at once; a refusal (its computer away, say) puts it back.
+  const gone = optimistic(qc, (s: AgentSecret) => [
+    edit<AgentSecret[]>(keys.agentSecrets(org.id, agent.id), (list) =>
+      list.filter((x) => !(x.name === s.name && x.machineId === s.machineId)),
+    ),
+  ]);
   const remove = useMutation({
     mutationFn: (s: AgentSecret) => api.secrets.remove(org.id, agent.id, s.name, s.machineId),
     meta: { silent: true },
+    onMutate: gone.onMutate,
     onSuccess: (_v, s) => {
       toast.show(t("agentSecrets.removed", { name: s.label }));
       void qc.invalidateQueries({ queryKey: keys.agentSecrets(org.id, agent.id) });
     },
-    onError: () => toast.show(t("agentSecrets.removeFailed"), "error"),
+    onError: (error, s, context) => {
+      gone.onError(error, s, context);
+      toast.show(t("agentSecrets.removeFailed"), "error");
+    },
   });
   // Nothing to show until someone gave it a secret (the agent asks in the chat when it needs one).
   if (!canManage || !list.data || list.data.length === 0) return null;
@@ -70,8 +82,6 @@ export function AgentSecretsList({ agent, editable }: { agent: Agent; editable: 
                 variant="ghost"
                 icon="trash"
                 aria-label={t("agentSecrets.removeLabel", { name: s.label })}
-                loading={remove.isPending && remove.variables?.name === s.name}
-                disabled={remove.isPending}
                 onClick={() => remove.mutate(s)}
               >
                 {t("agentSecrets.remove")}

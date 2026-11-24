@@ -126,6 +126,8 @@ async function plansOnly(hub = fakeHub(), publicUrl = "http://localhost:3000") {
     status: "active",
     createdBy: f.owner.id,
     lastUsedAt: new Date(),
+    // "Atender todos": Dev answers teammates on this plan too, so their messages reach the router.
+    replyMode: "everyone",
   });
   await f.db
     .update(schema.agents)

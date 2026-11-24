@@ -519,6 +519,36 @@ export const words: EmailWords = {
     table: (day) => `Le tableau complet : bun run report:autonomy --day ${day}`,
     why: "Vous recevez cet e-mail car cette adresse figure dans OPS_REPORT_EMAIL sur ce serveur. Il est envoyé une fois par jour.",
   },
+  accountOpened: {
+    subject: (plan) => `Plus de personnes peuvent utiliser votre compte ${plan}`,
+    preheader: (plan) => `Ce qu'elles en font utilise votre forfait ${plan} et ses limites.`,
+    headline: "Quelqu'un a changé qui peut utiliser votre compte d'IA",
+    body: (by, account, plan) => [
+      { b: by },
+      ` a changé qui peut utiliser votre compte ${plan} `,
+      { b: account },
+      `. Ce qu'ils en font utilise votre forfait et ses limites.`,
+    ],
+    account: "Compte",
+    by: "Modifié par",
+    setting: "Permission",
+    use: "Utiliser dans les agents",
+    reply: "Répondre à tous",
+    was: "Avant",
+    now: "Maintenant",
+    everyone: "Tout le monde dans le workspace",
+    admins: "Vous et les administrateurs",
+    onlyYou: "Vous seul",
+    agentOwner: "Seul le propriétaire de l'agent",
+    note: "Pour annuler, ouvrez le compte dans IA et utilisation et modifiez ses permissions.",
+    button: "Ouvrir les comptes d'IA",
+    why: (org) =>
+      `Vous recevez cet e-mail car vous avez connecté ce compte d'IA dans ${org} et quelqu'un d'autre a changé qui peut l'utiliser.`,
+    personal: {
+      why: () =>
+        "Vous recevez cet e-mail car vous avez connecté ce compte d'IA et quelqu'un d'autre a changé qui peut l'utiliser.",
+    },
+  },
   planOpened: {
     subject: (plan) => `Plus de personnes peuvent parler à votre agent avec votre forfait ${plan}`,
     preheader: (plan) => `Leurs conversations utilisent votre forfait ${plan} et ses limites.`,

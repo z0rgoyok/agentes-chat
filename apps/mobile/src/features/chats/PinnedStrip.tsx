@@ -1,8 +1,8 @@
 import { memo } from "react";
 import { useTranslation } from "react-i18next";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { TAB_BADGE } from "@/lib/nav";
-import { Count, LineIcon, PixelOrbit, PressScale, SCREEN_X, Text, weights } from "@/ui";
+import { Count, LineIcon, PixelOrbit, PressScale, SCREEN_X, SideScroll, Text, weights } from "@/ui";
 import type { RowAction } from "../categories/menus";
 import { WaitMark } from "../chat/WaitMark";
 import { AgentFace, Face } from "../shared/Face";
@@ -55,7 +55,8 @@ export function PinnedStrip({ items, collapsed, onToggle, onStart, onHold, holdA
   if (items.length === 0) return null;
   return (
     <CollapsibleSection title={t("mobile.chats.pinned")} count={items.length} collapsed={collapsed} onToggle={onToggle}>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.strip}>
+      {/* A fade at the edge where more pinned faces wait past it. */}
+      <SideScroll contentContainerStyle={styles.strip}>
         {items.map((it) => (
           <PinnedFace
             key={it.row.key}
@@ -68,7 +69,7 @@ export function PinnedStrip({ items, collapsed, onToggle, onStart, onHold, holdA
             holdLabel={holdLabel}
           />
         ))}
-      </ScrollView>
+      </SideScroll>
     </CollapsibleSection>
   );
 }
@@ -149,7 +150,7 @@ const PinnedFace = memo(function PinnedFace({
           <View style={styles.name}>
             {mark === "orbit" ? (
               <LineIcon variant="footnote" size={MARK} mark>
-                <PixelOrbit color={facts.orbit} size={MARK} still={!live} />
+                <PixelOrbit color={facts.orbit} size={MARK} />
               </LineIcon>
             ) : mark === "wait" ? (
               <LineIcon variant="footnote" size={7} mark>

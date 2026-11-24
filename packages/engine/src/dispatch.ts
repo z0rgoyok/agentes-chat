@@ -24,7 +24,16 @@ import { routineCreatorOf } from "./requester";
 import { rightHandReaches } from "./right-hand";
 import { holdsMessages } from "./run-hold";
 import { ACTIVE_RUN_STATUSES, queueOnRun } from "./run-inbox";
-import { inChannelRun, waitsOnUsage, workKeepsThread, workTakesPersonMessage } from "./run-scope";
+import {
+  type Arrival,
+  joinsRun,
+  placeAfter,
+  repliesInThreadSql,
+  waitsOnUsage,
+  workKeepsThread,
+  workTakesPersonMessage,
+} from "./run-scope";
+import { runState } from "./run-state";
 import type { AgentRun } from "./runs";
 import { holdOf, hopLimitReached, pauseStretch, personAskedLately, stretchOf, stretchStop } from "./stretch";
 
@@ -79,7 +88,7 @@ export async function createAgentRuns(
 ): Promise<AgentRun[]> {
   const created: AgentRun[] = [];
   for (const agentId of agentIds) {
-    const started = await startOrJoinRun(tx, message, agentId, trigger, options);
+    const started = await startOrJoinRun(tx, message, agentId, trigger, { ...options, several: agentIds.length > 1 });
     if (started && "created" in started) created.push(started.created);
   }
   return created;
@@ -112,6 +121,16 @@ export interface StartRunOptions {
   parkedSince?: number;
   /** How long the router took to pick the agent: kept in the run's first claim's profile. */
   routerMs?: number;
+  /**
+   * The message calls other agents too (`createAgentRuns` with several, as the router's pick of two): where it would
+   * answer in the thread under it (ADR 0214 §5), it joins no run in the channel, so every agent it calls answers there.
+   */
+  several?: boolean;
+  /**
+   * The run this one goes on from (its unread messages handed on, a retry, a held wake-up): it answers where that one
+   * did (`placeAfter`), and the message joins only the agent's active run there.
+   */
+  after?: Pick<AgentRun, "threadRootId" | "replyInThread">;
 }
 
 /**
@@ -128,6 +147,16 @@ export async function startOrJoinRun(
   trigger: RunTrigger,
   options: StartRunOptions = {},
 ): Promise<{ created: AgentRun } | { joined: string } | null> {
+  const place = options.after ? placeAfter(options.after, message) : null;
+  const threadRootId = place?.threadRootId ?? message.threadId ?? message.id;
+  // Where the message reaches the agent's runs from (`joinsRun`): the main timeline, new there or handed on from a run
+  // that answered there; otherwise only its own conversation, a thread or the one handed on into the thread under it.
+  const main: Arrival | null =
+    threadRootId !== message.id || place?.replyInThread
+      ? null
+      : place
+        ? { main: "handed" }
+        : { main: { userId: message.authorUserId, several: Boolean(options.several) } };
   // One active run per agent and conversation (background runs hold no slot): the message goes to it, read at its next step, instead of a second run.
   if (!options.background) {
     // Several runs may be active (in the agents' DM one per person behind them; elsewhere a person's run
@@ -137,9 +166,9 @@ export async function startOrJoinRun(
     // Its run in the channel waiting for its computer, its plan or its budget takes the message: one turn per agent
     // there, not one per mention, each waiting for the same thing. Not a Continuar's: that starts a fresh stretch.
     const waitingForComputer =
-      message.threadId || options.granted
+      !main || options.granted
         ? sql<boolean>`false`
-        : sql<boolean>`(${agentRuns.status} = 'waiting_input' and (${agentRuns.waitingMachineId} is not null or ${waitsOnUsage(sql`${agentRuns}`)}) and ${inChannelRun(sql`${agentRuns}`)}
+        : sql<boolean>`(${agentRuns.status} = 'waiting_input' and (${agentRuns.waitingMachineId} is not null or ${waitsOnUsage(sql`${agentRuns}`)}) and ${joinsRun(sql`${agentRuns}`, main)}
           and not exists (select 1 from ${channels} c where c.id = ${message.channelId}::uuid and c.kind = 'dm'))`;
     const active = await tx
       .select({
@@ -148,7 +177,7 @@ export async function startOrJoinRun(
         status: agentRuns.status,
         triggerMessageId: agentRuns.triggerMessageId,
         waitingForComputer,
-        inLine: sql<boolean>`coalesce(${agentRuns.transcript}->'waitingForBrain'->>'code' = 'busy', false)`,
+        inLine: sql<boolean>`coalesce(${runState}->'waitingForBrain'->>'code' = 'busy', false)`,
       })
       .from(agentRuns)
       .where(
@@ -163,15 +192,15 @@ export async function startOrJoinRun(
             ? workTakesPersonMessage(sql`${agentRuns}`, message.authorUserId)
             : workKeepsThread(sql`${agentRuns}`),
           // In a DM the main timeline is one conversation; each thread (a mission's) is its own.
-          sql`(${agentRuns.threadRootId} = ${message.threadId ?? message.id}::uuid or ${
-            message.threadId
+          sql`(${joinsRun(sql`${agentRuns}`, { thread: threadRootId })} or ${
+            !main
               ? sql`false`
-              : sql`(${inChannelRun(sql`${agentRuns}`)} and exists (
+              : sql`(${joinsRun(sql`${agentRuns}`, main)} and exists (
             select 1 from channels c where c.id = ${message.channelId}::uuid and c.kind = 'dm'))`
           }
             or ${
-              options.joinChannelRun && !message.threadId
-                ? sql`(${agentRuns.status} in ('queued', 'running') and ${inChannelRun(sql`${agentRuns}`)})`
+              options.joinChannelRun && main
+                ? sql`(${agentRuns.status} in ('queued', 'running') and ${joinsRun(sql`${agentRuns}`, main)})`
                 : sql`false`
             }
             or ${waitingForComputer})`,
@@ -225,7 +254,7 @@ export async function startOrJoinRun(
   if (!options.granted && !options.background && message.hop >= 1) {
     const stop = await stretchStop(tx, message.orgId, stretchOf(message), agentId, message.id);
     if (stop) {
-      await pauseStretch(tx, message.orgId, await holdOf(tx, message, agentId, trigger, stop));
+      await pauseStretch(tx, message.orgId, await holdOf(tx, message, agentId, trigger, stop, options.after));
       return null;
     }
   }
@@ -235,8 +264,9 @@ export async function startOrJoinRun(
       orgId: message.orgId,
       agentId,
       channelId: message.channelId,
-      threadRootId: message.threadId ?? message.id,
+      threadRootId,
       triggerMessageId: message.id,
+      replyInThread: place?.replyInThread ?? repliesInThreadSql(message.channelId, message.threadId),
       trigger,
       hop: options.granted ? 1 : message.hop + 1,
       stretchId: options.granted ?? stretchOf(message),
@@ -441,7 +471,7 @@ export async function reportMentionReplies(
           where ${siblingRuns(orgId, input.triggerId, input.agentId, true)} and ${agentRuns.workId} is null
             and (${agentRuns.status} in ('queued', 'running') or (${agentRuns.status} = 'waiting_input'
               and ${agentRuns.waitingMachineId} is not null
-              and ${agentRuns.transcript}->'waitingForBrain'->>'code' = 'busy')))
+              and ${runState}->'waitingForBrain'->>'code' = 'busy')))
         or exists (${parkedWakes(orgId, input.triggerId, input.agentId)})) as yes`),
     );
     if (working?.yes === true || working?.yes === "t") {

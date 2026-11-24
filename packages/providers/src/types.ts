@@ -125,9 +125,10 @@ export interface ModelRequest {
   outputSchema?: Record<string, unknown>;
   /**
    * How much reasoning to spend. Providers without the notion ignore it. Default: the provider's.
-   * `none`: the least the model allows (its catalog `leastThinking`), else `low`.
+   * `none`: the least the model allows (its catalog `leastThinking`), else `low`. `xhigh` and `max`: where the model
+   * takes them (its catalog `efforts`), else `high` (`effortWithin`).
    */
-  effort?: "none" | "low" | "medium" | "high";
+  effort?: "none" | "low" | "medium" | "high" | "xhigh" | "max";
   /**
    * `1h`: the breakpoints of the stable prefix (stable tools, system blocks marked `cache`) last an hour where the
    * provider offers it (Anthropic's extended TTL, written at 2× the input price); the conversation's tail keeps the

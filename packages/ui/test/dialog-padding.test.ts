@@ -46,9 +46,12 @@ const EDGES: [RegExp, Side[], string][] = [
   [/\.ac-dialog__head(?![\w-])/, ["top", "left", "right"], "--dialog-pad"],
   [/\.ac-dialog__(?:desc|tools|body|list)(?![\w-])/, ["left", "right"], "--dialog-pad"],
   [/\.ac-dialog__(?:body|list)(?![\w-])[^\s>+~]*:last-child/, ["bottom"], "--dialog-pad"],
-  [/\.ac-dialog__foot(?:--bar)?(?![\w-])/, ["left", "right", "bottom"], "--dialog-pad"],
+  [/\.ac-dialog__foot(?![\w-])/, ["left", "right", "bottom"], "--dialog-pad"],
+  // A footer on its own line (`--bar`): its sides at the inset, its bottom as its top (checked below).
+  [/\.ac-dialog__foot--bar(?![\w-])/, ["left", "right"], "--dialog-pad"],
   [/\.ac-details__head(?![\w-])/, ["top", "left", "right"], "--details-pad"],
-  [/\.ac-details__(?:body|foot)(?![\w-])/, ["left", "right", "bottom"], "--details-pad"],
+  [/\.ac-details__body(?![\w-])/, ["left", "right", "bottom"], "--details-pad"],
+  [/\.ac-details__foot(?![\w-])/, ["left", "right"], "--details-pad"],
 ];
 
 describe("dialog padding", () => {
@@ -83,6 +86,16 @@ describe("dialog padding", () => {
             off.push(`${file} ${selector} padding-${side}: ${value}`);
         }
       }
+    }
+    expect(off).toEqual([]);
+  });
+
+  test("a footer on its own line is as far under the line as over the bottom edge", async () => {
+    const off: string[] = [];
+    for (const [file, selector, body] of await allRules()) {
+      if (!/\.ac-(?:dialog__foot--bar|details__foot)$/.test(selector)) continue;
+      const pad = padding(body);
+      if (pad.top !== undefined && pad.top !== pad.bottom) off.push(`${file} ${selector}: ${pad.top} / ${pad.bottom}`);
     }
     expect(off).toEqual([]);
   });

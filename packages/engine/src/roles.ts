@@ -578,7 +578,7 @@ export async function deleteRole(
   const role = await loadRole(db, orgId, roleId);
   if (role.kind === "everyone") throw new ForbiddenError("Every workspace keeps its base role", "role.base");
   if (!mayEdit(actor, role)) throw new ForbiddenError("Only someone above this role changes it", "role.above_you");
-  const { leavers, unedited } = await db.transaction(async (tx) => {
+  const { leavers, unedited, owned } = await db.transaction(async (tx) => {
     // The lock joinChannel takes for a role channel: a join at the same moment sees the role gone, or is dropped here.
     await lockOrgMembers(tx, orgId);
     const holders = (
@@ -587,6 +587,11 @@ export async function deleteRole(
         .from(organizationMemberRoles)
         .where(and(eq(organizationMemberRoles.orgId, orgId), eq(organizationMemberRoles.roleId, role.id)))
     ).map((r) => r.userId);
+    // The agents it answers for are left with no owner (the foreign key): their cached rows go once this commits.
+    const owned = await tx
+      .select({ id: schema.agents.id })
+      .from(schema.agents)
+      .where(and(eq(schema.agents.orgId, orgId), eq(schema.agents.ownerRoleId, role.id)));
     await tx.delete(orgRoles).where(eq(orgRoles.id, role.id));
     // Its holders leave the channels they were in through it alone (ADR 0125); then the channels forget it.
     const left = await dropRoleLeavers(tx, orgId, { people: holders, roleIds: [role.id] });
@@ -631,10 +636,12 @@ export async function deleteRole(
       target: { type: "role", id: role.id },
       details: { name: role.name, permissions: role.permissions },
     });
-    return { leavers: left, unedited: unedited.map((a) => a.id) };
+    return { leavers: left, unedited: unedited.map((a) => a.id), owned: owned.map((a) => a.id) };
   });
-  await agentsChanged(options.pubsub, orgId, unedited);
+  await agentsChanged(options.pubsub, orgId, [...unedited, ...owned]);
   await announceChannelLeavers({ db, pubsub: options.pubsub }, orgId, leavers);
+  // Approvals asked while it answered for an agent now go to the admins (it matches nobody).
+  await rerouted({ db, pubsub: options.pubsub }, orgId, [role.id]);
   await announceRoles(options.pubsub, orgId);
 }
 
@@ -790,6 +797,8 @@ export async function setMemberRoles(
   if (actorId !== targetUserId && !outranks(actor, target.rank))
     throw new ForbiddenError("Only someone above them changes their roles", "role.above_you");
   const next = [...new Set(roleIds)];
+  // The roles given or taken: an agent one of them answers for changes who is asked its approvals (`rerouted` below).
+  let touched: string[] = [];
   // Read and checked under the lock: two people changing the same person's roles at once never undo each other.
   const changed = await db.transaction(async (tx): Promise<false | ChannelLeaver[]> => {
     await lockOrgMembers(tx, orgId);
@@ -798,6 +807,7 @@ export async function setMemberRoles(
     const removed = before.filter((id) => !next.includes(id));
     await givableRoleIds(tx, actor, orgId, [...added, ...removed]);
     if (added.length === 0 && removed.length === 0) return false;
+    touched = [...added, ...removed];
     const seen = options.mailLossSeen;
     if (seen) {
       const { newRoleMemberMailLoss } = await import("./audience");
@@ -840,9 +850,22 @@ export async function setMemberRoles(
     // Loaded here: questions build on channels, which this module loads.
     const { releaseQuestionsOutOfReach } = await import("./questions");
     await releaseQuestionsOutOfReach({ db, pubsub: options.pubsub }, orgId, targetUserId);
+    await rerouted({ db, pubsub: options.pubsub }, orgId, touched);
     await announceMembers(options.pubsub, orgId);
   }
   return next;
+}
+
+/**
+ * Who holds `roleIds` changed: the approvals waiting on an agent one of them answers for (ADR 0085, addendum of
+ * 2026-11-21) follow, in the inbox, whoever holds it now (`rerouteRoleApprovals`). Best effort: the approvals list
+ * reads who decides at the click anyway.
+ */
+async function rerouted(deps: { db: Database; pubsub?: PubSub }, orgId: string, roleIds: readonly string[]) {
+  if (roleIds.length === 0) return;
+  // Loaded here: notifications build on the approvals, which build on this module.
+  const { rerouteRoleApprovals } = await import("./notification-producers");
+  await rerouteRoleApprovals(deps, orgId, roleIds).catch(() => {});
 }
 
 /**

@@ -244,13 +244,12 @@ export function RenameCategoryDialog({
           e.preventDefault();
           if (!category || error) return;
           if (name.trim() === category.name) return onOpenChange(false);
+          // The name was checked here and the sidebar takes it at once: no waiting for the answer to close.
           rename.mutate(
             { categoryId: category.id, name: name.trim() },
-            {
-              onSuccess: () => onOpenChange(false),
-              onError: (e) => toast.show(errorText(t, e), "error"),
-            },
+            { onError: (e) => toast.show(errorText(t, e), "error") },
           );
+          onOpenChange(false);
         }}
       >
         <Locked when={rename.isPending}>
@@ -383,19 +382,19 @@ export function MoveChannelDialog({
   const submit = () => {
     if (!channel || same) return;
     const categoryId = dest === NONE ? null : dest;
+    // The sidebar moves it at once: the dialog closes now, and says it once the server agrees.
     place.mutate(
       { channelId: channel.id, categoryId },
       {
-        onSuccess: () => {
-          onOpenChange(false);
+        onSuccess: () =>
           toast.show(t("channelCategories.moved", { channel: channel.name, name: destName }), "info", {
             label: t("channelCategories.undo"),
             run: () => place.mutate({ channelId: channel.id, categoryId: current === NONE ? null : current }),
-          });
-        },
+          }),
         onError: (e) => toast.show(errorText(t, e), "error"),
       },
     );
+    onOpenChange(false);
   };
   return (
     <>

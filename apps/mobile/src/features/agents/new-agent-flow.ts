@@ -1,6 +1,6 @@
 import type { AgentProposal } from "@agenteschat/client";
 import type { Level } from "@agenteschat/client/lib/access-levels";
-import type { BrainPickOption } from "@agenteschat/client/lib/brain-picker";
+import type { AiChoice } from "@agenteschat/client/lib/ai-choice";
 import { handleForName, type PersonalStarter, ROLE_DEFAULTS, type RoleId } from "@agenteschat/client/lib/new-agent";
 import { useSyncExternalStore } from "react";
 import { type FullLook, fullLook } from "./edit";
@@ -39,10 +39,8 @@ export interface NewAgentDraft {
   /** My own mailboxes a proposal asked for, at its level (only a mailbox's owner gives an agent access to it). */
   mailLevels: Record<string, Level>;
   withRoutine: boolean;
-  /** Who thinks, chosen on its own screen (ADR 0094). */
-  picked: BrainPickOption | null;
-  /** The workspace's last setup, while nothing else is chosen. */
-  useLast: boolean;
+  /** Who thinks, chosen in "Quem pensa" (the one AI choice); null: what it starts on (ADR 0094). */
+  aiPick: AiChoice | null;
   /** "Conectar uma IA" from Revisar: the choices before it opened, so a plan connected there is the one it thinks with. */
   optionsBefore: ReadonlySet<string> | null;
   /** Made (or the proposal refused): leaving no longer asks. */
@@ -85,8 +83,7 @@ export function newAgentDraft(start: NewAgentStart, id: number): NewAgentDraft {
     proposedLevels: start.levels,
     mailLevels: start.mail,
     withRoutine: Boolean(proposed?.routine),
-    picked: null,
-    useLast: true,
+    aiPick: null,
     optionsBefore: null,
     created: false,
   };

@@ -120,22 +120,43 @@ function InlineVideo({
 /**
  * A video in the picture viewer (`ImageViewer`), among the pictures: the system's player with the platform's controls
  * (the timeline, full screen and back out of it, AirPlay), playing while its page is the one in sight and paused when
- * the person swipes on. `onFailed`: this phone can't play it.
+ * the person swipes on. `onFailed`: this phone can't play it. `startAt`: the moment it starts from (a comment's, ADR
+ * 0208); `onPlayer`: its player, for the viewer to read the moment it is at (null once it goes).
  */
 export function ViewerVideo({
   source,
   name,
   active,
   onFailed,
+  startAt,
+  onPlayer,
 }: {
   source: VideoPlayerProps["source"];
   name: string;
   active: boolean;
   onFailed: () => void;
+  startAt?: number | undefined;
+  onPlayer?: ((player: Player | null) => void) | undefined;
 }) {
   const player = useVideoPlayer(source, (p) => {
     p.loop = false;
   });
+  useEffect(() => {
+    onPlayer?.(player);
+    return () => onPlayer?.(null);
+  }, [player, onPlayer]);
+  // At a comment's moment: once it is loaded, and if the moment comes after it loaded.
+  useEventListener(player, "sourceLoad", () => {
+    if (startAt !== undefined) player.currentTime = startAt;
+  });
+  useEffect(() => {
+    if (startAt === undefined) return;
+    try {
+      player.currentTime = startAt;
+    } catch {
+      // Released with its page.
+    }
+  }, [player, startAt]);
   useEffect(() => {
     try {
       if (active) player.play();

@@ -10,6 +10,7 @@ import type { Notice } from "./notices";
 import { enqueue } from "./outbox";
 import { missStaleRoutineRun } from "./routine-firing";
 import { holdsMessages } from "./run-hold";
+import { runState } from "./run-state";
 import { type AgentRun, replyThreadOf } from "./runs";
 import { runStretchOf } from "./stretch";
 
@@ -183,6 +184,7 @@ export async function deliverNoticeToRun(
     | "channelId"
     | "threadRootId"
     | "triggerMessageId"
+    | "replyInThread"
     | "hop"
     | "trigger"
     | "stretchId"
@@ -221,6 +223,8 @@ export async function deliverNoticeToRun(
     body: forPeople(notice),
     trigger: run.trigger === "dm" ? ("dm" as const) : ("mention" as const),
     forRunId: run.id,
+    // Where the run answered, the agent goes on where it did (ADR 0214); elsewhere, as a request made there.
+    ...(report ? {} : { after: run }),
   };
   if (!wake) return deliverNotice(tx, { ...into, wake: false });
   const delivered = await deliverNotice(tx, { ...into, wake: !active });
@@ -264,7 +268,7 @@ export async function resumeRunsWaitingForMachine(
       id: agentRuns.id,
       orgId: agentRuns.orgId,
       background: agentRuns.background,
-      waitId: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'waitId'`,
+      waitId: sql<string | null>`${runState}->'waitingForBrain'->>'waitId'`,
       updatedAt: agentRuns.updatedAt,
     })
     .from(agentRuns)
@@ -273,10 +277,10 @@ export async function resumeRunsWaitingForMachine(
         eq(agentRuns.waitingMachineId, machineId),
         eq(agentRuns.status, "waiting_input"),
         // The computer coming back says nothing about a plan's limit or a budget.
-        sql`coalesce(${agentRuns.transcript}->'waitingForBrain'->>'code', '') not in ('plan_limit', 'budget', 'usage_pause')`,
+        sql`coalesce(${runState}->'waitingForBrain'->>'code', '') not in ('plan_limit', 'budget', 'usage_pause')`,
         // `last_used_at` too: only a turn that answered sets it, and older rows of other CLIs than Claude Code have
         // no `last_success_at`.
-        sql`not (${agentRuns.transcript} ? 'outage' and exists (select 1 from agents a join machine_accounts ma
+        sql`not (${runState} ? 'outage' and exists (select 1 from agents a join machine_accounts ma
           on ma.org_id = a.org_id and ma.id = a.brain_account_id
           where a.org_id = ${agentRuns.orgId} and a.id = ${agentRuns.agentId}
           and coalesce(ma.last_success_at, ma.last_used_at) is null))`,

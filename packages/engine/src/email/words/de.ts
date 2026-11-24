@@ -507,6 +507,36 @@ export const words: EmailWords = {
     table: (day) => `Die ganze Tabelle: bun run report:autonomy --day ${day}`,
     why: "Du erhältst diese E-Mail, weil diese Adresse auf diesem Server in OPS_REPORT_EMAIL steht. Sie kommt einmal am Tag.",
   },
+  accountOpened: {
+    subject: (plan) => `Mehr Leute können dein ${plan}-Konto nutzen`,
+    preheader: (plan) => `Was sie damit tun, nutzt dein ${plan}-Abo und seine Limits.`,
+    headline: "Jemand hat geändert, wer dein KI-Konto nutzen darf",
+    body: (by, account, plan) => [
+      { b: by },
+      ` hat geändert, wer dein ${plan}-Konto `,
+      { b: account },
+      ` nutzen darf. Was sie damit tun, nutzt dein Abo und seine Limits.`,
+    ],
+    account: "Konto",
+    by: "Geändert von",
+    setting: "Berechtigung",
+    use: "In Agenten nutzen",
+    reply: "Allen antworten",
+    was: "Vorher",
+    now: "Jetzt",
+    everyone: "Alle im Workspace",
+    admins: "Du und Administratoren",
+    onlyYou: "Nur du",
+    agentOwner: "Nur der Besitzer des Agenten",
+    note: "Zum Rückgängigmachen öffne das Konto unter KI und Nutzung und ändere seine Berechtigungen.",
+    button: "KI-Konten öffnen",
+    why: (org) =>
+      `Du erhältst diese E-Mail, weil du dieses KI-Konto in ${org} verbunden hast und jemand anderes geändert hat, wer es nutzen darf.`,
+    personal: {
+      why: () =>
+        "Du erhältst diese E-Mail, weil du dieses KI-Konto verbunden hast und jemand anderes geändert hat, wer es nutzen darf.",
+    },
+  },
   planOpened: {
     subject: (plan) => `Mehr Leute können über dein ${plan}-Abo mit deinem Agenten sprechen`,
     preheader: (plan) => `Ihre Unterhaltungen nutzen dein ${plan}-Abo und seine Limits.`,

@@ -62,7 +62,10 @@ test("every card in a message takes the message card's corners, last over its ow
   ];
   for (const file of cards) {
     const text = src(file);
-    expect([file, text.includes("const cardCorners = useMessageCardCorners();")]).toEqual([file, true]);
+    // Its own corners, or the one frame that carries them (`useMessageCardFrame`, chat-bubble-cards.test.ts).
+    const shaped =
+      text.includes("const cardCorners = useMessageCardCorners();") || text.includes(" = useMessageCardFrame();");
+    expect([file, shaped]).toEqual([file, true]);
     // Never the bubble's corners by hand: the hook says which.
     expect([file, text.includes("BUBBLE_PART_CORNERS")]).toEqual([file, false]);
   }

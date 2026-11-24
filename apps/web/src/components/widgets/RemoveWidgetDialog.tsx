@@ -42,14 +42,14 @@ export function RemoveWidgetDialog({
   const confirm = () => {
     if (!shown) return;
     onRemoving?.();
-    remove.mutate(shown.id, {
-      onSuccess: () => {
-        toast.show(t(boardKind === "home" ? "widgets.removed.home" : "widgets.removed.board", { title, name }));
-        onClose();
-        onRemoved?.();
-      },
-      onError: (e) => toast.show(errorText(t, e, i18n.language), "error"),
-    });
+    // Off the board at once and the dialog closes; a refusal puts it back and says why (the call's own promise: a
+    // panel holding this dialog closes with it).
+    void remove.mutateAsync(shown.id).then(
+      () => toast.show(t(boardKind === "home" ? "widgets.removed.home" : "widgets.removed.board", { title, name })),
+      (e: unknown) => toast.show(errorText(t, e, i18n.language), "error"),
+    );
+    onClose();
+    onRemoved?.();
   };
   return (
     <Dialog

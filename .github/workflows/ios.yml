@@ -76,8 +76,9 @@ jobs:
 
   build:
     needs: version
-    # CI_RUNNER_MACOS names another macOS runner. The App Store takes only builds made with a current Xcode.
-    runs-on: ${{ vars.CI_RUNNER_MACOS || 'macos-26' }}
+    # CI_RUNNER_MACOS names another macOS runner. The App Store takes only builds made with a current Xcode, and the
+    # iPhone Duo's layout (the fold's reserved region, its side controls) needs the iOS 27.1 SDK: Xcode 27 (ADR 0212).
+    runs-on: ${{ vars.CI_RUNNER_MACOS || 'xcode-27' }}
     timeout-minutes: 90
     env:
       APP_VARIANT: production

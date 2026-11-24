@@ -10,7 +10,7 @@ import { scheduleOnRN } from "react-native-worklets";
 import { readValueSync, STORED, writeValueSync } from "@/lib/storage";
 import { useOrg } from "@/providers/org";
 import { WorkspaceSky } from "@/sky/Sky";
-import { Button, haptics, IconButton, Text, useReducedMotion } from "@/ui";
+import { Button, haptics, IconButton, insetPastFold, Text, useFoldRoom, useReducedMotion } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useOpenDm } from "../new/useOpenDm";
 import { AgentFace, Face } from "../shared/Face";
@@ -192,6 +192,9 @@ export function ChannelWelcome({
     },
   });
   const style = useAnimatedStyle(() => ({ opacity: shown.get(), transform: [{ translateY: y.get() }] }));
+  // Over a whole window folded like a book (ADR 0212), the card and its buttons drop into the half past the fold, as
+  // what comes and goes does; in a pane it stays where it is.
+  const room = useFoldRoom();
 
   if (!shows || !me) return null;
 
@@ -237,7 +240,7 @@ export function ChannelWelcome({
   return (
     <GestureDetector gesture={pan}>
       <Animated.View
-        style={[styles.at, { top }, style]}
+        style={[styles.at, { top }, room && insetPastFold(room, 16), style]}
         accessibilityRole="summary"
         accessibilityLabel={[when, title, lead].filter(Boolean).join(". ")}
         // Its own touches are reading it, not using the conversation under it.

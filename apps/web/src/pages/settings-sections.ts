@@ -150,6 +150,8 @@ export const settingsSearch = (
   create?: 1;
   /** Notificações, with the outside chat app's link dialog open (ADR 0187). */
   link?: 1;
+  /** Conectores: the service whose page is open (a store entry's key, or a connection's). */
+  service?: string;
 } => ({
   connected: typeof search.connected === "string" ? search.connected : undefined,
   outcome: typeof search.outcome === "string" ? search.outcome : undefined,
@@ -165,4 +167,5 @@ export const settingsSearch = (
   person: typeof search.person === "string" ? search.person : undefined,
   create: search.create === undefined ? undefined : 1,
   link: search.link === undefined ? undefined : 1,
+  service: typeof search.service === "string" ? search.service : undefined,
 });

@@ -440,32 +440,6 @@ export function CardSky({ color }: { color: AgentColor }) {
   );
 }
 
-/**
- * The top of a suggested connector in the catalog: a soft pixel sky in the brand's own color (the
- * ink's sky when the brand has none), fading into the card.
- */
-export function ConnectorSky({ brand }: { brand: string | null }) {
-  return (
-    <span className="catalog-feat__sky" aria-hidden="true">
-      <PixelSky
-        options={{
-          pixel: 3,
-          surface: "--raised",
-          palette: (bg) =>
-            brand
-              ? [bg, mix(bg, brand, 0.1), mix(bg, brand, 0.22), mix(bg, brand, 0.36), mix(bg, brand, 0.52)]
-              : softTones("sky", bg),
-          light: 0,
-          base: (u, v, tt) => {
-            const fade = Math.max(0, 1 - v);
-            return fade * (0.35 + 0.35 * u + 0.06 * S(u * 6 + tt * 0.4));
-          },
-        }}
-      />
-    </span>
-  );
-}
-
 /** The whole app loading (the workspace's first load): the sky rises and agents pass through it. */
 export function BootSplash() {
   const { t } = useTranslation();
@@ -730,36 +704,6 @@ export function OnboardingHorizon({ progress, clear }: { progress: number; clear
   };
   return (
     <span className="onb__horizon" aria-hidden="true">
-      <PixelSky options={opts} />
-    </span>
-  );
-}
-
-/**
- * Behind the onboarding on a wide window, where the rail is a card in the middle of the window (onboarding.css): the
- * agents' sky as the whole window's horizon, low and in soft tones, with no agents of its own (Lodi stands on the
- * card's). Hidden below that width, where it draws nothing.
- */
-export function OnboardingStageSky() {
-  const opts: SkyOptions = {
-    pixel: 4,
-    surface: "--pane",
-    // On a dark window the soft tones climb to the sky's light blue, far louder than in light: there it stops at the
-    // surface's mix at 42%, as quiet as the light one.
-    palette: (bg) => {
-      const tones = softTones("sky", bg);
-      const [r, g, b] = parseColor(bg);
-      return r * 0.3 + g * 0.59 + b * 0.11 < 128 ? tones.slice(0, 4) : tones;
-    },
-    light: 0.04,
-    base: (u, v, tt) => {
-      const s = Math.max(0, (v - 0.05) / 0.95);
-      const e = s * s * (3 - 2 * s);
-      return 0.78 * e + 0.05 * S(u * 9 + tt * 0.3) * e + 0.03 * S(u * 23 - tt * 0.2) * e;
-    },
-  };
-  return (
-    <span className="onb__stage-sky" aria-hidden="true">
       <PixelSky options={opts} />
     </span>
   );

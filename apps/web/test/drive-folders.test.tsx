@@ -29,9 +29,16 @@ async function goDrive(path = "") {
   return { ...r, api };
 }
 
-/** A folder made through "Nova pasta". */
+/** A folder made through "New" › "New folder". */
 async function newFolder(name: string) {
-  await click(screen().getByRole("button", { name: "Nova pasta" }));
+  const trigger = screen().getByRole("button", { name: "Novo" });
+  trigger.focus();
+  await act(async () => {
+    fireEvent.keyDown(trigger, { key: "Enter" });
+    fireEvent.keyUp(trigger, { key: "Enter" });
+  });
+  await settle(2);
+  await click(within(screen().getByRole("menu")).getByRole("menuitem", { name: "Nova pasta" }));
   const dialog = screen().getByRole("dialog");
   await type(within(dialog).getByRole("textbox", { name: "Nome" }), name);
   await click(within(dialog).getByRole("button", { name: "Criar" }));

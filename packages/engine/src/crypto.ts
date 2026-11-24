@@ -25,7 +25,8 @@ export type KeyPurpose =
   | "routine-hooks"
   | "human-pass"
   | "github-app-manifest"
-  | "operator-input-digest";
+  | "operator-input-digest"
+  | "connector-media";
 
 function deriveKey(masterSecret: string, purpose: KeyPurpose): Buffer {
   return Buffer.from(hkdfSync("sha256", masterSecret, "agentes.chat", `agentes.chat/${purpose}/v1`, 32));
@@ -132,6 +133,11 @@ export async function openSecret(wrappers: KeyWrapper[], sealed: SealedSecret, a
  */
 export function inviteLinkToken(masterSecret: string, linkId: string): string {
   return createHmac("sha256", deriveKey(masterSecret, "invite-links")).update(linkId).digest("base64url");
+}
+
+/** The signature of a link a vendor fetches a Drive file from for an hour (ADR 0170: Threads' and TikTok's media). */
+export function connectorMediaSignature(masterSecret: string, payload: string): string {
+  return createHmac("sha256", deriveKey(masterSecret, "connector-media")).update(payload).digest("base64url");
 }
 
 /**

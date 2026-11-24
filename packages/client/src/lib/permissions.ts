@@ -1,3 +1,5 @@
+import { type AgentOwnerLike, ownsAgentAs } from "./agent-owner";
+
 /**
  * The keys of a workspace's permissions (ADR 0085, packages/engine/src/permissions.ts). The server sends each
  * person's resolved `permissions` with their membership (`OrgSummary`); the UI only hides what isn't allowed, the
@@ -73,15 +75,17 @@ export const managesChannel = (
     : can(org, "manage_channels") || (!!meId && channel?.isMember === true && channel.createdByUserId === meId);
 
 /**
- * Who picks how an agent replies in a channel: who manages the channel, or the agent's owner. Mirrors the server's
- * `setChannelAgentAutoReply` (packages/engine/src/channels.ts).
+ * Who picks how an agent replies in a channel: who manages the channel, or the agent's owner (or who holds its owner
+ * role: `myRoleIds`, ADR 0085, addendum of 2026-11-21). Mirrors the server's `setChannelAgentAutoReply`
+ * (packages/engine/src/channels.ts).
  */
 export const setsAutoReply = (
   channel: ChannelLike | null | undefined,
-  agent: { ownerUserId?: string | null } | null | undefined,
+  agent: AgentOwnerLike | null | undefined,
   meId: string | null | undefined,
   org: Membership,
-) => managesChannel(channel, meId, org) || (!!meId && agent?.ownerUserId === meId);
+  myRoleIds: readonly string[] = [],
+) => managesChannel(channel, meId, org) || (!!meId && !!agent && ownsAgentAs(agent, meId, myRoleIds));
 
 /**
  * Whether this person may put an agent in a channel or take it out of it: a channel they're in and may post in, or
@@ -94,12 +98,16 @@ export const addsAgentsTo = (
   org: Membership,
 ) => (channel?.isMember === true && can(org, "post")) || managesChannel(channel, meId, org);
 
-/** Who may edit what an agent remembers: who reviews memory, or the agent's owner (the server's `requireEdit`). */
+/**
+ * Who may edit what an agent remembers: who reviews memory, or the agent's owner (or who holds its owner role,
+ * `myRoleIds`, ADR 0085, addendum of 2026-11-21; the server's `requireEdit`).
+ */
 export const editsMemory = (
-  agent: { ownerUserId?: string | null } | null | undefined,
+  agent: AgentOwnerLike | null | undefined,
   meId: string | null | undefined,
   org: Membership,
-) => can(org, "review_memory") || (!!meId && agent?.ownerUserId === meId);
+  myRoleIds: readonly string[] = [],
+) => can(org, "review_memory") || (!!meId && !!agent && ownsAgentAs(agent, meId, myRoleIds));
 
 /** I may leave this channel: I'm in it, and it isn't #general, where everyone stays. */
 export const leavesChannel = (channel: { isMember?: boolean; name: string }) =>

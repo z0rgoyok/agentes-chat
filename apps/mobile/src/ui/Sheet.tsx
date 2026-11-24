@@ -130,6 +130,24 @@ export function useRouteSheetScrollable(ref: RefObject<ScrollViewInstance | null
 }
 
 /**
+ * A route sheet's header, above its scroll view and outside it (TrueSheet's `header`, as `Sheet`'s own): a drag on it
+ * always moves the sheet. Pinned inside the list, a drag there scrolled the list unless it was at its very top, and a
+ * tall sheet was hard to flick away. `header` is kept by its caller (`useMemo`): a new one is handed to the sheet.
+ */
+export function useRouteSheetHeader(header: ReactNode) {
+  const navigation = useNavigation();
+  useLayoutEffect(() => {
+    navigation.setOptions({
+      header: (
+        <View>
+          <OnSheet>{header}</OnSheet>
+        </View>
+      ),
+    } as never);
+  }, [navigation, header]);
+}
+
+/**
  * What every sheet a screen opens shares, for `<TrueSheet>`: content-sized unless `detents` says otherwise, `Sheet`'s
  * look, Android's back (an open ⓘ goes with the sheet), and `open` driving present and dismiss with `onClose` when the
  * person closes it and `onGone` once it is off the screen.

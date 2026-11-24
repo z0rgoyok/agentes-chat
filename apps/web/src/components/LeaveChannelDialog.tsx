@@ -20,16 +20,17 @@ function useLeave() {
   const navigate = useNavigate();
   const router = useRouter();
   const leave = useLeaveChannel(org.id);
-  const run = (channel: Leaving, then?: () => void, undo?: { label: string; run: () => void }) =>
-    leave.mutate(channel.id, {
-      onSuccess: () => {
-        then?.();
-        if (router.state.location.pathname.includes(`/c/${channel.id}`))
-          void navigate({ to: "/org/$orgId", params: { orgId: org.id } });
-        toast.show(t("channel.left", { channel: channel.name }), "info", undo);
-      },
-      onError: (e) => toast.show(errorText(t, e, i18n.language), "error"),
-    });
+  const run = (channel: Leaving, then?: () => void, undo?: { label: string; run: () => void }) => {
+    // Out of the lists at once, so off its page now too. The call's own promise, not a mutation callback: the screen
+    // that asked may be gone when the answer comes.
+    then?.();
+    if (router.state.location.pathname.includes(`/c/${channel.id}`))
+      void navigate({ to: "/org/$orgId", params: { orgId: org.id } });
+    void leave.mutateAsync(channel.id).then(
+      () => toast.show(t("channel.left", { channel: channel.name }), "info", undo),
+      (e: unknown) => toast.show(errorText(t, e, i18n.language), "error"),
+    );
+  };
   return { run, pending: leave.isPending };
 }
 

@@ -1485,14 +1485,14 @@ describe("Criar agente: what gets created", () => {
     await open();
     await startAs("QA");
     await proceed(3);
-    // Every option of the picker is one size: "Sem responsável" says what it means behind its ⓘ, not on a second line.
+    // Every option of the picker is one size: "Admins" (no owner) says what it means behind its ⓘ, not on a second line.
     const owner = screen().getByRole("combobox", { name: "Responsável" });
     owner.focus();
     await act(async () => fireEvent.keyDown(owner, { key: "Enter" }));
-    const none = screen().getByRole("option", { name: /Sem responsável/ });
+    const none = screen().getByRole("option", { name: /Administradores/ });
     expect(none.querySelector(".ac-menu__desc")).toBeNull();
-    expect(none.querySelector(".ac-menu__hint")?.textContent).toBe("Os admins recebem os avisos e aprovam");
-    await pick(owner, /Sem responsável/);
+    expect(none.querySelector(".ac-menu__hint")?.textContent).toBe("Recebem os avisos e aprovam");
+    await pick(owner, /Administradores/);
     const audience = screen().getByRole("radiogroup", { name: "Quem pode falar com a Iris" });
     await click(within(audience).getByRole("radio", { name: /^Só o responsável/ }));
     await click(continueButton());
@@ -1675,15 +1675,14 @@ describe("Criar agente: nothing leaves the steps", () => {
     const owner = screen().getByRole("combobox", { name: "Responsável" });
     expect(owner.closest(".ac-card")).toBeNull();
     expect(owner.closest(".ac-select")?.className).toBe("ac-select");
-    // "Sem responsável" explains itself right after its words: the ⓘ follows the label, the check ends the row.
+    // "Admins" explains itself right after its words: the ⓘ follows the label; a select has no check column.
     owner.focus();
     await act(async () => fireEvent.keyDown(owner, { key: "Enter" }));
-    const none = screen().getByRole("option", { name: /^Sem responsável/ });
+    const none = screen().getByRole("option", { name: /^Administradores/ });
     expect([...none.children].map((c) => c.getAttribute("class"))).toEqual([
       "ac-menu__leading",
       "ac-menu__label",
       "ac-hint ac-menu__hint",
-      "ac-menu__check",
     ]);
   });
 

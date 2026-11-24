@@ -5,7 +5,7 @@ import type { AppLocale } from "@agenteschat/i18n/locale";
 import type { Agent } from "./agents";
 import { backgroundAiState } from "./ai-status";
 import { postApprovalsDigest } from "./approvals-digest";
-import { managesAgentSql } from "./audience";
+import { agentOwnerIds, managesAgentSql } from "./audience";
 import type { JobDeps } from "./jobs";
 import {
   inboxVisible,
@@ -21,13 +21,13 @@ import { can, getMembership, type Membership } from "./organizations";
 import { maySql, type RolePermission } from "./permissions";
 import { personLocale } from "./requester";
 import { defineLodiLane, liveLodiSwitches } from "./right-hand-lane";
-import { knownZonesSql, lodiPrefsSql, zoneSql } from "./right-hand-prefs";
+import { knownZoneNames, knownZonesSql, lodiPrefsSql, zoneSql } from "./right-hand-prefs";
 import { lodiFor, lodiSwitches, saidKey, saidOnce } from "./right-hand-proactive";
 import { lastGoodRun, outsideRoutineFailure, routineResumeKey } from "./routine-ledger";
 import { ROUTINE_FATIGUE_LIMIT } from "./routine-state";
 import { resumeRoutineBySystem } from "./routines";
 import { openOrg } from "./standing";
-import { DEFAULT_AGENT_BUDGET_NANO_USD, monthStartUtc } from "./usage";
+import { DEFAULT_AGENT_BUDGET_NANO_USD, monthStartUtc, budgetPeriodOf as periodOf } from "./usage";
 
 /**
  * "Cuidar da equipe": the right hand looks for what stops the team and acts. It calls no model.
@@ -116,9 +116,6 @@ const {
   routineRuns,
   routines,
 } = schema;
-
-/** A budget's month, as `agent_budget_periods.period_start` holds it. */
-const periodOf = (now: Date) => monthStartUtc(now).toISOString().slice(0, 10);
 
 // ── The sweep ─────────────────────────────────────────────────────────────────
 
@@ -227,7 +224,7 @@ export async function enqueueTeamWatches(db: Database, now: Date = new Date()): 
     sql`, `,
   )})`;
   const orgs = rowsOf<{ id: string; level: number }>(
-    await db.execute(sql`with ${knownZonesSql}
+    await db.execute(sql`with ${knownZonesSql(await knownZoneNames(db))}
       select t.id, t.level from (
         select organizations.id, case
           when coalesce(s.team_watch, true) and exists (select 1 from agents a where a.org_id = organizations.id
@@ -353,8 +350,11 @@ interface Problem {
    * none back unread.
    */
   ripe: boolean;
-  /** Whose it is to fix, when they still may (`needs`). Else the first person who may `orElse`, else nobody. */
-  to: string | null;
+  /**
+   * Whose it is to fix, when they still may (`needs`): one person, or several (an agent's owner role's holders, ADR
+   * 0085, addendum of 2026-11-21), each told who may. Else the first person who may `orElse`, else nobody.
+   */
+  to: string | readonly string[] | null;
   needs?: RolePermission;
   orElse?: RolePermission;
   /**
@@ -385,8 +385,9 @@ const saidElsewhere = {
       and exists (select 1 from agents a where a.org_id = ${orgId} and a.brain_account_id = ${accountId}
         and ${namesAgent(sql`a.id`)}))`,
   budget: (agentId: string) =>
-    sql`(${notifications.kind} in ('run_failed', 'routine_failed', 'widget_failed')
-      and ${notifications.latest}->>'reason' = 'budget_exceeded' and ${namesAgent(agentId)})`,
+    sql`((${notifications.kind} in ('run_failed', 'routine_failed', 'widget_failed')
+        and ${notifications.latest}->>'reason' = 'budget_exceeded' and ${namesAgent(agentId)})
+      or (${notifications.kind} = 'budget_paused' and ${notifications.source}->>'agentId' = ${agentId}))`,
   computer: (orgId: string, machineId: string) =>
     sql`((${notifications.kind} in ('routine_stalled', 'device.waiting')
         and ${notifications.source}->>'machineId' = ${machineId})
@@ -524,7 +525,8 @@ async function problemsOf(db: Database, orgId: string, now: Date): Promise<Probl
     .select({
       id: agents.id,
       name: agents.name,
-      owner: agents.ownerUserId,
+      ownerUserId: agents.ownerUserId,
+      ownerRoleId: agents.ownerRoleId,
       budget: agents.monthlyBudgetNanoUsd,
       spent: agentBudgetPeriods.spentNanoUsd,
     })
@@ -546,7 +548,8 @@ async function problemsOf(db: Database, orgId: string, now: Date): Promise<Probl
       episode: `${period}:${budget}`,
       since: monthStartUtc(now),
       ripe: true,
-      to: a.owner,
+      // Its owner, or everyone holding its owner role now.
+      to: await agentOwnerIds(db, orgId, a),
       needs: "manage_agents",
       orElseManager: true,
       ...(usedUp ? { elsewhere: saidElsewhere.budget(a.id) } : {}),
@@ -649,38 +652,39 @@ async function tellProblems(deps: NotificationDeps, orgId: string, lodi: Agent, 
   // notice's: told for good, and in no row of the right hand's.
   const groups = new Map<string, { userId: string; cause: TeamWatchCause; problems: Problem[] }>();
   for (const p of problems) {
-    const own = p.to ? await memberOf(p.to) : null;
-    const userId =
-      own && (!p.needs || can(own, p.needs))
-        ? p.to
-        : p.orElseManager
-          ? await firstManagerOf(p.id)
-          : p.orElse
-            ? await firstWhoMay(p.orElse)
-            : null;
-    if (!userId) continue;
-    if (p.elsewhere) {
-      const [other] = await db
-        .select({ id: notifications.id })
-        .from(notifications)
-        .where(
-          and(
-            eq(notifications.orgId, orgId),
-            eq(notifications.userId, userId),
-            p.elsewhere,
-            gt(notifications.createdAt, p.since),
-          ),
-        )
-        .limit(1);
-      if (other) {
-        await markTold(userId, [p]);
-        continue;
-      }
+    const userIds: string[] = [];
+    for (const to of typeof p.to === "string" ? [p.to] : (p.to ?? [])) {
+      const member = await memberOf(to);
+      if (member && (!p.needs || can(member, p.needs))) userIds.push(to);
     }
-    const key = `${userId}:${p.cause}`;
-    const group = groups.get(key) ?? { userId, cause: p.cause, problems: [] };
-    group.problems.push(p);
-    groups.set(key, group);
+    if (userIds.length === 0) {
+      const other = p.orElseManager ? await firstManagerOf(p.id) : p.orElse ? await firstWhoMay(p.orElse) : null;
+      if (other) userIds.push(other);
+    }
+    for (const userId of userIds) {
+      if (p.elsewhere) {
+        const [other] = await db
+          .select({ id: notifications.id })
+          .from(notifications)
+          .where(
+            and(
+              eq(notifications.orgId, orgId),
+              eq(notifications.userId, userId),
+              p.elsewhere,
+              gt(notifications.createdAt, p.since),
+            ),
+          )
+          .limit(1);
+        if (other) {
+          await markTold(userId, [p]);
+          continue;
+        }
+      }
+      const key = `${userId}:${p.cause}`;
+      const group = groups.get(key) ?? { userId, cause: p.cause, problems: [] };
+      group.problems.push(p);
+      groups.set(key, group);
+    }
   }
 
   const causeOf = (row: { latest: Record<string, unknown> }) => String(row.latest.reason ?? "");
@@ -770,7 +774,7 @@ async function remindUnread(deps: NotificationDeps, orgId: string, now: Date): P
   const { db } = deps;
   const at = sql`${now.toISOString()}::timestamptz`;
   const people = rowsOf<{ user_id: string; day: string; digest_off: boolean }>(
-    await db.execute(sql`with ${knownZonesSql}
+    await db.execute(sql`with ${knownZonesSql(await knownZoneNames(db))}
       select distinct n.user_id, ${localDay(at)} as day,
         ${lodiPrefsSql.digestOff} as digest_off
       from notifications n

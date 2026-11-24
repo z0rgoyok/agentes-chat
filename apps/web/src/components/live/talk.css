@@ -28,3 +28,28 @@
 .lf-origin .ac-link {
   font-weight: 600;
 }
+
+/* A picture's, a video's or a PDF's comment (ADR 0208): the app's picture of the place, small, in its lines. */
+.lf-thumb {
+  display: inline-flex;
+  flex: none;
+  width: 28px;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px var(--line);
+  background: var(--sunken);
+}
+.lf-thumb > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* Under a resolved comment (ADR 0208): who resolved it and when, quietly. */
+.lf-resolved {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 18px;
+}

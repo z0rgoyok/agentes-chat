@@ -2,15 +2,16 @@ import { Slot } from "radix-ui";
 import { type HTMLAttributes, type ReactNode, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { cx } from "../cx";
-import { hoverless, hoverPointer, movesByKeys, trackInput } from "../device";
+import { hoverless, movesByKeys, trackInput } from "../device";
 import { placeTip } from "../floating";
+import { useHoverCard } from "../hooks/useHoverCard";
 
 /** How long a mouse or a pen rests on a message's time before its details open. */
 export const TIP_OPEN_MS = 250;
 /** How long a finger rests on a button before its tip opens (`button`): that press then doesn't act. */
 export const TIP_HOLD_MS = 500;
 /** How far a finger may move during that press (px): farther is a scroll. */
-const HOLD_SLOP = 10;
+export const HOLD_SLOP = 10;
 
 export interface TipProps extends HTMLAttributes<HTMLElement> {
   /** What it says. Nothing: it never opens. */
@@ -34,11 +35,13 @@ export interface TipProps extends HTMLAttributes<HTMLElement> {
  * Words about the element they hang from (a message's time: its date, model and tokens) on the floating layer: in
  * <body>, fixed to the window at `--z-floating`, so no list, pane or dialog that scrolls or clips cuts them, no bar of
  * the row covers them, and `placeTip` keeps them `EDGE_ROOM` inside the window. A mouse or a pen resting on the element
- * opens them, the keys' focus or a tap at once (a touch screen has no hover), a long press on a `button`; leaving it,
- * its blur, a scroll, a resize or Escape closes them, and a press anywhere closes a button's. One held open stays
- * closed after Escape until its element is left or `open` changes, so it can be dismissed without moving the pointer
- * or the focus (WCAG 1.4.13). For the eye only: screen readers get the words from the element (`aria-describedby`, or
- * a `button`'s own description).
+ * opens them, the keys' focus or a tap at once (a touch screen has no hover), a long press on a `button`. One the
+ * pointer opened stays while the pointer crosses to it and rests on it (`useHoverCard`: the gap, the triangle to its
+ * near edge, a grace before it closes), so a link in it can be clicked. Its element's blur, a scroll, a resize or
+ * Escape closes it, and a press anywhere but on it closes a button's. One held open stays closed after Escape until
+ * its element is left or `open` changes, so it can be dismissed without moving the pointer or the focus (WCAG
+ * 1.4.13). For the eye only: screen readers get the words from the element (`aria-describedby`, or a `button`'s own
+ * description); a control in it takes `tabIndex={-1}` and the element does the same thing for the keys.
  */
 export function Tip({
   tip,
@@ -52,35 +55,32 @@ export function Tip({
 }: TipProps) {
   const anchor = useRef<HTMLSpanElement>(null);
   const bubble = useRef<HTMLSpanElement>(null);
-  const wait = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const hover = useHoverCard(delay);
   const press = useRef<{ x: number; y: number; timer: ReturnType<typeof setTimeout> } | null>(null);
   /** The long press opened it: the click that ends that press doesn't act. */
   const pressed = useRef(false);
+  /** Opened by the keys' focus, a tap or a long press; the pointer's is `hover.open`. */
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState(false);
-  const shown = Boolean(tip) && (open || held) && !dismissed;
+  const shown = Boolean(tip) && (open || hover.open !== false || held) && !dismissed;
+  const { close: hoverClose } = hover;
   useEffect(() => trackInput(), []);
-  useEffect(
-    () => () => {
-      clearTimeout(wait.current);
-      clearTimeout(press.current?.timer);
-    },
-    [],
-  );
+  useEffect(() => () => clearTimeout(press.current?.timer), []);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a held tip Escape closed shows again when `open` changes
   useEffect(() => setDismissed(false), [held]);
   useEffect(() => {
     if (!shown) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      clearTimeout(wait.current);
       setOpen(false);
+      hoverClose();
       setDismissed(true);
     };
-    // A button's tip goes with the next press anywhere: it never stands over what comes next.
-    const onPress = () => {
-      clearTimeout(wait.current);
+    // A button's tip goes with the next press anywhere but on it: it never stands over what comes next.
+    const onPress = (e: PointerEvent) => {
+      if (e.target instanceof Node && bubble.current?.contains(e.target)) return;
       setOpen(false);
+      hoverClose();
     };
     window.addEventListener("keydown", onKey, true);
     if (button) window.addEventListener("pointerdown", onPress, true);
@@ -88,7 +88,7 @@ export function Tip({
       window.removeEventListener("keydown", onKey, true);
       window.removeEventListener("pointerdown", onPress, true);
     };
-  }, [shown, button]);
+  }, [shown, button, hoverClose]);
   useLayoutEffect(() => {
     if (!shown) return;
     const place = () => {
@@ -102,19 +102,19 @@ export function Tip({
     };
     place();
     // One the pointer or the focus opened goes as its element moves; one held open goes with it.
-    const moved = held ? place : () => setOpen(false);
+    const moved = held
+      ? place
+      : () => {
+          setOpen(false);
+          hoverClose();
+        };
     window.addEventListener("scroll", moved, true);
     window.addEventListener("resize", moved);
     return () => {
       window.removeEventListener("scroll", moved, true);
       window.removeEventListener("resize", moved);
     };
-  }, [shown, held, align]);
-  const close = () => {
-    clearTimeout(wait.current);
-    setOpen(false);
-    setDismissed(false);
-  };
+  }, [shown, held, align, hoverClose]);
   const endPress = () => {
     clearTimeout(press.current?.timer);
     press.current = null;
@@ -123,14 +123,13 @@ export function Tip({
     ...rest,
     onPointerEnter: (e) => {
       rest.onPointerEnter?.(e);
-      if (!hoverPointer(e.pointerType)) return;
-      clearTimeout(wait.current);
-      wait.current = setTimeout(() => setOpen(true), delay);
+      hover.trigger.onPointerEnter(e);
     },
     onPointerLeave: (e) => {
       rest.onPointerLeave?.(e);
       // A finger leaves as its tap ends: the tip the tap's focus opened stays until the focus goes.
-      if (hoverPointer(e.pointerType)) close();
+      hover.trigger.onPointerLeave(e);
+      setDismissed(false);
     },
     onFocus: (e) => {
       rest.onFocus?.(e);
@@ -139,13 +138,31 @@ export function Tip({
     },
     onBlur: (e) => {
       rest.onBlur?.(e);
-      close();
+      // To a control in the tip (its link, pressed): it stays for that press.
+      if (e.relatedTarget instanceof Node && bubble.current?.contains(e.relatedTarget)) return;
+      setOpen(false);
+      setDismissed(false);
     },
   };
   const bubbleEl =
     shown &&
     createPortal(
-      <span ref={bubble} className={cx("ac-tip", look)} aria-hidden="true">
+      <span
+        ref={(el) => {
+          bubble.current = el;
+          hover.content.ref(el);
+        }}
+        className={cx("ac-tip", look)}
+        aria-hidden="true"
+        onPointerEnter={hover.content.onPointerEnter}
+        onPointerLeave={hover.content.onPointerLeave}
+        // A button's tip is no child of its button, so the focus leaving the tip's link never reaches the button's blur.
+        onBlur={(e) => {
+          const to = e.relatedTarget;
+          if (to instanceof Node && (bubble.current?.contains(to) || anchor.current?.contains(to))) return;
+          setOpen(false);
+        }}
+      >
         {tip}
       </span>,
       document.body,

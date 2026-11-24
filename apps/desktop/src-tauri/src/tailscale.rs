@@ -229,12 +229,13 @@ pub async fn tailscale_status(webview: tauri::Webview) -> Result<Tailnet, String
 /// terminal), "Get Tailscale" (its download page), "Turn it on" (the admin page the last `serve` named, or the
 /// tailnet's DNS settings, where HTTPS is turned on).
 #[tauri::command]
-pub fn tailscale_open(app: tauri::AppHandle, webview: tauri::Webview, page: String) -> Result<(), String> {
+pub async fn tailscale_open(app: tauri::AppHandle, webview: tauri::Webview, page: String) -> Result<(), String> {
     use tauri_plugin_opener::OpenerExt;
     if !matches!(webview.label(), "welcome" | "prefs" | "main-cover") {
         return Err("only the app's own windows open this".into());
     }
-    match page.as_str() {
+    // Off the main thread: opening runs a program and waits for it.
+    tauri::async_runtime::spawn_blocking(move || match page.as_str() {
         "app" if cfg!(target_os = "macos") => app
             .opener()
             .open_path(MAC_APP, None::<&str>)
@@ -246,7 +247,9 @@ pub fn tailscale_open(app: tauri::AppHandle, webview: tauri::Webview, page: Stri
             app.opener().open_url(url, None::<&str>).map_err(|e| e.to_string())
         }
         _ => Err("unknown page".into()),
-    }
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 #[cfg(test)]

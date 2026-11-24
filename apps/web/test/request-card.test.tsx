@@ -37,7 +37,8 @@ describe("a request card on the compact rhythm", () => {
     // The build folds align-self and justify-self into place-self.
     const more = Object.fromEntries(declarations(top, ".rq__wt > .rq__more"));
     expect(more["place-self"] ?? more["align-self"]).toMatch(/^flex-start/);
-    expect(more.margin).toBe("2px 0 0 -6px");
+    // Its words, past its 8 of padding, start where the words above do.
+    expect(more.margin).toBe("2px 0 0 -8px");
     expect(last(top, ".rq__well", "padding")).toBe("var(--row-py) 16px");
     const narrow = atRule(shipped, "@container (max-width: 479px)");
     expect(last(narrow, ".rq__well", "display")).toBe("grid");
@@ -45,6 +46,13 @@ describe("a request card on the compact rhythm", () => {
     expect(last(narrow, ".rq__wt > :not(b)", "grid-column")).toBe("1/-1");
     // A grouped item's decision, or how it ended, starts at the card's edge too, under the mark.
     expect(last(narrow, ".rq__item > :is(.rq__item-acts, .rq__item-outcome)", "margin-inline-start")).toBe("0");
+    // Several requests: the decision for all, and its link, start on the items' column (one column of buttons), back
+    // at the card's edge in a narrow card; an item's buttons end it 12 above the next hairline.
+    expect(last(top, ".rq__items ~ .rq__foot", "padding-inline-start")?.replace(/\s+/g, "")).toMatch(
+      /^calc\(var\(--space-4\)\+(22px\+10px|32px)\)$/,
+    );
+    expect(last(narrow, ".rq__items ~ .rq__foot", "padding-inline-start")).toBe("var(--space-4)");
+    expect(last(top, ".rq__item:has(> .rq__item-acts)", "padding-bottom")).toBe("var(--space-3)");
     // Its Cancelar on the words' middle, not lifted by its icon's baseline.
     expect(last(top, ".rq__item-outcome > .ac-btn", "vertical-align")).toBe("middle");
     // The old column beside the words, and the grouped card's own narrow rule, are gone.

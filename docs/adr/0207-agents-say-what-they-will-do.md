@@ -14,7 +14,9 @@
   `agent-media.ts` (`NOT_A_LIGHT_REPLY`), `autonomy-report.ts` (`ACTED`, `SPOKE`), `context/tools.ts`
   (`STEP_NOISE`); server `apps/server/src/engine.ts`; runner `apps/server/runner/mcp.ts` (`ALWAYS_LOADED`); client
   `packages/client/src/lib/work.ts` (the block and the step line leave the call out), `realtime/receipts.ts` (the
-  receipt doesn't take the line for the reply)
+  receipt doesn't take the line for the reply); the bar's first words (addendum of 2026-11-21): `intent-line.ts`,
+  `executor.ts` (`announceIntent` at the start), `realtime/streams.ts` (`agent.intent`, `LiveRun.intent`), `lib/work.ts`
+  (`barStep`)
 
 ## Context
 
@@ -180,3 +182,59 @@ for the answer: the reply does.
   request, with its own model call, its own rules and a race with the task's reply), and it can move the
   conversation: it may answer, promise or ask what the task then doesn't follow, and a message sent meanwhile would
   have two readers.
+
+## Addendum 2026-11-21: what it is about to do, on the bar, in a second or two
+
+A computer brain's first model turn can take 30 to 50 seconds before its first call, `say_now` included: a simple
+lookup measured 1 min 55 s over three turns (32 s, 50 s, 32 s), and the person read only "escrevendo… · 45 s" until the
+whole reply. `say_now` can't come sooner than that first turn ends.
+
+- **The bar's line.** When a run starts on a person's message (fresh, not background, not long work, not confidential,
+  not waiting in a computer's line), the server asks the workspace's small model (`smallModelFor`, usage kind `router`,
+  the same path as the judge's fallback) for one line: what the agent is about to do, verb first, in the message's
+  language, at most 60 characters, never a result (`intent-line.ts`: `createLlmIntentWriter`, `intentLine`,
+  `announceIntent`). An `agent.intent` event carries it; nothing is stored. A greeting, a thanks or an ok gets an empty
+  line, and so does any failure: no small model, no answer within `INTENT_TIMEOUT_MS`, words for code. One call per
+  message and agent (`caches.intents`), beside the run and never in its way.
+- **Where it shows.** The bar's step after the agent's name (`barStep`, web and phone alike): "Ada procurando o e-mail
+  do dono do workspace…" in place of "pensando…" or "escrevendo…". A call that runs says its own verb; the agent's own
+  words for a step still win; its line on the way (`say_now`) ends it, and a late `agent.intent` after that line says
+  nothing.
+- **Not the line rejected above.** It is no message and nothing in the agent's voice: it is the bar's description of
+  the work, like the automatic status lines (ADR 0084), and it goes once the agent's own words come.
+- **`say_now` first.** `SAY_NOW_LINE` now asks for `say_now` as the very first call before slow work (9 characters
+  more in the prompt).
+
+## Addendum 2026-11-24: a task's and a file's conversation, and one more line for a message taken in
+
+Two gaps left a person with nothing but the bar until the reply. In a task's or a file's conversation the tool refused
+the line, though the person who wrote there reads it as it goes. And a correction sent mid-task got no word from the
+agent: the run's one line was already spent, and the fast reply (`talker.ts`) can only say a message was noted.
+
+- **A task's and a file's conversation.** `sayNowApplies` takes them when a person wrote the message the run answers
+  (and a person is behind the run, outside a mission's thread). They were out only because their work never moves to
+  the background (`movableRun`), which says nothing of who reads them. Work an agent was handed there (its trigger is
+  an agent's message) still has no reader, and long work's updates (ADR 0121) stay as they were.
+- **One more line for a message taken in.** The triage of a message sent while the agent works (ADR 0112) is kept on
+  the run's trail: a `context` step with `steerTriage: { messageId, sure, line }` and the way as `reason`
+  (`noteTriage`, `steering.ts`; `steerJudgment` says whether the judge chose the way itself). `line` is true for a
+  correction or an addition (`interrupt`, `add`) the judge was sure of, in a running run where the line applies.
+  `say_now` then posts once more for the messages no line took yet (`linesOwed`), and the line keeps them
+  (`meta.sayNow.took`), so each message gets at most one line and a run's first line takes what came before it. Any
+  other call is answered `Already told them`, as before, and a message still unread refuses the line (§3). An `add`
+  that only stands for a judge that wasn't sure, a quick question (the fast reply's) and a separate request (a run of
+  its own) give no line. Without a judge there is no triage, so one line per run.
+- **Told with the message.** The tool's description alone didn't make agents use the second line: they went straight to
+  the reply. The message itself now reaches the agent with a word after it (`SAY_HOW_YOU_TAKE_IT`, `renderSteered`
+  with the run's id, live in a computer turn and at a model loop's next step): tell them in one short line how you take
+  this. Only where the triage opened a line, which in a model loop may come after the step that reads the message.
+- **One voice.** For a message the agent answers itself this way, the fast reply isn't asked (`TalkerSkip`
+  `own_line`): the agent knows how it takes the correction, the fast reply could only say it was noted.
+- **The prompt and the tool** say it: `SAY_NOW_LINE` ("once when they correct or add to it mid-work") and the tool's
+  description name the second case, about 115 characters more in every run that lists the tool.
+- **Why nothing was said can be told.** Every decision of the fast reply is a `context` step too (`talkerDecision`,
+  its outcome as `reason`), and the operator's trace gives both reasons. Neither step counts as the task moving
+  (`lastActivityAt`).
+- **The bar keeps the command.** A computer brain's own command is told as it starts (`agent.step`) and its permission
+  check a moment later (`agent.tool`), which cleared the step: the bar read "Thinking…" for as long as the command
+  ran. The check without words of its own now leaves the step it follows (`streams.ts`).

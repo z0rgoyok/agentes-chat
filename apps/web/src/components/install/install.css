@@ -1394,6 +1394,17 @@
   font-size: 14.5px;
   line-height: 22px;
 }
+/* The phone apps close the page: the steps' own rule above them is enough. */
+.dlp__phone {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.dlp__stores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
 .dlp__marks {
   display: flex;
   flex-wrap: wrap;

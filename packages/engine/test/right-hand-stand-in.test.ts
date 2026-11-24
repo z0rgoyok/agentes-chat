@@ -177,9 +177,9 @@ test("a run that ended with no reply gets no stand-in line", async () => {
   expect((await lines(dm.id)).filter((m) => !m.deletedAt)).toHaveLength(1);
 });
 
-test("the workspace's own computer comes first, then a computer online, then the person's own, then room", async () => {
+test("the stand-in follows the one order of use: the person's own first, then by place, oldest first", async () => {
   const { fx, laptop, joao, account } = await world();
-  // The always-on computer: a managed one that connected (`workspaceHomeId`).
+  // The always-on computer: a managed one that connected (`workspaceHomeId`). Being it, or online, is no reason to go first.
   const [home] = await fx.db
     .insert(schema.machines)
     .values({ orgId: fx.org.id, name: "Acme computer", kind: "managed", tokenHash: "fake-token-hash-home" })
@@ -188,15 +188,18 @@ test("the workspace's own computer comes first, then a computer online, then the
   await account(WALTERS, laptop, "Claude Max");
   await account(HOMES, home.id, "Claude Team");
   const order = async (person: string | null) => (await servingPlans(fx.db, fx.org.id, person)).map((p) => p.id);
+  expect(await order(fx.owner.id)).toEqual([WALTERS, HOMES]);
+  expect(await order(null)).toEqual([WALTERS, HOMES]);
+  // A place in the order of use comes before the unplaced.
+  await fx.db.update(schema.machineAccounts).set({ useOrder: 0 }).where(eq(schema.machineAccounts.id, HOMES));
   expect(await order(fx.owner.id)).toEqual([HOMES, WALTERS]);
-  expect(await order(null)).toEqual([HOMES, WALTERS]);
-  // Without a home, the one online comes before Walter's own offline one.
-  await fx.db.update(schema.machines).set({ kind: "connected" }).where(eq(schema.machines.id, home.id));
+  // Online is a filter, never a re-sort.
   await fx.db
     .update(schema.machines)
     .set({ online: true, lastSeenAt: new Date() })
-    .where(eq(schema.machines.id, home.id));
+    .where(eq(schema.machines.id, laptop));
   expect(await order(fx.owner.id)).toEqual([HOMES, WALTERS]);
+  expect((await servingPlans(fx.db, fx.org.id, fx.owner.id, { online: true })).map((p) => p.id)).toEqual([WALTERS]);
   // A key-less workspace AI: João's DM thinks with the first of them without anyone choosing it.
   await fx.db.update(schema.providerCredentials).set({ revokedAt: new Date() });
   expect(await servingPlanFor(fx.db, { orgId: fx.org.id, brain: "model", credentialId: null }, joao.id)).toMatchObject({

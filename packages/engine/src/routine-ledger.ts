@@ -11,6 +11,7 @@ import { notifyRoutineFailed, notifyRoutineFinished, resolveRoutineTrouble } fro
 import { enqueue } from "./outbox";
 import { lodiFor, lodiSwitches, saidKey, saidOnce } from "./right-hand-proactive";
 import { startGatheredRun } from "./routine-events";
+import { releaseHookCalls, WEBHOOK_EVENT } from "./routine-hooks";
 import { pauseRoutine, ROUTINE_FATIGUE_LIMIT, routineJobAlive } from "./routine-state";
 import { type AgentRun, canceledBy, runErrorDetail } from "./runs";
 
@@ -346,7 +347,7 @@ export async function endRoutineRun(
  * streak and resolves its failure and outage notifications; a failure counts in `failures_in_row`
  * (the first after a good run notifies once, with its coded reason for the app to say, unless the right hand tries
  * it once more first: `tellsRoutineFailure`; the fifth in a row pauses the routine: `failing`); the emails of an email run that didn't finish are released to
- * the next run (§6.8); and the event run gathered while it worked starts (§6.3). A widget's routine (ADR 0135 §5)
+ * the next run (§6.8), a webhook run's calls go back to its line (`releaseHookCalls`); and the event run gathered while it worked starts (§6.3). A widget's routine (ADR 0135 §5)
  * tells its widget first (`widgetRoutineEnded`): an end without data counts as a failure, and its widget's own
  * `widget_failed` replaces the routine's notification. Never throws into the ending.
  */
@@ -395,6 +396,9 @@ export async function afterRoutineRunEnded(
       ended.event?.type === "email.received"
     ) {
       await releaseRoutineEmails(deps, ended.routineRunId);
+    }
+    if (["failed", "canceled", "superseded", "missed"].includes(ended.status) && ended.event?.type === WEBHOOK_EVENT) {
+      await releaseHookCalls(deps, ended.routineRunId, ended);
     }
   } finally {
     await startGatheredRun(deps, ended.routineId).catch(() => false);
@@ -487,6 +491,8 @@ export async function reapRoutineRuns(deps: LedgerDeps, now = new Date()): Promi
     .where(
       and(
         inArray(routineRuns.status, ["queued", "starting"]),
+        // Always true of these states: it lets the open runs' partial index serve the sweep.
+        isNull(routineRuns.finishedAt),
         isNull(routineRuns.agentRunId),
         lt(routineRuns.createdAt, before),
         // Waiting to start (gathered while another worked, or held emails): no job yet, on purpose.
@@ -506,7 +512,13 @@ export async function reapRoutineRuns(deps: LedgerDeps, now = new Date()): Promi
   const gathered = await db
     .selectDistinct({ routineId: routineRuns.routineId })
     .from(routineRuns)
-    .where(and(eq(routineRuns.status, "queued"), sql`${routineRuns.event}->>'gathered' = 'true'`))
+    .where(
+      and(
+        eq(routineRuns.status, "queued"),
+        isNull(routineRuns.finishedAt),
+        sql`${routineRuns.event}->>'gathered' = 'true'`,
+      ),
+    )
     .limit(100);
   for (const g of gathered) await startGatheredRun(deps, g.routineId).catch(() => false);
   return closed;

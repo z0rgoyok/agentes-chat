@@ -126,7 +126,7 @@ describe("the sheet that connects a server by address", () => {
     expect(sheet).toContain(
       'if (canHeaders && connectsWithoutKey(headers, savedHeaders) && key.trim() === "") return signIn();',
     );
-    expect(sheet).toContain("needsKeyText(t, res, shownName, sendsHeaders)");
+    expect(sheet).toContain("needsKeyText(t, res, shownName, sendsHeaders, ownWay)");
   });
 
   test("removing the headers of an account that has no key asks for no key: Remover then Conectar says none any more", () => {

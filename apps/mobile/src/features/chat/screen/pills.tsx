@@ -4,7 +4,7 @@ import { capitalize } from "@agenteschat/client/lib/format";
 import { type ComponentProps, memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
-import { Icon } from "@/ui";
+import { Icon, type IconName } from "@/ui";
 import { AgentFace, Face } from "../../shared/Face";
 import { useColors, useDirectory } from "../../shared/hooks";
 import { useDmStatusLine } from "../../status/hooks";
@@ -35,10 +35,18 @@ export const ThreadPill = memo(function ThreadPill({
   title,
   subtitle,
   label,
+  icon = "reply",
   ...hands
-}: PillHands & { title: string; subtitle: string | undefined; label: string; extraActions: number }) {
+}: PillHands & {
+  title: string;
+  subtitle: string | undefined;
+  label: string;
+  extraActions: number;
+  /** Its mark: a thread's reply, a code session's code (ADR 0215), whose pill opens its code. */
+  icon?: IconName;
+}) {
   const c = useColors();
-  const lead = useMemo(() => <Icon name="reply" size={18} color={c.muted} />, [c.muted]);
+  const lead = useMemo(() => <Icon name={icon} size={18} color={c.muted} />, [c.muted, icon]);
   return <HeaderPill lead={lead} title={title} subtitle={subtitle} label={label} {...hands} />;
 });
 

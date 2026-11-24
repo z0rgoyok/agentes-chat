@@ -25,7 +25,7 @@ export interface HoldButtonProps {
   /** "Segure para aprovar". One label: a shorter one while held would shrink the button under the finger. */
   label: string;
   onConfirm: () => void;
-  /** How long to hold (default 1100 ms). */
+  /** How long to hold (default 700 ms). */
   durationMs?: number;
   /** Not yet: dimmed, and holding does nothing (as `Button`'s). */
   disabled?: boolean;
@@ -33,10 +33,16 @@ export interface HoldButtonProps {
   size?: ButtonSize;
 }
 
+/** The hold's own curve: the fill starts slow and speeds up, so the end of the hold is felt coming. */
+const HOLD_EASE = Easing.bezier(0.4, 0, 1, 1);
+/** Light taps while held, closer together as the fill speeds up (shares of the hold: 190 to 620 of its 700 ms). */
+const TICKS = [190, 340, 460, 550, 620].map((ms) => ms / 700);
+
 /**
  * Hold to confirm (high-risk approvals): the button rests a shade lighter and fills from the left in the ink's own
- * tone while held, linearly (it shows time passing), with a light tap at the start and a success one when full.
- * Released early it snaps back fast on an ease-out, nothing asked. No icon: the words are the button.
+ * tone while held, slowly then faster, with light taps that come closer together and a success one when full.
+ * Released early it snaps back fast on an ease-out, the taps stop, nothing asked. With reduced motion the fill is
+ * linear (it shows time passing) with one tap at the start. No icon: the words are the button.
  */
 export function HoldButton({ label, onConfirm, durationMs = 700, disabled = false, size = "md" }: HoldButtonProps) {
   const theme = useTheme();
@@ -46,22 +52,31 @@ export function HoldButton({ label, onConfirm, durationMs = 700, disabled = fals
   const fill = useSharedValue(0);
   const press = useSharedValue(0);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ticks = useRef<ReturnType<typeof setTimeout>[]>([]);
   const confirmRef = useRef(onConfirm);
   confirmRef.current = onConfirm;
 
+  const stopTicks = () => {
+    for (const tick of ticks.current) clearTimeout(tick);
+    ticks.current = [];
+  };
   useEffect(
     () => () => {
       if (timer.current) clearTimeout(timer.current);
+      for (const tick of ticks.current) clearTimeout(tick);
     },
     [],
   );
 
   const start = () => {
     haptics.light();
-    fill.value = withTiming(1, { duration: durationMs, easing: Easing.linear });
+    stopTicks();
+    if (!theme.reducedMotion) ticks.current = TICKS.map((share) => setTimeout(haptics.light, share * durationMs));
+    fill.value = withTiming(1, { duration: durationMs, easing: theme.reducedMotion ? Easing.linear : HOLD_EASE });
     press.value = theme.reducedMotion ? 1 : withTiming(1, PRESS_IN);
     timer.current = setTimeout(() => {
       timer.current = null;
+      ticks.current = [];
       press.value = theme.reducedMotion ? 0 : withTiming(0, PRESS_OUT);
       fill.value = withTiming(0, DRAIN);
       haptics.success();
@@ -72,6 +87,7 @@ export function HoldButton({ label, onConfirm, durationMs = 700, disabled = fals
     if (!timer.current) return;
     clearTimeout(timer.current);
     timer.current = null;
+    stopTicks();
     cancelAnimation(fill);
     fill.value = withTiming(0, LET_GO);
     press.value = theme.reducedMotion ? 0 : withTiming(0, PRESS_OUT);

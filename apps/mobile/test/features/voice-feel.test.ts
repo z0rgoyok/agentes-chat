@@ -13,7 +13,7 @@ describe("the audio session goes back to the app's sounds after a voice", () => 
     const mode = src("lib/audio-mode.ts");
     expect(mode).toMatch(/allowsRecording: false,\s*playsInSilentMode: false,\s*interruptionMode: "mixWithOthers",/);
     expect(mode).toContain(
-      'return setAudioModeAsync({ allowsRecording: recording, playsInSilentMode: true, interruptionMode: "doNotMix" });',
+      'return setAudioModeAsync({ allowsRecording: recording, playsInSilentMode: true, interruptionMode: "doNotMix" })',
     );
     // A stopped voice gives it back a moment later, unless the next one (a row, the take) takes it first.
     expect(mode).toContain("export const VOICE_RELEASE_MS = 600;");
@@ -41,11 +41,36 @@ describe("a take starts with its haptic and keeps the first words", () => {
     const t = take();
     expect(t).toContain("warming.current = voiceAudio(true)");
     expect(t).toContain(".then(() => recorder.prepareToRecordAsync())");
-    expect(t).toContain("await record(warmed ? await warmed : false);");
-    // Known allowed, nothing is awaited before the haptic and the field.
+    // Known allowed, nothing is awaited before the haptic, the start sound and the field.
     expect(t).toMatch(
-      /if \(granted\.current !== true\) \{[\s\S]*?\}\s*\}\s*stopPlayback\(\);\s*haptics\.medium\(\);\s*setPhase\("hold"\);/,
+      /if \(granted\.current !== true\) \{[\s\S]*?\}\s*\}\s*stopPlayback\(\);\s*haptics\.medium\(\);\s*playSound\("record"\);\s*setPhase\("hold"\);/,
     );
+  });
+
+  test("the start sound rings before the recorder starts, so the take doesn't hold it", () => {
+    expect(SOUNDS).toContain("record");
+    const t = take();
+    expect(t).toMatch(
+      /const \[ready\] = await Promise\.all\(\[warmed \?\? false, wait\(START_SOUND_MS\)\]\);\s*await record\(ready\);/,
+    );
+    expect(src("features/voice/logic.ts")).toContain("export const START_SOUND_MS = 90;");
+    // On iOS a system sound: it keeps to the ringer switch while the voice's session plays in silent mode.
+    const sounds = src("lib/sounds.ts");
+    expect(sounds).toContain('const AS_SYSTEM: ReadonlySet<SoundName> = new Set(["record"]);');
+    expect(sounds).toMatch(
+      /if \(systemSounds && AS_SYSTEM\.has\(name\)\) \{\s*playSystemSound\(fileFor\(choice, name, true\)\.uri\);\s*return;/,
+    );
+  });
+
+  test("iOS lets the take's haptics through while it records (muted by default, and the audio library never asks)", () => {
+    expect(src("lib/audio-mode.ts")).toContain("if (recording) allowFeedbackWhileRecording();");
+    expect(take()).toMatch(/allowFeedbackWhileRecording\(\);\s*recorder\.record\(\);/);
+    const swift = readFileSync(
+      join(import.meta.dir, "../../modules/voice-session/ios/VoiceSessionModule.swift"),
+      "utf8",
+    );
+    expect(swift).toContain("setAllowHapticsAndSystemSoundsDuringRecording(true)");
+    expect(swift).toContain("AudioServicesPlaySystemSound(id)");
   });
 
   test("sending puts the field back at once, with a light haptic, and the take goes with the send sound", () => {

@@ -22,6 +22,7 @@ import { getMessage, insertMessage, type Message, messageView } from "./messages
 import { missionOfThread } from "./missions";
 import { enqueue } from "./outbox";
 import { routineBriefOf } from "./routine-brief";
+import { inChannelRun } from "./run-scope";
 import { standingRefusal } from "./standing";
 import { isPersonalWorkspace } from "./workspace-mode";
 
@@ -156,6 +157,7 @@ const NOT_A_LIGHT_REPLY = [
   "issueTaken",
   "missionLink",
   "missionSuggestion",
+  "codeSuggestion",
   "background",
   "routine",
   "viaRoutine",
@@ -500,9 +502,7 @@ async function conversationSkip(db: Executor, reply: Message, at: Date): Promise
         eq(agentRuns.channelId, reply.channelId),
         inArray(agentRuns.status, ["queued", "running"]),
         eq(agentRuns.background, false),
-        reply.threadId
-          ? eq(agentRuns.threadRootId, reply.threadId)
-          : sql`${agentRuns.threadRootId} = ${agentRuns.triggerMessageId}`,
+        reply.threadId ? eq(agentRuns.threadRootId, reply.threadId) : inChannelRun(sql`${agentRuns}`),
       ),
     )
     .limit(1);

@@ -1,6 +1,7 @@
 import * as ScreenOrientation from "expo-screen-orientation";
 import { useEffect, useState } from "react";
 import { useWindowDimensions } from "react-native";
+import { holdOrientation, lockHome } from "@/lib/orientation";
 
 const { OrientationLock } = ScreenOrientation;
 
@@ -12,9 +13,10 @@ const lock = (to: ScreenOrientation.OrientationLock) => {
 };
 
 /**
- * The app stands upright; only the agent's screen, in control, may lie down (ADR 0098), and it stands up again as soon
- * as that ends. Turning the phone does it; `lieDown` does it with the phone's own rotation lock on, and `standUp` undoes
- * that, since then turning the phone back can't.
+ * The app stands upright on a phone's screen; only the agent's screen, in control, may lie down (ADR 0098), and as soon
+ * as that ends the app takes its own way again (`lockHome`: upright, or free on a large screen, ADR 0212). Turning the
+ * phone does it; `lieDown` does it with the phone's own rotation lock on, and `standUp` undoes that, since then turning
+ * the phone back can't. While it shows, the app's own way leaves this screen's alone (`holdOrientation`).
  */
 export function useSideways(allowed: boolean) {
   const { width, height } = useWindowDimensions();
@@ -31,9 +33,11 @@ export function useSideways(allowed: boolean) {
 
   useEffect(() => {
     if (!allowed) return;
+    const release = holdOrientation();
     return () => {
+      release();
       setTurn("free");
-      lock(OrientationLock.PORTRAIT_UP);
+      lockHome();
     };
   }, [allowed]);
 

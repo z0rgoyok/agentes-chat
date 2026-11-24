@@ -230,3 +230,51 @@ test("a chat's agents' questions and thread links are kept with its messages: op
   expect(next.getQueryData(keys.channelThreads("o1", "c1", "archived"))).toBeUndefined();
   expect(next.getQueryData(keys.consultations("o1", "c2"))).toBeUndefined();
 });
+
+test("the conversation list's threads are kept, their first page only: a launch draws them with the channels and DMs", async () => {
+  const qc = new QueryClient();
+  const store = memory();
+  qc.setQueryData(keys.me, me("u1"));
+  const list = keys.threadList("o1", { tab: "all", mine: true, limit: 50 });
+  qc.setQueryData(list, {
+    pages: [
+      { threads: [{ id: "t1" }], nextCursor: "a" },
+      { threads: [{ id: "t2" }], nextCursor: null },
+    ],
+    pageParams: ["", "a"],
+  });
+  await createSnapshot(qc, store).flush();
+
+  const next = new QueryClient();
+  expect(await createSnapshot(next, store).restore()).toBe(true);
+  expect(next.getQueryData(list)).toEqual({ pages: [{ threads: [{ id: "t1" }], nextCursor: "a" }], pageParams: [""] });
+});
+
+test("leaving with nothing new since the last save writes nothing; leaving after a change writes it", async () => {
+  const qc = new QueryClient();
+  const store = memory();
+  let writes = 0;
+  const counting: SnapshotStorage = {
+    ...store,
+    write: async (v) => {
+      writes++;
+      await store.write(v);
+    },
+  };
+  qc.setQueryData(keys.me, me("u1"));
+  const snapshot = createSnapshot(qc, counting, { saveAfterMs: 60_000 });
+  const stop = snapshot.start();
+  await snapshot.flush();
+  expect(writes).toBe(1);
+  // The notification shade, a quick look at another app: nothing changed meanwhile.
+  await snapshot.flush();
+  await snapshot.flush();
+  expect(writes).toBe(1);
+  qc.setQueryData(keys.channels("o1"), [{ id: "c1" }]);
+  await snapshot.flush();
+  expect(writes).toBe(2);
+  stop();
+  // Not following the cache any more: a flush writes, as it can't know.
+  await snapshot.flush();
+  expect(writes).toBe(3);
+});

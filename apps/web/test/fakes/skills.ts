@@ -329,7 +329,10 @@ export function createFakeSkills(
     forAgent,
     setForAgent: async (orgId, agentId, skills) => {
       log("skills.setForAgent", orgId, agentId, skills);
-      assigned.set(agentId, new Set(skills.filter((s) => s.enabled).map((s) => s.skillId)));
+      // As the server: only the skills listed change.
+      const on = new Set(assigned.get(agentId));
+      for (const s of skills) on[s.enabled ? "add" : "delete"](s.skillId);
+      assigned.set(agentId, on);
       return forAgent(orgId, agentId);
     },
   };

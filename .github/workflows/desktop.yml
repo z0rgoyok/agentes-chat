@@ -35,6 +35,10 @@ on:
         type: choice
         options: [all, macos+linux, macos, windows, linux]
         default: all
+      profiling:
+        description: "macOS build to profile a freeze: Rust symbols kept, the web inspector on (release = none only)"
+        type: boolean
+        default: false
 
 concurrency:
   group: desktop-${{ github.ref }}
@@ -59,6 +63,13 @@ jobs:
         with:
           fetch-depth: 0
           ssh-key: ${{ secrets.RELEASE_DEPLOY_KEY }}
+
+      # A profiling build is for a test Mac, never for people: it keeps its symbols and opens the web inspector.
+      - name: A profiling build is never a release
+        if: ${{ inputs.profiling && inputs.release != 'none' }}
+        run: |
+          echo "::error::A profiling build is built only with release = none"
+          exit 1
 
       # Before any build, so a failed bump costs no build minutes.
       - name: Bump the version, commit and tag
@@ -319,10 +330,14 @@ jobs:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CARGO_PROFILE_RELEASE_STRIP: ${{ inputs.profiling && 'false' || 'true' }}
+          CARGO_PROFILE_RELEASE_DEBUG: ${{ inputs.profiling && 'line-tables-only' || 'false' }}
         with:
           projectPath: apps/desktop
           tauriScript: bun run tauri
-          args: --target universal-apple-darwin --config src-tauri/tauri.native.conf.json
+          args: >-
+            --target universal-apple-darwin --config src-tauri/tauri.native.conf.json
+            ${{ inputs.profiling && '--features devtools' || '' }}
 
       # No Apple secrets: no APPLE_* variables at all (an empty one still counts as set for the bundler), and
       # no hardened runtime, which with an ad-hoc signature keeps WebKit's content process from starting.
@@ -332,12 +347,14 @@ jobs:
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          CARGO_PROFILE_RELEASE_STRIP: ${{ inputs.profiling && 'false' || 'true' }}
+          CARGO_PROFILE_RELEASE_DEBUG: ${{ inputs.profiling && 'line-tables-only' || 'false' }}
         with:
           projectPath: apps/desktop
           tauriScript: bun run tauri
           args: >-
             --target universal-apple-darwin --config src-tauri/tauri.native.conf.json
-            --config src-tauri/tauri.adhoc.conf.json
+            --config src-tauri/tauri.adhoc.conf.json ${{ inputs.profiling && '--features devtools' || '' }}
 
       - name: Check the signature and the notarization
         shell: bash

@@ -1,6 +1,7 @@
 import type { Agent, AgentAudience, OrgRole } from "@agenteschat/client";
 import { useAgents, useUpdateRole, useWidenAudience } from "@agenteschat/client";
 import { sameAudience } from "@agenteschat/client/lib/agent-edit";
+import { hasAgentOwner } from "@agenteschat/client/lib/agent-owner";
 import { audienceOf, audiencePatch, canEditAudience } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -15,7 +16,8 @@ import { Note } from "../ai/parts";
 import { useWidenAsk } from "../chat/ReachLines";
 import { SettingsPage } from "../settings/parts";
 import { AgentFace, Face } from "../shared/Face";
-import { useDirectory } from "../shared/hooks";
+import { useDirectory, useMyRoleIds } from "../shared/hooks";
+import { ownerNameIn, ownerRoleOf } from "../shared/owner";
 import { goBack, successHaptic, tapHaptic } from "../shared/parts";
 import { closePersonChoose, openPersonChoose } from "../team/person-choose";
 import {
@@ -117,12 +119,15 @@ function AgentRow({ role, agent, roles, locked }: { role: OrgRole; agent: Agent;
   const dir = useDirectory();
   const widen = useWidenAudience(orgId, agent.id);
   const askWiden = useWidenAsk(agent);
-  const mine = canEditAudience(org ?? undefined, agent, viewer.userId);
+  const myRoleIds = useMyRoleIds();
+  // Who holds the role that answers for it changes it too (ADR 0085, addendum of 2026-11-21).
+  const mine = canEditAudience(org ?? undefined, agent, viewer.userId, myRoleIds);
   const nameOf = (id: string) => dir.memberById.get(id)?.name;
   const tap = () => {
     tapHaptic();
     if (!mine) {
-      const owner = agent.ownerUserId ? nameOf(agent.ownerUserId) : undefined;
+      // The person, or the role that answers for it, by name.
+      const owner = ownerNameIn(agent, dir.memberById, roles);
       return toast({
         title: owner
           ? t("mobile.roles.agents.locked", { ...agentGrammar(agent.name), owner })
@@ -177,11 +182,14 @@ export function AgentWhoScreen({ roleId, agentId }: { roleId: string; agentId: s
   const who: AgentAudience = { ...start, ...edit };
   const roleIds = who.roleIds ?? [];
   const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId)?.name : undefined;
+  // A role that answers for it (ADR 0085, addendum of 2026-11-21): whoever holds it always talks to it, so "only its
+  // owner" names them and the role is no pick of its own.
+  const ownerRole = ownerRoleOf(agent, data.roles);
   const saved = audienceOf(agent);
   const next = agentWhoPatch(who, saved);
   const changed = !sameAudience(next, saved);
   const valid = audienceValid(who, agent);
-  const roles = sortRoles(data.roles.filter((r) => !isEveryone(r)));
+  const roles = sortRoles(data.roles.filter((r) => !isEveryone(r) && r.id !== agent.ownerRoleId));
   const picked = people.filter((p) => who.userIds.includes(p.userId));
   const flipRole = (id: string) => {
     tapHaptic();
@@ -235,9 +243,15 @@ export function AgentWhoScreen({ roleId, agentId }: { roleId: string; agentId: s
           onPress={() => setEdit((e) => ({ ...e, mode: "people" }))}
         />
         <GroupedRow
-          label={owner ? t("mobile.roles.only", { names: owner }) : t("audience.mode.owner")}
+          label={
+            ownerRole
+              ? t("audience.mode.ownerRole", { role: ownerRole.name })
+              : owner
+                ? t("mobile.roles.only", { names: owner })
+                : t("audience.mode.owner")
+          }
           checked={who.mode === "owner"}
-          disabled={!agent.ownerUserId}
+          disabled={!hasAgentOwner(agent)}
           onPress={() => setEdit((e) => ({ ...e, mode: "owner" }))}
         />
       </GroupedList>
@@ -283,7 +297,11 @@ export function AgentWhoScreen({ roleId, agentId }: { roleId: string; agentId: s
             ))}
             <GroupedRow icon="plus" label={t("mobile.roles.agents.addPerson")} chevron onPress={addPerson} />
           </GroupedList>
-          {owner ? <GroupedFooter>{t("audience.ownerAlways", { name: owner })}</GroupedFooter> : null}
+          {ownerRole ? (
+            <GroupedFooter>{t("audience.ownerRoleAlways", { role: ownerRole.name })}</GroupedFooter>
+          ) : owner ? (
+            <GroupedFooter>{t("audience.ownerAlways", { name: owner })}</GroupedFooter>
+          ) : null}
         </>
       ) : null}
       <GroupedFooter>

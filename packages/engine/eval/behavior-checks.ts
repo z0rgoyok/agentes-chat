@@ -290,6 +290,8 @@ export interface Expectations {
   ack?: "first" | "never";
   /** Words the line never holds, a result (numbers from the fixtures): the final reply holds every one. */
   ackNever?: string[];
+  /** Right on its first turn: no turn-end check sent the run back (judged as in production). */
+  firstTurn?: boolean;
 }
 
 /** A line said before slow work (`say_now`, ADR 0207) as people read it, with the run that said it. */
@@ -338,6 +340,8 @@ export interface RunObservation {
   saidNow?: SaidLine[];
   /** Each run of the agent under test. None: `reply` is every run's. */
   byRun?: RunEnd[];
+  /** The rules of the turn-end checks that sent a run back (`continuation` steps that went on). */
+  nudged?: string[];
 }
 
 /** A `propose_mission` input that arrives investigated: at least one read/data finding, at most one decision. */
@@ -509,6 +513,14 @@ export function noAckThenSilence(run: RunObservation): CheckResult {
 export function deterministicChecks(expect: Expectations, run: RunObservation): CheckResult[] {
   const out: CheckResult[] = [];
   const text = run.reply;
+  if (expect.firstTurn) {
+    const nudged = run.nudged ?? [];
+    out.push({
+      id: "first_turn",
+      pass: nudged.length === 0,
+      detail: nudged.length ? `sent back at its turn's end: ${nudged.join(", ")}` : "right on its first turn",
+    });
+  }
   if (expect.investigate) {
     const r = investigatedBeforeReply(run.turns);
     out.push({

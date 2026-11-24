@@ -1,19 +1,19 @@
 import type { ArtifactDetail } from "@agenteschat/client";
-import { formatBytes, pictureRatio } from "@agenteschat/client/lib/files";
+import { formatBytes, mediaKindOfArtifact, pictureRatio } from "@agenteschat/client/lib/files";
 import { keepWhole } from "@agenteschat/client/lib/format";
 import { Image } from "expo-image";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Text as RNText, StyleSheet, View } from "react-native";
-import { Icon, PressScale, Text } from "@/ui";
+import { Icon, MESSAGE_CARD_X, PressScale, Text } from "@/ui";
 import { ChoicesCard } from "../blocks/ChoicesCard";
 import { LiveBlockCard } from "../blocks/LiveBlock";
 import { PollCard } from "../blocks/PollCard";
-import { useKeptWidth, useMessageCardCorners } from "../chat/look";
+import { FileCommentsLink } from "../chat/cards";
+import { useKeptWidth, useMessageCardCorners, useMessageCardFrame } from "../chat/look";
 import { LiveFileCard } from "../live-files/LiveFileCard";
 import { opensLive } from "../live-files/routes";
 import { useColors, useOrgId } from "../shared/hooks";
-import { useSurface } from "../shared/parts";
 import { AttachmentTile } from "./AttachmentTile";
 import { ImageStack, type StackImage } from "./ImageStack";
 import { isLocalMedia, type LocalFile, localRatio } from "./local-files";
@@ -24,13 +24,15 @@ import {
   type FileRef,
   fileInfo,
   IMAGE_EXT,
+  isLocalPdf,
   singleImageBox,
   VIDEO_EXT,
   videoClock,
   videoHeight,
 } from "./logic";
 import { openFile } from "./open";
-import { pictureDrawn, pictureFade, rememberLocalCopy, useArtifacts, useRemoteFile } from "./source";
+import { LocalPdfPage } from "./pdf-preview";
+import { pictureDrawn, pictureFade, rememberLocalCopy, useArtifacts, usePicture, useRemoteFile } from "./source";
 import { VideoFirstFrame, VideoPlayer } from "./VideoPlayer";
 
 /**
@@ -120,6 +122,12 @@ export function MessageFiles({ files, align = "start" }: { files: MessageFile[];
   const media: FileRef[] = (tiles.length > 0 ? [...videos, ...images] : [...pictures, ...videos]).map(
     ({ file, detail }) => ({ id: file.id, version: file.version, title: file.title, detail }),
   );
+  // The pictures, videos and PDFs here that have comments (ADR 0208), in the message's order: each gets its line.
+  const commented = [...images, ...videos, ...others].flatMap(({ file, detail }) => {
+    const kind = mediaKindOfArtifact(detail);
+    const talk = detail?.conversation;
+    return detail && kind && talk && talk.count > 0 ? [{ file, detail, kind, talk }] : [];
+  });
   // Opening a file or a picture is plain navigation: the press shows it, with no haptic.
   const openOnly = () => {
     if (only)
@@ -170,6 +178,20 @@ export function MessageFiles({ files, align = "start" }: { files: MessageFile[];
           ))}
         </View>
       ) : null}
+      {commented.map(({ file, detail, kind, talk }) => (
+        <FileCommentsLink
+          key={`talk:${file.id}`}
+          talk={talk}
+          media={kind}
+          onPress={() =>
+            openFile(
+              { id: file.id, version: file.version, title: file.title, detail },
+              // A PDF opens on its own screen; a picture or a video among the message's.
+              kind === "pdf" ? undefined : media,
+            )
+          }
+        />
+      ))}
       {removed.map((file) => (
         <RemovedCard key={file.id} />
       ))}
@@ -194,10 +216,8 @@ function InlineImage({
   const c = useColors();
   // The message's own version, from the first frame: switched to the details' once they came, the link and the cache
   // key changed, and the picture went blank and faded in again.
-  const version = file.version;
-  const key = `${file.id}@${version ?? "latest"}`;
-  const link = useRemoteFile(orgId, file.id, version);
-  const [failed, setFailed] = useState(false);
+  const picture = usePicture(orgId, file.id, file.version);
+  const { key, source, failed } = picture;
   return (
     <PressScale
       haptic={false}
@@ -207,20 +227,20 @@ function InlineImage({
       accessibilityHint={t("mobile.files.openImage")}
       style={[styles.shot, { width, height, backgroundColor: c.sunken, borderColor: c.line2 }, cardCorners]}
     >
-      {link.data && !failed ? (
+      {source && !failed ? (
         <Image
-          source={{ uri: link.data.uri, headers: link.data.headers, cacheKey: key }}
+          source={source}
           recyclingKey={key}
           cachePolicy="memory-disk"
           contentFit="contain"
           transition={pictureFade(key)}
           onLoad={() => pictureDrawn(key)}
           style={StyleSheet.absoluteFill}
-          onError={() => setFailed(true)}
+          onError={picture.onError}
           accessible={false}
         />
       ) : null}
-      {failed || link.isError ? (
+      {failed ? (
         <View style={styles.center}>
           <Icon name="image" size={22} color={c.faint} />
         </View>
@@ -418,15 +438,22 @@ function LocalMedia({
 }
 
 function LocalFileCard({ file, sending }: { file: LocalFile; sending: boolean }) {
-  const cardCorners = useMessageCardCorners();
   const { i18n } = useTranslation();
   const c = useColors();
-  const surface = useSurface();
+  const frame = useMessageCardFrame();
   return (
-    <View style={[styles.card, surface, cardCorners]} accessible accessibilityLabel={file.name}>
-      <FileTile ext={extLabel(extensionOf(file.name))} />
+    <View style={[styles.card, frame.style]} accessible accessibilityLabel={file.name}>
+      {isLocalPdf(file) ? (
+        // A PDF on its way shows its first page already, read from the phone's own file, as it did in the composer.
+        <View style={styles.page}>
+          <FileTile ext={extLabel(extensionOf(file.name))} />
+          <LocalPdfPage uri={file.uri} />
+        </View>
+      ) : (
+        <FileTile ext={extLabel(extensionOf(file.name))} />
+      )}
       <View style={styles.grow}>
-        <Text variant="body" style={styles.bold} numberOfLines={2}>
+        <Text variant="cardTitle" numberOfLines={2}>
           {file.name}
         </Text>
         {file.size !== undefined ? (
@@ -476,16 +503,15 @@ export function FileTile({ ext }: { ext: string }) {
 }
 
 function RemovedCard() {
-  const cardCorners = useMessageCardCorners();
   const { t } = useTranslation();
   const c = useColors();
-  const surface = useSurface();
+  const frame = useMessageCardFrame();
   return (
-    <View style={[styles.card, surface, cardCorners]}>
+    <View style={[styles.card, frame.style]}>
       <View style={[styles.tile, { backgroundColor: c.sunken }]}>
         <Icon name="file" size={20} color={c.faint} />
       </View>
-      <Text variant="body" tone="faint" style={styles.grow}>
+      <Text variant="small" tone="faint" style={styles.grow}>
         {t("mobile.chat.fileDeleted")}
       </Text>
     </View>
@@ -527,12 +553,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
-    paddingHorizontal: 12,
+    paddingHorizontal: MESSAGE_CARD_X,
     paddingVertical: 10,
     // As the pictures' beside it.
     borderRadius: 14,
   },
   tile: { width: 40, height: 48, borderRadius: 8, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  // A PDF's first page in the tile's own box.
+  page: { width: 40, height: 48, borderRadius: 8, overflow: "hidden" },
   fold: {
     position: "absolute",
     top: -1,
@@ -545,5 +573,4 @@ const styles = StyleSheet.create({
   },
   ext: { fontSize: 10, fontWeight: "700", letterSpacing: 0.4 },
   grow: { flex: 1, minWidth: 0 },
-  bold: { fontWeight: "600" },
 });

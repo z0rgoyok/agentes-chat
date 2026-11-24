@@ -1,7 +1,16 @@
 import { afterEach, expect, test } from "bun:test";
 import { createMemoryRateLimiter, orgTopic } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
-import { type Browser, browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
+import {
+  type Browser,
+  browser,
+  createTestServer,
+  joinByInvitation,
+  seedOrg,
+  signUp,
+  type TestServer,
+  unconfirm,
+} from "./harness";
 
 let t: TestServer;
 afterEach(() => t.close());
@@ -332,6 +341,7 @@ test("signed in: a confirmed address joins at approval; an unconfirmed one gets 
   // Not confirmed: the account's own address proves itself with a code, which never confirms the account.
   const cris = browser(t);
   await signUp(cris, "cris@example.com");
+  await unconfirm(t, "cris@example.com");
   expect(await errorCode(await ask(cris, token, {}))).toBe("join.code_needed");
   const code = await codeFor(cris, token);
   expect(mailTo("cris@example.com").filter((m) => m.subject.startsWith(code))).toHaveLength(1);
@@ -419,6 +429,7 @@ test("an account that never confirmed its address reads no one else's answer, no
   expect(denied.status).toBe(204);
   const notOtto = browser(t);
   await signUp(notOtto, "otto@corp.com");
+  await unconfirm(t, "otto@corp.com");
   const preview = (await (await notOtto(`/api/app/invitations/${token}`)).json()) as { you?: unknown };
   expect(preview.you).toEqual({ member: false, email: "otto@corp.com", request: null });
   // Asking needs the code from Otto's mailbox.
@@ -574,6 +585,7 @@ test("sign-up from the invitation's email: no 'confirm your email'; from a copie
   expect((await signUpWith("dani@example.com", { token: dani })).status).toBe(200);
   expect((await signUpWith("bia@example.com", { token: ana, mail })).status).toBe(200);
   expect((await signUpWith("caio@example.com")).status).toBe(200);
+  for (const email of ["ana@example.com", "dani@example.com"]) await unconfirm(t, email);
   await t.drain();
   const confirmations = t.email.sent.filter((m) => m.subject === "Confirme seu e-mail no agentes.chat");
   expect(confirmations.map((m) => m.to[0]).sort()).toEqual(["bia@example.com", "caio@example.com", "dani@example.com"]);

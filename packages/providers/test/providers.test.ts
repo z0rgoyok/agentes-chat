@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import {
+  agentOutputTokens,
   cheapModelOf,
   contextWindowOf,
   costNanoUsd,
+  effortWithin,
   isKnownModel,
   listedModels,
   MODEL_CATALOG,
@@ -17,6 +19,7 @@ import {
   pricesAt,
   providerCause,
   routerModelOf,
+  setListedModels,
   setOpenRouterModels,
   summedCostNanoUsd,
   usdToNanoUsd,
@@ -243,9 +246,11 @@ describe("pricing", () => {
     expect(perMTok("gemini-4-argon", "2026-12-01T00:00:00Z")).toEqual([4, 20, 0.2, 4]);
     expect(perMTok("gemini-3.8-flash", "2026-12-31T23:59:59Z")).toEqual([0.75, 3.75, 0.075, 0.75]);
     expect(perMTok("gemini-3.8-flash", "2027-01-01T00:00:00Z")).toEqual([1.5, 7.5, 0.15, 1.5]);
-    // Carbon: Argon's prices and day; Hydrogen: one price, no introduction.
+    // Carbon: Argon's prices and day; Neon and Hydrogen: one price, no introduction.
     expect(perMTok("gemini-4-carbon", "2026-11-30T23:59:59Z")).toEqual([2, 10, 0.1, 2]);
     expect(perMTok("gemini-4-carbon", "2026-12-01T00:00:00Z")).toEqual([4, 20, 0.2, 4]);
+    expect(perMTok("gemini-4-neon", "2026-11-20T12:00:00Z")).toEqual([3, 15, 0.15, 3]);
+    expect(perMTok("gemini-4-neon", "2027-06-01T00:00:00Z")).toEqual([3, 15, 0.15, 3]);
     expect(perMTok("gemini-4-hydrogen", "2026-11-17T12:00:00Z")).toEqual([1.5, 7.5, 0.075, 1.5]);
     expect(perMTok("gemini-4-hydrogen", "2027-06-01T00:00:00Z")).toEqual([1.5, 7.5, 0.075, 1.5]);
     expect(perMTok("gemini-3.5-flash-lite", "2026-10-27T12:00:00Z")).toEqual([0.3, 2.5, 0.03, 0.3]);
@@ -272,6 +277,33 @@ describe("pricing", () => {
     expect(isKnownModel("claude-sonnet-5-5")).toBe(true);
     expect(isKnownModel("claude-haiku-5-5")).toBe(true);
   });
+});
+
+test("effortWithin and agentOutputTokens: a model gets the effort and the output room it takes", () => {
+  expect(effortWithin("max", MODEL_CATALOG["claude-opus-5-5"])).toBe("max");
+  expect(effortWithin("xhigh", MODEL_CATALOG["claude-sonnet-5-5"])).toBe("xhigh");
+  expect(effortWithin("max", MODEL_CATALOG["gpt-6.2-sol"])).toBe("high");
+  expect(effortWithin("xhigh")).toBe("high");
+  expect(effortWithin("medium")).toBe("medium");
+  expect(agentOutputTokens("claude-opus-5-5")).toBe(64_000);
+  expect(agentOutputTokens("claude-opus-5-5", "high")).toBe(64_000);
+  expect(agentOutputTokens("claude-opus-5-5", "max")).toBe(128_000);
+  // No known limit: the old 16K, since more than a model takes is refused.
+  expect(agentOutputTokens("deepseek-v4-pro", "max")).toBe(16_000);
+  expect(agentOutputTokens("not-a-model")).toBe(16_000);
+  // A listed row whose output limit is its whole window: a quarter of it, so the input keeps room.
+  setListedModels({
+    "test/small-window": {
+      provider: "openrouter",
+      label: "Small window",
+      prices: { input: 100, output: 500, cacheRead: 10, cacheWrite: 125 },
+      contextWindow: 65_536,
+      maxOutputTokens: 65_536,
+      serverSideFallback: false,
+    },
+  });
+  expect(agentOutputTokens("test/small-window", "max")).toBe(16_384);
+  setListedModels({});
 });
 
 describe("models listed at run time (OpenRouter's)", () => {

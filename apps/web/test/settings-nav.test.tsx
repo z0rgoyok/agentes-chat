@@ -130,6 +130,11 @@ describe("finding the settings", () => {
     const org = document.querySelector(".settings__org") as HTMLElement;
     expect(org.classList.contains("ac-iconline")).toBe(true);
     expect(org.textContent).toBe(name);
+    // The pages' own header, as the inbox's: the title, and the workspace on the line under it.
+    const head = org.closest(".ac-pagehead") as HTMLElement;
+    expect(head.closest("nav")?.getAttribute("aria-label")).toBe("Seções das configurações");
+    expect(head.querySelector("h1.ac-pagehead__title")?.textContent).toBe("Configurações");
+    expect(org.parentElement?.className).toBe("ac-pagehead__meta");
   });
 
   test("Sobre o agentes.chat: for a member too, with the license's attribution, the version and the source", async () => {

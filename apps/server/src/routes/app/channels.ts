@@ -254,7 +254,7 @@ export function channelRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/channels/{channelId}",
       tags,
       security,
-      summary: "Rename, change topic or who may join (creator or admin)",
+      summary: "Rename, change topic, who may join or whether agents reply in threads (creator or admin)",
       request: {
         params: ChannelParams,
         body: body(
@@ -265,6 +265,10 @@ export function channelRoutes(deps: AppDeps) {
             audienceRoleIds: z.array(z.uuid()).max(100).optional().openapi({
               description:
                 "Private only: people holding one of these roles (departments) also see it and may join (ADR 0125); empty: invite only.",
+            }),
+            replyInThreads: z.boolean().optional().openapi({
+              description:
+                "Agents asked in its main timeline answer in the thread under that message (ADR 0214). Runs already working stay where they are. 400 `channel.reply_in_threads` outside a regular channel.",
             }),
           }),
         ),
@@ -286,6 +290,7 @@ export function channelRoutes(deps: AppDeps) {
           createdAt: r.createdAt.toISOString(),
           categoryId: r.categoryId,
           position: r.position,
+          replyInThreads: r.replyInThreads,
         },
         200,
       );

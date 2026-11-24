@@ -7,7 +7,7 @@ export class FakeSocket implements SocketLike {
   closed = false;
   onopen: ((ev: unknown) => void) | null = null;
   onmessage: ((ev: { data: unknown }) => void) | null = null;
-  onclose: ((ev: { code: number }) => void) | null = null;
+  onclose: ((ev: { code: number; reason?: string }) => void) | null = null;
   onerror: ((ev: unknown) => void) | null = null;
   constructor(readonly url: string) {}
   send(data: string) {
@@ -25,9 +25,9 @@ export class FakeSocket implements SocketLike {
   push(frame: unknown) {
     this.onmessage?.({ data: JSON.stringify(frame) });
   }
-  drop(code = 1006) {
+  drop(code = 1006, reason?: string) {
     this.readyState = 3;
-    this.onclose?.({ code });
+    this.onclose?.({ code, ...(reason !== undefined ? { reason } : {}) });
   }
 }
 

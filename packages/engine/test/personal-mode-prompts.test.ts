@@ -87,6 +87,7 @@ describe("the rules every agent reads", () => {
       role: i ? "Finance" : "",
       instructions: "",
       ownerUserId: null,
+      ownerRoleId: null,
       audienceMode: "everyone" as const,
       audienceUserIds: [],
       audienceRoleIds: [],

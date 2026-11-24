@@ -179,6 +179,42 @@ describe("Settings › Devices", () => {
     ]);
   });
 
+  test("a busy computer's page says its tasks at once and where that changes, for its owner or anyone else", async () => {
+    await open(`/org/${ORG_ID}/settings/devices/${BUILD_PC}`);
+    expect(screen().getByText("Tasks at once here: 1. The person who connected it can change that.")).toBeTruthy();
+    cleanup();
+    await open(`/org/${ORG_ID}/settings/devices/${MAC}`, (devices) => {
+      const list = acmeDevices();
+      devices.set({
+        ...list,
+        devices: list.devices.map((d) =>
+          d.id === MAC ? { ...d, status: { kind: "busy", running: 1, max: 1 }, maxTasks: 1 } : d,
+        ),
+      });
+    });
+    expect(screen().getByText("Tasks at once here: 1. Change it below.")).toBeTruthy();
+    expect(screen().getByRole("combobox", { name: "Tasks at once" })).toBeTruthy();
+  });
+
+  test("a computer's phones: each state a pill alone, its detail in its tip; one that needs me opens its fix", async () => {
+    await open(`/org/${ORG_ID}/settings/devices/${MAC}`);
+    const list = screen().getByRole("list", { name: "Phones on this computer" });
+    expect(list.querySelector(".dv-row__detail")).toBeNull();
+    const [pixel, iphone] = [...list.querySelectorAll(".dv-row")] as HTMLElement[];
+    const used = pixel?.querySelector(".dv-status-tip") as HTMLElement;
+    expect(used.tagName).toBe("SPAN");
+    expect(used.textContent).toMatch(/^In use by Lia\s*for Rui since /);
+    await act(async () => {
+      fireEvent.keyDown(document.body, { key: "Tab" });
+      used.focus();
+    });
+    expect(document.querySelector(".ac-tip")?.textContent).toMatch(/^for Rui since /);
+    const fix = iphone?.querySelector("button.dv-status-tip") as HTMLButtonElement;
+    expect(fix.textContent).toBe("Needs youTurn on Developer Mode");
+    await click(fix);
+    expect(screen().getByRole("dialog", { name: "Connect an iPhone" })).toBeTruthy();
+  });
+
   test("Let it join, from the list: name and who can use it, then the server lets it in", async () => {
     const { state } = await open(`/org/${ORG_ID}/settings/devices`);
     const ask = screen().getByRole("list", { name: "Asking to join" });
@@ -1186,7 +1222,10 @@ describe("In the chat and the inbox", () => {
     const row = document.querySelector('[data-n="n-dev"]') as HTMLElement;
     expect(row.textContent).toContain("Lia (for Rui) asks to use Sam's iPhone 16");
     expect(row.textContent).toContain("Devices");
-    await click(within(row).getByRole("button", { name: "Allow once" }));
+    // The answer is in the open item, beside the list (ADR 0218).
+    await click(row);
+    const read = document.querySelector(".ib-read") as HTMLElement;
+    await click(within(read).getByRole("button", { name: "Allow once" }));
     expect(calls(state, "devices.decideAccess")[0]?.args).toEqual([ORG_ID, "ar-1", "once"]);
   });
 });

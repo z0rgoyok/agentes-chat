@@ -5,8 +5,10 @@ import { previewKind } from "@agenteschat/client/lib/files";
 import { cx } from "@agenteschat/ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { useApi } from "@/api/context";
 import { MAX_THUMB_BYTES, usePreviewUrl } from "@/components/artifacts/FileView";
 import { MermaidDiagram } from "@/components/artifacts/Mermaid";
+import { PdfCover } from "@/components/artifacts/PdfCover";
 import { LiveCover } from "@/components/live/LiveCover";
 import { useOrg } from "@/components/org-context";
 
@@ -177,6 +179,8 @@ function PreviewBody({
 
 function FilePreview({ content, artifact }: { content: ArtifactFileContent; artifact: Artifact }) {
   const { t } = useTranslation();
+  const { org } = useOrg();
+  const api = useApi();
   const kind = previewKind(content.contentType);
   const image = kind === "image" && content.size <= MAX_THUMB_BYTES;
   const { url, failed } = usePreviewUrl(artifact.id, artifact.version, content.contentType, image);
@@ -188,24 +192,35 @@ function FilePreview({ content, artifact }: { content: ArtifactFileContent; arti
         ?.split("\n")
         .filter((l) => l.trim())
         .slice(0, DOC_LINES) ?? [];
+    const paper = (
+      <div className="drive-pv__sheet drive-pv__paper">
+        {lines.length > 0
+          ? lines.map((l, i) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: static preview
+              <span key={i} className="drive-pv__p">
+                {l}
+              </span>
+            ))
+          : [64, 38, 96, 90, 94, 70, 92, 60].map((w, i) => (
+              <i
+                key={w}
+                className={i === 0 ? "drive-pv__ln drive-pv__ln--h" : "drive-pv__ln"}
+                style={{ width: `${w}%` }}
+              />
+            ))}
+      </div>
+    );
     return (
       <>
-        <div className="drive-pv__sheet drive-pv__paper">
-          {lines.length > 0
-            ? lines.map((l, i) => (
-                // biome-ignore lint/suspicious/noArrayIndexKey: static preview
-                <span key={i} className="drive-pv__p">
-                  {l}
-                </span>
-              ))
-            : [64, 38, 96, 90, 94, 70, 92, 60].map((w, i) => (
-                <i
-                  key={w}
-                  className={i === 0 ? "drive-pv__ln drive-pv__ln--h" : "drive-pv__ln"}
-                  style={{ width: `${w}%` }}
-                />
-              ))}
-        </div>
+        {kind === "pdf" ? (
+          <PdfCover
+            src={api.artifacts.fileUrl(org.id, artifact.id, { version: artifact.version })}
+            label={t("files.pdfFrame", { title: artifact.title })}
+            fallback={paper}
+          />
+        ) : (
+          paper
+        )}
         <span className="drive-pv__tag">{ext}</span>
       </>
     );

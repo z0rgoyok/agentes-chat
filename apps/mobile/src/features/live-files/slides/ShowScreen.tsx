@@ -7,7 +7,17 @@ import { Pressable, ScrollView, StyleSheet, useWindowDimensions, View } from "re
 import PagerView from "react-native-pager-view";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Button, Icon, type IconName, motion, PressScale, Text, useReducedMotion } from "@/ui";
+import {
+  Button,
+  Icon,
+  type IconName,
+  motion,
+  PressScale,
+  sidesPastFold,
+  Text,
+  useFoldRoom,
+  useReducedMotion,
+} from "@/ui";
 import { goBack } from "@/ui/navigation";
 import { useSideways } from "../../computer/useSideways";
 import { liveClosed } from "../logic";
@@ -75,6 +85,9 @@ function Show({
   const { t } = useTranslation();
   const reduced = useReducedMotion();
   const insets = useSafeAreaInsets();
+  // Folded like a book (ADR 0212), ‹, the notes and › keep together to the half past the fold, out of its curve; the
+  // top bar's buttons are at the screen's edges already.
+  const bottomSides = sidesPastFold(insets, useFoldRoom());
   const { width, height } = useWindowDimensions();
   const deck = useDeck(room);
   const picture = useFilePictures(room.orgId, fileId);
@@ -259,7 +272,11 @@ function Show({
         <View
           style={[
             styles.bottom,
-            { paddingBottom: insets.bottom + 8, paddingLeft: insets.left + 12, paddingRight: insets.right + 12 },
+            {
+              paddingBottom: insets.bottom + 8,
+              paddingLeft: bottomSides.left + 12,
+              paddingRight: bottomSides.right + 12,
+            },
           ]}
         >
           <Round

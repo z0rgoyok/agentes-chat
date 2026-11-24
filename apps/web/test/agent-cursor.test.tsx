@@ -48,7 +48,7 @@ test("after the idle time it stays where it was in the quiet look, never gone", 
 });
 
 test("the resting look is dimmed, not hidden", async () => {
-  const css = await Bun.file(path.join(import.meta.dir, "../src/components/browser/browser.css")).text();
+  const css = await Bun.file(path.join(import.meta.dir, "../src/components/browser/agent-cursor.css")).text();
   const opacity = declarations(css, ".brw-cur.is-idle").find(([p]) => p === "opacity")?.[1];
   expect(Number(opacity)).toBe(CURSOR_REST_OPACITY);
 });
@@ -69,7 +69,7 @@ test("an old pointer shown again (a card remounted, control handed back) is plac
 });
 
 test("placed at rest it is there at once, with no fade; the next gesture fades back in as before", async () => {
-  const css = await Bun.file(path.join(import.meta.dir, "../src/components/browser/browser.css")).text();
+  const css = await Bun.file(path.join(import.meta.dir, "../src/components/browser/agent-cursor.css")).text();
   expect(declarations(css, ".brw-cur.is-placed")).toContainEqual(["transition", "none"]);
   jest.useFakeTimers();
   const view = render(draw(at(800, 100, Date.now() - CURSOR_IDLE_MS - 1)));

@@ -9,7 +9,7 @@ import { serverUrl } from "@/lib/server";
 import { Icon, PressScale, Sky, Text, textLineOf, useToast } from "@/ui";
 import { useFontScale } from "@/ui/text-scale";
 import { leadBox } from "@/ui/type-scale";
-import { useMessageCardCorners } from "../chat/look";
+import { useMessageCardFrame } from "../chat/look";
 import { useRowDirectory, useRowMeId } from "../chat/row-data";
 import { Face } from "../shared/Face";
 import { useColors, useOrgId } from "../shared/hooks";
@@ -34,7 +34,7 @@ function closeFormat(locale: string): Intl.DateTimeFormat {
  * Everyone sees the marks arrive (`poll.updated`).
  */
 export function PollCard({ id, version }: { id: string; version?: number }) {
-  const cardCorners = useMessageCardCorners();
+  const card = useMessageCardFrame();
   const { t, i18n } = useTranslation();
   const c = useColors();
   const orgId = useOrgId();
@@ -51,7 +51,7 @@ export function PollCard({ id, version }: { id: string; version?: number }) {
   const poll = query.data;
   if (a?.content.kind !== "poll" || !poll) {
     return (
-      <View style={[styles.card, styles.loading, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
+      <View style={[styles.card, styles.loading, card.style]}>
         <ActivityIndicator color={c.faint} />
         <Text variant="footnote" tone="muted">
           {t("mobile.blocks.building")}
@@ -73,14 +73,17 @@ export function PollCard({ id, version }: { id: string; version?: number }) {
   const line = textLineOf("body", fontScale);
   const closes = closeFormat(i18n.language).format(new Date(poll.closesAt));
   return (
-    <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners]}>
-      <Sky
-        color={agentLook(dir.agentById.get(a.createdBy.id)).color}
-        surface="raised"
-        depth={0.95}
-        fade={0}
-        style={styles.sky}
-      />
+    <View style={[styles.card, card.style]}>
+      {/* A bubble of the message has no sky across its top (as a request's card there). */}
+      {card.bubble ? null : (
+        <Sky
+          color={agentLook(dir.agentById.get(a.createdBy.id)).color}
+          surface="raised"
+          depth={0.95}
+          fade={0}
+          style={styles.sky}
+        />
+      )}
       <View style={styles.head}>
         <Text variant="subhead" style={styles.bold}>
           {question}
@@ -126,7 +129,7 @@ export function PollCard({ id, version }: { id: string; version?: number }) {
                     {mine ? <Icon name="check" size={13} color={c.raised} /> : null}
                   </View>
                 </View>
-                <Text variant="body" style={[styles.label, styles.bold]}>
+                <Text variant="subhead" style={[styles.label, styles.medium]}>
                   {o.label}
                 </Text>
                 {won ? (
@@ -147,7 +150,7 @@ export function PollCard({ id, version }: { id: string; version?: number }) {
                 {o.voters.slice(0, FACES).map((v, i, shown) => (
                   <View
                     key={v}
-                    style={[styles.ring, { backgroundColor: c.raised }, i > 0 && faceOverlap(hasPhoto(shown[i - 1]))]}
+                    style={[styles.ring, { backgroundColor: card.fill }, i > 0 && faceOverlap(hasPhoto(shown[i - 1]))]}
                   >
                     <Face who={{ type: "person", id: v }} size={20} />
                   </View>
@@ -191,6 +194,8 @@ const styles = StyleSheet.create({
   sky: { position: "absolute", top: 0, left: 0, right: 0, height: 8, opacity: 0.7 },
   head: { gap: 1, paddingHorizontal: 14, paddingTop: 12 },
   bold: { fontWeight: "600" },
+  // An option's word, as every card's options: the card's text (15), medium.
+  medium: { fontWeight: "500" },
   options: { gap: 6, padding: 14, paddingTop: 10 },
   // The option's plate (its border, corners and the share's fill cut to them) around the press area.
   option: { overflow: "hidden", borderWidth: 1, borderRadius: 12, borderBottomLeftRadius: 4 },

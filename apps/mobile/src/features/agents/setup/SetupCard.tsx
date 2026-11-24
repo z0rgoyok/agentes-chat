@@ -42,7 +42,8 @@ import { usePlanHold } from "../../ai/parts";
 import { requestComposerText } from "../../chat/composer-request";
 import { resourceName, useConnectedById, usePersonalView } from "../../settings/hooks";
 import { AgentFace } from "../../shared/Face";
-import { useColors, useDirectory, useMeId } from "../../shared/hooks";
+import { useColors, useDirectory, useMeId, useOwnerRoles, useOwnsAgent } from "../../shared/hooks";
+import { ownerRoleOf } from "../../shared/owner";
 import { successHaptic, tapHaptic } from "../../shared/parts";
 import { openSetupStep } from "./SetupStepScreen";
 import { setupStepsInSight } from "./steps";
@@ -72,10 +73,14 @@ const ARRIVED = new Set<string>();
 /** The steps this person sees for this agent (none: the checklist isn't theirs, or the agent has none). */
 export function useSetupSteps(agent: Agent | undefined): AgentSetupStep[] {
   const meId = useMeId();
+  const owns = useOwnsAgent();
   const { solo } = usePersonalView();
   if (!agent || !meId) return [];
-  // Who manages it (the server's `canManage`) sees every step; its owner, theirs, how it works as who edits it.
-  const steps = setupSteps(agent, { meId, admin: managesAgent(agent), edits: editsAgent(agent) });
+  // Who manages it (the server's `canManage`) sees every step; its owner, theirs, how it works as who edits it. One
+  // who holds the role that answers for it sees them as its owner (ADR 0085, addendum of 2026-11-21): `setupSteps`
+  // reads the owner person alone, so it is told that person is me.
+  const asOwner = owns(agent) ? { ...agent, ownerUserId: meId } : agent;
+  const steps = setupSteps(asOwner, { meId, admin: managesAgent(agent), edits: editsAgent(agent) });
   return setupStepsInSight(steps, audienceOf(agent), solo);
 }
 
@@ -188,6 +193,8 @@ export function AgentSetupCard({ agent, channelId }: { agent: Agent; channelId: 
   const role = setupRole(agent.setup);
   const next = nextStep(steps, done);
   const said = useDoneSay(ready, doneHere, (step) => t(`agentSetup.say.${step}`, agentGrammar(agent.name)));
+  const ownerRoles = useOwnerRoles();
+  const ownerRole = ownerRoleOf(agent, ownerRoles);
 
   // In the new agent's conversation its first card's steps arrive one after another, once per agent while the app
   // runs: a first-time moment, never replayed when the conversation's list recycles the row or it opens again.
@@ -223,7 +230,13 @@ export function AgentSetupCard({ agent, channelId }: { agent: Agent; channelId: 
         : null,
       firstChannel: firstChannel ? `#${firstChannel.name}` : null,
       audience: audience.mode,
-      otherOwner: !ownerIsMe && owner ? firstName(owner.name) : null,
+      // A role that answers for it is named as whoever holds it, even to one who does (ADR 0085, addendum of
+      // 2026-11-21).
+      otherOwner: ownerRole
+        ? t("audience.whoHolds", { role: ownerRole.name })
+        : !ownerIsMe && owner
+          ? firstName(owner.name)
+          : null,
       onPlan: Boolean(agent.brain && agent.brain.kind !== "model"),
       personal: isPersonal(org),
     });

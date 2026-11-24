@@ -55,6 +55,10 @@ export const Limits = z
       description:
         "What the platform's own AI (Jev) may cost for it in a UTC calendar month, in US$. Past it, Jev's judgments go to the workspace's own model and only @mentions start agents.",
     }),
+    connectorUsdPerMonth: z.number().min(0).max(100_000).nullable().default(null).openapi({
+      description:
+        "What vendors that bill this server per call (X) may charge for it in a UTC calendar month, in US$, as estimated from their price lists. A call that could take it past is refused (`connector.capped`), with nothing done. Null (or left out): no limit.",
+    }),
   })
   .openapi("OperatorLimits", { description: "Null: no limit. A self-hosted server never sets any." });
 
@@ -78,6 +82,10 @@ export const Meters = z
     platformUsdThisMonth: z
       .number()
       .openapi({ description: "Usage billed to the platform (Jev) this UTC calendar month, in US$." }),
+    connectorUsdThisMonth: z.number().openapi({
+      description:
+        "What vendors that bill per call (X) charged for its connector calls this UTC calendar month, in US$.",
+    }),
   })
   .openapi("OperatorMeters");
 
@@ -114,7 +122,7 @@ export function registerOperatorLimits(api: OpenAPIHono, { db, pubsub, hub }: Op
       tags,
       summary: "Set a workspace's limits",
       description:
-        "All at once. Enforced where each is used: joining and inviting (`org.members_full`), every file written to this server's storage (`storage.full`, `storage.daily_full`), the platform's AI (within a minute). Lowering one takes nothing away: people stay, files stay, only what is new is refused. Allowed whatever the workspace's standing. Setting what is already set changes nothing, `updatedAt` included.",
+        "All at once. Enforced where each is used: joining and inviting (`org.members_full`), every file written to this server's storage (`storage.full`, `storage.daily_full`), the platform's AI (within a minute), each paid connector call (`connector.capped`). Lowering one takes nothing away: people stay, files stay, only what is new is refused. Allowed whatever the workspace's standing. Setting what is already set changes nothing, `updatedAt` included.",
       request: { params: OrgParams, body: body(Limits) },
       responses: { 200: json(LimitsState), ...errors },
     }),

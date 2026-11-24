@@ -1,33 +1,28 @@
-import { type Message, type Proposal, useCardProposals, useDecideProposals } from "@agenteschat/client";
+import { keys, type Message, type Proposal, useCardProposals, useUndoProposal } from "@agenteschat/client";
 import {
   appLabel,
   type ChangedLine,
-  cardDecidedBy,
   cardHead,
-  cardOutcome,
-  chosenRows,
   firstChange,
-  isOpen,
   messageProposalCards,
   proposalSections,
   proposalTarget,
   proposalTitle,
   proposerOf,
-  rowStatus,
-  staleCount,
 } from "@agenteschat/client/lib/proposals";
-import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
-import { Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { Button, Chip, DiffView, haptics, Icon, Text, ToggleSwitch, useTheme, useToast } from "@/ui";
+import { Button, Chip, DiffView, Icon, RowAction, Text, useTheme } from "@/ui";
 import { boldRuns } from "../chat/actions";
-import { type AskAnswer, AskButtons, AskCard, AskFoot } from "../chat/asks";
+import { type AskAnswer, AskCard } from "../chat/asks";
 import { MessageText } from "../chat/MessageText";
 import { IconTile } from "../connectors/ConnectorIcon";
 import { useFailed } from "../routines/hooks";
 import { Face } from "../shared/Face";
 import { useDirectory, useMeId, useWhen } from "../shared/hooks";
+import { proposalOutcome } from "./logic";
 
 /** The proposal cards an agent's message carries (`meta.memoryUpdates`, or an older `meta.proposalId`). */
 export function InstructionProposals({ message: m }: { message: Message }) {
@@ -42,60 +37,37 @@ export function InstructionProposals({ message: m }: { message: Message }) {
 
 /**
  * The web's card for what an agent proposed (its own or its teammates' instructions, roles and apps, or the org
- * context): each change once, a row per agent and kind of change with its switch when there are several, and
- * Aceitar and Recusar for the rows you may decide. Each row applies on its own. No Editar on the phone.
+ * context): each change once, and how it ended. Nobody is asked to decide it (ADR 0219): the agent's review applies
+ * it or leaves it out a few seconds after, so it reads "Reviewing…" until then, then who applied it, the review's why
+ * under it and Undo while the viewer may put it back. With several rows, each says how it ended on its own line.
  */
 export function InstructionProposalCard({ ids }: { ids: string[] }) {
+  const { orgId } = useOrg();
+  const rows = useCardProposals(orgId, ids);
+  return rows.length > 0 ? <ProposalRowsCard id={ids.join(",")} rows={rows} /> : null;
+}
+
+/** The card for rows already read (the history of agents' improvements reads them all at once, not one per card). */
+export function ProposalRowsCard({ id, rows }: { id: string; rows: Proposal[] }) {
   const { t } = useTranslation();
-  const { orgId, org } = useOrg();
+  const { org } = useOrg();
   const dir = useDirectory();
   const when = useWhen();
   const { colors } = useTheme();
   const meId = useMeId();
-  const toast = useToast();
-  const failed = useFailed();
-  const rows = useCardProposals(orgId, ids);
-  const decide = useDecideProposals(orgId);
-  const [off, setOff] = useState<ReadonlySet<string>>(new Set());
   const [first] = rows;
   if (!first) return null;
-  const agentName = (id: string) => dir.anyAgent(id)?.name || t("channel.unknownAgent");
+  const agentName = (agentId: string) => dir.anyAgent(agentId)?.name || t("channel.unknownAgent");
   const orgName = org?.name ?? "";
   const head = cardHead(t, rows, agentName(proposerOf(first)), agentName, org ?? orgName);
   const runs = boldRuns(t(head.key, head.values) as string);
-  const { chosen, all } = chosenRows(rows, off);
   const many = rows.length > 1;
-  const decides = rows.some((p) => isOpen(p) && p.canDecide);
-  const toggle = (id: string) =>
-    setOff((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  const run = (decision: "accept" | "refuse") =>
-    decide.mutate(
-      { ids: chosen.map((p) => p.id), decision },
-      {
-        onSuccess: ({ failed: lost }) => {
-          const stale = staleCount(lost);
-          const ofAgent = lost.some((f) => rows.some((p) => p.id === f.id && !isTextRow(p)));
-          if (stale > 0)
-            toast({
-              title: t(ofAgent ? "proposals.staleSomeAgent" : "proposals.staleSome", { count: stale }),
-              icon: "x",
-            });
-          const other = lost.find((f) => staleCount([f]) === 0);
-          if (other) failed(other.error);
-        },
-      },
-    );
+  const reviewing = rows.some((p) => proposalOutcome(t, p, meId).reviewing);
   const rowList = (list: Proposal[]) => (
     <>
       {list.map((p) => {
         const name = p.target.type === "org_context" ? orgName : agentName(p.agentId);
-        const status = rowStatus(t, p);
-        const on = p.canDecide && !off.has(p.id);
+        const outcome = proposalOutcome(t, p, meId);
         return (
           <View key={p.id} style={styles.row}>
             <View style={styles.line}>
@@ -112,28 +84,19 @@ export function InstructionProposalCard({ ids }: { ids: string[] }) {
                 </Text>
               </View>
               <SettingChange p={p} />
-            </View>
-            {status ? (
-              <View style={styles.line}>
+              <Text variant="footnote" tone="muted">
+                {outcome.words}
+              </Text>
+              {outcome.why ? (
                 <Text variant="footnote" tone="faint">
-                  {status}
+                  {outcome.why}
                 </Text>
+              ) : null}
+            </View>
+            {p.undoable ? (
+              <View style={styles.line}>
+                <UndoProposal id={p.id} row />
               </View>
-            ) : null}
-            {many && isOpen(p) ? (
-              <Pressable
-                disabled={!p.canDecide || decide.isPending}
-                onPress={() => {
-                  haptics.selection();
-                  toggle(p.id);
-                }}
-                accessibilityRole="switch"
-                accessibilityLabel={t("proposals.include", { name })}
-                accessibilityState={{ checked: on, disabled: !p.canDecide }}
-                hitSlop={8}
-              >
-                <ToggleSwitch value={on} />
-              </Pressable>
             ) : null}
           </View>
         );
@@ -146,27 +109,27 @@ export function InstructionProposalCard({ ids }: { ids: string[] }) {
   const change =
     texts.length > 0 ? { label: t("ask.seeChange"), content: <Diffs lines={texts.map((g) => g.lines)} /> } : null;
   const only = many ? undefined : first;
-  // A request card like every other, the rows and their switches above the decision. Waiting on someone else it
-  // says whom; decided, the same card says who decided and when where its buttons were.
-  const waiting = rows.some(isOpen);
-  const decidedAt = rows.reduce<string | null>(
-    (at, r) => (r.decidedAt && (!at || r.decidedAt > at) ? r.decidedAt : at),
-    null,
-  );
-  const answer: AskAnswer | null = waiting
-    ? null
-    : {
-        done: cardOutcome(t, rows).accepted,
-        words: cardDecidedBy(t, rows, meId ?? ""),
-        time: decidedAt ? when.short(decidedAt) : undefined,
-      };
+  // One row: how it ended where a request's decision would be, the review's why under it, and Undo. Several: each row
+  // says it on its own line, and the card's foot stays empty.
+  const single = only ? proposalOutcome(t, only, meId) : null;
+  const answer: AskAnswer | null =
+    only && single && !single.reviewing
+      ? {
+          done: single.applied,
+          words: single.words,
+          time: single.at ? when.short(single.at) : undefined,
+          note: single.why,
+          actions: only.undoable ? <UndoProposal id={only.id} /> : null,
+        }
+      : null;
   return (
     <AskCard
-      id={ids.join(",")}
+      id={id}
       kind="proposal"
       agentId={proposerOf(first)}
-      waitsFor={decides ? "you" : rowStatus(t, first)}
+      waitsFor={reviewing ? t("mobile.proposals.reviewing") : null}
       answer={answer}
+      ended={many && !reviewing}
       lead={only ? proposalTitle(t, only, org ?? orgName, agentName) : runs.map((r) => r.text).join("")}
       well={
         only
@@ -192,45 +155,33 @@ export function InstructionProposalCard({ ids }: { ids: string[] }) {
           rowList(groups.flatMap((g) => g.rows))
         )
       }
-      foot={
-        decides ? (
-          <AskFoot>
-            <AskButtons
-              primary={
-                <Button
-                  variant="primary"
-                  size="card"
-                  wide
-                  label={
-                    !many
-                      ? t("proposals.accept")
-                      : all
-                        ? t("proposals.acceptAll")
-                        : t("proposals.acceptSome", { count: chosen.length })
-                  }
-                  disabled={decide.isPending || chosen.length === 0}
-                  onPress={() => run("accept")}
-                />
-              }
-              secondary={
-                <Button
-                  variant="secondary"
-                  size="card"
-                  wide
-                  label={t("proposals.refuse")}
-                  disabled={decide.isPending || chosen.length === 0}
-                  onPress={() => run("refuse")}
-                />
-              }
-            />
-          </AskFoot>
-        ) : undefined
-      }
     />
   );
 }
 
-/** What "Ver a mudança" opens: each change once. */
+/**
+ * Undo on a change that was applied (ADR 0219), by whoever may make it: the row comes back undone, and the agents are
+ * read again (what it put back). `row`: the word at a row's side, as a list's; else the card's ghost button.
+ */
+export function UndoProposal({ id, row = false }: { id: string; row?: boolean }) {
+  const { t } = useTranslation();
+  const { orgId } = useOrg();
+  const qc = useQueryClient();
+  const failed = useFailed();
+  const undo = useUndoProposal(orgId);
+  const onPress = () =>
+    undo.mutate(id, {
+      onSuccess: () => void qc.invalidateQueries({ queryKey: keys.agents(orgId) }),
+      onError: failed,
+    });
+  return row ? (
+    <RowAction strong label={t("teamWeek.undo")} disabled={undo.isPending} onPress={onPress} />
+  ) : (
+    <Button variant="ghost" size="card" label={t("rightHand.card.undo")} loading={undo.isPending} onPress={onPress} />
+  );
+}
+
+/** What "See the change" opens: each change once. */
 function Diffs({ lines }: { lines: ChangedLine[][] }) {
   return (
     <>
@@ -253,8 +204,6 @@ function ProseDiff({ lines }: { lines: ChangedLine[] }) {
     />
   );
 }
-
-const isTextRow = (p: Proposal) => p.target.type === "agent_instructions" || p.target.type === "org_context";
 
 /** What a role or access row changes: "Função: Dev → Revisora", or a chip per app turned on or off. */
 function SettingChange({ p }: { p: Proposal }) {
@@ -281,7 +230,7 @@ function SettingChange({ p }: { p: Proposal }) {
 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
-  /** A row's first line, as tall as its switch: the face, the name and the state sit centered on it. */
+  /** A row's first line, as tall as its Undo: the face, the name and Undo sit centered on it. */
   line: { minHeight: 28, justifyContent: "center" },
   fill: { flex: 1, minWidth: 0, gap: 4 },
   bold: { fontWeight: "600" },

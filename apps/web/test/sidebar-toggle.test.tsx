@@ -7,7 +7,7 @@ setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { COMPACT_QUERY, DESKTOP_QUERY } from "@/components/NavDrawer";
-import { TABLET_QUERY } from "@/components/Sidebar";
+import { TABLET_QUERY } from "@/components/sidebar-state";
 import { rules } from "./built-css";
 import { createFakeApi, ENG_ID, type FakeState, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";

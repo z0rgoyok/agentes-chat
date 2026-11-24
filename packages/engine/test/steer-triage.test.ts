@@ -124,6 +124,22 @@ test("the fast reply answers a quick question or a separate request at once, eve
   expect(talkerPolicy({ ...base, run: { ...base.run, background: true }, handling: "answer" })).toBe("background");
 });
 
+test("the fast reply leaves a message the agent answers itself, with its own line on the way", () => {
+  const now = new Date("2026-11-24T12:00:00Z");
+  const before = new Date(now.getTime() - 60_000);
+  const busy = {
+    run: { status: "running" as const, background: false, startedAt: before, createdAt: before },
+    brain: "claude_code",
+    message: { body: "não é outubro, é setembro", createdAt: now },
+    waited: null,
+    lastActivityAt: before,
+    lastReplyAt: null,
+    now,
+  };
+  expect(talkerPolicy(busy)).toBeNull();
+  expect(talkerPolicy({ ...busy, ownLine: true })).toBe("own_line");
+});
+
 describe("a message sent while the agent works", () => {
   const deps = () => ({ db: f.db, pubsub: f.pubsub });
   const runs = () => f.db.select().from(schema.agentRuns);
@@ -247,6 +263,27 @@ describe("a message sent while the agent works", () => {
     expect((await runById(run.id))?.pendingMessageIds).toContain(sent.id);
     expect((await runById(run.id))?.afterMessageIds).toEqual([]);
     expect(talked.map((t) => t.handling)).toEqual(["add"]);
+  });
+
+  test("what the triage said stays on the run's trail; a correction or an addition it was sure of is the agent's own to answer", async () => {
+    const { run, threadId } = await working();
+    const judge = triage({ "não é outubro, é setembro": "interrupt", "tá funcionando?": "answer" });
+    const fixed = await send(threadId, "não é outubro, é setembro", judge);
+    const asked = await send(threadId, "tá funcionando?", judge);
+    const unsure = await send(threadId, "inclui o gráfico por região", judge);
+    const steps = await f.db.select().from(schema.agentRunSteps).where(eq(schema.agentRunSteps.runId, run.id));
+    const noted = steps.filter((s) => s.kind === "context" && s.data.steerTriage !== undefined).map((s) => s.data);
+    expect(noted).toEqual([
+      // People read this thread as it goes: the agent says in a line of its own how it takes the correction.
+      { steerTriage: { messageId: fixed.sent.id, sure: true, line: true }, reason: "interrupt" },
+      { steerTriage: { messageId: asked.sent.id, sure: true, line: false }, reason: "answer" },
+      // Read at the next pause only because the judge said nothing: no line for it.
+      { steerTriage: { messageId: unsure.sent.id, sure: false, line: false }, reason: "add" },
+    ]);
+    // Nothing speaks for the agent about the message it answers itself.
+    expect(fixed.talked.map((t) => t.ownLine)).toEqual([true]);
+    expect(asked.talked.map((t) => t.ownLine)).toEqual([false]);
+    expect(unsure.talked.map((t) => t.ownLine)).toEqual([false]);
   });
 
   test("in a channel, a line for someone else never reaches the task: the router decides who answers it", async () => {

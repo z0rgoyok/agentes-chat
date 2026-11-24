@@ -41,6 +41,8 @@ export interface AppColors extends ThemeColors {
   label3: string;
   /** A list row under the finger, the system's own (`systemGray4`). */
   rowLit: string;
+  /** A tonal fill a finger presses: a secondary button's, a segmented control's track (the system's gray, stronger in dark). */
+  tonal: string;
   /** The Settings tiles' colors, one per subject (`TILE_TINTS`); the same in both themes, as the system's are. */
   tiles: Record<TileTint, string>;
 }
@@ -106,6 +108,7 @@ export function appColors(scheme: Scheme): AppColors {
       label2: "rgba(235, 235, 245, 0.6)",
       label3: "rgba(235, 235, 245, 0.3)",
       rowLit: "#3a3a3c",
+      tonal: "rgba(127, 127, 127, 0.24)",
       tiles: TILES,
     };
   }
@@ -124,6 +127,7 @@ export function appColors(scheme: Scheme): AppColors {
     label2: "rgba(60, 60, 67, 0.6)",
     label3: "rgba(60, 60, 67, 0.3)",
     rowLit: "#d1d1d6",
+    tonal: "rgba(120, 120, 128, 0.14)",
     tiles: TILES,
   };
 }

@@ -4,6 +4,7 @@ import { managesAgent } from "@agenteschat/client/lib/audience";
 import { awayText } from "@agenteschat/client/lib/computer-queue";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames, timeAgo } from "@agenteschat/client/lib/format";
+import { planDroppedText } from "@agenteschat/client/lib/machine-outages";
 import { computerKind } from "@agenteschat/client/lib/machines";
 import {
   type BrainUnavailable,
@@ -37,6 +38,7 @@ import type { TFunction } from "i18next";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { useConnectAi } from "@/components/ConnectAi";
 import { useOrg } from "@/components/org-context";
 import { ReportProblem } from "@/components/ReportProblem";
 import { RequestDone, RequestOpen } from "@/components/RequestCard";
@@ -216,6 +218,7 @@ export function SwitchComputerDialog({
   const { t } = useTranslation();
   const { org } = useOrg();
   const toast = useToast();
+  const connect = useConnectAi();
   const move = useMoveAgents(org.id);
   const id = useId();
   const [picked, setPicked] = useState<string[]>(() => o.agents.map((a) => a.agentId));
@@ -255,7 +258,9 @@ export function SwitchComputerDialog({
                   target: targetName,
                 })
               : t("outage.done.none");
+          const plans = planDroppedText(t, r, { from: o.name, to: targetName, nameOf });
           const detail = [
+            ...plans.lines,
             r.resumed > 0 ? t("outage.done.resumed", { count: r.resumed }) : null,
             r.stillWaiting > 0 ? t("outage.done.stillWaiting", { count: r.stillWaiting, name: o.name }) : null,
             ...r.skipped.map((s) =>
@@ -267,7 +272,12 @@ export function SwitchComputerDialog({
           ]
             .filter(Boolean)
             .join(" · ");
-          toast.show(text, r.moved.length > 0 ? "info" : "error", undefined, detail || undefined);
+          const signIn = plans.signIn;
+          const action =
+            signIn && connect
+              ? { label: t("outage.done.signIn", { name: targetName }), run: () => connect.open(signIn) }
+              : undefined;
+          toast.show(text, r.moved.length > 0 ? "info" : "error", action, detail || undefined);
           onOpenChange(false);
         },
         onError: (e) => toast.show(errorText(t, e), "error"),

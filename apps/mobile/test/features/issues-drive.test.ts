@@ -800,3 +800,15 @@ describe("Tarefas as one list", () => {
     expect(taskListSections([], "me", NOW)).toEqual([]);
   });
 });
+
+describe("a Drive file in a task's Ligados", () => {
+  test("held, it asks and comes off the task, never out of the Drive", () => {
+    const screen = readFileSync(join(import.meta.dir, "../../src/features/issues/IssueScreen.tsx"), "utf8");
+    expect(screen).toContain("remove: removeFile(a),");
+    expect(screen).toContain("onLongPress: remove.run,");
+    expect(screen).toContain('accessibilityActions: [{ name: "remove", label: remove.label }]');
+    expect(screen).toContain('text: t("mobile.issues.removeFileText"),');
+    expect(screen).toContain('{ type: "update", id: i.id, patch: { removeFiles: [file.id] } }');
+    expect(screen).toContain('toast({ title: t("issues.files.removed", { name: file.title }) })');
+  });
+});

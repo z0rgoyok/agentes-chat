@@ -14,7 +14,7 @@ import {
 import { type CSSProperties, useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { ConnectorIcon } from "@/components/ConnectorCatalog";
+import { ConnectorIcon } from "@/components/ConnectorIcon";
 import { agentCoverOptions, facePool } from "@/components/Sky";
 import { useAgentThinks } from "@/hooks/useAgentThinks";
 import { useScrollEdges } from "@/lib/scroll-edges";

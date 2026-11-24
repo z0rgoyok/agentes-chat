@@ -39,6 +39,7 @@ import {
   type IconName,
   ListRow,
   Locked,
+  padPastFold,
   Row,
   SCREEN_X,
   SearchField,
@@ -47,6 +48,7 @@ import {
   SkeletonList,
   Text,
   useFieldText,
+  useFoldRoom,
   useLargeTitleScroll,
   usePulse,
   useReducedMotion,
@@ -127,6 +129,8 @@ export function WikiScreen({ folder = "" }: { folder?: string }) {
   const [selecting, setSelecting] = useState(false);
   const [chosen, setChosen] = useState<Set<string>>(new Set());
   const bulkDelete = useWikiBulkDelete();
+  // Folded like a book (ADR 0212), the choosing bar's buttons keep to the half past the fold, never across it.
+  const foldSide = useFoldRoom();
   const stopSelecting = () => {
     setSelecting(false);
     setChosen(new Set());
@@ -241,7 +245,13 @@ export function WikiScreen({ folder = "" }: { folder?: string }) {
   ];
   // Choosing pages: the bar of what to do with them stays at the screen's foot, over the list.
   const pickBar = selecting ? (
-    <View style={[styles.pickBar, { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line }]}>
+    <View
+      style={[
+        styles.pickBar,
+        { paddingBottom: insets.bottom + 12, backgroundColor: c.bg, borderColor: c.line },
+        foldSide && padPastFold(foldSide, 16),
+      ]}
+    >
       {choosesAudience ? (
         <Button
           variant="secondary"

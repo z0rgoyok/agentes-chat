@@ -1,4 +1,4 @@
-import { BILLING_FROM, mintBillingLink, orgLimitsView, PLAN_CLAIM } from "@agenteschat/engine";
+import { BILLING_FROM, mintBillingLink, orgLimitsView, PLAN_CLAIM, requestPlanMove } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
 import { apiError } from "../../http/errors";
 import { type AppDeps, body, createAppRouter, errors, json, OrgParams, requireSession, security } from "./context";
@@ -61,6 +61,30 @@ export function billingRoutes(deps: AppDeps) {
 
   app.openapi(
     createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/plan-move",
+      tags,
+      security,
+      summary: "Move the workspace's plan to another workspace (its payer)",
+      description:
+        "Whoever pays for the plan (`paysPlan` in `GET /me`) moves it to another workspace where they manage billing, one on a billing hold that isn't being deleted: the billing service moves the same subscription within a minute, with nothing charged again and nothing refunded. Allowed while the workspace is being deleted. 404 `billing.off` when this server has no billing service; 403 `plan_move.not_payer`; 400 `plan_move.same`, `plan_move.target_has_plan` or `plan_move.target_deleting`.",
+      request: {
+        params: OrgParams,
+        body: body(z.object({ to: z.uuid().openapi({ description: "The workspace the plan goes to." }) })),
+      },
+      responses: { 202: json(z.object({ to: z.string() })), ...errors },
+    }),
+    async (c) => {
+      if (!config.BILLING_URL || !config.BILLING_LINK_SECRET || !config.OPERATOR_API_TOKEN)
+        return apiError(c, 404, "billing.off", "This server has no billing service");
+      const { to } = c.req.valid("json");
+      await requestPlanMove(db, { userId: c.get("user").id, orgId: c.req.valid("param").orgId, to });
+      return c.json({ to }, 202);
+    },
+  );
+
+  app.openapi(
+    createRoute({
       method: "get",
       path: "/organizations/{orgId}/limits",
       tags,
@@ -108,6 +132,12 @@ export function billingRoutes(deps: AppDeps) {
             uploads: z.object({
               usedBytes24h: z.number().int().openapi({ description: "Written to this server's storage in 24 hours." }),
               limitBytesPerDay: z.number().int().nullable(),
+            }),
+            connectors: z.object({
+              usedUsd: z.number().openapi({
+                description: "What vendors that bill this server per call (X) charged for it this UTC month, in US$.",
+              }),
+              limitUsd: z.number().nullable(),
             }),
           }),
         ),

@@ -20,6 +20,7 @@ import {
 } from "../src";
 import { TIP_OPEN_MS } from "../src/components/Tip";
 import { EDGE_ROOM, placeList, placeTip, pullToFit, TIP_GAP } from "../src/floating";
+import { HOVER_CLOSE_MS } from "../src/hooks/useHoverCard";
 
 const body = () => within(document.body);
 const key = async (el: Element, k: string) => {
@@ -169,7 +170,9 @@ describe("floating layers", () => {
     expect(await css("components.css")).toMatch(
       /@media \(min-width: 641px\) \{\s*\.ac-msg__tip \{\s*max-width: 420px;/,
     );
+    // Left for elsewhere, it goes after the grace that lets the pointer reach it (`useHoverCard`).
     await act(async () => fireEvent.pointerLeave(time, { pointerType: "mouse" }));
+    await act(() => new Promise((r) => setTimeout(r, HOVER_CLOSE_MS + 10)));
     expect(document.querySelector(".ac-tip")).toBeNull();
     unmount();
   });

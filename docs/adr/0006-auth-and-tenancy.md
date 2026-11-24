@@ -1,6 +1,6 @@
 # 0006. Better Auth for people; our own organizations, roles and agents
 
-- Status: Accepted. Revised by ADR 0068: a workspace's invitation link only lets people ask to join, an admin approves each person, and only an email invitation opens sign-up. Amended by ADR 0078: a live sign-up mode, and early-access invitations that open sign-up for one address. Revised by ADR 0085: the fixed owner / admin / member table became roles that add up (owner stays a flag), and permissions are resolved per person
+- Status: Accepted. Revised by ADR 0068: a workspace's invitation link only lets people ask to join, an admin approves each person, and only an email invitation opens sign-up. Amended by ADR 0078: a live sign-up mode, and early-access invitations that open sign-up for one address. Revised by ADR 0085: the fixed owner / admin / member table became roles that add up (owner stays a flag), and permissions are resolved per person. Amended 2026-11-22: a new account opens its confirmation link before its first workspace (addendum)
 - Date: 2026-10-14
 
 ## Decision
@@ -22,3 +22,31 @@
 - No external identity provider; self-host stays one container + Postgres.
 - Composite foreign keys `(org_id, id)` keep channel memberships, messages, runs and usage from pointing across organizations.
 - Later: Better Auth `jwt` + `oauthProvider` for MCP clients.
+
+## Addendum (2026-11-22): the confirmation link before a first workspace
+
+A server that sends email sent the sign-up's confirmation link (`emailVerification.sendOnSignUp`) and let the person in
+unconfirmed. Many never opened it and made a workspace anyway, and an address with a mistyped domain could never
+receive it.
+
+- **The rule, on a server that sends email.** An account whose address was never confirmed and that is in no workspace
+  makes none: `POST /api/app/organizations` answers 403 `org.create_unconfirmed`. `GET /me` says it as
+  `user.emailConfirmation`: `required` then, `reminder` for an unconfirmed account already in a workspace, null
+  otherwise (`emailConfirmation`, `packages/engine/src/organizations.ts`). A server that sends no email can't send the
+  link and asks nothing, as before.
+- **"Check your inbox".** With `required`, the web's `/onboarding` (`ConfirmEmailScreen`, `apps/web`; the Mac app loads
+  the same page) and the phone's first run (`apps/mobile` `onboarding/ConfirmEmail.tsx`) show only that: the address,
+  its webmail when known, "Send a new link" (Better Auth's `/send-verification-email`, 3 an hour per address as every
+  confirmation email), "Wrong address? Change it" and Sair. They ask `/me` every 3 seconds, so a link opened in another
+  tab or on another device moves them on.
+- **A wrong address.** An address never confirmed now changes at once through `POST /api/app/account/email`
+  (`updateEmailWithoutVerification`), and Better Auth's confirmation link goes to the new one. Nothing was proven at the
+  old address, so there is nothing to hold or undo there (ADR 0088, addendum 2026-11-13). The proof stays the same: a
+  sign-in in the last 10 minutes, or 403 `reauth.sign_in` and the web's sign-in again. A confirmed address still waits
+  for the link to the new one.
+- **What proves the mailbox.** A provider that verified the address (Google, Apple, a GitHub address it verified), an
+  email invitation accepted from its own email (ADR 0090, `cameByEmail`), and a password reset's link
+  (`onPasswordReset`) confirm it, so none of them meets the screen. A copied invitation link proves nothing.
+- **Accounts from before.** One already in a workspace is never locked out: some pay, and a mistyped address may never
+  get the link. The workspace keeps working under a line on top of the work area (web `ConfirmEmailBanner`, phone
+  `ConfirmEmailNotice` on Conversas) with "Send a new link" and "Change address", and it may make more workspaces.

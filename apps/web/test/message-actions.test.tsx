@@ -6,6 +6,7 @@ setupDom();
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Message } from "@agenteschat/client";
+import { TIP_HOLD_MS } from "@agenteschat/ui";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { messageLink } from "@/components/MessageMore";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, NOW, ORG_ID, seedState } from "./fake-api";
@@ -14,6 +15,17 @@ import { renderApp, screen, settle } from "./render";
 afterEach(() => cleanup());
 
 const click = (el: Element) => act(async () => fireEvent.click(el));
+/** A finger held on `el` until the message's menu opens, then lifted (a phone's click follows the lift). */
+const hold = (el: Element) =>
+  act(async () => {
+    const finger = { pointerType: "touch", pointerId: 1 };
+    fireEvent.pointerDown(el, finger);
+    fireEvent.mouseDown(el);
+    await new Promise((r) => setTimeout(r, TIP_HOLD_MS + 50));
+    fireEvent.pointerUp(el, finger);
+    fireEvent.mouseUp(el);
+    fireEvent.click(el);
+  });
 const openMenu = async (trigger: HTMLElement) => {
   trigger.focus();
   await act(async () => {
@@ -248,7 +260,7 @@ describe("message action bars", () => {
     expect(row.querySelector(".ac-msg__head .ac-receipt, .ac-msg__aside .ac-receipt")).toBeNull();
   });
 
-  test("on touch a tap on a message opens its bar's actions in a menu off its text, an agent's with its feedback", async () => {
+  test("on touch a long press on a message opens its bar's actions in a menu off its text, an agent's with its feedback", async () => {
     const restore = onTouch();
     try {
       const state = seedState();
@@ -267,7 +279,12 @@ describe("message action bars", () => {
       await settle(8);
       const tap = (id: string) =>
         click(document.querySelector(`article[data-message-id="${id}"] .ac-msg__text`) as HTMLElement);
+      const press = (id: string) =>
+        hold(document.querySelector(`article[data-message-id="${id}"] .ac-msg__text`) as HTMLElement);
+      // A plain tap does what a tap does anywhere: no menu.
       await tap("m-1");
+      expect(screen().queryByRole("menu")).toBeNull();
+      await press("m-1");
       const menu = screen().getByRole("menu", { name: "Ações da mensagem de João" });
       // The quick reactions, then every emoji, as the bar's Reagir has.
       const reactions = within(menu).getByRole("group", { name: "Reagir" });
@@ -298,7 +315,7 @@ describe("message action bars", () => {
       await settle(3);
       expect(state.calls.find((c) => c.method === "chat.react")?.args).toEqual([ORG_ID, "m-1", "🚀"]);
       expect(screen().queryByRole("dialog", { name: "Emojis" })).toBeNull();
-      await tap("m-file");
+      await press("m-file");
       // No words: nothing to copy or to save, as on the phone app.
       expect(items(screen().getByRole("menu", { name: "Ações da mensagem de João" }))).toEqual([
         "Responder",
@@ -307,7 +324,7 @@ describe("message action bars", () => {
       ]);
       await act(async () => fireEvent.keyDown(screen().getByRole("menu"), { key: "Escape" }));
       expect(screen().queryByRole("menu")).toBeNull();
-      await tap("m-2");
+      await press("m-2");
       const agent = screen().getByRole("menu", { name: "Ações da mensagem de Ada" });
       expect(items(agent)).toEqual([
         "Responder",
@@ -326,7 +343,7 @@ describe("message action bars", () => {
     }
   });
 
-  test("on touch the first tap on a message opens its actions while another row holds focus (Conectar's dialog closed, a link tapped)", async () => {
+  test("on touch the first long press on a message opens its actions while another row holds focus (Conectar's dialog closed, a link tapped)", async () => {
     const restore = onTouch();
     try {
       const state = withoutAi();
@@ -338,14 +355,16 @@ describe("message action bars", () => {
       await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(state) });
       await settle(8);
       const row = (id: string) => document.querySelector(`article[data-message-id="${id}"]`) as HTMLElement;
-      // As a phone sends a tap: the finger goes down (focus leaves the row that held it), lifts, then the click.
+      // As a phone sends a long press: the finger goes down (focus leaves the row that held it), stays, lifts, then the click.
       const tap = (id: string) =>
         act(async () => {
           const text = row(id).querySelector(".ac-msg__text") as HTMLElement;
-          fireEvent.pointerDown(text);
+          const finger = { pointerType: "touch", pointerId: 1 };
+          fireEvent.pointerDown(text, finger);
           fireEvent.mouseDown(text);
           (document.activeElement as HTMLElement | null)?.blur();
-          fireEvent.pointerUp(text);
+          await new Promise((r) => setTimeout(r, TIP_HOLD_MS + 50));
+          fireEvent.pointerUp(text, finger);
           fireEvent.mouseUp(text);
           fireEvent.click(text);
         });

@@ -5,7 +5,8 @@ setupDom();
 
 import type { Approval, ApprovalRule } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
+import { notification } from "./fakes/notifications";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
@@ -35,6 +36,17 @@ const click = async (el: Element) => {
   await settle(4);
 };
 const seeDetails = (card: HTMLElement) => click(within(card).getByRole("button", { name: "Ver detalhes" }));
+/** A request waiting on me in the inbox, where requests are decided away from their conversation (ADR 0218). */
+const asked = (approvalId: string, agentId = ADA_ID) =>
+  notification({
+    id: `n-${approvalId}`,
+    kind: "approval",
+    waiting: true,
+    actors: [{ type: "agent", id: agentId }],
+    source: { approvalId, channelId: ENG_ID },
+  });
+/** The request open beside the inbox's list: the conversation's own card. */
+const opened = () => document.querySelector(".ib-read .rq") as HTMLElement;
 const approveCalls = (state: ReturnType<typeof seedState>) =>
   state.calls.filter((c) => c.method === "approvals.approve").map((c) => c.args);
 
@@ -140,33 +152,31 @@ describe("Aprovar sempre on a request", () => {
     expect(approveCalls(state)).toEqual([[ORG_ID, "ap-merge", undefined]]);
   });
 
-  test("on Aprovações: in the open request's decision bar, on a high-risk one too when the server offers it", async () => {
-    const state = withComposio();
+  test("in the inbox: on the open request's card, on a high-risk one too when the server offers it", async () => {
+    const state = withComposio(seedState({ notifications: [asked("ap-merge"), asked("ap-deploy", ATLAS_ID)] }));
     const deploy = state.approvals[1];
     if (deploy) deploy.approveAlways = { tool: "run_workflow", actions: [] };
-    await renderApp(`/org/${ORG_ID}/approvals`, { api: createFakeApi(state) });
+    await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
     await settle(4);
-    // The deploy, closest to expiring, opens first: high risk, and it may be approved for good like any other.
-    const risky = screen().getByRole("region", { name: "Fazer um deploy" });
-    expect(within(risky).queryByRole("button", { name: "Aprovar sempre" })).not.toBeNull();
-    await click(document.querySelector('.ap-li[data-id="ap-merge"]') as HTMLElement);
-    const pane = screen().getByRole("region", { name: /\(GitHub\)$/ });
-    // Beside Refuse and Approve, first in a bar of buttons alone: what each allows is in its tip.
-    const bar = pane.querySelector(".ap-bar") as HTMLElement;
-    expect(bar.querySelector("p")).toBeNull();
-    const buttons = [...(bar.querySelector(".ap-bar__acts")?.querySelectorAll(".ac-locked > button") ?? [])];
-    expect(buttons.map((b) => b.textContent?.replace(/R$/, ""))).toEqual(["Aprovar sempre", "Recusar", "Aprovar"]);
-    expect(buttons[0]?.getAttribute("aria-description")).toBe(HINT);
-    expect(buttons.at(-1)?.getAttribute("data-approve")).toBe("ap-merge");
-    expect(buttons.at(-1)?.getAttribute("aria-description")).toMatch(
-      /^Ada vai .+, só desta vez e com estes valores\.$/,
-    );
-    await click(within(pane).getByRole("button", { name: "Aprovar sempre" }));
+    // The deploy is high risk, and it may be approved for good like any other.
+    await click(document.querySelector('.ib-row[data-n="n-ap-deploy"]') as HTMLElement);
+    expect(within(opened()).getByRole("button", { name: /segure para confirmar/ })).toBeTruthy();
+    expect(within(opened()).queryByRole("button", { name: "Aprovar sempre" })).not.toBeNull();
+    await click(document.querySelector('.ib-row[data-n="n-ap-merge"]') as HTMLElement);
+    const card = opened();
+    // Between Approve and Not now, in one row of buttons alone: what it covers is in its tip.
+    const foot = card.querySelector(".rq__foot") as HTMLElement;
+    expect(foot.querySelector(":scope > p")).toBeNull();
+    const buttons = [...foot.querySelectorAll(":scope > button")];
+    expect(buttons.map((b) => b.textContent)).toEqual(["Aprovar", "Aprovar sempre", "Agora não"]);
+    expect(buttons[0]?.getAttribute("data-approve")).toBe("ap-merge");
+    expect(buttons[1]?.getAttribute("aria-description")).toBe(HINT);
+    await click(within(card).getByRole("button", { name: "Aprovar sempre" }));
     expect(approveCalls(state)).toEqual([[ORG_ID, "ap-merge", undefined, true]]);
   });
 
   test("on a run: approves the like ones waiting beside it, never the same tool on another connection", async () => {
-    const state = withComposio();
+    const state = withComposio(seedState({ notifications: [asked("ap-c1")] }));
     const [first] = state.approvals;
     if (!first) throw new Error("no approval");
     const at = (minutes: number) => new Date(Date.now() - minutes * 60_000).toISOString();
@@ -177,9 +187,10 @@ describe("Aprovar sempre on a request", () => {
       { ...first, id: "ap-c2", createdAt: at(3) },
       { ...first, id: "ap-c3", tool: `composio2_${EXECUTOR}`, createdAt: at(2) },
     );
-    await renderApp(`/org/${ORG_ID}/approvals`, { api: createFakeApi(state) });
+    await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
     await settle(4);
-    const run = document.querySelector(".ap-run") as HTMLElement;
+    // The card's two like requests in a row are one run, beside the one through another connection.
+    const run = opened().querySelector(".rq__run") as HTMLElement;
     await click(within(run).getByRole("button", { name: "Aprovar sempre" }));
     expect(approveCalls(state)).toEqual([[ORG_ID, "ap-c1", undefined, true]]);
     expect(state.calls.find((c) => c.method === "approvals.decideMany")?.args).toEqual([ORG_ID, ["ap-c2"], "approve"]);
@@ -381,9 +392,11 @@ describe("git requests", () => {
   });
 
   test("deleting branches: the batch in the open request, held to approve, never Always approve", async () => {
-    await renderApp(`/org/${ORG_ID}/approvals?open=ap-merge`, { api: createFakeApi(withGit(remove)) });
+    const state = withGit(remove, seedState({ notifications: [asked("ap-merge")] }));
+    await renderApp(`/org/${ORG_ID}/approvals?open=ap-merge`, { api: createFakeApi(state) });
     await settle(4);
-    const card = screen().getByRole("region", { name: "Apagar 7 branches em acme/app" });
+    const card = opened();
+    expect(card.textContent).toContain("Apagar 7 branches em acme/app");
     expect(card.textContent).toContain("old-1, old-2, old-3");
     expect(within(card).queryByRole("button", { name: "Aprovar sempre" })).toBeNull();
     expect(within(card).getByRole("button", { name: "Aprovar exclusão: segure para confirmar" })).toBeTruthy();

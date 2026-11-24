@@ -80,6 +80,7 @@ import {
   GROK_BIN,
   isExecutable,
   OPENCODE_BIN,
+  parseAgyModels,
   parseGrokModels,
   resolveCommand,
 } from "./executors";
@@ -555,8 +556,26 @@ export function watchCodexAuth(home: string, granted: string, send: (auth: strin
   };
 }
 
-/** Beside the account folders: the models Grok Build lists to a signed-in account (`AccountManager.grokModels`). */
-const GROK_MODELS_FILE = "grok-models.json";
+/**
+ * The CLIs whose models are what an account signed in here lists (`AccountManager.listedModels`): the computer's own
+ * `grok models` and `agy models` are signed out, so its look finds none.
+ */
+export type ListingKind = "grok" | "antigravity";
+
+/** Beside the account folders: what each account signed in here listed, by its id (`AccountManager.listedModels`). */
+const LISTED_MODELS_FILE: Record<ListingKind, string> = { grok: "grok-models.json", antigravity: "agy-models.json" };
+
+/** A status look's output read as the models the CLI lists to that account. */
+const LISTED_BY: Record<ListingKind, (stdout: string) => CursorModelInfo[]> = {
+  grok: parseGrokModels,
+  antigravity: parseAgyModels,
+};
+
+const isListingKind = (kind: AccountKind): kind is ListingKind => kind === "grok" || kind === "antigravity";
+
+/** Only what reads as models: anything else a file holds is skipped. */
+const modelsIn = (v: unknown): CursorModelInfo[] =>
+  Array.isArray(v) ? v.filter((m): m is CursorModelInfo => typeof m?.id === "string") : [];
 
 /**
  * Grok Build keeps its sign-in in `GROK_HOME/auth.json`, an entry per issuer: the grok.com one under
@@ -854,6 +873,14 @@ export const NETWORK_ENV = [
 
 /** Claude Code's switches to another company's cloud. */
 const CLOUD_ENV = ["CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY"] as const;
+
+/**
+ * Claude Code's `cleanupPeriodDays` in the `--settings` of a sign-in the runner keeps (an account folder, or the one
+ * sign-in a system-mode computer lends to all its agents): transcripts of sessions idle this long go at the CLI's next
+ * start (its default is 30). Every agent on that sign-in writes there, so 30 days of 15-minute routines piled up. A
+ * session idle longer than this starts afresh. The computer owner's own sign-in keeps its own setting.
+ */
+export const ACCOUNT_TRANSCRIPT_DAYS = 14;
 
 /**
  * The `env` of a Claude Code turn's or task's own `--settings`, which outranks the project's settings (the agent
@@ -1364,6 +1391,11 @@ function runCli(command: string[], args: string[], env: NodeJS.ProcessEnv, timeo
 export interface AccountManagerOptions {
   /** `<runner home>/accounts`. */
   root: string;
+  /**
+   * Before a CLI's sign-in starts: the runner's own Antigravity CLI made ready where the computer has none new enough
+   * (`AgyCopy.ensure`, ADR 0143); its failure is the sign-in's.
+   */
+  prepare?: (kind: AccountKind) => Promise<void>;
   /** Tests: the clock. */
   now?: () => number;
   /** The organization this machine is paired with (a sealed code's AAD names it); unknown before pairing. */
@@ -1805,6 +1837,8 @@ export class AccountManager {
         throw new RunnerError("bad_request", "This computer already has too many accounts. Remove one first.");
       }
     }
+    // The CLI it signs in with, before anything is written: the runner may bring the Antigravity CLI itself.
+    if (kind === "antigravity") await this.opts.prepare?.(kind);
     // Claude Code and the Antigravity CLI: the key the browser seals the pasted code (or a plan's key) to; the private
     // half stays in memory.
     const pair = kind === "claude_code" || kind === "antigravity" || cliKey ? await generateSecretKeyPair() : undefined;
@@ -2546,39 +2580,70 @@ export class AccountManager {
             : kind === "antigravity"
               ? parseAgyStatus(r.status, `${r.stdout}\n${r.stderr}`, agyAuthOf(dir))
               : parseCodexStatus(r.status, `${r.stdout}\n${r.stderr}`);
-    if (kind === "grok" && status.loggedIn) this.keepGrokModels(parseGrokModels(r.stdout));
+    if (isListingKind(kind) && status.loggedIn) this.keepListed(kind, id, LISTED_BY[kind](r.stdout));
     // Timed out, or didn't start.
     const unknown = r.status === null ? { statusUnknown: true as const } : {};
     return { id, kind, ...status, ...unknown, ...shared };
   }
 
-  private grokList: CursorModelInfo[] | undefined;
-  private get grokModelsFile() {
-    return path.join(this.opts.root, GROK_MODELS_FILE);
+  /** Per CLI, what each account signed in here last listed, by its id (`""`: an older runner's single list). */
+  private readonly listed: Partial<Record<ListingKind, Map<string, CursorModelInfo[]>>> = {};
+
+  private listedBy(kind: ListingKind): Map<string, CursorModelInfo[]> {
+    let by = this.listed[kind];
+    if (!by) {
+      const kept = readSmallJson(path.join(this.opts.root, LISTED_MODELS_FILE[kind]), 64 * 1024);
+      const entries: [string, unknown][] = Array.isArray(kept)
+        ? [["", kept]]
+        : kept && typeof kept === "object"
+          ? Object.entries(kept)
+          : [];
+      by = new Map(
+        entries
+          .filter(([id]) => id === "" || isAccountId(id))
+          .map(([id, v]) => [id, modelsIn(v)] as const)
+          .filter(([, list]) => list.length > 0),
+      );
+      this.listed[kind] = by;
+    }
+    return by;
   }
 
   /**
-   * The models Grok Build last listed for an account signed in here (its status look runs `grok models` in that
-   * account's folder), kept across restarts: a folder lent to an agent is never looked at again. Undefined before one.
+   * The models a CLI listed to the accounts signed in here (each one's status look runs `<cli> models` in its
+   * folder), kept across restarts: a folder lent to an agent is never looked at again. Every account's once, the one
+   * listing the most first: accounts of one CLI can be on different plans (a free Google account lists no Gemini 4
+   * model), and the models offered are the computer's. A removed account's go with its folder. Undefined before any.
    */
-  grokModels(): CursorModelInfo[] | undefined {
-    if (this.grokList === undefined) {
-      const kept = readSmallJson(this.grokModelsFile, 64 * 1024);
-      const list = Array.isArray(kept) ? kept.filter((m): m is CursorModelInfo => typeof m?.id === "string") : [];
-      this.grokList = list.length > 0 ? list : undefined;
-    }
-    return this.grokList;
+  listedModels(kind: ListingKind): CursorModelInfo[] | undefined {
+    const lists = [...this.listedBy(kind)]
+      .filter(([id]) => id === "" || existsSync(this.dirOf(kind, id)))
+      .map(([, list]) => list)
+      .sort((a, b) => b.length - a.length);
+    const all = new Map<string, CursorModelInfo>();
+    for (const m of lists.flat()) if (!all.has(m.id)) all.set(m.id, m);
+    return all.size > 0 ? [...all.values()] : undefined;
   }
 
-  private keepGrokModels(list: CursorModelInfo[]) {
-    if (list.length === 0 || JSON.stringify(list) === JSON.stringify(this.grokModels())) return;
-    this.grokList = list;
+  /** An account's list from its look: kept (the older runner's single list goes), and the server told if it changed. */
+  private keepListed(kind: ListingKind, id: string, list: CursorModelInfo[]) {
+    if (list.length === 0) return;
+    const before = this.listedBy(kind);
+    const next = new Map<string, CursorModelInfo[]>();
+    for (const [other, was] of before) {
+      if (other === id) next.set(id, list);
+      else if (other !== "" && existsSync(this.dirOf(kind, other))) next.set(other, was);
+    }
+    if (!next.has(id)) next.set(id, list);
+    if (JSON.stringify([...next]) === JSON.stringify([...before])) return;
+    const shown = JSON.stringify(this.listedModels(kind));
+    this.listed[kind] = next;
     try {
-      writeJson(this.grokModelsFile, list);
+      writeJson(path.join(this.opts.root, LISTED_MODELS_FILE[kind]), Object.fromEntries(next));
     } catch {
       // kept in memory until the next look
     }
-    this.changed();
+    if (JSON.stringify(this.listedModels(kind)) !== shown) this.changed();
   }
 
   private async lookAll(): Promise<RunnerAccountInfo[]> {
@@ -2884,6 +2949,25 @@ export class AccountManager {
       this.log(`account ${id.slice(0, 8)} (${kind}) lent to uid ${uid}`);
       return true;
     });
+  }
+
+  /**
+   * What a terminal as the agent that thinks with this account adds to its shell (ADR 0215): the one variable that
+   * points the account's CLI at its folder, so `claude` or `codex` typed there is signed in as the agent's turns
+   * are. Only a Claude Code or Codex sign-in made for that agent: their folder is one variable of the CLI's own.
+   * The other CLIs keep theirs under the XDG folders, which a shell's other programs read too, and an account root
+   * keeps for several agents (`grant`) or a plan's key never leaves it for a shell. System mode lends the folder to
+   * `uid` first, as a turn does (`lendTo`). Nothing to add: an empty object.
+   */
+  async terminalEnv(id: string, uid?: number): Promise<Record<string, string>> {
+    for (const kind of ["claude_code", "codex"] as const) {
+      const dir = this.accountDir(kind, id);
+      if (!dir) continue;
+      if (this.isShared(kind, id) || (kind === "claude_code" && (await planKeyOf(dir)))) return {};
+      if (this.opts.lending && !(uid !== undefined && (await this.lendTo(kind, id, uid)))) return {};
+      return { [ENV_VAR[kind]]: dir };
+    }
+    return {};
   }
 
   private async reclaimNow(kind: AccountKind, id: string) {

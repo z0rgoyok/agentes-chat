@@ -91,7 +91,7 @@
     "chats": "聊天",
     "threads": "话题",
     "agents": "智能体",
-    "activity": "动态",
+    "activity": "收件箱",
     "search": "搜索",
     "withCount": "{{label}}，{{count}}"
   },
@@ -153,6 +153,7 @@
     "forwards": "转发“{{subject}}”",
     "forwardsFrom": "转发“{{subject}}”，来自 {{from}}",
     "onlyOwner": "只有 {{name}} 或管理员可以决定。",
+    "onlyOwnerRole": "只有拥有 {{role}} 角色的人或管理员可以决定。",
     "onlyAdmins": "只有管理员可以决定。",
     "notFound": "此请求已不存在，或你无权查看。",
     "trait": {
@@ -182,7 +183,14 @@
     },
     "pinned": "已置顶",
     "recent": "最近",
+    "view": {
+      "title": "显示对话",
+      "sectors": "部门",
+      "dms": "私信",
+      "channels": "频道"
+    },
     "seeAll": "查看所有聊天",
+    "splitEmpty": "你的聊天会在这里打开。",
     "wait": {
       "verb": {
         "approval": "需要你确认",
@@ -267,8 +275,8 @@
     "to": "发给：",
     "people": "成员",
     "search": "成员或智能体",
-    "create": "创建",
     "agentHint": "名称和职责",
+    "create": "创建",
     "chatShort": "对话",
     "chatHint": "一位成员或一个智能体",
     "taskHint": "附负责人和截止日期",
@@ -314,6 +322,9 @@
   },
   "chat": {
     "someone": "某人",
+    "handedTo": "已交给 {{name}}",
+    "handedTo_female": "已交给 {{name}}",
+    "pairAsked": "{{from}} 提问",
     "messageTo": "发消息给 {{name}}",
     "messageIn": "在 {{channel}} 发消息",
     "reply": "回复",
@@ -380,10 +391,6 @@
       "working": "{{names}} 正在输入",
       "mentionsYou": "有人提及了你",
       "divider": "新消息"
-    },
-    "connection": {
-      "down": "没有网络连接。恢复后你发送的内容会自动发出。",
-      "back": "已重新连接"
     },
     "longPressHint": "长按以回应并查看更多操作",
     "file": "文件",
@@ -544,6 +551,8 @@
     "camera": "相机",
     "photos": "照片",
     "file": "文件",
+    "paste": "粘贴",
+    "pasteGone": "无法读取复制的图片。请重新复制，然后点按粘贴。",
     "media": "GIF",
     "noCamera": "无法访问相机。请在手机的设置中允许。",
     "summary": "总结聊天",
@@ -736,10 +745,12 @@
     "section": {
       "missions": "专项任务",
       "threads": "话题"
-    }
+    },
+    "splitEmpty": "你的话题会在这里打开。"
   },
   "agents": {
     "title": "智能体",
+    "splitEmpty": "你的智能体页面会在这里打开。",
     "subtitle_other": "团队中 {{count}} 个 · {{working}} 个工作中",
     "free": "空闲",
     "workingLabel": "{{name}}，工作中",
@@ -834,7 +845,7 @@
     }
   },
   "activity": {
-    "title": "动态",
+    "title": "收件箱",
     "chooseModel": "选择其他模型",
     "filter": {
       "all": "全部",
@@ -852,6 +863,9 @@
     },
     "kind": {
       "proposal_waiting_other": "{{names}} 提议改进",
+      "proposal_applied_other": "{{names}} 应用了 {{count}} 项改进",
+      "proposal_applied_agents_other": "{{names}} 应用了 {{count}} 项改进",
+      "proposal_applied_auto_other": "已自动应用 {{count}} 项改进",
       "mention_other": "{{names}} 提及了你",
       "thread_reply_other": "{{names}} 在话题中回复了",
       "agent_reply_other": "{{names}} 回复了",
@@ -961,6 +975,46 @@
     "addA11y": "将 {{name}} 添加到频道",
     "added": "{{name}} 加入了频道"
   },
+  "settingsSearch": {
+    "open": "搜索设置",
+    "title": "搜索",
+    "placeholder": "在“你”和设置中搜索",
+    "workspace": "工作区设置",
+    "words": {
+      "status": "离开, 忙碌, 状态, 在线",
+      "account": "名字, 照片, 邮箱, 时区, 密码, 用户名",
+      "deleteAccount": "删除, 移除, 注销账户",
+      "workspaces": "切换, 服务器, 账户",
+      "notifications": "提醒, 推送, 角标",
+      "approvals": "批准, 委派",
+      "start": "打开, 首页, 首屏",
+      "activity": "工具, 智能体做了什么",
+      "chatLook": "气泡, 消息, 对话",
+      "wallpaper": "背景, 壁纸, 照片",
+      "agentStyle": "技术, 简单, 语气",
+      "sounds": "声音, 静音, 安静",
+      "appearance": "主题, 深色, 浅色, 模式",
+      "appIcon": "图标",
+      "language": "语言, 中文, 英语",
+      "about": "版本, 许可",
+      "aiAccounts": "密钥, API, 提供商, 套餐, 模型",
+      "general": "名称, 标志, 时区, 上下文",
+      "media": "GIF, 贴纸",
+      "members": "成员, 团队",
+      "invites": "邀请, 邀请函, 链接",
+      "roles": "权限, 角色",
+      "usage": "费用, 开销, 套餐, token, 预算",
+      "connectors": "集成, MCP, 服务",
+      "skills": "技能",
+      "vault": "密码, 密钥, 登录, 机密",
+      "access": "权限, 智能体访问",
+      "apps": "AI 应用, MCP",
+      "computers": "设备, 机器, 电脑, 手机",
+      "storage": "文件, S3, 存储",
+      "import": "导出, 导入, 迁移",
+      "audit": "日志, 历史"
+    }
+  },
   "me": {
     "title": "我",
     "role": {
@@ -1003,7 +1057,6 @@
     "fromWorkspace": "来自工作区",
     "issues": "任务",
     "issuesWithMe_other": "{{count}} 个与你有关",
-    "proposalsWaiting_other": "{{count}} 条待处理",
     "drive": "Drive",
     "connectors": "连接器和 MCP",
     "preferences": "偏好设置",
@@ -1020,6 +1073,8 @@
     "notificationsOnHint": "如果浏览器和桌面应用中开启了通知，也会在那里收到。",
     "notificationsOffHint": "开启后即可在这里收到通知。以下类型适用于你的所有设备。",
     "notificationsKindsHint": "“动态”会保留所有内容。此设置适用于此工作区，在你的所有设备上生效。",
+    "liveActivity": "灵动岛中的智能体",
+    "liveActivityHint": "智能体处理你交代的事情时,会显示在屏幕顶部(任何 App 中)和锁定屏幕上。App 关闭时需要 iOS 17.2 或更高版本。",
     "version": "agentes.chat · 版本 {{version}}",
     "edit": "编辑",
     "status": "状态",
@@ -1151,6 +1206,13 @@
       "fullscreen": "全屏",
       "open": "打开",
       "cantPlay": "此视频无法在这部手机上播放。"
+    },
+    "talk": {
+      "hint": {
+        "pdf": "长按页面以标记一个位置"
+      },
+      "pdfPage": "第 {{page}} 页，共 {{count}} 页",
+      "pdfFailed": "无法显示此 PDF。"
     }
   },
   "issues": {
@@ -1201,6 +1263,7 @@
     "criteriaOf": "{{done}}/{{total}}",
     "linkMessage": "#{{channel}} 中的消息",
     "linkMessagePlain": "原始消息",
+    "removeFileText": "文件仍保留在 Drive 中。",
     "subIssues": "子任务",
     "talk": "聊天",
     "finish": "标为完成",
@@ -1288,13 +1351,26 @@
     "agentLine_other": "{{count}} 条记忆",
     "uses_other": "已使用 {{count}} 次",
     "confirmed": "已由成员确认",
-    "confirm": "确认",
-    "confirmedToast": "已确认",
     "details": "技术细节",
     "before": "之前的内容：{{text}}",
     "fix": "更正",
     "forgetTitle": "忘记这条记忆？",
     "forgetText": "{{name}} 在以后的对话中将不再使用这条记忆。"
+  },
+  "proposals": {
+    "title": "智能体改进",
+    "emptyTitle": "还没有任何更改",
+    "empty": "当智能体改进自己或同伴的指令时，更改会显示在这里，并可撤销。",
+    "more": "显示更多",
+    "reviewing": "评估中…",
+    "appliedBy": "由 {{name}} 应用",
+    "appliedBy_female": "由 {{name}} 应用",
+    "appliedAuto": "已自动应用",
+    "leftOutBy": "{{name}} 决定不应用",
+    "leftOutBy_female": "{{name}} 决定不应用",
+    "leftOut": "未应用",
+    "undoneBy": "已由 {{name}} 撤销",
+    "undoneByYou": "已由你撤销"
   },
   "wiki": {
     "map": "页面地图",
@@ -1333,6 +1409,19 @@
       "day": "日",
       "monthDay": "{{day}} 日",
       "lastDay": "最后一天"
+    }
+  },
+  "coding": {
+    "pill": "{{who}}。查看代码",
+    "seeChanges": "查看改动",
+    "project": "项目",
+    "whereSearch": "搜索或输入名称",
+    "listed": "智能体已有的",
+    "commit": "提交 {{short}}",
+    "waiting": "等你处理",
+    "next": {
+      "pr": "分支已推送，还没有拉取请求",
+      "mergeLocal": "可以合并到 {{base}} 了"
     }
   },
   "taskManager": {
@@ -1444,6 +1533,7 @@
       "ruleBody": "{{name}} 将不再遵循这条规则。定下这条规则的人可以再次定下同样的规则。",
       "ruleRemove": "移除",
       "footOwner": "只有 {{name}} 或管理员可以更正这些内容。",
+      "footOwnerRole": "只有拥有 {{role}} 角色的人或管理员可以更正。",
       "footAdmins": "只有管理员可以更正这些内容。",
       "emptyF": "{{name}} 还没有保存关于你的任何内容。",
       "emptyM": "{{name}} 还没有保存关于你的任何内容。",
@@ -1493,6 +1583,7 @@
       },
       "asksYou": "合并和发布会请你审批，除非智能体设为“从不询问”。",
       "asksOwner": "合并和发布会请 {{name}} 审批，除非智能体设为“从不询问”。",
+      "asksOwnerRole": "合并和发布需要拥有 {{role}} 角色的人审批，除非该智能体从不询问。",
       "asksAdmins": "合并和发布会请管理员审批，除非智能体设为“从不询问”。",
       "empty": "目前只能对话。"
     }
@@ -1922,18 +2013,14 @@
     "mcps": "MCP",
     "mcpsNone": "通过地址连接的 MCP 服务器会显示在这里。",
     "addMcp": "添加 MCP",
-    "add": "添加",
-    "allServices": "所有服务",
     "waitLine_other": "{{count}} 个工具需要你处理",
     "toolsWait_other": "{{count}} 个需要你处理",
     "connectedState": "已连接",
     "connected": "已连接",
-    "suggested": "为 {{org}} 推荐",
-    "all": "全部",
+    "seeAll": "查看全部",
     "noResults": "没有这个名称的服务。试试它的地址。",
     "soon": "即将推出",
     "loadFailed": "无法加载连接器。",
-    "connectedCheck": "{{name}}，已连接",
     "adminsOnly": "只有 {{org}} 的管理员可以连接服务。请联系其中一位。",
     "adminsOnlyPersonal": "只有管理这个工作区的人可以连接应用。请联系对方。",
     "canTitle": "智能体将能够",
@@ -1977,6 +2064,31 @@
     "disconnect": "断开连接",
     "disconnected": "{{name}} 已断开连接。",
     "usedBy_other": "{{names}} 在使用",
+    "page": {
+      "missing": "此服务已不在目录中。",
+      "connected": "已连接",
+      "open": "打开连接",
+      "category": "类别",
+      "tools": "工具",
+      "toolsAsk_other": "{{count}} 个需要批准",
+      "toolsAskNone": "没有需要批准的",
+      "toolsLater": "连接后显示",
+      "who": "谁可以连接",
+      "whoAdmins": "{{org}} 的管理员",
+      "whoRuns": "管理工作区的人",
+      "whoYou": "你自己",
+      "signIn": "登录方式",
+      "how": {
+        "signIn": "你的账户",
+        "key": "密钥",
+        "either": "账户或密钥"
+      },
+      "canTitle": "智能体能用它做什么",
+      "address": "地址",
+      "addressNote": "智能体会用已连接的账户访问这个地址。每个智能体只能获得你允许的内容。",
+      "host": "连接到",
+      "more": "{{category}} 中的更多"
+    },
     "fromAgent": "连接服务",
     "githubApp": {
       "useApp": "使用 agentes.chat 应用",
@@ -2627,6 +2739,10 @@
       "textPersonal": "为智能体创建任务，一直跟进到完成。",
       "viewerTitlePersonal": "跟进你的智能体的工作"
     },
+    "coding": {
+      "title": "和你的智能体一起写代码",
+      "text": "每个会话都是和一个智能体的对话，它在自己的电脑上、自己的分支里工作。"
+    },
     "routines": {
       "title": "把重复的工作交给智能体",
       "text": "例行工作会按时间或在某件事发生时自动运行。",
@@ -2946,6 +3062,59 @@
       "editHint": "编辑这一部分",
       "notHere": "这一部分需要在电脑上编辑"
     }
+  },
+  "aiHub": {
+    "accounts": "账号",
+    "accountsHint": "这个工作区的所有套餐和 API 密钥,不论是谁连接的。点按一个账号,查看它的限额和谁能使用。",
+    "order": "使用顺序",
+    "orderSub": "达到限额时,智能体会换用下一个账号继续。",
+    "skipped": "已跳过",
+    "orderGroup": "{{plan}} · {{computer}}",
+    "noOrder": "一台电脑上有同一 AI 的两个账号时,它们的顺序会显示在这里。",
+    "keyFallback": "所有套餐都达到限额时,改用 API 密钥继续",
+    "keyFallbackHint": "最后一个账号之后,智能体改用工作区的 API 密钥继续,按用量计费。任务永远不会换到密钥。",
+    "keyFallbackLocked": "只有管理员可以更改。",
+    "limits": "限额",
+    "permissions": "权限",
+    "manage": "管理",
+    "manageSub": "重命名、重新登录、移除",
+    "manageHint": "谁可以重命名这个账号、重新登录和移除它。只有连接它的人可以更改。",
+    "use": "在智能体中使用",
+    "useSub": "在思考方式中选择",
+    "useHint": "谁的智能体可以用这个账号思考,以及谁的 Lodi。管理它的人可以更改。",
+    "reply": "回应所有人",
+    "replySub": "智能体和谁交谈",
+    "replyHint": "这个账号上的智能体除了自己的所有者,还回应谁。Claude 的条款要求套餐由付费的人使用:向所有人开放前请先查看。",
+    "audience": {
+      "owner": "仅你",
+      "ownerOf": "仅 {{name}}",
+      "admins": "你和管理员",
+      "adminsOf": "{{name}} 和管理员",
+      "roles": "角色…",
+      "people": "成员…",
+      "everyone": "所有人",
+      "agentOwner": "仅智能体的所有者",
+      "rolesCount_other": "{{count}} 个角色",
+      "peopleCount_other": "{{count}} 人"
+    },
+    "pickRoles": "角色",
+    "pickPeople": "成员",
+    "pickNone": "请至少选择一个。",
+    "choice": {
+      "account": "账号",
+      "model": "模型",
+      "effort": "思考强度",
+      "yours": "你的",
+      "others": "团队的",
+      "keys": "API 密钥",
+      "workspace": "工作区的",
+      "workspaceSub": "工作区的 API 密钥",
+      "key": "API 密钥",
+      "keyDefault": "工作区默认",
+      "api": "API"
+    },
+    "missionAi": "AI",
+    "missionLocked": "开始前选择由谁来做。模型随时可以更改。"
   },
   "surface": {
     "on": "已开启",

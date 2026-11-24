@@ -266,7 +266,10 @@ describe("grammar", () => {
     expect(te("noAi.agent", ada)).toBe("Ada won't reply because she has no AI\u00a0connected.");
     expect(te("dm.emptyAgent", ada)).toBe("Ask her to remember, forget or work differently.");
     expect(te("agentPage.work.cell.label", ada)).toBe("How she works");
-    expect(te("agentPage.overview.proposes", ada)).toBe("Ada proposes changing her instructions");
+    expect(te("noAi.signedOut", ada)).toBe("Ada won't reply because her AI is signed\u00a0out.");
+    // No gender in these in English: her context falls back to the one line.
+    expect(te("proposals.leftOutBy", ada)).toBe("Left out by Ada");
+    expect(te("proposals.appliedByAgent", ada)).toBe("Applied by Ada");
     expect(te("chat.work.block", theo)).toBe("What he did");
     expect(te("chat.joined.tip", theo)).toBe("Nobody called Theo. He joined to help.");
     expect(te("channelMembers.removeAgentBody", ada)).toBe(

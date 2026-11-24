@@ -77,6 +77,7 @@ import { AskButtons, AskCard, AskFoot, ExpiryLine } from "../chat/asks";
 import { mayStopRun } from "../chat/logic";
 import { useColors, useDirectory, useMeId, useNow } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
+import { ownsIn } from "../shared/owner";
 import { successHaptic, tapHaptic } from "../shared/parts";
 import { useActiveWork } from "../shared/queries";
 import { DesktopAgentPointer } from "./AgentPointer";
@@ -292,8 +293,10 @@ export function AgentScreen({
 
   const handoff = f?.handoff ?? null;
   const waiting = handoff && isWaitingHandoff(handoff, now) ? handoff : null;
-  // Whose it is goes by ids, the same rule as the request's card: its owner and who controls computers may help too.
-  const mine = waiting !== null && handoffIsMine(waiting, userId, agent?.ownerUserId, org);
+  // Whose it is goes by ids, the same rule as the request's card: its owner (or one who holds the role that answers for
+  // it, ADR 0085, addendum of 2026-11-21) and who controls computers may help too.
+  const owner = ownsIn(dir.memberById, userId, agent) ? userId : agent?.ownerUserId;
+  const mine = waiting !== null && handoffIsMine(waiting, userId, owner, org);
   const ask = inControl && handoff?.kind === "ask";
   const doneLabel = ask ? t("mobile.browser.live.done") : t("mobile.browser.live.handBack");
   const { handBack, leaveNote, couldnt, finishing } = useFinishHandoff(
@@ -1475,6 +1478,8 @@ function Watching({
       meId,
       manageAgents: managesAgent(dir.agentById.get(agentId)),
       agentOwnerId: dir.agentById.get(agentId)?.ownerUserId,
+      // Holding the role that answers for it counts as its owner (ADR 0085, addendum of 2026-11-21).
+      owns: ownsIn(dir.memberById, meId, dir.agentById.get(agentId)),
       messages: [],
     });
   const stop = () => {

@@ -26,6 +26,8 @@ import {
   authAnswerOf,
   brandOf,
   capabilityLines,
+  catalogShelves,
+  categoryIcon,
   connectHow,
   connectionOf,
   doneFinishing,
@@ -38,7 +40,10 @@ import {
   monogram,
   needsKeyText,
   ownMarkUri,
+  relatedServices,
   searchConnectors,
+  serviceFacts,
+  shelfColumns,
   shownMailboxes,
   stateOf,
   suggestionsOf,
@@ -110,11 +115,55 @@ describe("connectors gallery", () => {
     expect(items.filter((i) => !isMcpItem(i)).length).toBe(2);
   });
 
-  test("suggestions: the first three ready here and not connected, in our order", () => {
-    const catalog = ["github", "linear", "notion", "drive", "sentry"].map((id) => def(id));
+  test("suggestions: the first ready here and not connected, in our order (the web's)", () => {
+    const catalog = ["github", "linear", "notion", "drive", "sentry", "figma", "posthog"].map((id) => def(id));
     catalog[2] = def("notion", { available: false });
     const items = connectedItems([conn("github")], [], catalog);
-    expect(suggestionsOf(catalog, items).map((d) => d.id)).toEqual(["linear", "drive", "sentry"]);
+    expect(suggestionsOf(catalog, items).map((d) => d.id)).toEqual(["sentry", "linear", "figma"]);
+    expect(suggestionsOf(catalog, items, 6).map((d) => d.id)).toEqual(["sentry", "linear", "figma", "drive"]);
+  });
+
+  test("the catalog in shelves: each category in order, none empty", () => {
+    const linear = def("linear", { category: "product" });
+    const stripe = def("stripe", { category: "payments" });
+    const github = def("github");
+    const offered = [stripe, linear, github];
+    expect(catalogShelves(offered).map((s) => [s.key, s.defs.map((d) => d.id)])).toEqual([
+      ["dev", ["github"]],
+      ["product", ["linear"]],
+      ["payments", ["stripe"]],
+    ]);
+    expect(catalogShelves([])).toEqual([]);
+    // Columns of three, sliding sideways.
+    expect(shelfColumns([1, 2, 3, 4, 5, 6, 7])).toEqual([[1, 2, 3], [4, 5, 6], [7]]);
+    expect(shelfColumns([])).toEqual([]);
+  });
+
+  test("the gallery: what is connected a grouped list, the catalog in shelves of rows that open the service", () => {
+    const gallery = readFileSync(join(import.meta.dir, "../../src/features/connectors/ConnectorsScreen.tsx"), "utf8");
+    expect(gallery).toMatch(/<GroupedHeader>\{`\$\{t\("mobile\.connectors\.connected"\)\} · \$\{connectedCount\}`\}/);
+    expect(gallery).toContain("const shelves = useMemo(() => catalogShelves(offered), [offered]);");
+    // The suggested services are featured cards above what is connected: those that open here, six at most, each
+    // opening its page (no button of their own).
+    expect(gallery).toContain("return suggestionsOf(list, items, FEATURED * 2)");
+    expect(gallery).toContain(".filter((d) => opens.has(d.id))");
+    expect(gallery).toMatch(/<FeaturedCards\s+defs=\{featured\}[\s\S]*?onOpen=\{open\}/);
+    const cards = readFileSync(join(import.meta.dir, "../../src/features/connectors/FeaturedCards.tsx"), "utf8");
+    expect(cards).toContain("snapToInterval={card + GAP}");
+    // Each card on its brand's art, as the web's features: the brand's light, its mark huge behind.
+    expect(cards).toMatch(/<BrandArt\s+look=\{brandLook\(def\.iconUrl, def\.brandColor\)\}\s+template="glow"/);
+    expect(cards).not.toContain("<Button");
+    // Its art and words clipped to the card's corners, the card's shadow outside them.
+    expect(cards).toMatch(/clip: \{[^}]*borderRadius: 20,\s*borderBottomLeftRadius: 6,\s*overflow: "hidden",/);
+    // A column at a time, snapped to the screen's side, the next one's edge in sight.
+    expect(gallery).toContain("snapToInterval={column + SHELF_GAP}");
+    // A row opens its service (no button of its own in the list): its chevron says so.
+    const row = gallery.slice(gallery.indexOf("function Lockup("), gallery.indexOf("const styles = StyleSheet.create"));
+    expect(row).toContain("<Disclosure />");
+    expect(row).not.toContain("<Button");
+    // No filter chips and no flat list of every service under them: the shelves are the catalog.
+    expect(gallery).not.toContain("<Filters");
+    expect(gallery).not.toContain("mobile.connectors.allServices");
   });
 
   test("'Em breve': a vendor that hasn't approved agentes.chat yet is last, greyed with a lock, and opens nothing", () => {
@@ -174,6 +223,10 @@ describe("connectors gallery", () => {
     );
     expect(needsKeyText(en, said, "Asana").split("\n")[1]).toBe(
       "The server answered: invalid_redirect_uri: not allowed",
+    );
+    // Who may give the workspace its own OAuth app is pointed there, the server's words still under ours.
+    expect(needsKeyText(en, said, "Meta Ads", false, true)).toBe(
+      "Meta Ads only lets in apps it approved, and agentes.chat isn't one yet. You can connect it with your own app there.\nThe server answered: invalid_redirect_uri: not allowed",
     );
   });
 
@@ -380,9 +433,12 @@ describe("a connection's screen and the gallery, at a finger's reach", () => {
     expect(screen).not.toContain("ActivityIndicator");
   });
 
-  test("the amber line of what waits on you is a 44-point target", () => {
+  test("what waits on you says so in amber in its own row, which opens where it is decided", () => {
     const gallery = read("ConnectorsScreen.tsx");
-    expect(gallery).toMatch(/wait: \{[^}]*minHeight: 44[^}]*\}/);
+    expect(gallery).toContain('{...(why ? { sub: why, subTone: "amber" as const } : fact ? { sub: fact } : {})}');
+    expect(gallery).toContain(
+      "connectionActs(item, me, manages).change && item.pending > 0 ? openTools(item.id) : openConnection(item.id);",
+    );
   });
 });
 
@@ -591,7 +647,7 @@ describe("a connection that stopped working", () => {
     expect([sup?.needsReconnect, sup?.toolsError]).toEqual([false, "upstream timed out"]);
     const src = (f: string) => readFileSync(join(import.meta.dir, "../../src/features/connectors", f), "utf8");
     const strip = src("ConnectorsScreen.tsx");
-    const tile = strip.slice(strip.indexOf("function ConnectedTile("), strip.indexOf("const TILE_IN"));
+    const tile = strip.slice(strip.indexOf("function ConnectedRow("), strip.indexOf("function ShelfRow("));
     expect(tile).toContain('t("connectors.composio.needsReconnect")');
     expect(tile).toContain('t("connectors.noToolsNow")');
     const screen = src("ConnectionScreen.tsx");
@@ -599,5 +655,105 @@ describe("a connection that stopped working", () => {
     // Its way out right under it, for whoever manages connectors: read the server's tools again.
     expect(screen).toContain('label={t("mobile.connectors.readAgain")}');
     expect(screen).toContain("refresh.mutate(server.id, {");
+  });
+});
+
+describe("a service's own page", () => {
+  test("its facts: our connector's tools and how many ask, a vendor's server's only once connected, its host", () => {
+    const ours = def("github", {
+      tools: [
+        { name: "read", scope: "repo:read", sensitive: false },
+        { name: "merge", scope: "repo:write", sensitive: true },
+        { name: "deploy", scope: "deploy", sensitive: true },
+      ],
+    });
+    expect(serviceFacts(ours)).toEqual({ tools: 3, asks: 2, how: "either", host: null });
+    const vendor = def("notion", { kind: "remote_mcp", serverUrl: "https://mcp.notion.example/mcp" });
+    expect(serviceFacts(vendor)).toEqual({ tools: null, asks: 0, how: "signIn", host: "mcp.notion.example" });
+    expect(serviceFacts(def("keyonly", { auth: ["api_key"], oauthConfigured: false })).how).toBe("key");
+    expect(categoryIcon("payments")).toBe("wallet");
+    expect(categoryIcon("dev")).toBe("code");
+  });
+
+  test("more in its category: the others it could connect, never itself, up to six", () => {
+    const offered = [
+      def("a"),
+      def("b", { category: "docs" }),
+      def("c"),
+      def("d"),
+      def("e"),
+      def("f"),
+      def("g"),
+      def("h"),
+    ];
+    expect(relatedServices(def("a"), offered).map((d) => d.id)).toEqual(["c", "d", "e", "f", "g", "h"]);
+    expect(relatedServices(def("b", { category: "docs" }), offered)).toEqual([]);
+  });
+
+  test("its page: the brand's art on top, its mark in tilted rows, as the web's service dialog", () => {
+    const page = readFileSync(join(import.meta.dir, "../../src/features/connectors/ServicePage.tsx"), "utf8");
+    expect(page).toMatch(/<BrandArt\s+look=\{brandLook\(def\.iconUrl, def\.brandColor\)\}\s+template="pattern"/);
+    expect(page).not.toContain("<Dither");
+  });
+
+  test("a catalog row pushes the page; the page connects straight, or says who does, and leads to the connection", () => {
+    const gallery = readFileSync(join(import.meta.dir, "../../src/features/connectors/ConnectorsScreen.tsx"), "utf8");
+    expect(gallery).toContain("const open = (def: ConnectorDef) => openService(def.id, personal);");
+    expect(gallery).toContain(
+      'router.push({ pathname: "/connectors/service/[id]", params: { id, ...(personal ? { personal: "1" } : {}) } });',
+    );
+    const page = readFileSync(join(import.meta.dir, "../../src/features/connectors/ServicePage.tsx"), "utf8");
+    expect(page).toContain("sheet.open(<ConnectSheet def={def} personal={personal} fromPage />)");
+    // The sheet skips what the page already said: a new one starts on connecting.
+    expect(readFileSync(join(import.meta.dir, "../../src/features/connectors/ConnectSheet.tsx"), "utf8")).toContain(
+      'connecting || (fromPage && !existing && mayConnect) ? "connect" : firstStep(existing, mayConnect, start),',
+    );
+    expect(page).toContain('t(modeKey(org, "mobile.connectors.adminsOnly"), { org: org?.name ?? "" })');
+    expect(page).toContain("onPress={() => openConnection(existing.id)}");
+    expect(page).toContain('template="pattern"');
+    // Nothing of ours in its bar: the system's back over a clear bar.
+    expect(page).toContain('<PushedHeader title="" plate solid={false} grouped />');
+    const layout = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/_layout.tsx"), "utf8");
+    expect(layout).toContain('"connectors/service/[id]": cover,');
+  });
+});
+
+describe("strips that scroll sideways say so", () => {
+  test("the kit's strip fades at the edge where more waits; the service page's art moves as every cover", () => {
+    const strip = readFileSync(join(import.meta.dir, "../../src/ui/SideScroll.tsx"), "utf8");
+    expect(strip).toContain("return { opacity: Math.min(1, Math.max(0, past / FADE)) };");
+    expect(strip).toContain(
+      "const left = useAnimatedStyle(() => ({ opacity: Math.min(1, Math.max(0, x.value / FADE)) }));",
+    );
+    for (const file of [
+      "features/connectors/ServicePage.tsx",
+      "features/connectors/ConnectorsScreen.tsx",
+      "features/connectors/FeaturedCards.tsx",
+      "features/chats/PinnedStrip.tsx",
+      "features/chats/HomeWidgets.tsx",
+      "features/search/SearchFilters.tsx",
+      "features/team/TeamScreen.tsx",
+    ]) {
+      const source = readFileSync(join(import.meta.dir, "../../src", file), "utf8");
+      expect({ file, strip: source.includes("<SideScroll") }).toEqual({ file, strip: true });
+    }
+    const page = readFileSync(join(import.meta.dir, "../../src/features/connectors/ServicePage.tsx"), "utf8");
+    expect(page).toContain("<CoverParallax y={y} style={styles.sky}>");
+    expect(page).toContain("onScroll={onScroll}");
+  });
+});
+
+describe("a service's page reads as one hierarchy", () => {
+  test("every section under the grouped header; capabilities as grouped rows; nothing the strip already says", () => {
+    const page = readFileSync(join(import.meta.dir, "../../src/features/connectors/ServicePage.tsx"), "utf8");
+    expect(page).not.toContain('<Text variant="title2">{t("mobile.connectors.page.canTitle")}</Text>');
+    expect(page).toContain('<GroupedHeader>{t("mobile.connectors.page.canTitle")}</GroupedHeader>');
+    expect(page).toContain('leading={l.asks ? <IconTile icon="shield" tint="orange" /> : <IconTile icon="sparkle" />}');
+    // Informações repeated the strip: only the address stays, with its note.
+    expect(page).not.toContain("mobile.connectors.page.info");
+    expect(page).toContain('<GroupedHeader>{t("mobile.connectors.page.address")}</GroupedHeader>');
+    expect(page).toContain('<GroupedFooter>{t("mobile.connectors.page.addressNote")}</GroupedFooter>');
+    // The related shelf under the same header, with its whole category one tap away.
+    expect(page).toMatch(/<ShelfRow\s+grouped/);
   });
 });

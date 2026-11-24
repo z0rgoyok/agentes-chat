@@ -581,7 +581,13 @@ describe("HTTP client: drive, storage, issues, routines, calendar, custom MCP, i
   });
 
   test("a webhook routine's address: read it, a new one, a signing secret or none, Testar", async () => {
-    const hook = { url: "https://app.agentes.test/api/hooks/t", signed: true, methods: ["POST" as const], calls: [] };
+    const hook = {
+      url: "https://app.agentes.test/api/hooks/t",
+      signed: true,
+      methods: ["POST" as const],
+      groupBy: null,
+      calls: [],
+    };
     const { fetch, calls } = fakeFetch({
       [`${org}/routines/r1/hook`]: { status: 200, body: hook },
       [`POST ${org}/routines/r1/hook/address`]: { status: 200, body: hook },

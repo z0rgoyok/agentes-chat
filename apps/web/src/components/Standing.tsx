@@ -7,6 +7,7 @@ import {
   useAuthConfig,
   useClosingMe,
   useComputerSetup,
+  usePlanMove,
   useRestoreAccount,
   useRestoreWorkspace,
 } from "@agenteschat/client";
@@ -40,6 +41,7 @@ import { AuthShell } from "@/components/AuthLayout";
 import { BillingLinkButton } from "@/components/BillingLinkButton";
 import { DeleteAccountEntry } from "@/components/DeleteAccount";
 import { useOrg } from "@/components/org-context";
+import { PlanMoveButtons, PlanMoveHow } from "@/components/PlanMove";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useSignOut } from "@/hooks/useSignOut";
 import { usePaidReturn } from "@/lib/paid-return";
@@ -196,10 +198,12 @@ function Deleting({ org, deletion }: { org: OrgSummary; deletion: OrgDeletion })
   const { me } = useOrg();
   const toast = useToast();
   const restore = useRestoreWorkspace(org.id);
+  const plan = usePlanMove(org.id);
   useClosingMe();
   const owner = restorable(org);
   const due = !!deletion.dueAt && Date.parse(deletion.dueAt) > Date.now();
   const by = deletedByText(t, i18n.language, deletion, me.user.id);
+  const moves = due && plan.targets.length > 0 && !plan.movedTo;
   return (
     <section className="outages" aria-label={t("standing.label")}>
       <div className="outage hold-banner deleting-banner" role="status">
@@ -208,22 +212,32 @@ function Deleting({ org, deletion }: { org: OrgSummary; deletion: OrgDeletion })
           <b>{deletingText(t, i18n.language, org.name, deletion)}</b>
           {by && <span>{by}</span>}
           {due && !owner && <span>{t("deleting.membersOnly")}</span>}
+          {moves && (
+            <span className="ac-hintline">
+              {t("planMove.deleting")}
+              <PlanMoveHow label={t("planMove.deleting")} />
+            </span>
+          )}
+          {plan.movedTo && <span>{t("planMove.moving", { name: plan.movedTo })}</span>}
         </span>
-        {owner && (
+        {(owner || moves) && (
           <span className="outage__acts">
-            <Button
-              size="sm"
-              variant="primary"
-              loading={restore.isPending}
-              disabled={restore.isPending}
-              onClick={() =>
-                restore.mutate(undefined, {
-                  onSuccess: () => toast.show(t("deleting.restored", { name: org.name })),
-                })
-              }
-            >
-              {t("deleting.restore")}
-            </Button>
+            {moves && <PlanMoveButtons plan={plan} size="sm" />}
+            {owner && (
+              <Button
+                size="sm"
+                variant="primary"
+                loading={restore.isPending}
+                disabled={restore.isPending}
+                onClick={() =>
+                  restore.mutate(undefined, {
+                    onSuccess: () => toast.show(t("deleting.restored", { name: org.name })),
+                  })
+                }
+              >
+                {t("deleting.restore")}
+              </Button>
+            )}
           </span>
         )}
       </div>
@@ -236,7 +250,7 @@ function Deleting({ org, deletion }: { org: OrgSummary; deletion: OrgDeletion })
  * behind an ⓘ), then the screen's buttons at the column's width, and `foot` apart under them. Signed in: no language
  * to pick there.
  */
-function ClosedScreen({
+export function ClosedScreen({
   title,
   lead,
   hint,
@@ -347,7 +361,7 @@ export function AccountDeletingScreen({ dueAt }: { dueAt: string | null }) {
 }
 
 /** Sair, from a screen in place of the app: out of the account, to the sign-in. Working while it runs. */
-function SignOutButton({ leave, disabled }: { leave: ReturnType<typeof useSignOut>; disabled?: boolean }) {
+export function SignOutButton({ leave, disabled }: { leave: ReturnType<typeof useSignOut>; disabled?: boolean }) {
   const { t } = useTranslation();
   return (
     <Button size="lg" block loading={leave.pending} disabled={disabled} onClick={() => void leave.signOut()}>

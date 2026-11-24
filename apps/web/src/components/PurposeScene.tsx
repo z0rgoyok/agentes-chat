@@ -1,24 +1,29 @@
 import {
   type PurposeKind,
+  SCENE_ACTIVITIES,
   SCENE_COLOR,
   SCENE_FACES,
   SCENE_H,
   SCENE_LINES,
   SCENE_W,
+  type SceneFace,
 } from "@agenteschat/client/lib/purpose-scene";
 import { type AgentAppearance, Avatar, cx, horizonCrest, horizonTones, mix, PixelSky } from "@agenteschat/ui";
 import type { CSSProperties } from "react";
+import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { type PurposeLife, sceneAgentKey, WAKE_STEP_MS } from "@/components/purpose-life";
 
 /**
  * The scene of an answer to "what will you use agentes.chat for?" (ADR 0159), the onboarding's brand moment, drawn
- * with the app's own faces and the org chart's lines, over the cards' horizon (`CardHorizon`). For me: the person
+ * with the app's own faces and the org chart's lines, over the cards' horizon (`CardHorizon`) unless `horizon` is off
+ * (the onboarding's rows draw none). For me: the person
  * signing up in the middle (their photo, or their initials as everywhere), their agents around them, each joined to
  * them. For a team: an org chart, them on top, people and agents under them. The other answer rests (its agents doze,
  * their zz); choosing one draws its lines and wakes its agents in a wave (`usePurposeLife`: a z pops off each, eyes
- * open, a hop), and from then on they look at the pointer; the agent whose pill works bobs. Pointing at an agent
- * points at its pill. Decorative: the answer says it in words.
+ * open, a hop), and from then on they look at the pointer; the agent at work bobs. With `says`, the agent at work or
+ * pointed at says what it does in a small bubble over or under its face (`SceneSay`). Decorative: the answer says it
+ * in words.
  *
  * Laid out on the shared stage (`SCENE_W`×`SCENE_H`, scaled down on a phone), the phone's drawing too.
  */
@@ -33,39 +38,50 @@ export function PurposeScene({
   chosen,
   you,
   life,
+  horizon = true,
+  says = false,
 }: {
   kind: PurposeKind;
   chosen: boolean;
   you: PurposeYou;
   life: PurposeLife;
+  /** The horizon at the drawing's foot. */
+  horizon?: boolean;
+  /** The agent at work, or the one pointed at, says what it does. */
+  says?: boolean;
 }) {
+  const { t } = useTranslation();
   const faces = SCENE_FACES[kind];
   const color = SCENE_COLOR[kind];
+  const speaker = says ? (life.hot ?? life.working) : null;
+  const words = speaker === null ? undefined : SCENE_ACTIVITIES[kind].find((a) => a.agent === speaker)?.key;
   return (
     <span className="onb-scene" data-kind={kind} data-chosen={chosen || undefined} data-gaze="" aria-hidden="true">
-      <span className="onb-scene__sky">
-        <PixelSky
-          // A new sky when the choice changes: a sky reads its surface once, and the chosen card's is another.
-          key={chosen ? "chosen" : "resting"}
-          options={{
-            pixel: 4,
-            surface: "--scene-surface",
-            // The card's own ground paints nothing; `mix` spells it "#rrggbb" (a token may be "#fff").
-            seeThrough: true,
-            palette: (surface) =>
-              horizonTones(color, mix(surface, surface, 0), document.documentElement.dataset.theme === "dark"),
-            light: 0,
-            // The cards' horizon (`CardHorizon`) at the drawing's foot, where its last faces stand: a crest, then down
-            // into the color's light tones; resting, half as far.
-            base: (u, v) => {
-              const crest = horizonCrest(u * 0.85);
-              if (v < crest) return 0;
-              const f = Math.min(1, 0.2 + ((v - crest) / (1 - crest)) * 0.85);
-              return chosen ? f : f * 0.5;
-            },
-          }}
-        />
-      </span>
+      {horizon && (
+        <span className="onb-scene__sky">
+          <PixelSky
+            // A new sky when the choice changes: a sky reads its surface once, and the chosen card's is another.
+            key={chosen ? "chosen" : "resting"}
+            options={{
+              pixel: 4,
+              surface: "--scene-surface",
+              // The card's own ground paints nothing; `mix` spells it "#rrggbb" (a token may be "#fff").
+              seeThrough: true,
+              palette: (surface) =>
+                horizonTones(color, mix(surface, surface, 0), document.documentElement.dataset.theme === "dark"),
+              light: 0,
+              // The cards' horizon (`CardHorizon`) at the drawing's foot, where its last faces stand: a crest, then down
+              // into the color's light tones; resting, half as far.
+              base: (u, v) => {
+                const crest = horizonCrest(u * 0.85);
+                if (v < crest) return 0;
+                const f = Math.min(1, 0.2 + ((v - crest) / (1 - crest)) * 0.85);
+                return chosen ? f : f * 0.5;
+              },
+            }}
+          />
+        </span>
+      )}
       <span className="onb-scene__room">
         <span className="onb-scene__stage">
           <svg
@@ -92,8 +108,8 @@ export function PurposeScene({
               key={i}
               className={cx("onb-scene__face", life.working === i && "is-bob")}
               style={{ left: f.x - f.size / 2, top: f.y - f.size / 2, width: f.size, height: f.size }}
-              onPointerEnter={life.hasPill(i) ? () => life.point(i) : undefined}
-              onPointerLeave={life.hasPill(i) ? () => life.point(null) : undefined}
+              onPointerEnter={life.hasActivity(i) ? () => life.point(i) : undefined}
+              onPointerLeave={life.hasActivity(i) ? () => life.point(null) : undefined}
             >
               {"look" in f ? (
                 <AgentAvatar
@@ -115,10 +131,26 @@ export function PurposeScene({
                   style={{ animationDelay: `${life.wakeOrder(i) * WAKE_STEP_MS}ms` }}
                 />
               )}
+              {speaker === i && words && <SceneSay face={f} words={t(`onboarding.purpose.activities.${words}`)} />}
             </span>
           ))}
         </span>
       </span>
+    </span>
+  );
+}
+
+/**
+ * What an agent does, in the right hand's bubble (`.onb__say`), on the side of its face with room: over it, or under it
+ * for the drawing's bottom row; from its outer edge near the stage's sides, centered elsewhere. Inside the scaled stage,
+ * so its size undoes the stage's scale (`--scene-scale`).
+ */
+function SceneSay({ face, words }: { face: SceneFace; words: string }) {
+  const side = face.x < SCENE_W / 4 ? "start" : face.x > (SCENE_W * 3) / 4 ? "end" : "center";
+  const place = face.y > SCENE_H * 0.7 ? "below" : "above";
+  return (
+    <span className="onb-scene__say" data-side={side} data-place={place}>
+      {words}
     </span>
   );
 }

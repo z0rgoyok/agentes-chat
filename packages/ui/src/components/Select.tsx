@@ -80,7 +80,7 @@ function SelectItem<V extends string>({ option: o }: { option: SelectOption<V> }
   const hide = () => setAt(null);
   const keep = (e: { stopPropagation: () => void }) => e.stopPropagation();
   return (
-    // The chosen option shows by its background and a check at its end, whose room every row keeps: names line up.
+    // The chosen option shows by its plate and its heavier name: no check column, so a row's end is its own.
     <RSelect.Item
       value={toRadix(o.value)}
       disabled={o.disabled}
@@ -124,9 +124,6 @@ function SelectItem<V extends string>({ option: o }: { option: SelectOption<V> }
           </span>
         </span>
       )}
-      <svg className="ac-menu__check" viewBox="0 0 20 20" aria-hidden="true">
-        <path d="m5.5 10.5 3 3 6-7" />
-      </svg>
       {at &&
         createPortal(
           <span

@@ -2,7 +2,7 @@ import type { MergeDone } from "@agenteschat/adapters";
 import { and, asc, type Database, type Executor, eq, schema } from "@agenteschat/db";
 import { recordAgentActions } from "../agent-actions";
 import { getAgent } from "../agents";
-import { managesAgent } from "../audience";
+import { managesAgent, ownsAgent } from "../audience";
 import { recordAudit } from "../audit";
 import { fedByRoutine, runAuthorityById } from "../authority";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
@@ -49,7 +49,9 @@ export function parseRepo(input: string) {
     .replace(/^git@github\.com:/, "")
     .replace(/\/$/, "");
   const m = REPO.exec(s);
-  return m ? { owner: m[1] as string, repo: m[2] as string } : null;
+  // "." and ".." name no GitHub owner or repository, and would climb out of the checkouts' folder (`gitCheckoutDir`).
+  if (!m || [m[1], m[2]].some((part) => part === "." || part === "..")) return null;
+  return { owner: m[1] as string, repo: m[2] as string };
 }
 
 /** Whether `owner/repo` is in the list (an empty list allows everything). Case-insensitive, like GitHub. */
@@ -131,7 +133,7 @@ export async function setAgentRepositories(
   const agent = await getAgent(db, orgId, agentId);
   if (!agent) throw new NotFoundError("Agent not found");
   const admin = managesAgent(agent, actorId, membership);
-  if (!admin && agent.ownerUserId !== actorId) {
+  if (!admin && !ownsAgent(agent, actorId, membership.roleIds)) {
     throw new ForbiddenError("Only an admin or the agent's owner can change its repositories");
   }
   const { list, invalid } = cleanRepoList(repositories);
@@ -219,7 +221,7 @@ export async function setAgentMergeRepositories(
   const membership = await requirePermission(db, actorId, orgId, "read");
   const agent = await getAgent(db, orgId, agentId);
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!managesAgent(agent, actorId, membership) && agent.ownerUserId !== actorId) {
+  if (!managesAgent(agent, actorId, membership) && !ownsAgent(agent, actorId, membership.roleIds)) {
     throw new ForbiddenError("Only an admin or the agent's owner can change where it merges without asking");
   }
   const { list, invalid } = cleanRepoList(repositories);

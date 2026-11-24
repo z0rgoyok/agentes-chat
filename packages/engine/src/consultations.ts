@@ -32,6 +32,7 @@ import { publishChannelEvent } from "./events";
 import { cutText } from "./format";
 import type { Judge } from "./judge";
 import { machineOnline } from "./machines";
+import { messageLink } from "./message-links";
 import { getMessage, insertMessage, type Message, type MessageView, withMessageDetails } from "./messages";
 import type { Notice } from "./notices";
 import { notifyAgentUnreached } from "./notification-producers";
@@ -40,6 +41,8 @@ import { actingRoutineOfCall, personBehindCall, routineCreatorOf } from "./reque
 import { isRoutineRoomKey } from "./routine-brief";
 import { stoppedToSend } from "./run-inbox";
 import { deliverNoticeToRun, resumeRunWithResult } from "./run-resume";
+import { inChannelRun } from "./run-scope";
+import { runState } from "./run-state";
 import { tellAgentStopped } from "./run-stopped";
 import { type AgentRun, isTerminal, outageParkedSql, type RunStatus, replyThreadOf } from "./runs";
 import { MAX_HANDOFF_LINKS, refusedAtLimit } from "./stretch";
@@ -337,14 +340,13 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
   return {
     name: TELL_AGENT_TOOL,
     description:
-      "Hand another agent of the organization work to do, or news it should act on, e.g. @sales to hand its client notes to @support, or @infra that a deploy finished so it watches the metrics. It works on it privately, with its own tools and permissions, for the same person you are helping, and the people here see it's on it. It returns at once; carry on. What comes of it reaches you here by itself, even after your turn ends, with everything else you handed off this turn: don't check on it, send it again or set a follow_up for it. Give the whole job to the agent that owns it, with everything it needs, and let it bring in the others; don't send heads-ups to agents that only have to wait. Write the note so it stands alone: the agent doesn't see this conversation. For an answer you need for the task, use ask_agent.",
+      "Hand another agent of the organization work to do, e.g. @sales to hand its client notes to @support, or @infra that a deploy finished so it watches the metrics. It works on it privately, with its own tools and permissions, for the same person you are helping, and the people here see it's on it. It returns at once; carry on. What comes of it reaches you here by itself, even after your turn ends, with everything else you handed off this turn: don't check on it, send it again or set a follow_up for it. Give the whole job to the one agent that owns it, with everything it needs; it brings in the others. News with nothing to do goes with `heads_up: true`: no work starts and no reply comes. Tell an agent only what changes its work. Write the note so it stands alone: the agent doesn't see this conversation. For an answer you need for the task, use ask_agent. Asked only a question? Answer it and offer the hand-off in one line instead.",
     scope: "",
     inputSchema: {
       type: "object",
       properties: {
         agent: { type: "string", minLength: 2, maxLength: 33, description: "The agent's handle, e.g. @infra." },
         message: { type: "string", minLength: 1, maxLength: 4000 },
-        // What it means is told only where it counts: the agents' DM's "Where you are" (`buildRunContext`).
         heads_up: { type: "boolean" },
       },
       required: ["agent", "message"],
@@ -382,9 +384,11 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
       const atLimit = await refusedAtLimit(db, reached.run, target.id);
       if (atLimit) return atLimit;
       let waitsForRoom = false;
+      // The words this run already handed another agent: one agent does a job, the copies only tell the others.
+      const copy = input.heads_up !== true && (await handedThisRun(db, ctx, body, target.id));
+      const headsUp = input.heads_up === true || copy;
       // Nobody asked for it directly: the note meets the brakes on unrequested work before it wakes anyone (ADR 0131).
-      const braked = (await runAuthorityById(db, ctx.orgId, ctx.runId)).kind !== "person";
-      const headsUp = input.heads_up === true && Boolean(here && isAgentOnlyDm(here) && !isRoutineRoomKey(here.dmKey));
+      const braked = !headsUp && (await runAuthorityById(db, ctx.orgId, ctx.runId)).kind !== "person";
       const sent = await sendNote(db, {
         orgId: ctx.orgId,
         agentId: ctx.agentId,
@@ -423,6 +427,14 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
           };
         }
       }
+      if (headsUp) {
+        return {
+          content: copy
+            ? `Told @${handle} as news only: this turn already handed the same words to another agent, and one agent does a job. If @${handle} has a part of its own, hand it that part in its own words. Carry on.`
+            : `Told @${handle}: news only, so it starts no work and sends no reply; it reads it the next time it works for this person. Carry on.`,
+          data: { agentNote: { messageId: sent.message.id, agentId: target.id, headsUp: true } },
+        };
+      }
       // The person sees it worked on where they asked: its updates, questions and report (F1, ADR 0121 addendum).
       // A note that joined the work this run already handed that agent rides on it: the same work reports it.
       const handedWork =
@@ -441,13 +453,11 @@ function createTellAgentTool(deps: { pubsub?: PubSub; ai?: AiCheck; judge?: Judg
       });
       const handed = ctx.background
         ? `Handed to @${handle}. What comes of it reaches the people where this routine reports, by itself, and wakes you there: don't wait for it. Do your own part now, and say in hand_off who has what.`
-        : headsUp
-          ? `Told @${handle}. Your answer goes back without waiting for it: do your own part now, then end your turn.`
-          : here && isAgentOnlyDm(here)
-            ? `Handed to @${handle}. Your answer goes back once @${handle} is done, together with what came of it: do your own part now, then end your turn saying what you handed on.`
-            : handedWork
-              ? `Handed to @${handle}; it's on it. The people here follow its progress, its questions and its result from @${handle} itself, under your reply: you are not woken to relay what comes of it. Tell the people in a line who has it, without promising a time or to report back, then do your own part or end your turn.`
-              : `Handed to @${handle}; it's on it, and the people here can see that. What comes of it reaches you here by itself once everything you handed off this turn is back. Tell the people in a line who has it, without promising a time, then do your own part or end your turn.`;
+        : here && isAgentOnlyDm(here)
+          ? `Handed to @${handle}. Your answer goes back once @${handle} is done, together with what came of it: do your own part now, then end your turn saying what you handed on.`
+          : handedWork
+            ? `Handed to @${handle}; it's on it. The people here follow its progress, its questions and its result from @${handle} itself, under your reply: you are not woken to relay what comes of it. Tell the people in a line who has it, without promising a time or to report back, then do your own part or end your turn.`
+            : `Handed to @${handle}; it's on it, and the people here can see that. What comes of it reaches you here by itself once everything you handed off this turn is back. Tell the people in a line who has it, without promising a time, then do your own part or end your turn.`;
       return {
         content: waitsForRoom
           ? `${handed} @${handle} hasn't started yet: its computer is full, so your note waits and starts once there's room. It isn't lost: don't send it again.`
@@ -523,7 +533,7 @@ export async function sendNote(
     fromMention?: boolean;
     /** Wakes nobody yet: the caller starts it (`startNoteRun`) once the brakes let it through. */
     deferStart?: boolean;
-    /** News from a run answering another agent: that answer neither waits for it nor carries its reply. */
+    /** News only: no run starts and nothing comes back; the agent reads it at its next turn for that person. */
     headsUp?: boolean;
   },
 ) {
@@ -549,7 +559,10 @@ export async function sendNote(
       },
     });
     // A run of the other agent at work in this DM for the same person takes it: the row waits on that run.
-    const started = input.deferStart ? null : await startOrJoinRun(tx, message, input.targetAgentId, "dm", { park: 1 });
+    const started =
+      input.deferStart || input.headsUp
+        ? null
+        : await startOrJoinRun(tx, message, input.targetAgentId, "dm", { park: 1 });
     // A mention's copy that run already answers an open note of this chain for: no row of its own, so what comes of
     // both goes back once (ADR 0032 "Calm wakes").
     if (input.fromMention && started && "joined" in started) {
@@ -577,6 +590,8 @@ export async function sendNote(
       channelId: channel.id,
       messageId: message.id,
       targetRunId: started ? ("created" in started ? started.created.id : started.joined) : null,
+      // A heads-up is delivered once written: nothing waits on it or reports it.
+      ...(input.headsUp ? { status: "answered" as const, answeredAt: new Date(), reportedAt: new Date() } : {}),
       waitId: `${ASYNC_WAIT}${Bun.randomUUIDv7()}`,
       question: input.body,
       chain: input.chain,
@@ -586,6 +601,29 @@ export async function sendNote(
     });
     return { message, consultationId };
   });
+}
+
+/** Whether this run already handed these words (normalized) to another agent than `targetAgentId`. */
+async function handedThisRun(
+  db: Executor,
+  ctx: Pick<ToolContext, "orgId" | "runId">,
+  body: string,
+  targetAgentId: string,
+) {
+  const rows = await db
+    .select({ question: agentConsultations.question })
+    .from(agentConsultations)
+    .where(
+      and(
+        eq(agentConsultations.orgId, ctx.orgId),
+        eq(agentConsultations.askerRunId, ctx.runId),
+        eq(agentConsultations.kind, "note"),
+        ne(agentConsultations.targetAgentId, targetAgentId),
+      ),
+    )
+    .limit(50);
+  const wanted = normalizeNote(body);
+  return rows.some((r) => normalizeNote(r.question) === wanted);
 }
 
 /** An open note this run's mention handed `targetAgentId` (`sendNote` with `fromMention`). */
@@ -719,6 +757,8 @@ async function sameRequestRun(
       id: agentRuns.id,
       status: agentRuns.status,
       replyMessageId: agentRuns.replyMessageId,
+      workId: agentRuns.workId,
+      createdAt: agentRuns.createdAt,
       handle: agents.handle,
     })
     .from(agentRuns)
@@ -738,20 +778,40 @@ async function sameRequestRun(
     .limit(1);
   if (!run) return null;
   const data = { duplicateOf: { runId: run.id, agentId: targetAgentId, status: run.status } };
-  if (run.status !== "done") {
-    return {
-      content: `@${run.handle} is already working on this person's request here (run ${run.id}, ${run.status}): the person asked it directly. Don't ask it again or relay the request; its answer goes to the person in this conversation. Do only your own part, or end your turn and let it answer.`,
-      data,
-    };
-  }
+  // "Already answered" while it still works reads, to the person it is relayed to, as a lost message: its work's
+  // card is what it is doing, whether this run is that work or the answer it gave started one.
+  const [work] = await db
+    .select({ id: messages.id, channelId: messages.channelId, threadId: messages.threadId })
+    .from(agentWorks)
+    .innerJoin(messages, eq(messages.id, agentWorks.anchorMessageId))
+    .where(
+      and(
+        eq(agentWorks.orgId, ctx.orgId),
+        run.workId
+          ? eq(agentWorks.id, run.workId)
+          : and(
+              eq(agentWorks.agentId, targetAgentId),
+              eq(agentWorks.channelId, ctx.channelId),
+              gte(agentWorks.createdAt, run.createdAt),
+            ),
+        inArray(agentWorks.status, ["live", "queued"]),
+      ),
+    )
+    .orderBy(desc(agentWorks.createdAt))
+    .limit(1);
+  const working = `@${run.handle} is already working on this`;
+  const leave =
+    "Don't ask it again or relay the request: its answer goes to the person in this conversation. If you tell the person, say it in those words, with the link. Do only your own part, or end your turn and let it answer.";
+  if (work) return { content: `${working}: ${messageLink(ctx.orgId, work)}. ${leave}`, data };
+  if (run.status !== "done") return { content: `${working} (run ${run.id}, ${run.status}). ${leave}`, data };
   const [reply] = run.replyMessageId
     ? await db
-        .select({ body: messages.body })
+        .select({ id: messages.id, channelId: messages.channelId, threadId: messages.threadId, body: messages.body })
         .from(messages)
         .where(and(eq(messages.orgId, ctx.orgId), eq(messages.id, run.replyMessageId)))
     : [];
   return {
-    content: `@${run.handle} already answered this person's request here (run ${run.id})${reply?.body ? `:\n\n${cutText(reply.body, 4000)}` : "."}\n\nDon't ask it again; build on its answer.`,
+    content: `@${run.handle} already answered this person's request here${reply ? ` (${messageLink(ctx.orgId, reply)})` : ""}${reply?.body ? `:\n\n${cutText(reply.body, 4000)}` : "."}\n\nDon't ask it again; build on its answer, and link it if you mention it.`,
     data,
   };
 }
@@ -955,13 +1015,10 @@ const HAND_OFFS_LISTED = 8;
  */
 export async function handOffsFrom(
   db: Executor,
-  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId">,
+  run: Pick<AgentRun, "orgId" | "agentId" | "channelId" | "threadRootId" | "triggerMessageId" | "replyInThread">,
   options: { openOnly?: boolean } = {},
 ): Promise<HandOff[]> {
-  const conversation =
-    run.threadRootId === run.triggerMessageId
-      ? sql`r.thread_root_id = r.trigger_message_id`
-      : sql`r.thread_root_id = ${run.threadRootId}::uuid`;
+  const conversation = replyThreadOf(run) ? sql`r.thread_root_id = ${run.threadRootId}::uuid` : inChannelRun(sql`r`);
   const rows = rowsOf<{
     id: string;
     kind: HandOff["kind"];
@@ -981,7 +1038,7 @@ export async function handOffsFrom(
     await db.execute(sql`select c.id, c.kind, c.status, c.question, c.answer, a.handle, c.created_at, c.answered_at,
         c.reported_at, t.status as target_status, t.waiting_machine_id,
         exists (select 1 from agent_consultations s where s.asker_run_id = t.id and s.status = 'open') as handed_on,
-        (t.status = 'waiting_input' and t.transcript -> 'outage' is not null) as outage,
+        (t.status = 'waiting_input' and coalesce(t.state, t.transcript) -> 'outage' is not null) as outage,
         (c.target_run_id is null and ${wakeWaitsSql(sql`c`)}) as parked
       from agent_consultations c
       join agent_runs r on r.id = c.asker_run_id
@@ -1548,6 +1605,7 @@ export async function openConsultationsIn(
       kind: agentConsultations.kind,
       threadRootId: agentRuns.threadRootId,
       triggerMessageId: agentRuns.triggerMessageId,
+      replyInThread: agentRuns.replyInThread,
     })
     .from(agentConsultations)
     .innerJoin(agentRuns, eq(agentRuns.id, agentConsultations.askerRunId))
@@ -1968,6 +2026,7 @@ export async function announceConsultationChange(
       channelId: agentRuns.channelId,
       threadRootId: agentRuns.threadRootId,
       triggerMessageId: agentRuns.triggerMessageId,
+      replyInThread: agentRuns.replyInThread,
     })
     .from(agentConsultations)
     .innerJoin(agentRuns, eq(agentRuns.id, agentConsultations.askerRunId))
@@ -2056,9 +2115,9 @@ export async function expireConsultations(deps: { db: Database; pubsub?: PubSub 
       row: agentConsultations,
       target: agentRuns.status,
       handedOn: handedOnSql,
-      code: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'code'`,
-      resetsAt: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'resetsAt'`,
-      until: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'until'`,
+      code: sql<string | null>`${runState}->'waitingForBrain'->>'code'`,
+      resetsAt: sql<string | null>`${runState}->'waitingForBrain'->>'resetsAt'`,
+      until: sql<string | null>`${runState}->'waitingForBrain'->>'until'`,
       outage: outageParkedSql,
       waitingMachineId: agentRuns.waitingMachineId,
       machine: { online: machines.online, lastSeenAt: machines.lastSeenAt, deletedAt: machines.deletedAt },
@@ -2247,6 +2306,7 @@ export async function consultationOrigin(
         channelId: agentRuns.channelId,
         threadRootId: agentRuns.threadRootId,
         triggerMessageId: agentRuns.triggerMessageId,
+        replyInThread: agentRuns.replyInThread,
         background: agentRuns.background,
       })
       .from(agentRuns)
@@ -2364,13 +2424,16 @@ export const NO_PERSON_READS =
  * `postPauseCards` places questions). Null when no person would see it there.
  */
 export async function cardPlace(
-  ctx: Pick<ToolContext, "orgId" | "channelId" | "runId" | "threadRootId" | "triggerMessageId"> & { db: Executor },
+  ctx: Pick<ToolContext, "orgId" | "channelId" | "runId" | "threadRootId" | "triggerMessageId" | "replyInThread"> & {
+    db: Executor;
+  },
 ): Promise<{ channelId: string; threadId: string | null } | null> {
   const [here] = await ctx.db
     .select({ kind: channels.kind, dmKey: channels.dmKey })
     .from(channels)
     .where(and(eq(channels.orgId, ctx.orgId), eq(channels.id, ctx.channelId)));
-  if (!here || !isAgentOnlyDm(here)) return { channelId: ctx.channelId, threadId: replyThreadOf(ctx) };
+  if (!here || !isAgentOnlyDm(here))
+    return { channelId: ctx.channelId, threadId: replyThreadOf({ ...ctx, replyInThread: ctx.replyInThread === true }) };
   const origin = ctx.runId ? await consultationOrigin(ctx.db, ctx.orgId, ctx.runId) : null;
   return origin ? { channelId: origin.channelId, threadId: origin.threadId } : null;
 }
@@ -2406,6 +2469,8 @@ export interface HandedFor {
   stopped?: true;
   askerHandle: string;
   createdAt: Date;
+  /** News only (`tell_agent` with `heads_up`): it started no work. */
+  headsUp?: true;
 }
 
 /**
@@ -2446,6 +2511,7 @@ export async function handedFor(db: Executor, orgId: string, agentId: string, pe
       targetRunId: agentConsultations.targetRunId,
       createdAt: agentConsultations.createdAt,
       askerHandle: agents.handle,
+      headsUp: headsUpSql(sql`${agentConsultations}`),
       // The answering run's reply as it stands: null when the run left none.
       replyOutside: sql<boolean | null>`(select coalesce(rm.meta ->> 'readOutside' = 'true', false)
         from ${messages} rm where rm.org_id = ${orgId} and rm.id = ${agentRuns.replyMessageId})`,
@@ -2472,7 +2538,6 @@ export async function handedFor(db: Executor, orgId: string, agentId: string, pe
         eq(agentConsultations.forUserId, personId),
         gte(agentConsultations.createdAt, new Date(Date.now() - HANDED_REMEMBERED_DAYS * 86_400_000)),
         inArray(agentConsultations.channelId, agentsDmsOf(db, agentId, { tasks: true })),
-        sql`not ${headsUpSql(sql`${agentConsultations}`)}`,
       ),
     )
     .orderBy(desc(agentConsultations.createdAt))
@@ -2488,6 +2553,7 @@ export async function handedFor(db: Executor, orgId: string, agentId: string, pe
       question: r.askerReadOutside ? null : r.question,
       askerHandle: r.askerHandle,
       createdAt: r.createdAt,
+      ...(r.headsUp ? { headsUp: true as const } : {}),
     };
   });
 }

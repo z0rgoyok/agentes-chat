@@ -244,6 +244,24 @@ export const artifacts = pgTable(
     share: text().$type<"conversation" | "people" | "everyone">().notNull().default("conversation"),
     shareUserIds: text().array().notNull().default(sql`'{}'::text[]`),
     shareRoleIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    /**
+     * Who edits it among the people who see it (ADR 0202): when `editorsLimited`, only `editorUserIds`, whoever holds
+     * one of `editorRoleIds`, its maker, administrators and (`conversationEdits`) who reads it in its conversation; the
+     * others only read it. Not limited: whoever sees it edits.
+     */
+    editorsLimited: boolean().notNull().default(false),
+    editorUserIds: text().array().notNull().default(sql`'{}'::text[]`),
+    editorRoleIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    /** With limited editors, whether who reads it in its conversation still edits it (a file in a conversation). */
+    conversationEdits: boolean().notNull().default(true),
+    /**
+     * Agents' access (ADR 0202): `agentBase` is every agent's level (a file of the Drive) or every agent's in its
+     * conversation; null keeps the rule from before, by where the file lives. `agentEditIds` edit and `agentViewIds`
+     * read it whatever the base; the agent that made it always edits.
+     */
+    agentBase: text().$type<"none" | "view" | "edit">(),
+    agentViewIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
+    agentEditIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
     currentVersion: integer().notNull().default(1),
     /**
      * A live file's conversation (ADR 0199): a channel of kind `file` and the thread root in it, made on first use. No

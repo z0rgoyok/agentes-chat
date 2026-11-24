@@ -1,6 +1,6 @@
 [package]
 name = "agentes-desktop"
-version = "0.8.14"
+version = "0.8.17"
 description = "agentes.chat for macOS, Windows and Linux: the Cloud, your own server, and agents on this computer"
 license = "AGPL-3.0-only"
 edition = "2021"
@@ -10,6 +10,10 @@ publish = false
 [lib]
 name = "agentes_desktop_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+# The web inspector in a release build: the Desktop workflow's profiling build, never one people get.
+devtools = ["tauri/devtools"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

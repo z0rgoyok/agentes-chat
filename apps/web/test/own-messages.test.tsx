@@ -201,8 +201,9 @@ describe("own message styles", () => {
       /\/\*[\s\S]*?\*\//g,
       "",
     );
+    // A rule that leaves it out (`:not(.ac-msg__own-foot)`) doesn't style it.
     const own = [...kit.matchAll(/([^{}]+)\{([^{}]*)\}/g)].filter(([, list = ""]) =>
-      list.includes(".ac-msg__own-foot"),
+      list.replace(/:not\([^()]*\)/g, "").includes(".ac-msg__own-foot"),
     );
     expect(own.length).toBeGreaterThan(0);
     for (const [, , body = ""] of own) expect(body).not.toMatch(/opacity|visibility|display:\s*none/);

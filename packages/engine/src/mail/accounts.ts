@@ -1,4 +1,3 @@
-import { isIP } from "node:net";
 import {
   type ComposioClient,
   type KeyWrapper,
@@ -30,7 +29,7 @@ import { countComposioConnection } from "../connector-usage";
 import { composioToolkitUrl } from "../connectors/presets";
 import { openSecret, sealSecret, sha256 } from "../crypto";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors";
-import { isBlockedAddress, type ResolveHost, resolveHostDns } from "../net-guard";
+import { publicHostAddress, type ResolveHost, resolveHostDns } from "../net-guard";
 import { can, requirePermission } from "../organizations";
 import { closedRefusal, orgStanding } from "../standing";
 import { isEmailAddress, normalizeAddress } from "./text";
@@ -332,22 +331,10 @@ export interface ImapAccountInput {
   smtpPort?: number;
 }
 
-const HOST = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
-
-/** A custom host may not point inside our network (SSRF): private, loopback, metadata addresses. */
+/** A custom host may not point inside our network (SSRF), unless the operator allowed it (`publicHostAddress`). */
 async function hostAllowed(host: string, resolve: ResolveHost): Promise<"ok" | "blocked" | "unreachable"> {
-  const h = host.toLowerCase();
-  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".local") || h.endsWith(".internal"))
-    return "blocked";
-  if (isIP(h)) return isBlockedAddress(h) ? "blocked" : "ok";
-  if (!HOST.test(h)) return "blocked";
-  try {
-    const addresses = await resolve(h);
-    if (addresses.length === 0) return "unreachable";
-    return addresses.some(isBlockedAddress) ? "blocked" : "ok";
-  } catch {
-    return "unreachable";
-  }
+  const checked = await publicHostAddress(host, resolve);
+  return checked.ok ? "ok" : checked.reason;
 }
 
 const imapOf = (deps: MailDeps) => deps.mail?.imap ?? null;

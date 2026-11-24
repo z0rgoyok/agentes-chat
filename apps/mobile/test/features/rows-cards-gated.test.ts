@@ -48,7 +48,7 @@ describe("an agent's row mounts only the cards its message carries", () => {
   test("its reactions are read once", () => {
     expect(row.match(/useReactions\(orgId, m\.id, false\)/g)?.length).toBe(1);
     expect(row.match(/useToggleReaction\(orgId, m\.id\)/g)?.length).toBe(1);
-    expect(row).toContain("hangsUnder(m, Boolean(thread), cachedReactions.data, meId)");
+    expect(row).toContain("hangsUnder(m, Boolean(thread || replying), cachedReactions.data, meId)");
     // The pills take the row's reactions and its toggle.
     expect(row).toContain(
       "<Reactions message={m} reactions={reactions} meId={meId} end={onRight} onToggle={toggle.mutate} />",

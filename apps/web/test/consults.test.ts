@@ -331,6 +331,44 @@ describe("the working line's sentence", () => {
     expect(barAsking(entries("answered"))).toBeUndefined();
     expect(barAsking(entries("asking", [run("theo")]))).toBeUndefined();
   });
+
+  test("an agent at work on another turn while its question is out: the bar says that work", () => {
+    const asking = {
+      runId: "r-dev",
+      agentId: "dev",
+      consultedAgentId: "iris",
+      channelId: "c",
+      threadId: "m1",
+      since: 0,
+      at: 0,
+      status: "asking" as const,
+      wait: "computer" as const,
+    };
+    const entries = (runs: LiveRun[]) => barEntries(runs, [], nameOf, () => undefined, [asking]);
+    // Nobody at work: what the question waits on.
+    expect(activityText(t, entries([]))).toBe("A Iris espera o computador voltar…");
+    // The asking turn itself, finishing or over: still the question.
+    expect(barAsking(entries([run("dev", "r-dev")]))).toMatchObject({ to: "iris" });
+    expect(activityText(t, entries([{ ...run("dev", "r-dev"), status: "done" }]))).toBe(
+      "A Iris espera o computador voltar…",
+    );
+    // A message that came meanwhile started another turn: the agent works, and the bar says so.
+    const atWork = entries([{ ...run("dev", "r-dev"), status: "done" }, run("dev", "r-dev-2")]);
+    expect(atWork.map((e) => [e.id, e.consult])).toEqual([["dev", undefined]]);
+    expect(activityText(t, atWork)).toBe("Dev está trabalhando…");
+    // Or woke the asking turn itself, which reads it now (`agent.run.wait_message`).
+    let s: ConsultsState = { "r-dev": asking };
+    s = applyConsultEvent(s, ev({ type: "agent.run.wait_message", waitKind: "consultation", outcome: "held" }), 10);
+    expect(s["r-dev"]?.woke).toBeUndefined();
+    s = applyConsultEvent(s, ev({ type: "agent.run.wait_message", waitKind: "consultation", outcome: "woke" }), 20);
+    expect(s["r-dev"]).toMatchObject({ status: "asking", woke: true });
+    const woken = barEntries([run("dev", "r-dev")], [], nameOf, () => undefined, [{ ...asking, woke: true }]);
+    expect(activityText(t, woken)).toBe("Dev está trabalhando…");
+    // That turn done (or waiting on someone), the question takes the line back.
+    expect(activityText(t, entries([{ ...run("dev", "r-dev-2"), status: "done" }]))).toBe(
+      "A Iris espera o computador voltar…",
+    );
+  });
 });
 
 describe("meta.consulted", () => {

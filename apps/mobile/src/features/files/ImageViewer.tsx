@@ -1,8 +1,11 @@
 import { useArtifact } from "@agenteschat/client";
+import { mediaKindOfArtifact } from "@agenteschat/client/lib/files";
 import { keepWhole } from "@agenteschat/client/lib/format";
 import { LinearGradient } from "expo-linear-gradient";
+import { useNavigation } from "expo-router";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { VideoPlayer as Player } from "expo-video";
+import { type MutableRefObject, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, type LayoutChangeEvent, StyleSheet, useWindowDimensions, View } from "react-native";
 import { GestureDetector, GestureHandlerRootView, usePanGesture } from "react-native-gesture-handler";
@@ -19,8 +22,22 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { scheduleOnRN } from "react-native-worklets";
-import { Icon, type IconName, PressScale, SCREEN_X, Text, useTheme } from "@/ui";
-import { useDirectory, useOrgId } from "../shared/hooks";
+import { haptics, Icon, type IconName, PressScale, padPastFold, SCREEN_X, Text, useFoldRoom, useTheme } from "@/ui";
+import { useSettled } from "../chat/screen/opening";
+import { useMediaPins, useOpenFileTalk, useTalkFocus } from "../live-files/talk/hooks";
+import {
+  commentSelection,
+  draftPin,
+  type Mark,
+  type MediaPin,
+  picturePins,
+  pinUnder,
+  pointMark,
+} from "../live-files/talk/logic";
+import { PicturePins } from "../live-files/talk/PicturePins";
+import { takeReveal, useRevealFor, useTalkAbout } from "../live-files/talk/store";
+import { FileTalkLine } from "../live-files/talk/TalkLine";
+import { useDirectory, useMeId, useOrgId } from "../shared/hooks";
 import { goBack } from "../shared/parts";
 import { savedAt, useFileActions, useSavedWhen } from "./actions";
 import { decodeFileList, fileInfo, pageStep } from "./logic";
@@ -28,7 +45,7 @@ import { useRemoteFile } from "./source";
 import { ViewerVideo } from "./VideoPlayer";
 import { tellViewerPlace } from "./viewer-place";
 import { PageWait, ZoomPicture } from "./ZoomPicture";
-import { awaySpeed, pullCloses, pullDirection, pulledPlacement, pullProgress, type Size } from "./zoom";
+import { awaySpeed, type PictureTap, pullCloses, pullDirection, pulledPlacement, type Size } from "./zoom";
 
 /**
  * Pictures and videos, full screen, as the phone's own photos: one viewer for both, wherever they open from (a
@@ -40,23 +57,32 @@ import { awaySpeed, pullCloses, pullDirection, pulledPlacement, pullProgress, ty
  * its own speed as the viewer closes, else it springs back from that speed; and Compartilhar, Enviar cópia, Salvar em
  * Fotos, Ver no Drive at the bottom (the file screen's words and icons for the same actions), the file's only actions
  * (no "…" repeating them). A tap on a picture hides and shows the bars;
- * zooming in hides them. With reduced motion a closing picture fades instead of flying off.
+ * zooming in hides them. With reduced motion a closing picture fades instead of flying off. A picture or a video has
+ * its conversation (ADR 0208), as a live file does: its line over the actions, and its open comments pinned on a
+ * picture (a tap on one opens the conversation there). The conversation is pushed over the viewer, its back coming
+ * back to the picture: the viewer is a screen of the stack (faded in, black), not a modal, so what is pushed from it
+ * shows over it. A touch held on a picture marks that point: the conversation opens about it ("About point 4 of the
+ * image" over the composer), the person's pin left on the spot while the comment is unsent. From a video that has
+ * played, its line opens the conversation about the moment it is at. `focusId`: a message of the conversation to open
+ * at (a link or a notice), once the viewer is up.
  */
 export function ImageViewer({
   files: rawFiles,
   at,
   from,
+  focusId = null,
 }: {
   files: string | string[] | undefined;
   at: string | undefined;
   /** The stack it opened from, told where the person stops. */
   from?: string | undefined;
+  focusId?: string | null;
 }) {
   return (
     // Gestures get their own root in the modal (the app's sits under it). Toasts need none: the app's draw above any
     // screen, a modal included.
     <GestureHandlerRootView style={styles.screen}>
-      <Viewer rawFiles={rawFiles} at={at} from={from} />
+      <Viewer rawFiles={rawFiles} at={at} from={from} focusId={focusId} />
     </GestureHandlerRootView>
   );
 }
@@ -79,15 +105,19 @@ const AWAY_SPRING = { stiffness: 180, damping: 26, mass: 1, overshootClamping: t
  * change, kept with reduced motion (the system setting would otherwise skip it).
  */
 const FADE_OUT = { duration: 180, reduceMotion: ReduceMotion.Never };
+/** A video that has played past this (seconds): its line opens the conversation about that moment. */
+const PLAYED_S = 0.5;
 
 function Viewer({
   rawFiles,
   at,
   from,
+  focusId,
 }: {
   rawFiles: string | string[] | undefined;
   at: string | undefined;
   from: string | undefined;
+  focusId: string | null;
 }) {
   const { t } = useTranslation();
   const orgId = useOrgId();
@@ -97,6 +127,9 @@ function Viewer({
   const { reducedMotion } = useTheme();
   const { width, height } = useWindowDimensions();
   const screen = useMemo(() => ({ width, height }), [width, height]);
+  // Folded like a book (ADR 0212), the bottom bar's line and actions and the Comment hint keep to the half past the
+  // fold; the picture passes under it, the buttons at the screen's edges stay where they are.
+  const foldSide = useFoldRoom();
   const pager = useRef<PagerView>(null);
   const files = decodeFileList(rawFiles);
   const first = Math.min(Math.max(Number(at) || 0, 0), Math.max(files.length - 1, 0));
@@ -127,6 +160,46 @@ function Viewer({
   useEffect(() => {
     if (from && currentId) tellViewerPlace(from, currentId);
   }, [from, currentId]);
+  // The page it is on, kept in its route: a message's line about this picture, tapped in its conversation pushed over
+  // it, comes back here rather than opening a second viewer (`fileUnder`).
+  const navigation = useNavigation();
+  useEffect(() => {
+    navigation.setParams({ at: String(index) } as never);
+  }, [navigation, index]);
+
+  // ── The file's conversation (ADR 0208) ────────────────────────────────────────────────────────────────────────
+  // A picture or a video (a PDF opens on its own screen); its comments, numbered as the conversation has them.
+  const media = mediaKindOfArtifact(detail);
+  const talkFile = media ? detail : undefined;
+  const pins = useMediaPins(talkFile);
+  const openTalk = useOpenFileTalk(talkFile);
+  // A link or a notice named one of its messages: the conversation is pushed at it once the viewer is in.
+  const settled = useSettled(false);
+  useTalkFocus(talkFile, settled ? focusId : null);
+  // The comment being written about a point: the person's pin on the spot, the number it will take, until it is sent.
+  const meId = useMeId();
+  const about = useTalkAbout(talkFile?.conversation?.channelId ?? "");
+  const draft = useMemo(
+    () => (talkFile ? draftPin(about, talkFile.id, meId ? { type: "user", id: meId } : null) : null),
+    [about, talkFile, meId],
+  );
+  const openPin = useCallback((messageId: string) => openTalk({ messageId, selection: null }), [openTalk]);
+  // A touch held on the picture marks the spot: the conversation opens about it, "About point 4 of the image".
+  const markHere = useCallback(
+    (where: { mark: Mark; time?: number }) => {
+      if (!talkFile) return;
+      haptics.medium();
+      openTalk({ selection: commentSelection(pins, where, talkFile.shownVersion) });
+    },
+    [talkFile, pins, openTalk],
+  );
+  // The moment the video in sight is at (its page tells it): a played one's line opens the conversation about it.
+  const videoClock = useRef<(() => number) | null>(null);
+  const openLine = useCallback(() => {
+    const time = media === "video" ? (videoClock.current?.() ?? 0) : 0;
+    if (talkFile && time > PLAYED_S) openTalk({ selection: commentSelection(pins, { time }, talkFile.shownVersion) });
+    else openTalk({ selection: null });
+  }, [media, talkFile, pins, openTalk]);
 
   // Zoomed in, the pager holds still (the fingers move the picture), the side buttons step aside and the bars go.
   const onZoom = useCallback((now: boolean) => {
@@ -146,8 +219,6 @@ function Viewer({
     else pager.current?.setPage(to);
   };
 
-  const backdrop = useAnimatedStyle(() => ({ opacity: 1 - pullProgress(drag.value, height) }));
-
   const info = detail ? fileInfo(detail) : null;
   const author = detail ? dir.nameOf(detail.createdBy) : "";
   const place = files.length > 1 ? t("mobile.files.place", { index: index + 1, count: files.length }) : "";
@@ -158,7 +229,8 @@ function Viewer({
   return (
     <View style={styles.screen}>
       <StatusBar style="light" hidden={!chrome} animated />
-      <Animated.View style={[StyleSheet.absoluteFill, styles.black, backdrop]} />
+      {/* Black under the pages: a screen of the stack, nothing of the one under it shows through as it is pulled. */}
+      <View style={[StyleSheet.absoluteFill, styles.black]} />
       <PagerView
         ref={pager}
         // As wide as the screen and the gap: each page holds its picture at the screen's width, the gap's black on
@@ -189,10 +261,14 @@ function Viewer({
                 pullY={pullY}
                 away={away}
                 leaving={leaving}
+                draft={i === index ? draft : null}
+                videoClock={videoClock}
                 onTap={onTap}
                 onZoom={onZoom}
                 onVideo={showChrome}
                 onClose={close}
+                onPin={openPin}
+                onMark={markHere}
               />
             ) : null}
           </View>
@@ -222,7 +298,8 @@ function Viewer({
             </Text>
           ) : null}
         </View>
-        {/* As wide as the ×, so the title stands in the screen's middle. */}
+        {/* A space as wide as the ×, so the title stands in the screen's middle: the conversation's one way in is its
+            line at the bottom (ADR 0208). */}
         <View pointerEvents="none" style={styles.round} />
       </Chrome>
 
@@ -245,10 +322,12 @@ function Viewer({
       <Chrome
         visible={chrome}
         drag={drag}
-        style={[styles.bottom, { paddingBottom: insets.bottom + 14 }]}
+        style={[styles.bottom, { paddingBottom: insets.bottom + 14 }, foldSide ? padPastFold(foldSide, 0) : {}]}
         onHeight={(bottom) => setBars((b) => (b.bottom === bottom ? b : { ...b, bottom }))}
       >
         <LinearGradient pointerEvents="none" colors={SHADE_UP} locations={SHADE_STOPS} style={styles.shadeBottom} />
+        {/* The file's conversation over its actions, as under a live file: a tap pushes it over the viewer. */}
+        {talkFile ? <FileTalkLine file={talkFile} bare onOpen={openLine} /> : null}
         <View style={styles.actions}>
           {detail?.inDrive !== false ? (
             <Action icon="person" label={t("share.button")} disabled={!detail} onPress={actions.shareSheet} />
@@ -279,7 +358,8 @@ function Viewer({
  * one in sight at 1×, the pull to close, there from the first frame: a page still loading, or one that couldn't, is
  * swiped away as a picture is. The picture stays under the finger (`pulledPlacement`) and can be caught again while it
  * springs back; let go, where it would come to rest decides (`pullCloses`), and it leaves or springs back from the
- * speed it was let go at.
+ * speed it was let go at. A picture's open comments are pinned on it (ADR 0208): a tap on a pin opens its message,
+ * a touch held on the picture marks that point (`onMark`, the draft's pin on it), any other tap shows or hides the bars.
  */
 function Page({
   id,
@@ -292,10 +372,14 @@ function Page({
   pullY,
   away,
   leaving,
+  draft,
+  videoClock,
   onTap,
   onZoom,
   onVideo,
   onClose,
+  onPin,
+  onMark,
 }: {
   id: string;
   version?: number;
@@ -307,10 +391,16 @@ function Page({
   pullY: SharedValue<number>;
   away: SharedValue<number>;
   leaving: SharedValue<boolean>;
+  /** The comment being written about a point of this page's picture: its pin, on the page in sight. */
+  draft: MediaPin | null;
+  /** Where the page in sight tells the moment its video is at. */
+  videoClock: MutableRefObject<(() => number) | null>;
   onTap: () => void;
   onZoom: (zoomed: boolean) => void;
   onVideo: () => void;
   onClose: () => void;
+  onPin: (messageId: string) => void;
+  onMark: (where: { mark: Mark; time?: number }) => void;
 }) {
   const orgId = useOrgId();
   const { reducedMotion } = useTheme();
@@ -331,6 +421,33 @@ function Page({
     },
     [active, onZoom],
   );
+  // Its open comments' pins, on a picture (ADR 0208).
+  const pins = useMediaPins(mediaKindOfArtifact(artifact.data) === "image" ? artifact.data : undefined);
+  const shownPins = useMemo(() => picturePins(pins), [pins]);
+  const tapped = useCallback(
+    (at: PictureTap) => {
+      // A pin under the finger opens its message; anywhere else the bars come and go.
+      const pin = pinUnder(shownPins, at);
+      if (pin) onPin(pin.messageId);
+      else onTap();
+    },
+    [shownPins, onPin, onTap],
+  );
+  const held = useCallback(
+    (at: PictureTap) => {
+      const mark = pointMark(at);
+      if (mark) onMark({ mark });
+    },
+    [onMark],
+  );
+  // A comment's line about a moment of this video opened it: it starts there, once.
+  const waiting = useRevealFor(id);
+  const [startAt, setStartAt] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!waiting || video === null) return;
+    if (video && waiting.selection.time !== undefined) setStartAt(waiting.selection.time);
+    takeReveal(id);
+  }, [waiting, video, id]);
   // Where a pull caught mid-spring started from, so the picture stays under the finger; the spot the finger took, from
   // the picture's center, which the picture shrinks around; and how much of it shows (it fades out with reduced motion).
   const from = useSharedValue({ x: 0, y: 0 });
@@ -403,6 +520,8 @@ function Page({
               name={info?.name ?? ""}
               active={active}
               bars={bars}
+              startAt={startAt}
+              videoClock={videoClock}
             />
           </View>
         </GestureDetector>
@@ -414,9 +533,15 @@ function Page({
           pull={pull}
           enabled={!paging}
           active={active}
-          onTap={onTap}
+          onTap={tapped}
+          onLongPress={active ? held : undefined}
           onZoom={zoomChanged}
           onRetry={() => void link.refetch()}
+          overlay={
+            shownPins.length > 0 || draft
+              ? (zoom) => <PicturePins pins={shownPins} zoom={zoom} draft={draft} />
+              : undefined
+          }
         />
       ) : (
         <GestureDetector gesture={pull}>
@@ -439,7 +564,9 @@ function Page({
 /**
  * A video's page: the system's player between the bars, playing while in sight, from a link of its own read once
  * (`once`), so the app coming back to the front, or a new link anywhere, never starts it over. One this phone can't
- * play says so (it can still be sent, shared or opened in the Drive below).
+ * play says so (it can still be sent, shared or opened in the Drive below). The frame is the system's player's whole
+ * (its taps are its controls'); in sight, it tells the viewer the moment it is at (`videoClock`), which the line of its
+ * conversation opens about once it has played (ADR 0208).
  */
 function PageVideo({
   id,
@@ -447,16 +574,41 @@ function PageVideo({
   name,
   active,
   bars,
+  startAt,
+  videoClock,
 }: {
   id: string;
   version?: number;
   name: string;
   active: boolean;
   bars: { top: number; bottom: number };
+  /** The moment it starts from (a comment's). */
+  startAt: number | undefined;
+  videoClock: MutableRefObject<(() => number) | null>;
 }) {
   const { t } = useTranslation();
   const orgId = useOrgId();
   const link = useRemoteFile(orgId, id, version, { once: true });
+  // Its player: the moment it is at, read when its conversation opens.
+  const player = useRef<Player | null>(null);
+  const ownPlayer = useCallback((p: Player | null) => {
+    player.current = p;
+  }, []);
+  useEffect(() => {
+    if (!active) return;
+    const read = () => {
+      try {
+        return player.current?.currentTime ?? 0;
+      } catch {
+        // Released with its page.
+        return 0;
+      }
+    };
+    videoClock.current = read;
+    return () => {
+      if (videoClock.current === read) videoClock.current = null;
+    };
+  }, [active, videoClock]);
   const [unplayable, setUnplayable] = useState(false);
   const source = useMemo(() => (link.data ? { uri: link.data.uri, headers: link.data.headers } : null), [link.data]);
   return (
@@ -475,6 +627,8 @@ function PageVideo({
           name={name}
           active={active}
           onFailed={() => setUnplayable(true)}
+          startAt={startAt}
+          onPlayer={ownPlayer}
         />
       ) : (
         <PageWait icon="play" failed={link.isError} retrying={link.isFetching} onRetry={() => void link.refetch()} />
@@ -515,6 +669,7 @@ function Chrome({
   );
 }
 
+/** A round button over the picture, on its light plate. */
 function Round({
   icon,
   label,

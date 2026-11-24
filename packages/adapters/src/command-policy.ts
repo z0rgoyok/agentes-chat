@@ -2,6 +2,8 @@ import path from "node:path";
 import { commandParts, ruleMatches } from "./machine-protocol";
 import { type OutboundCode, outboundUrlProblem } from "./outbound-url";
 
+export { maskKeyShapes } from "./outbound-url";
+
 /**
  * Deterministic command policy for computer turns (ADR 0029, ADR 0053 §3). No
  * model: plain parsing of the call Claude Code (or Codex) wants to make. The
@@ -64,6 +66,11 @@ export interface CommandScope {
   home?: string;
   /** The runner's own home wherever it is (`AGENTES_RUNNER_HOME`): its accounts, tokens and settings are secrets. */
   runnerHome?: string;
+  /**
+   * `docker` and `podman` reach the agent's own rootless engine (`DOCKER_HOST` in its runtime dir, ADR 0169 and 0209):
+   * a privileged container, its capabilities and its engine's socket reach only the agent's user namespace.
+   */
+  rootlessContainers?: boolean;
 }
 
 type Word = { text: string; op?: undefined } | { text: string; op: "pipe" | "list" | "redirect" | "input" };
@@ -483,19 +490,27 @@ const SECRET_NAMES = [
   ]),
 ];
 
-/** A path segment's wildcards as a pattern; like the shell, `*` and `?` don't match a leading dot. */
-const globPattern = (seg: string) =>
-  new RegExp(
-    `^${seg.startsWith(".") ? "" : "(?!\\.)"}${seg.replace(/\[(!?)([^\][]*)\]|[*?]|[^*?[]+|\[/g, (m, not, set) =>
-      m === "*"
-        ? "[^/]*"
-        : m === "?"
-          ? "[^/]"
-          : set !== undefined
-            ? `[${not ? "^" : ""}${set.replace(/[\\\]^]/g, "\\$&")}]`
-            : escapeRe(m),
-    )}$`,
-  );
+/**
+ * A path segment's wildcards as a pattern; like the shell, `*` and `?` don't match a leading dot. A set with a
+ * reversed range (`[n-1]`, common in inline scripts) is no valid pattern: like the shell's, it matches nothing.
+ */
+const globPattern = (seg: string) => {
+  try {
+    return new RegExp(
+      `^${seg.startsWith(".") ? "" : "(?!\\.)"}${seg.replace(/\[(!?)([^\][]*)\]|[*?]|[^*?[]+|\[/g, (m, not, set) =>
+        m === "*"
+          ? "[^/]*"
+          : m === "?"
+            ? "[^/]"
+            : set !== undefined
+              ? `[${not ? "^" : ""}${set.replace(/[\\\]^]/g, "\\$&")}]`
+              : escapeRe(m),
+      )}$`,
+    );
+  } catch {
+    return /(?!)/;
+  }
+};
 
 /**
  * The paths a word may name, for the secret checks: as written, with Windows' backslashes as slashes, and with each
@@ -1972,7 +1987,8 @@ export function outboundCallProblem(
  * What the computer decides by itself, before anyone is asked: the deny list
  * and secrets are refused (`how`: what the refusal says to do to ask a
  * person), plain reads allowed; in a `plan` turn everything else is refused
- * too. Null: the server decides (`permission_prompt`: a mission's card, or
+ * too. A refusal's `code` uses the server's prompt codes (`never`, `secret`,
+ * `outbound.*`), and `policy` for a plan turn's. Null: the server decides (`permission_prompt`: a mission's card, or
  * code's rules for a run). The runner's prompt tool for Claude Code and its
  * answers to Codex's command approvals both start here; pushes come next
  * there (`approvalNeeded`).
@@ -1983,14 +1999,14 @@ export function localVerdict(
   scope: CommandScope | undefined,
   profile: CommandProfile,
   how: string = ASK_IN_CHAT,
-): { behavior: "allow" } | { behavior: "deny"; message: string; code?: string } | null {
+): { behavior: "allow" } | { behavior: "deny"; message: string; code: string } | null {
   const denied = deniedMessage(toolName, input, how);
-  if (denied) return { behavior: "deny", message: denied };
+  if (denied) return { behavior: "deny", message: denied, code: denied === SECRET_MESSAGE ? "secret" : "never" };
   const outbound = outboundCallProblem(toolName, input);
   if (outbound) return { behavior: "deny", message: outbound.message, code: outbound.code };
-  if (secretRead(toolName, input, scope)) return { behavior: "deny", message: SECRET_MESSAGE };
+  if (secretRead(toolName, input, scope)) return { behavior: "deny", message: SECRET_MESSAGE, code: "secret" };
   if (scope && readOnlyCall(toolName, input, scope, profile)) return { behavior: "allow" };
-  if (profile === "plan") return { behavior: "deny", message: PLAN_MESSAGE };
+  if (profile === "plan") return { behavior: "deny", message: PLAN_MESSAGE, code: "policy" };
   return null;
 }
 
@@ -2572,10 +2588,14 @@ const findRoots = (args: readonly string[]) => {
   return args.slice(0, end < 0 ? args.length : end).filter((a) => !/^-[HLP]$/.test(a));
 };
 
-/** A container given the host: `--privileged`, the host's namespaces or admin capabilities, `/` or Docker's socket mounted. */
+/**
+ * A container given the host: `--privileged`, the host's namespaces or admin capabilities, `/` or Docker's socket
+ * mounted. Under the agent's own rootless engine all of that stays the agent's, but the host's processes.
+ */
 function hostAccess(args: readonly string[], scope: CommandScope) {
   return args.some((a, i) => {
     const next = args[i + 1] ?? "";
+    if (scope.rootlessContainers) return /^--pid=host$/i.test(a) || (a === "--pid" && next === "host");
     if (
       /^--privileged$|^--(pid|ipc|userns|uts|cgroupns)=host$|^--cap-add=(ALL|SYS_ADMIN|SYS_MODULE|SYS_PTRACE)$/i.test(a)
     )

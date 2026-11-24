@@ -1,13 +1,10 @@
 import {
-  keys,
   type Message,
   type Proposal,
   useActOnTeamWeek,
-  useAgentActions,
   useApprovals,
   useCardProposals,
   useChannels,
-  useDecideProposal,
   useModelLabel,
   useTeamWeekPrefs,
   useWaitingOnMe,
@@ -36,7 +33,6 @@ import {
   teamWeekRowText,
   teamWeekTitleKey,
 } from "@agenteschat/client/lib/team-week";
-import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
@@ -55,11 +51,13 @@ import {
   useReducedMotion,
 } from "@/ui";
 import { router } from "@/ui/navigation";
-import { useCardTop, useMessageCardCorners } from "../chat/look";
+import { UndoProposal } from "../agents/InstructionProposalCard";
+import { proposalOutcome } from "../agents/logic";
+import { useCardTop, useMessageCardFrame } from "../chat/look";
 import { chatHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
 import { AgentFace } from "../shared/Face";
-import { useColors, useDirectory } from "../shared/hooks";
+import { useColors, useDirectory, useMeId } from "../shared/hooks";
 import { openRightHandSettings } from "./SettingsScreen";
 
 const NANO = 1_000_000_000;
@@ -74,12 +72,17 @@ const REACH = 6;
 /** A row applied while the card shows fades into its done line (one done before it mounts just shows). */
 const DONE_IN = FadeIn.duration(160);
 
+/** One of Lodi's own fixes: a settings proposal its review applies or leaves out (ADR 0219). */
+type FixRowData = Extract<TeamWeekRow, { proposalId: string }>;
+const isFix = (row: TeamWeekRow): row is FixRowData => "proposalId" in row;
+
 /**
  * Lodi's weekly card (ADR 0137 §9), as on the web: the four numbers two by two, what worked, then what needs doing. A
  * row that opens a place (approvals to decide, what waits on the reader, an agent that stopped) opens it on a tap;
- * every other suggestion comes marked, under its agent's face, and the card's one button applies the marked ones as
- * whoever taps. "Not now", and the day and hour, changed in Settings › Lodi. The day's card (ADR 0177 §2) is led by
- * what waits on its reader and what is stuck.
+ * Lodi's own fixes (a budget, a channel, a model, archiving an agent) are its review's to apply (ADR 0219), so each
+ * says how that went, with Undo; every other suggestion comes marked, under its agent's face, and the card's one
+ * button applies the marked ones as whoever taps. "Not now", and the day and hour, changed in Settings › Lodi. The
+ * day's card (ADR 0177 §2) is led by what waits on its reader and what is stuck.
  */
 export function TeamWeek({ message: m }: { message: Message }) {
   const card = m.author.type === "agent" ? teamWeekCardOf(m.meta) : null;
@@ -96,12 +99,11 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
   const { orgId, org } = useOrg();
   const c = useColors();
   const cardTop = useCardTop();
-  const cardCorners = useMessageCardCorners();
+  const frame = useMessageCardFrame();
   const dir = useDirectory();
   const channels = useChannels(orgId).data ?? [];
   const proposals = useCardProposals(orgId, card.proposalIds);
   const approvals = useApprovals(orgId);
-  const decide = useDecideProposal(orgId);
   const act = useActOnTeamWeek(orgId);
   const prefs = useTeamWeekPrefs(orgId).data;
   const waiting = useWaitingOnMe(orgId);
@@ -132,7 +134,8 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
     }),
   }));
   const stateOf = new Map(rows.map((r) => [r.row.id, r.state] as const));
-  const open = rows.filter((r) => r.state === "open");
+  // Lodi's fixes are never the reader's to apply (ADR 0219): what is open is the rest.
+  const open = rows.filter((r) => r.state === "open" && !isFix(r.row));
   const isMarked = (row: TeamWeekRow) => marks[row.id] ?? markedAtFirst(row);
   // What the card's one button applies: the open suggestions still marked.
   const marked = open.filter((r) => !opensPlace(r.row) && isMarked(r.row)).map((r) => r.row);
@@ -153,7 +156,6 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
             ? `/issues/${place.number}`
             : chatHref(place.channelId)) as never,
       );
-    else if ("proposalId" in row) await decide.mutateAsync({ id: row.proposalId, decision: "accept" });
     else if (row.kind === "approvals") {
       const next = row.approvalIds.find((id) => approvals.data?.find((a) => a.id === id)?.status === "pending");
       router.push(`/approval/${next ?? row.approvalIds[0]}` as never);
@@ -186,13 +188,11 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
   return (
     // Its week ("How the team's week went, Oct 28 to Nov 3") is the message's text, above.
     <View>
-      <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line2 }, cardCorners, cardTop]}>
+      <View style={[styles.card, frame.style, cardTop]}>
         <View style={styles.head}>
-          <Text variant="footnote" tone="muted" style={styles.semibold}>
-            {t(teamWeekTitleKey(card))}
-          </Text>
+          <Text variant="cardKind">{t(teamWeekTitleKey(card))}</Text>
           {suggested.length > 0 && !dismissed ? (
-            <Text variant="caption" style={[styles.semibold, { color: c.amber }]}>
+            <Text variant="footnote" style={[styles.semibold, { color: c.amber }]}>
               {t("teamWeek.suggestions", { count: suggested.length })}
             </Text>
           ) : null}
@@ -208,9 +208,7 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
         </View>
         {card.worked.length > 0 ? (
           <View style={styles.section}>
-            <Text variant="caption" tone="muted" style={styles.semibold}>
-              {t("teamWeek.worked")}
-            </Text>
+            <Text variant="cardKind">{t("teamWeek.worked")}</Text>
             {card.worked.map((w) => (
               <View key={`${w.kind}:${w.agentId}`} style={styles.line}>
                 <LineIcon name="check" size={13} color={c.ok} variant="footnote" />
@@ -233,9 +231,7 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
           </Text>
         ) : rows.length > 0 ? (
           <View style={styles.section}>
-            <Text variant="caption" tone="muted" style={styles.semibold}>
-              {t(card.period === "day" ? "teamWeek.needsYou" : "teamWeek.improve")}
-            </Text>
+            <Text variant="cardKind">{t(card.period === "day" ? "teamWeek.needsYou" : "teamWeek.improve")}</Text>
             {places.map((row, i) => {
               const text = teamWeekRowText(t, locale, row, names);
               return (
@@ -268,17 +264,28 @@ function WeekCard({ message, card }: { message: Message; card: TeamWeekCard }) {
                 ) : null}
                 {group.rows.map((row) => {
                   const text = teamWeekItemText(t, locale, row, names);
+                  if (isFix(row))
+                    return (
+                      <FixRow
+                        key={row.id}
+                        message={message}
+                        row={row}
+                        state={stateOf.get(row.id) ?? "open"}
+                        lead={!group.agentId}
+                        title={text.title}
+                        line={text.line}
+                        proposal={proposals.find((p) => p.id === row.proposalId)}
+                      />
+                    );
                   return (
                     <MarkRow
                       key={row.id}
-                      message={message}
                       row={row}
                       state={stateOf.get(row.id) ?? "open"}
                       lead={!group.agentId}
                       marked={isMarked(row)}
                       title={text.title}
                       line={text.line}
-                      proposal={proposals.find((p) => "proposalId" in row && p.id === row.proposalId)}
                       doneText={teamWeekDoneText(t, row, lodiName)}
                       applying={applying}
                       busy={applying || act.isPending}
@@ -436,24 +443,21 @@ function PlaceRow({
 
 /**
  * A suggestion to mark, under its agent's face: a tap anywhere on the line marks or unmarks it. Unmarked, one that can
- * be put away for good offers Dismiss; applied, it shows what was done, with Undo while its receipt allows.
+ * be put away for good offers Dismiss; applied, it shows what was done.
  */
 function MarkRow({
-  message,
   row,
   state,
   lead,
   marked,
   title,
   line,
-  proposal,
   doneText,
   applying,
   busy,
   onToggle,
   onSkip,
 }: {
-  message: Message;
   row: TeamWeekRow;
   state: TeamWeekRowState;
   /** A row about no agent: no face above it, its kind's icon before its mark. */
@@ -461,7 +465,6 @@ function MarkRow({
   marked: boolean;
   title: string;
   line: string;
-  proposal: Proposal | undefined;
   doneText: string;
   /** The card's button is applying the marked rows: the marks hold still meanwhile. */
   applying: boolean;
@@ -474,9 +477,6 @@ function MarkRow({
   const c = useColors();
   const reduced = useReducedMotion();
   const [skipping, setSkipping] = useState(false);
-  const receipt = proposal?.undoActionId ? message.actions?.find((a) => a.id === proposal.undoActionId) : undefined;
-  const undoable =
-    receipt && !receipt.undoneAt && receipt.undoableUntil && Date.parse(receipt.undoableUntil) > Date.now();
   // The face's column, empty under a group's face: every mark starts where the group's words do.
   const indent = (
     <View style={styles.indent}>
@@ -535,7 +535,7 @@ function MarkRow({
           {state === "done" ? (
             <Animated.View entering={reduced ? undefined : DONE_IN}>
               <Text variant="footnote" tone="ok" style={styles.semibold}>
-                {receipt?.undoneAt ? t("rightHand.card.undone") : doneText}
+                {doneText}
               </Text>
             </Animated.View>
           ) : (
@@ -545,9 +545,83 @@ function MarkRow({
           )}
         </View>
       </View>
-      {undoable ? (
+    </View>
+  );
+}
+
+/**
+ * One of Lodi's fixes, under its agent's face: never marked, as its review applies it or leaves it out (ADR 0219).
+ * "Reviewing…" for the few seconds before, then how it ended with the review's why, and Undo while the reader may put
+ * it back. One put back from its receipt (an older card's Undo) reads undone, with nothing left to undo.
+ */
+function FixRow({
+  message,
+  row,
+  state,
+  lead,
+  title,
+  line,
+  proposal,
+}: {
+  message: Message;
+  row: FixRowData;
+  state: TeamWeekRowState;
+  /** A row about no agent: no face above it, its kind's icon before its mark. */
+  lead: boolean;
+  title: string;
+  line: string;
+  proposal: Proposal | undefined;
+}) {
+  const { t } = useTranslation();
+  const c = useColors();
+  const meId = useMeId();
+  const reduced = useReducedMotion();
+  const receipt = proposal?.undoActionId ? message.actions?.find((a) => a.id === proposal.undoActionId) : undefined;
+  const back = Boolean(receipt?.undoneAt);
+  const outcome = proposal ? proposalOutcome(t, proposal, meId) : null;
+  // Decided by a person, or overtaken, on an older card: it reads as it always did, as on the web.
+  const asBefore = Boolean(proposal) && !outcome?.reviewing && !proposal?.reviewed && proposal?.status !== "undone";
+  const applied = (asBefore ? state === "done" : Boolean(outcome?.applied)) && !back;
+  // Put away before its review (an older card), or not read yet: the card's own words, or the suggestion's line.
+  const words =
+    state === "skipped"
+      ? t("teamWeek.skipped")
+      : back
+        ? t("rightHand.card.undone")
+        : asBefore
+          ? t(state === "done" ? "teamWeek.applied" : "teamWeek.gone")
+          : (outcome?.words ?? line);
+  const why = state === "skipped" || back || asBefore ? null : outcome?.why;
+  return (
+    <View style={styles.markRow}>
+      <View style={[styles.fill, styles.mark]}>
+        <View style={styles.indent}>
+          {lead ? <LineIcon name={kindIcon(row)} size={18} color={c.muted} variant="subhead" /> : null}
+        </View>
+        <Tick look={applied ? "done" : "none"} />
+        <View style={styles.words}>
+          <Text variant="subhead" tone={outcome?.reviewing ? "ink" : "muted"}>
+            {title}
+          </Text>
+          {/* Its own view per state, so the outcome fades in where "Reviewing…" was. */}
+          <Animated.View
+            key={outcome?.reviewing ? "reviewing" : "ended"}
+            entering={reduced || outcome?.reviewing ? undefined : DONE_IN}
+          >
+            <Text variant="footnote" tone={applied ? "ok" : "muted"} style={applied ? styles.semibold : null}>
+              {words}
+            </Text>
+            {why ? (
+              <Text variant="footnote" tone="faint">
+                {why}
+              </Text>
+            ) : null}
+          </Animated.View>
+        </View>
+      </View>
+      {proposal?.undoable && !back && state !== "skipped" ? (
         <Animated.View entering={reduced ? undefined : DONE_IN} style={styles.side}>
-          <UndoAction message={message} actionId={receipt.id} />
+          <UndoProposal id={proposal.id} row />
         </Animated.View>
       ) : null}
     </View>
@@ -579,28 +653,6 @@ function Tick({ look }: { look: "on" | "off" | "done" | "none" }) {
         </View>
       )}
     </LineIcon>
-  );
-}
-
-/** Undo on an applied row: the receipt's own undo, then the agents read again (a setting it put back). */
-function UndoAction({ message, actionId }: { message: Message; actionId: string }) {
-  const { t } = useTranslation();
-  const { orgId } = useOrg();
-  const qc = useQueryClient();
-  const failed = useFailed();
-  const actions = useAgentActions(orgId, message.channelId);
-  return (
-    <RowAction
-      strong
-      label={t("teamWeek.undo")}
-      disabled={actions.undo.isPending}
-      onPress={() =>
-        actions.undo.mutate(actionId, {
-          onSuccess: () => void qc.invalidateQueries({ queryKey: keys.agents(orgId) }),
-          onError: failed,
-        })
-      }
-    />
   );
 }
 

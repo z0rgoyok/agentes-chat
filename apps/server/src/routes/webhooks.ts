@@ -1,4 +1,5 @@
 import { ComposioSignatureError } from "@agenteschat/adapters";
+import { connectorOAuthApps } from "@agenteschat/config";
 import {
   addGitHubRepoHook,
   createWebhookEndpoint,
@@ -6,8 +7,11 @@ import {
   ForbiddenSignatureError,
   HOOK_LIMIT_PER_IP,
   handleComposioWebhook,
+  handleMetaCallback,
+  handleTelegramWebhook,
   handleWebhook,
   NotFoundError,
+  openConnectorMedia,
   receiveRoutineHook,
   setWebhookSecret,
   ValidationError,
@@ -16,6 +20,7 @@ import {
   webhookSetup,
 } from "@agenteschat/engine";
 import { createRoute, type OpenAPIHono, z } from "@hono/zod-openapi";
+import { storedResponse } from "../http/byte-range";
 import { requestLimitIp } from "../http/client-ip";
 import { apiError } from "../http/errors";
 import {
@@ -57,6 +62,65 @@ export function registerWebhookReceiver(api: OpenAPIHono, deps: AppDeps) {
       return c.json({ ok: true, type: result.type, fired: result.fired }, 202);
     } catch (error) {
       if (error instanceof ComposioSignatureError) return c.json({ error: "invalid signature" }, 401);
+      if (error instanceof NotFoundError) return c.json({ error: "not found" }, 404);
+      if (error instanceof SyntaxError) return c.json({ error: "invalid body" }, 400);
+      throw error;
+    }
+  });
+  // A person removed this server's Threads or Meta Ads app on Meta's side (ADR 0170 §8): a form with `signed_request`.
+  for (const kind of ["deauthorize", "data-deletion"] as const) {
+    api.post(`/webhooks/meta/${kind}`, async (c) => {
+      const ip = requestLimitIp(c.req.raw.headers, deps.config.TRUSTED_PROXIES);
+      if (!(await deps.adapters.rateLimiter.consume(`meta-hook-ip:${ip}`, HOOK_LIMIT_PER_IP)).allowed) {
+        return c.json({ error: "rate limited" }, 429);
+      }
+      const raw = await readWebhookText(c.req.raw, 64_000);
+      if (raw === null) return c.json({ error: "too large" }, 413);
+      const signed = new URLSearchParams(raw).get("signed_request") ?? "";
+      try {
+        const done = await handleMetaCallback({ db: deps.db, oauthApps: connectorOAuthApps(deps.config) }, signed);
+        if (kind === "deauthorize") return c.json({ ok: true });
+        return c.json({
+          url: `${deps.config.PUBLIC_URL.replace(/\/$/, "")}/privacy`,
+          confirmation_code: done.confirmationCode,
+        });
+      } catch (error) {
+        if (error instanceof NotFoundError) return c.json({ error: "invalid signed_request" }, 400);
+        throw error;
+      }
+    });
+  }
+  // A Drive file a vendor fetches for a post (Threads, TikTok): signed by this server for an hour (ADR 0170 §4).
+  api.get("/connector-media/:token", async (c) => {
+    const files = deps.extras?.artifacts;
+    if (!files) return c.json({ error: "not found" }, 404);
+    const file = await openConnectorMedia({ ...files, secret: deps.config.AGENTES_SECRET }, c.req.param("token"));
+    if (!file) return c.json({ error: "not found" }, 404);
+    return storedResponse(file, c.req.header("range"), {
+      "content-type": file.contentType,
+      "cache-control": "private, max-age=3600",
+      "x-content-type-options": "nosniff",
+    });
+  });
+  // A workspace's Telegram bot (ADR 0170 §5): its updates, checked by the secret `setWebhook` gave Telegram.
+  api.post("/webhooks/telegram/:connectionId", async (c) => {
+    const ip = requestLimitIp(c.req.raw.headers, deps.config.TRUSTED_PROXIES);
+    if (!(await deps.adapters.rateLimiter.consume(`telegram-hook-ip:${ip}`, HOOK_LIMIT_PER_IP)).allowed) {
+      c.header("retry-after", "60");
+      return c.json({ error: "rate limited" }, 429);
+    }
+    const raw = await readWebhookText(c.req.raw, 1_000_000);
+    if (raw === null) return c.json({ error: "too large" }, 413);
+    try {
+      const result = await handleTelegramWebhook(
+        webhookDeps,
+        c.req.param("connectionId"),
+        c.req.header("x-telegram-bot-api-secret-token") ?? null,
+        raw,
+      );
+      if (result.fired > 0) deps.wakeWorkers?.();
+      return c.json({ ok: true }, 200);
+    } catch (error) {
       if (error instanceof NotFoundError) return c.json({ error: "not found" }, 404);
       if (error instanceof SyntaxError) return c.json({ error: "invalid body" }, 400);
       throw error;

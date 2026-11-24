@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { ANTIGRAVITY_PROTOCOL, LOCKED_BRAIN_PROTOCOL, SHARED_GEMINI_PROTOCOL } from "@agenteschat/adapters";
+import {
+  AGY_COPY_PROTOCOL,
+  ANTIGRAVITY_PROTOCOL,
+  LOCKED_BRAIN_PROTOCOL,
+  SHARED_GEMINI_PROTOCOL,
+} from "@agenteschat/adapters";
 import {
   ANTIGRAVITY_MODELS,
   GEMINI_ENTERPRISE_PROVIDER,
@@ -132,6 +137,14 @@ test("Quem pensa: Gemini where its runner and CLI are, its models as the CLI lis
   expect(option(machine({ executors: { detectedAt: "x" } }))).toMatchObject({ reason: "not_installed" });
   expect(option(machine({ executors: {} }))).toMatchObject({ reason: "not_reported" });
   expect(antigravityModels([]).map((m) => m.value)).toEqual(ANTIGRAVITY_MODELS.map((m) => m.id));
+  // With none listed, Gemini 4 Neon leads, the CLI's own default; every level is its model, the extra one too.
+  expect(antigravityModels([])[0]).toEqual({
+    value: "gemini-4-neon-high",
+    label: "Gemini 4 Neon (High)",
+    modelId: "gemini-4-neon",
+  });
+  expect(antigravityModels([{ id: "gemini-4-neon-xhigh" }])[0]?.modelId).toBe("gemini-4-neon");
+  expect(antigravityModels([{ id: "gemini-4-hydrogen-xhigh" }])[0]?.modelId).toBe("gemini-4-hydrogen");
   expect(defaultBrainModel("antigravity")).toBeNull();
   expect(isBrainKind("antigravity") && isComputerBrain("antigravity")).toBe(true);
   expect([BRAIN_NAMES.antigravity, BRAIN_PLAN_NAMES.antigravity, defaultAccountLabel("antigravity")]).toEqual([
@@ -139,6 +152,86 @@ test("Quem pensa: Gemini where its runner and CLI are, its models as the CLI lis
     "Gemini",
     "Gemini",
   ]);
+});
+
+test("the Gemini plan's models: Gemini only, Neon where the CLI runs it, and why it's missing elsewhere", () => {
+  const values = (listed: { id: string; label?: string }[], version?: string) =>
+    antigravityModels(listed, version).map((m) => m.value);
+  const free = [
+    { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)" },
+    { id: "claude-sonnet-4-6-thinking", label: "Claude Sonnet 4.6 (Thinking)" },
+    { id: "claude-opus-4-6-thinking", label: "Claude Opus 4.6 (Thinking)" },
+    { id: "gpt-oss-120b-medium", label: "GPT-OSS 120B (Medium)" },
+  ];
+  // The CLI also lists other makers' models: the Gemini plan offers Gemini's alone.
+  expect(values(free, "1.5.14")).toEqual(["gemini-3.8-flash-high"]);
+  // Another maker's model only: as if nothing were listed.
+  expect(values([{ id: "claude-opus-4-6-thinking" }], "1.5.14")).toEqual(ANTIGRAVITY_MODELS.map((m) => m.id));
+  // A paid account's listing from 1.5.0 (Argon, no Neon): once the CLI runs Neon, Neon and Hydrogen come first.
+  const older = [{ id: "gemini-4-argon-high" }, { id: "gemini-3.8-flash-medium" }];
+  expect(values(older, "1.5.14").slice(0, 2)).toEqual(["gemini-4-neon-high", "gemini-4-neon-xhigh"]);
+  expect(values(older, "1.5.14").slice(-2)).toEqual(["gemini-4-argon-high", "gemini-3.8-flash-medium"]);
+  expect(values(older, "agy 1.5.0")).toEqual(["gemini-4-argon-high", "gemini-3.8-flash-medium"]);
+  // A listing the new CLI took stands as it is.
+  expect(values([{ id: "gemini-4-neon-high" }, { id: "gemini-4-argon-high" }], "1.5.14")).toEqual([
+    "gemini-4-neon-high",
+    "gemini-4-argon-high",
+  ]);
+  // Nothing listed by a CLI that predates Neon: no reserve row it can't run.
+  expect(values([], "1.5.0").some((v) => v.includes("neon") || v.includes("hydrogen"))).toBe(false);
+
+  const option = (
+    antigravity: { version: string; models?: { id: string; label?: string }[] },
+    over: { protocol?: number; kind?: string; mode?: "system" } = {},
+  ) =>
+    brainOptions({
+      id: "m1",
+      name: "box",
+      execAllowed: true,
+      protocol: over.protocol ?? AGY_COPY_PROTOCOL - 1,
+      online: true,
+      lastSeenAt: new Date(),
+      ...(over.kind ? { kind: over.kind } : {}),
+      executors: { antigravity, ...(over.mode ? { mode: over.mode } : {}) },
+    } as never).find((o) => o.kind === "antigravity");
+  const neon = { modelId: "gemini-4-neon", label: "Gemini 4 Neon" };
+  // A CLI older than Neon: an app before protocol 76 doesn't bring its own, so the app is what to update.
+  expect(option({ version: "agy 1.5.0", models: older })?.missing).toEqual({ ...neon, why: "app_old" });
+  // A newer app brings it (still on its way); in system mode the computer's setup installs it.
+  expect(option({ version: "agy 1.5.0", models: older }, { protocol: AGY_COPY_PROTOCOL })?.missing).toEqual({
+    ...neon,
+    why: "cli_old",
+  });
+  expect(option({ version: "agy 1.5.0", models: older }, { mode: "system" })?.missing).toEqual({
+    ...neon,
+    why: "cli_old",
+  });
+  // The workspace's own computer gets it with its image: nothing to say there.
+  expect(option({ version: "agy 1.5.0", models: older }, { kind: "managed" })?.missing).toBeUndefined();
+  expect(option({ version: "1.5.14", models: free })?.missing).toEqual({ ...neon, why: "plan" });
+  expect(option({ version: "1.5.14", models: older })?.missing).toBeUndefined();
+  // No CLI at all: where the runner brings its own (protocol 76, macOS or Linux, the person's computer), Gemini can
+  // be connected and the first sign-in downloads it; anywhere else the CLI has to be installed first.
+  const bare = (over: { protocol?: number; os?: string; kind?: string; mode?: "system" } = {}) =>
+    brainOptions({
+      id: "m2",
+      name: "mac",
+      execAllowed: true,
+      protocol: over.protocol ?? AGY_COPY_PROTOCOL,
+      os: over.os ?? "darwin",
+      online: true,
+      lastSeenAt: new Date(),
+      ...(over.kind ? { kind: over.kind } : {}),
+      executors: { detectedAt: new Date().toISOString(), ...(over.mode ? { mode: over.mode } : {}) },
+    } as never).find((o) => o.kind === "antigravity");
+  expect(bare()).toMatchObject({ available: true, models: expect.arrayContaining([expect.anything()]) });
+  expect(bare()?.missing).toBeUndefined();
+  expect(bare({ os: "linux" })?.available).toBe(true);
+  expect(bare({ protocol: AGY_COPY_PROTOCOL - 1 })).toMatchObject({ available: false, reason: "not_installed" });
+  expect(bare({ mode: "system", os: "linux" })).toMatchObject({ available: false, reason: "not_installed" });
+  expect(bare({ kind: "managed", os: "linux" })).toMatchObject({ available: false, reason: "not_installed" });
+  // Nothing listed yet (no account signed in): the reserve, with nothing to explain.
+  expect(option({ version: "1.5.14" })?.missing).toBeUndefined();
 });
 
 test("a Gemini sign-in is made for all agents where each is its own OS user from protocol 58 on; Enterprise signs in again as Enterprise", () => {

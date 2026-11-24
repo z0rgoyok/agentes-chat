@@ -1,5 +1,6 @@
 import { and, asc, type Database, type Executor, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
 import { getAgent } from "./agents";
+import { type AgentOwnerFields, ownsAgent } from "./audience";
 import { recordAudit } from "./audit";
 import { ForbiddenError, NotFoundError } from "./errors";
 import { can, getMembership, requirePermission } from "./organizations";
@@ -70,14 +71,25 @@ export function rememberedKindOf(value: unknown): RememberedKind | null {
   return { tool: v.tool, actions: v.actions, ...(typeof v.routineId === "string" ? { routineId: v.routineId } : {}) };
 }
 
-/** Whether `userId` decides an agent's approvals: its owner, or who holds `approve_actions`. */
+/**
+ * Whether `userId` decides an agent's approvals: its owner (a person, or holding its owner role: `ownsAgent`), or who
+ * holds `approve_actions`.
+ */
 export async function decidesAgentApprovals(
   db: Executor,
   orgId: string,
   userId: string,
-  agentOwnerUserId: string | null,
+  owner: Pick<AgentOwnerFields, "ownerUserId"> & Partial<Pick<AgentOwnerFields, "ownerRoleId">>,
 ): Promise<boolean> {
-  return agentOwnerUserId === userId || can(await getMembership(db, userId, orgId), "approve_actions");
+  if (owner.ownerUserId === userId) return true;
+  const membership = await getMembership(db, userId, orgId);
+  return (
+    ownsAgent(
+      { ownerUserId: owner.ownerUserId, ownerRoleId: owner.ownerRoleId ?? null },
+      userId,
+      membership?.roleIds ?? [],
+    ) || can(membership, "approve_actions")
+  );
 }
 
 /** The ids of the rules that cover this call, or null when one is missing. Read fresh: a removed rule asks at once. */
@@ -274,7 +286,7 @@ export async function removeApprovalRule(
   const membership = await requirePermission(db, actorId, orgId, "read");
   const agent = await getAgent(db, orgId, agentId);
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!can(membership, "approve_actions") && agent.ownerUserId !== actorId) {
+  if (!can(membership, "approve_actions") && !ownsAgent(agent, actorId, membership.roleIds)) {
     throw new ForbiddenError("Only the agent's owner or an admin can change this");
   }
   await db.transaction(async (tx) => {

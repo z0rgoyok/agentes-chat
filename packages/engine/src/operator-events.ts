@@ -28,6 +28,7 @@ export type OperatorEventType =
   | "organization.created"
   | "organization.deletion_requested"
   | "organization.deletion_canceled"
+  | "organization.plan_move_requested"
   | "organization.deleted"
   | "invitation.created"
   | "agent.created"

@@ -10,15 +10,14 @@ import {
   Stack,
   usePathname,
 } from "expo-router";
-import * as ScreenOrientation from "expo-screen-orientation";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { View } from "react-native";
+import Animated from "react-native-reanimated";
 import { Entering } from "@/features/auth/Entering";
 import { forgetInvite, loadPendingInvite, waitingAsk } from "@/features/auth/invite";
 import { resumesAsk } from "@/features/auth/invite-steps";
-import { LaunchSplash } from "@/features/launch/LaunchSplash";
+import { LaunchSplash, useLaunchSettle } from "@/features/launch/LaunchSplash";
 import { markLaunched } from "@/features/launch/launched";
 import { isStill, stillHref } from "@/features/links/landing";
 import { takeLink } from "@/features/links/pending";
@@ -36,6 +35,7 @@ import { catchGlobalErrors, setErrorScope, startErrorReports } from "@/lib/error
 import { keepLastCrash } from "@/lib/last-crash";
 import { newWorkspaceDone, newWorkspaceMade, newWorkspaceShown, useNewWorkspaceAsk } from "@/lib/new-workspace";
 import { enteringShown, firstRunMounted, suspendedOf } from "@/lib/org-choice";
+import { followScreens } from "@/lib/orientation";
 import { useServer } from "@/lib/server";
 import { AppProviders } from "@/providers/AppProviders";
 import { useAppFonts } from "@/providers/fonts";
@@ -43,12 +43,14 @@ import { useOrgGate } from "@/providers/org";
 import { useSession } from "@/providers/session";
 import { DeletingAccount } from "@/ui/auth/DeletingAccount";
 import { SuspendedWorkspace } from "@/ui/auth/SuspendedWorkspace";
-import { coverBarOptions, router, useNavigationTheme, usePushedOptions } from "@/ui/navigation";
+import { coverBarOptions, router, useNavigationTheme, usePushedOptions, useSideInsets } from "@/ui/navigation";
 import { useTheme } from "@/ui/theme";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
-// Upright everywhere but the agent's screen (`useSideways`). iOS starts this way (the plugin); Android only from here.
-void ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP).catch(() => {});
+// Upright on a phone's screen, free on a large one (`homeOrientation`), everywhere but the agent's screen
+// (`useSideways`). iOS starts upright (the plugin); from here a large screen frees it, and opening or closing an iPhone
+// Duo moves the app to the other screen's way.
+followScreens();
 keepLastCrash();
 catchGlobalErrors();
 
@@ -189,15 +191,16 @@ function Gate() {
   }, [firstRun, flowId, finishing, fresh, anotherName, signedIn]);
   // The first run's bar: clear over its sky, the system's back on it; none on the app's start.
   const pushed = usePushedOptions();
+  const side = useSideInsets();
   const firstRunOptions = useCallback(
     ({ route }: { route: { params?: object } }): NativeStackNavigationOptions => ({
       ...pushed,
       ...coverBarOptions,
-      contentStyle: { backgroundColor: colors.bg },
+      contentStyle: { backgroundColor: colors.bg, ...side },
       ...(isStill(route.params) ? { animation: "none" as const } : {}),
       ...(isRootPage(route.params) ? { gestureEnabled: false, headerBackVisible: false, headerLeft: undefined } : {}),
     }),
-    [pushed, colors.bg],
+    [pushed, colors.bg, side],
   );
   // A link's own screens (an invitation and the steps pushed over it, a new password's, a connect link's), over
   // whatever the phone shows: clear over their sky, the system's back when there is a screen under them.
@@ -205,12 +208,13 @@ function Gate() {
     (): NativeStackNavigationOptions => ({
       ...pushed,
       ...coverBarOptions,
-      contentStyle: { backgroundColor: colors.bg },
+      contentStyle: { backgroundColor: colors.bg, ...side },
     }),
-    [pushed, colors.bg],
+    [pushed, colors.bg, side],
   );
   const suspendedShown = suspended !== null && !deletingAccount;
   const covered = suspendedShown || down !== null || !!accountDeletion;
+  const settleStyle = useLaunchSettle();
 
   // The navigator is always mounted (so links and pushes can navigate); the splash covers it until ready.
   return (
@@ -218,8 +222,9 @@ function Gate() {
     <NavigationThemeProvider value={navigationTheme}>
       <StatusBar style={scheme === "dark" ? "light" : "dark"} />
       {/* Under the suspended screen or the waiting splash the app stays mounted, out of screen readers' reach. */}
-      <View
-        style={{ flex: 1 }}
+      {/* It settles from a little larger as the launch splash's ring opens on it (`useLaunchSettle`). */}
+      <Animated.View
+        style={[{ flex: 1 }, settleStyle]}
         accessibilityElementsHidden={covered}
         importantForAccessibility={covered ? "no-hide-descendants" : "auto"}
       >
@@ -240,7 +245,7 @@ function Gate() {
           <Stack.Screen name="reset-password" options={linkOptions} />
           <Stack.Screen name="connect" options={linkOptions} />
         </Stack>
-      </View>
+      </Animated.View>
       {entering ? <Entering org={org.state?.org?.name ?? null} /> : null}
       {org.state && suspended && suspendedShown ? <SuspendedWorkspace state={org.state} suspended={suspended} /> : null}
       {accountDeletion ? <DeletingAccount dueAt={accountDeletion.dueAt} /> : null}

@@ -63,6 +63,7 @@ describe("You in a personal workspace", () => {
       "routines",
       "drive",
       "issues",
+      "code",
       "threads",
       "proposals",
       "wiki",
@@ -75,6 +76,7 @@ describe("You in a personal workspace", () => {
       "issues",
       "proposals",
       "routines",
+      "code",
       "wiki",
       "drive",
       "dashboards",
@@ -82,11 +84,15 @@ describe("You in a personal workspace", () => {
       "archived",
     ]);
     expect(me).toContain('onPress={() => open("/team")}');
+    // Código (ADR 0215): the sessions, pushed as their own screen.
+    expect(me).toContain('onPress={() => open("/coding")}');
   });
 
   test("Agents' Team row stays a team's: a personal workspace has it in You › Work", () => {
     const agents = read("src/features/agents/AgentsScreen.tsx");
-    expect(agents).toContain("{total > 0 && !isPersonal(org) ? <TeamEntry divider={showsManager} /> : null}");
+    expect(agents).toMatch(
+      /\{total > 0 && !isPersonal\(org\) \? \(\s*<LandRow[^>]*>\s*<TeamEntry divider=\{showsManager\} \/>/,
+    );
   });
 
   test("a personal workspace in the lists wears your face and says whose it is", () => {

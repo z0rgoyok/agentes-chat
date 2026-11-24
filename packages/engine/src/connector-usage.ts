@@ -149,6 +149,7 @@ export async function countToolCall(
     errors?: number;
     approvalsAsked?: number;
     approvalsGiven?: number;
+    costNanoUsd?: number;
   },
 ) {
   try {
@@ -165,6 +166,7 @@ export async function countToolCall(
         errors: call.errors ?? 0,
         approvalsAsked: call.approvalsAsked ?? 0,
         approvalsGiven: call.approvalsGiven ?? 0,
+        costNanoUsd: Math.max(0, Math.round(call.costNanoUsd ?? 0)),
       })
       .onConflictDoUpdate({
         target: [used.day, used.connector, used.via, used.orgId, used.agentId, used.tool],
@@ -173,6 +175,7 @@ export async function countToolCall(
           errors: sql`${used.errors} + excluded.errors`,
           approvalsAsked: sql`${used.approvalsAsked} + excluded.approvals_asked`,
           approvalsGiven: sql`${used.approvalsGiven} + excluded.approvals_given`,
+          costNanoUsd: sql`${used.costNanoUsd} + excluded.cost_nano_usd`,
         },
       });
   } catch {}

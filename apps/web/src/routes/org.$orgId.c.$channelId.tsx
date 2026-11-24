@@ -1,7 +1,7 @@
-import { channelMembersQuery, channelsQuery, channelThreadsQuery, messagesQuery } from "@agenteschat/client";
 import { isPaidReturn } from "@agenteschat/client/lib/billing";
 import { createFileRoute } from "@tanstack/react-router";
 import { agentPanelSearch, threadSearch } from "@/lib/open-param";
+import { prefetchChannel } from "@/lib/prefetch";
 import { ChannelPage } from "@/pages/ChannelPage";
 
 type PanelSearch = ReturnType<typeof threadSearch> & ReturnType<typeof agentPanelSearch>;
@@ -20,21 +20,9 @@ export const Route = createFileRoute("/org/$orgId/c/$channelId")({
     ...(typeof search.adjust === "string" && search.adjust ? { adjust: search.adjust } : {}),
     ...(isPaidReturn(search) ? { paid: true as const } : {}),
   }),
-  // What the channel opens with, all at once instead of one after another; a hover on a link starts it
-  // too (`defaultPreload: "intent"`). Not awaited: the page shows at once and fills in. Only for a
-  // channel I'm in (the server refuses the rest until I join).
-  loader: ({ context: { queryClient, api }, params: { orgId, channelId } }) => {
-    void queryClient
-      .ensureQueryData(channelsQuery(api, orgId))
-      .then((channels) => {
-        if (!channels.some((c) => c.id === channelId && c.isMember)) return;
-        void queryClient.prefetchQuery(messagesQuery(api, orgId, channelId));
-        void queryClient.prefetchQuery(channelMembersQuery(api, orgId, channelId));
-        void queryClient.prefetchQuery(channelThreadsQuery(api, orgId, channelId, "all"));
-        void queryClient.prefetchQuery(channelThreadsQuery(api, orgId, channelId, "archived"));
-      })
-      .catch(() => {});
-  },
+  // What the channel opens with, all at once; a hover on a link starts it too (`defaultPreload: "intent"`).
+  loader: ({ context: { queryClient, api }, params: { orgId, channelId } }) =>
+    prefetchChannel(queryClient, api, orgId, channelId),
   component: function Channel() {
     const { m, adjust } = Route.useSearch();
     return <ChannelPage channelId={Route.useParams().channelId} focusMessageId={m} adjustThreadId={adjust} />;

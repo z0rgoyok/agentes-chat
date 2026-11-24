@@ -1,5 +1,5 @@
 import { useMe } from "@agenteschat/client";
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
@@ -24,7 +24,6 @@ import { useDirectory } from "../shared/hooks";
 import { agentLook, firstName, greetingKey } from "../shared/logic";
 import { useSurface } from "../shared/parts";
 import { FIRST_AGENT_EXAMPLES } from "./examples";
-import { Arrive } from "./HomeEntrance";
 import { type FinishedItem, finishedKey, greetingLine } from "./now";
 
 /** The look of an agent still to be born (the new-agent sheet and the empty state). */
@@ -48,15 +47,16 @@ const openAgents = () => router.navigate("/agents");
 
 /**
  * The workspace's sky behind Conversas' bar, large title and greeting: faint, so the title and the right hand's field
- * lead, and gone before the field.
+ * lead, and gone before the field. It takes nothing from the home: the home draws again at every message and step, and
+ * the sky (its theme and server are its own to follow) stays as it is.
  */
-export function GreetingSky() {
+export const GreetingSky = memo(function GreetingSky() {
   return (
     <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.sky]}>
       <WorkspaceSky fade={0.22} style={StyleSheet.absoluteFill} />
     </View>
   );
-}
+});
 
 /**
  * The greeting under Conversas' large title, scrolling away with the list: "Boa noite, Ana", then, only when there
@@ -70,7 +70,6 @@ export function Greeting({
   finished,
   onFinishedPress,
   after,
-  arrive = { armed: false, play: false },
 }: {
   working: readonly string[];
   /** The newest thing an agent finished (null: nothing new). */
@@ -79,8 +78,6 @@ export function Greeting({
   onFinishedPress?: (f: FinishedItem) => void;
   /** Under it, on the sky: the way to ask the right hand (`RightHandAsk`). */
   after?: ReactNode;
-  /** Conversas' arrival after the splash (`useHomeEntrance`): the greeting's words rise first, `after` on its own. */
-  arrive?: { armed: boolean; play: boolean };
 }) {
   const { t } = useTranslation();
   const dir = useDirectory();
@@ -111,7 +108,7 @@ export function Greeting({
   );
   return (
     <View style={styles.mini}>
-      <Arrive {...arrive} rise={12} duration={520}>
+      <View>
         <Text variant="body" tone="ink2" numberOfLines={1}>
           {greeting}
         </Text>
@@ -149,7 +146,7 @@ export function Greeting({
             )}
           </View>
         )}
-      </Arrive>
+      </View>
       {after ? <View style={styles.after}>{after}</View> : null}
     </View>
   );

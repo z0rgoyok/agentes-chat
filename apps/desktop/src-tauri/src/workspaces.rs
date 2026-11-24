@@ -1,13 +1,15 @@
 //! Workspaces across servers (ADR 0154): every server of the list, read with that server's own session (the
 //! cookies the main window keeps for it, `sent_to`), the way the phone app asks (no `Origin`,
-//! `X-Agentes-Client: mobile`): its workspaces (`GET /api/app/me`) and their unread counts (`GET /api/app/me/unread`),
-//! every minute and when the window comes to the front. The site's workspace menu lists them by server
-//! (`this_mac` `workspaces`), Preferences › Servers shows them under each server, and a server not open in the window
-//! that has new unread notifications says so with the system's notification, named after the workspace and server.
-//! A server the window is signed in to with several accounts (ADR 0183) names them all with their workspaces
-//! (`GET /api/app/device-accounts`), and an account the window isn't on tells its new notifications the same way.
+//! `X-Agentes-Client: mobile`), in one request: every account signed in on the window with its workspaces and their
+//! unread counts (`GET /api/app/device-accounts`, ADR 0183; a server from before it answers `GET /api/app/me` and
+//! `GET /api/app/me/unread`). Each server is asked every minute while the main window shows and every five minutes
+//! while it is hidden, each wait a little off so apps opened together don't ask together; the server open in the
+//! window every five minutes either way, since its page keeps its own counts live. The site's workspace menu lists
+//! them by server (`this_mac` `workspaces`), Preferences › Servers shows them under each server, and a server not open
+//! in the window that has new unread notifications says so with the system's notification, named after the workspace
+//! and server. An account the window isn't on tells its new notifications the same way.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Read;
 use std::sync::{mpsc, Mutex};
 use std::time::{Duration, Instant};
@@ -19,11 +21,13 @@ use tauri::{AppHandle, Emitter, Manager, Url};
 
 use crate::{main_window, servers};
 
-/// How often every server is asked.
+/// How often a server is asked while the main window shows.
 const EVERY: Duration = Duration::from_secs(60);
-/// The window coming to the front asks again, at most this often.
-const FOCUS_GAP: Duration = Duration::from_secs(15);
-/// The site's menu asks for a fresh list when the last one is older than this.
+/// How often while it is hidden, and for the server open in it.
+const EVERY_HIDDEN: Duration = Duration::from_secs(5 * 60);
+/// Each wait is this share longer or shorter, at random.
+const JITTER: f64 = 0.15;
+/// Preferences and the welcome window ask for a fresh list when a server's answer is older than this.
 const STALE: Duration = Duration::from_secs(30);
 const TIMEOUT: Duration = Duration::from_secs(10);
 /// Workspaces kept per server.
@@ -86,9 +90,12 @@ struct State {
     list: Vec<ServerWorkspaces>,
     /// Logos already read, by their address (None: none to show).
     logos: HashMap<String, Option<String>>,
-    checked: Option<Instant>,
-    asked_on_focus: Option<Instant>,
-    wake: Option<mpsc::Sender<()>>,
+    /// When each server was last asked, answered or not.
+    asked: HashMap<String, Instant>,
+    /// Servers open in the window since their last answer: what came meanwhile was the page's to tell.
+    open_since: HashSet<String>,
+    /// Wakes the loop; `true` asks every server now, `false` the ones due.
+    wake: Option<mpsc::Sender<bool>>,
 }
 
 fn lock(app: &AppHandle) -> std::sync::MutexGuard<'_, State> {
@@ -100,75 +107,121 @@ pub fn list(app: &AppHandle) -> Vec<ServerWorkspaces> {
     lock(app).list.clone()
 }
 
-/// The last list is older than `STALE` (or there's none yet).
+/// Some server's answer is older than `STALE`, or it was never asked.
 pub fn stale(app: &AppHandle) -> bool {
-    lock(app).checked.map_or(true, |at| at.elapsed() > STALE)
+    let servers = servers::get(app).servers;
+    let state = lock(app);
+    servers.iter().any(|s| state.asked.get(s).map_or(true, |at| at.elapsed() > STALE))
 }
 
 /// No server read yet: the loop's first pass ran before the main window existed (there were no cookies to read).
 pub fn never_read(app: &AppHandle) -> bool {
-    lock(app).checked.is_none()
+    lock(app).asked.is_empty()
 }
 
 /// Every server read now, on the caller's thread (never a command's or an event handler's: Windows deadlocks).
 pub fn refresh_now(app: &AppHandle) {
-    refresh(app);
+    refresh(app, true);
 }
 
 /// Asks every server again now (the loop does it on its own thread).
 pub fn trigger(app: &AppHandle) {
+    wake(app, true);
+}
+
+fn wake(app: &AppHandle, all: bool) {
     if let Some(wake) = lock(app).wake.as_ref() {
-        let _ = wake.send(());
+        let _ = wake.send(all);
     }
 }
 
-/// The window came to the front: the servers are asked again, at most every 15 seconds.
+/// The window came to the front: the servers whose answer is older than the cadence of a shown window are asked.
 pub fn on_focus(app: &AppHandle) {
-    {
-        let mut state = lock(app);
-        if state.asked_on_focus.is_some_and(|at| at.elapsed() < FOCUS_GAP) {
-            return;
-        }
-        state.asked_on_focus = Some(Instant::now());
-    }
-    trigger(app);
+    wake(app, false);
 }
 
 /// The windows hear that the list changed (the popover offers this computer to a workspace it doesn't work for yet).
 pub const CHANGED_EVENT: &str = "workspaces://changed";
 
-/// The loop: every minute, or when woken. Reading cookies needs a thread of its own (it waits for the web view,
-/// and deadlocks on Windows from a command or an event handler).
+/// The loop: a pass about every minute, asking the servers that are due (`due`), or when woken. Reading cookies needs
+/// a thread of its own (it waits for the web view, and deadlocks on Windows from a command or an event handler).
 pub fn start(app: &AppHandle) {
-    let (tx, rx) = mpsc::channel::<()>();
+    let (tx, rx) = mpsc::channel::<bool>();
     lock(app).wake = Some(tx);
     let app = app.clone();
-    std::thread::spawn(move || loop {
-        refresh(&app);
-        match rx.recv_timeout(EVERY) {
-            Ok(()) | Err(mpsc::RecvTimeoutError::Timeout) => {
-                // Several wakes at once ask once.
-                while rx.try_recv().is_ok() {}
+    std::thread::spawn(move || {
+        let mut all = true;
+        loop {
+            refresh(&app, all);
+            all = match rx.recv_timeout(jittered(EVERY, random())) {
+                Ok(all) => all,
+                Err(mpsc::RecvTimeoutError::Timeout) => false,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            };
+            // Several wakes at once ask once.
+            while let Ok(more) = rx.try_recv() {
+                all |= more;
             }
-            Err(mpsc::RecvTimeoutError::Disconnected) => return,
         }
     });
 }
 
-/// Every server of the list asked once; new unread notifications on a server not open in the window are told.
-fn refresh(app: &AppHandle) {
+/// `every`, up to `JITTER` longer or shorter: `unit` (0 to 1) picks where.
+fn jittered(every: Duration, unit: f64) -> Duration {
+    every.mul_f64(1.0 - JITTER + 2.0 * JITTER * unit.clamp(0.0, 1.0))
+}
+
+/// A number from 0 to 1 from the system's random source; the middle when it has none.
+fn random() -> f64 {
+    let mut bytes = [0u8; 4];
+    match getrandom::fill(&mut bytes) {
+        Ok(()) => f64::from(u32::from_le_bytes(bytes)) / f64::from(u32::MAX),
+        Err(_) => 0.5,
+    }
+}
+
+/// Whether a pass asks a server whose last answer is `age` old (None: never asked): once it is about as old as its
+/// cadence (`EVERY` while the window shows, `EVERY_HIDDEN` while it doesn't, and for the server open in it). Half a
+/// pass early counts: passes come about every `EVERY`, never exactly on time.
+pub fn due(age: Option<Duration>, shown: bool, open: bool) -> bool {
+    let every = if shown && !open { EVERY } else { EVERY_HIDDEN };
+    age.is_none_or(|age| age + EVERY / 2 >= every)
+}
+
+/// The servers due now (`due`), or every one (`all`); new unread notifications on a server not open in the window
+/// are told.
+fn refresh(app: &AppHandle, all: bool) {
     // The cookies are the main window's: before it was ever opened (started at login) there is nothing to read.
     let Some(page) = app.get_webview(main_window::LABEL) else { return };
     let open = page.url().ok().map(|u| u.origin().ascii_serialization());
+    let shown = app
+        .get_window(main_window::LABEL)
+        .is_some_and(|w| w.is_visible().unwrap_or(false) && !w.is_minimized().unwrap_or(false));
     let file = servers::get(app);
+    let (mut logos, asked, open_since) = {
+        let state = lock(app);
+        (state.logos.clone(), state.asked.clone(), state.open_since.clone())
+    };
+    let asking: Vec<&String> = file
+        .servers
+        .iter()
+        .filter(|s| all || due(asked.get(*s).map(Instant::elapsed), shown, open.as_deref() == Some(s.as_str())))
+        .collect();
+    if asking.is_empty() {
+        return;
+    }
     let agent = ureq::AgentBuilder::new().timeout(TIMEOUT).redirects(0).build();
     let home = app.path().home_dir().ok();
-    let mut logos = lock(app).logos.clone();
     let before = list(app);
     let mut next = Vec::with_capacity(file.servers.len());
     // Read once for every server, and never with Tauri's own read (cookies.rs: it stops the app on macOS).
     let window_cookies = crate::cookies::read(&page);
     for server in &file.servers {
+        let old = before.iter().find(|s| &s.server == server);
+        if !asking.contains(&server) {
+            next.extend(old.cloned());
+            continue;
+        }
         let Ok(url) = server.parse::<Url>() else { continue };
         let cookie = cookie_header(window_cookies.iter().filter(|c| sent_to(*c, &url)).map(|c| (c.name(), c.value())));
         let here = crate::local_server::is_here(app, server);
@@ -178,20 +231,33 @@ fn refresh(app: &AppHandle) {
             Some(answer) => next.push(ServerWorkspaces { here, agents_here, ..answer }),
             // Not reached (offline, an error): what it said last stays, marked since when.
             None => {
-                if let Some(old) = before.iter().find(|s| &s.server == server) {
+                if let Some(old) = old {
                     next.push(ServerWorkspaces { here, agents_here, ..unreachable(old, now_ms()) });
                 }
             }
         }
     }
     let changed = next != before;
-    let told = news(&before, &next, open.as_deref());
+    // With no page, nothing is told.
+    let quiet: Vec<&str> = match open.as_deref() {
+        Some(now) => std::iter::once(now).chain(open_since.iter().map(String::as_str)).collect(),
+        None => Vec::new(),
+    };
+    let told = news(&before, &next, &quiet);
     let told_accounts = account_news(&before, &next);
     {
         let mut state = lock(app);
         state.list = next;
         state.logos = logos;
-        state.checked = Some(Instant::now());
+        let now = Instant::now();
+        for server in asking {
+            state.asked.insert(server.clone(), now);
+            if open.as_ref() != Some(server) {
+                state.open_since.remove(server);
+            }
+        }
+        state.asked.retain(|s, _| file.servers.contains(s));
+        state.open_since.extend(open);
     }
     for (server, org, count) in told {
         tell(app, &server, &org, count, None);
@@ -219,6 +285,16 @@ fn ask(agent: &ureq::Agent, server: &str, cookie: &str, logos: &mut HashMap<Stri
     if cookie.is_empty() {
         return Some(signed_out);
     }
+    // Every account signed in on the window, its own first with its workspaces and their counts: one request.
+    if let Ok(Some(listed)) = get_json(agent, &format!("{server}/api/app/device-accounts"), cookie) {
+        if listed.get("accounts").is_some_and(Value::is_array) {
+            let accounts = parse_accounts(&listed);
+            let Some(own) = accounts.iter().find(|a| a.current) else { return Some(signed_out) };
+            let orgs = with_logos(agent, server, cookie, logos, own.orgs.clone(), &own.counts);
+            return Some(signed_in(server, orgs, accounts));
+        }
+    }
+    // A server from before ADR 0183 (no `/device-accounts`): the window's own account only.
     let me = match get_json(agent, &format!("{server}/api/app/me"), cookie) {
         Ok(Some(me)) => me,
         Ok(None) => return Some(signed_out),
@@ -227,20 +303,32 @@ fn ask(agent: &ureq::Agent, server: &str, cookie: &str, logos: &mut HashMap<Stri
     // A server from before ADR 0154 has no `/me/unread`: its workspaces show without counts.
     let unread = get_json(agent, &format!("{server}/api/app/me/unread"), cookie).ok().flatten();
     let counts = unread.as_ref().map(parse_unread).unwrap_or_default();
-    let orgs: Vec<Org> = parse_me(&me)
+    let orgs = with_logos(agent, server, cookie, logos, parse_me(&me), &counts);
+    Some(signed_in(server, orgs, Vec::new()))
+}
+
+/// A server's workspaces with their counts and logos (read from that server once per address).
+fn with_logos(
+    agent: &ureq::Agent,
+    server: &str,
+    cookie: &str,
+    logos: &mut HashMap<String, Option<String>>,
+    parsed: Vec<(String, String, Option<String>, bool)>,
+    counts: &HashMap<String, (u64, u64)>,
+) -> Vec<Org> {
+    parsed
         .into_iter()
         .map(|(id, name, logo, pair)| {
             let (unread, waiting) = counts.get(&id).copied().unwrap_or((0, 0));
             let logo = logo.and_then(|path| logo_data(agent, server, &path, cookie, logos));
             Org { id, name, logo, unread, waiting, pair }
         })
-        .collect();
-    // A server from before ADR 0183 has no `/device-accounts`: only the window's own account is known there.
-    let listed = get_json(agent, &format!("{server}/api/app/device-accounts"), cookie).ok().flatten();
+        .collect()
+}
+
+/// A signed-in server: the window's own workspaces (`orgs`), and every account signed in there.
+fn signed_in(server: &str, orgs: Vec<Org>, listed: Vec<ListedAccount>) -> ServerWorkspaces {
     let accounts = listed
-        .as_ref()
-        .map(parse_accounts)
-        .unwrap_or_default()
         .into_iter()
         .map(|a| {
             // The window's own account: its workspaces as read above, logos included. Another one's logos are its
@@ -259,7 +347,7 @@ fn ask(agent: &ureq::Agent, server: &str, cookie: &str, logos: &mut HashMap<Stri
             Account { user_id: a.user_id, name: a.name, email: a.email, current: a.current, orgs: theirs }
         })
         .collect();
-    Some(ServerWorkspaces { server: server.to_string(), signed_in: true, orgs, accounts, ..Default::default() })
+    ServerWorkspaces { server: server.to_string(), signed_in: true, orgs, accounts, ..Default::default() }
 }
 
 /// Who the main window is signed in as on `server` (the account's id), read with its cookies there as the minute's
@@ -463,15 +551,18 @@ fn counts_of(list: Option<&Value>) -> HashMap<String, (u64, u64)> {
         .unwrap_or_default()
 }
 
-/// What's new since the last check, to tell: on a server other than the one open in the window (`open`; with no
-/// page, none is told), each workspace whose unread count grew, with how many more. A workspace or server seen for
-/// the first time tells nothing (its count isn't news).
-pub fn news(before: &[ServerWorkspaces], after: &[ServerWorkspaces], open: Option<&str>) -> Vec<(String, Org, u64)> {
-    let Some(open) = open else { return vec![] };
+/// What's new since the last check, to tell: on a server other than the ones open in the window since their last
+/// answer (`quiet`: their counts were the page's to tell; empty, with no page, none is told), each workspace whose
+/// unread count grew, with how many more. A workspace or server seen for the first time tells nothing (its count
+/// isn't news).
+pub fn news(before: &[ServerWorkspaces], after: &[ServerWorkspaces], quiet: &[&str]) -> Vec<(String, Org, u64)> {
+    if quiet.is_empty() {
+        return vec![];
+    }
     let mut told = Vec::new();
     // The account the window is on at a server (ADR 0183); None from a server that names none.
     let on = |s: &ServerWorkspaces| s.accounts.iter().find(|a| a.current).map(|a| a.user_id.clone());
-    for now in after.iter().filter(|s| s.server != open && s.signed_in) {
+    for now in after.iter().filter(|s| !quiet.contains(&s.server.as_str()) && s.signed_in) {
         let Some(then) = before.iter().find(|s| s.server == now.server && s.signed_in) else { continue };
         // The window moved to another account there: its workspaces are another person's, not news.
         if on(now) != on(then) {
@@ -550,13 +641,15 @@ fn tell(app: &AppHandle, server: &str, org: &Org, count: u64, account: Option<&s
 }
 
 /// Preferences › Servers, the popover and the welcome window's "Add a workspace": every server's workspaces (the
-/// app's own windows only).
+/// app's own windows only). Preferences and the welcome window, opened by a person, have them read again when some
+/// answer is stale; the popover reads them when they changed, and asking again from there would read the server
+/// open in the window at every change of another's.
 #[tauri::command]
 pub fn workspaces_get(app: AppHandle, window: tauri::Window) -> Result<Vec<ServerWorkspaces>, String> {
     if !matches!(window.label(), "prefs" | "popover" | "welcome") {
         return Err("only the app's own windows ask this".into());
     }
-    if stale(&app) {
+    if window.label() != "popover" && stale(&app) {
         trigger(&app);
     }
     Ok(list(&app))
@@ -837,13 +930,41 @@ mod tests {
             server(open, true, vec![org("a", 9)]),
             server(own, true, vec![org("b", 4), org("c", 3), org("d", 7)]),
         ];
-        let told = news(&before, &after, Some(open));
+        let told = news(&before, &after, &[open]);
         assert_eq!(told.len(), 1, "the server open isn't told, nor fewer unread, nor a workspace seen first now");
         assert_eq!((told[0].0.as_str(), told[0].1.id.as_str(), told[0].2), (own, "b", 2));
-        assert!(news(&before, &after, None).is_empty(), "no page: nothing told");
+        assert!(news(&before, &after, &[]).is_empty(), "no page: nothing told");
         // Signed in again just now: its counts aren't news.
         let signed_out = vec![server(own, false, vec![])];
-        assert!(news(&signed_out, &after, Some(open)).is_empty());
+        assert!(news(&signed_out, &after, &[open]).is_empty());
+        // The server the window just left: what came while it was open was the page's to tell.
+        assert!(news(&before, &after, &[open, own]).is_empty());
+    }
+
+    #[test]
+    fn each_server_is_asked_on_its_cadence() {
+        let secs = |s: u64| Some(Duration::from_secs(s));
+        // Never asked: now, whatever the window does.
+        assert!(due(None, false, true));
+        // The window shows: a server elsewhere about every minute (a pass that comes a little early counts)...
+        assert!(!due(secs(20), true, false));
+        assert!(due(secs(50), true, false));
+        // ...the one open in it every five minutes, as every server while the window is hidden.
+        assert!(!due(secs(60), true, true));
+        assert!(!due(secs(200), false, false));
+        assert!(due(secs(280), false, false));
+        assert!(due(secs(280), true, true));
+    }
+
+    #[test]
+    fn waits_are_a_little_off_so_apps_opened_together_ask_apart() {
+        let minute = Duration::from_secs(60);
+        assert_eq!(jittered(minute, 0.5), minute);
+        assert_eq!(jittered(minute, 0.0), Duration::from_secs(51));
+        assert_eq!(jittered(minute, 1.0), Duration::from_secs(69));
+        assert_eq!(jittered(minute, 7.0), Duration::from_secs(69), "kept within the jitter");
+        let r = random();
+        assert!((0.0..=1.0).contains(&r));
     }
 
     #[test]

@@ -14,6 +14,7 @@ import {
   Icon,
   Meter,
   PlanMeter,
+  RoleMark,
   Switch,
 } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
@@ -79,6 +80,8 @@ export function Ficha() {
     : t("agentPage.numbers.budget", { percent: formatPercent(locale, used) });
 
   const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId) : undefined;
+  // Or the role that answers for it, whoever holds it at the time (ADR 0085, addendum of 2026-11-21).
+  const ownerRole = agent.ownerRoleId ? dir.roleById.get(agent.ownerRoleId) : undefined;
   // Alone in a personal workspace, being its owner and who talks to it say nothing new while they hold what they hold
   // there (the person's, everyone or only them): Settings keeps both, and a list of people always shows (ADR 0159).
   const ownerShown = !(solo && agent.ownerUserId === me.user.id);
@@ -174,7 +177,9 @@ export function Ficha() {
             <Cell
               row
               icon={
-                owner ? (
+                ownerRole ? (
+                  <RoleMark color={ownerRole.color} icon={ownerRole.icon} size={18} />
+                ) : owner ? (
                   <Avatar kind="person" size="xs" name={owner.name} imageUrl={owner.image} />
                 ) : (
                   <Icon name="members" size={16} />
@@ -182,12 +187,15 @@ export function Ficha() {
               }
               label={t("newAgent.owner")}
               value={
-                owner
-                  ? owner.userId === me.user.id
-                    ? t("newAgent.you", { name: owner.name })
-                    : owner.name
-                  : t("newAgent.noOwnerOption")
+                ownerRole
+                  ? ownerRole.name
+                  : owner
+                    ? owner.userId === me.user.id
+                      ? t("newAgent.you", { name: owner.name })
+                      : owner.name
+                    : t("newAgent.noOwnerOption")
               }
+              more={ownerRole ? t("audience.roleMembers", { count: ownerRole.people }) : undefined}
               open={shownOpen === "owner"}
               openLabel={t("newAgent.owner")}
               onOpen={() => setOpen("owner")}

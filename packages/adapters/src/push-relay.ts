@@ -1,5 +1,5 @@
-import { PushError, type PushMessage, type PushResult, type PushSender } from "./push";
-import { APNS_PUSH_TOKEN } from "./push-apns";
+import { type LiveActivityMessage, PushError, type PushMessage, type PushResult, type PushSender } from "./push";
+import { APNS_ACTIVITY_TOKEN, APNS_PUSH_TOKEN } from "./push-apns";
 import { FCM_PUSH_TOKEN } from "./push-fcm";
 
 /**
@@ -27,7 +27,8 @@ type RegisterBody = RelayErrorBody & { instanceId?: unknown; secret?: unknown };
  * A `PushSender` that sends through the relay at `url` (its base, e.g. `https://…/api/push-relay/v1`).
  * Registers lazily (`POST {url}/instances`) and saves the credentials. A 401 means the relay no longer
  * knows this installation: the server registers again once and retries once. A 403 `blocked` never
- * retries; a 429 or a relay failure does (the outbox retries). Message text is never logged.
+ * retries; a 429 or a relay failure does (the outbox retries). Message text is never logged. Live Activity
+ * pushes (ADR 0210) go to `POST {url}/live-activities`; a relay that doesn't know that path sends none.
  */
 export function createRelayPushSender(options: {
   url: string;
@@ -135,25 +136,85 @@ export function createRelayPushSender(options: {
         if (!got || got.length !== batch.length) {
           throw new PushError("push relay answered with the wrong number of results", true);
         }
+        // `skipped`: the relay sends nothing to this platform, and the device stays, as with no sender here.
         batch.forEach((m, n) => {
-          const r = got[n] ?? {};
-          results[at[n] as number] =
-            r.ok === true
-              ? { token: m.to, ok: true, unregistered: false }
-              : r.skipped === true
-                ? // The relay sends nothing to this platform: the device stays, as with no sender here.
-                  { token: m.to, ok: false, unregistered: false, skipped: true, error: "the push relay sends none" }
-                : {
-                    token: m.to,
-                    ok: false,
-                    unregistered: r.unregistered === true,
-                    ...(r.unregistered === true ? {} : { retryable: r.retryable === true }),
-                    error: typeof r.error === "string" ? r.error : "error",
-                  };
+          results[at[n] as number] = resultOf(m.to, got[n] ?? {});
         });
       }
       return results;
     },
+    async sendLiveActivity(messages: LiveActivityMessage[]) {
+      const results = new Array<PushResult>(messages.length);
+      const sendable: number[] = [];
+      messages.forEach((m, i) => {
+        if (APNS_ACTIVITY_TOKEN.test(m.to)) sendable.push(i);
+        else results[i] = { token: m.to, ok: false, unregistered: true, error: "not an APNs activity token" };
+      });
+      for (let i = 0; i < sendable.length; i += PUSH_RELAY_BATCH) {
+        const at = sendable.slice(i, i + PUSH_RELAY_BATCH);
+        const batch = at.map((n) => messages[n] as LiveActivityMessage);
+        let payload: { results?: unknown };
+        try {
+          payload = (await call("/live-activities", { activities: batch.map(relayActivityOf) })) as {
+            results?: unknown;
+          };
+        } catch (error) {
+          // A relay from before Live Activities: it sends none, as a server with no sender for them.
+          if (error instanceof PushError && error.status === 404) {
+            for (const n of at) results[n] = skippedBy(messages[n]?.to ?? "");
+            continue;
+          }
+          throw error;
+        }
+        const got = Array.isArray(payload.results) ? (payload.results as Partial<PushResult>[]) : null;
+        if (!got || got.length !== batch.length) {
+          throw new PushError("push relay answered with the wrong number of results", true);
+        }
+        batch.forEach((m, n) => {
+          results[at[n] as number] = resultOf(m.to, got[n] ?? {});
+        });
+      }
+      return results;
+    },
+  };
+}
+
+const skippedBy = (token: string): PushResult => ({
+  token,
+  ok: false,
+  unregistered: false,
+  skipped: true,
+  error: "the push relay sends none",
+});
+
+/** One of the relay's results, as the installation reads it. */
+function resultOf(token: string, r: Partial<PushResult>): PushResult {
+  if (r.ok === true) return { token, ok: true, unregistered: false };
+  if (r.skipped === true) return skippedBy(token);
+  return {
+    token,
+    ok: false,
+    unregistered: r.unregistered === true,
+    ...(r.unregistered === true ? {} : { retryable: r.retryable === true }),
+    error: typeof r.error === "string" ? r.error : "error",
+  };
+}
+
+/** A Live Activity push as the relay takes it (ADR 0210): every field Apple gets, nothing else. */
+function relayActivityOf(m: LiveActivityMessage) {
+  return {
+    to: m.to,
+    event: m.event,
+    contentState: { name: m.contentState.name, props: m.contentState.props },
+    timestamp: m.timestamp,
+    priority: m.priority,
+    ...(m.staleDate !== undefined ? { staleDate: m.staleDate } : {}),
+    ...(m.dismissalDate !== undefined ? { dismissalDate: m.dismissalDate } : {}),
+    ...(m.alert ? { alert: { title: m.alert.title, body: m.alert.body } } : {}),
+    ...(m.attributesType ? { attributesType: m.attributesType } : {}),
+    ...(m.attributes ? { attributes: m.attributes } : {}),
+    ...(m.inputPushToken ? { inputPushToken: true } : {}),
+    ...(m.apns ? { apns: m.apns } : {}),
   };
 }
 

@@ -188,7 +188,11 @@ export function WorkspaceApprovalsRow() {
         description={t("approvalsLevel.workspaceLead")}
         value={level}
         saving={set.isPending}
-        onChoose={(next) => set.mutate({ level: next }, { onSuccess: () => setOpen(false) })}
+        onChoose={(next) => {
+          // The workspace and its agents show the level at once; a refusal puts it back.
+          set.mutate({ level: next });
+          setOpen(false);
+        }}
       >
         {own > 0 && <p className="small muted">{t("approvalsLevel.ownAgents", { count: own })}</p>}
       </ApprovalsLevelDialog>

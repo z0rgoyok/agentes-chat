@@ -5,7 +5,7 @@ setupDom();
 
 import { defaultDatabasePolicy } from "@agenteschat/client/lib/databases";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { openConnected, pick, service } from "./catalog";
+import { connectionLine, openConnection, openStore, pick, service } from "./catalog";
 import { ADA_ID, ATLAS_ID, createFakeApi, fakeDatabasesOf, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
@@ -23,37 +23,47 @@ function databaseApi() {
   return { state, api, databases };
 }
 
+/** Settings › Connectors, then Browse connectors: the store, its root. */
 const openCatalog = async (api: ReturnType<typeof createFakeApi>) => {
   await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
   await settle(8);
-  await click(screen().getByRole("button", { name: "Adicionar conector" }));
-  return screen().getByRole("dialog", { name: "Adicionar conector" });
+  return openStore();
+};
+/** From the store, Settings at its top: back to Settings › Connectors and what is connected. */
+const backToSettings = async () => {
+  const store = document.querySelector(".store") as HTMLElement;
+  await click(within(store).getByRole("link", { name: "Configurações" }));
+  await settle(8);
 };
 
-describe("Conectores → Banco de dados", () => {
+describe("Connectors → Database", () => {
   test("the card is in Desenvolvimento, says how it connects, and no jargon", async () => {
     const { api } = databaseApi();
-    const dialog = await openCatalog(api);
+    const store = await openCatalog(api);
+    // The Development tab lists it, with what it is.
     await click(
-      // The categories, each with its count ("Desenvolvimento 3").
-      within(within(dialog).getByRole("radiogroup", { name: "Categorias" })).getByRole("radio", {
-        name: /^Desenvolvimento/,
+      within(within(store).getByRole("navigation", { name: "Categorias" })).getByRole("button", {
+        name: "Desenvolvimento",
       }),
     );
-    const card = within(dialog).getByRole("button", { name: "Banco de dados" });
-    expect(card.textContent).toContain("só leitura");
-    // How it connects, and that it never changes anything, in its dialog.
-    await click(card);
+    const line = [...store.querySelectorAll(".store-item")].find(
+      (li) => li.querySelector(".store-item__text b")?.textContent === "Banco de dados",
+    ) as HTMLElement;
+    expect(line.textContent).toContain("só leitura");
+    const listed = store.textContent;
+    // How it connects, and that it never changes anything, on its page.
+    await click(line.querySelector(".store-item__open") as HTMLElement);
+    await settle(4);
     const detail = service("Banco de dados");
     expect(detail.textContent).toContain("Precisa do endereço do banco e de uma senha");
     expect(detail.textContent).toContain("Nunca altera nada");
-    expect(`${dialog.textContent} ${detail.textContent}`).not.toMatch(/MCP server|scope/i);
+    expect(`${listed} ${detail.textContent}`).not.toMatch(/MCP server|scope/i);
   });
 
   test("connect → o que faz → quem pode usar → regras, with plain errors and the read-only user help", async () => {
     const { api, state, databases } = databaseApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "Banco de dados");
+    const store = await openCatalog(api);
+    await pick(store, "Banco de dados");
     expect(flow().textContent).toContain("Conectar Banco de dados");
     // How to make a read-only user: the steps, the SQL to paste (with Copiar) and the provider's page.
     expect(flow().textContent).toContain("Como criar um usuário só de leitura?");
@@ -120,19 +130,20 @@ describe("Conectores → Banco de dados", () => {
         timeoutSeconds: 30,
       },
     });
-    // The connected row: name, active, read-only, who reads it.
-    const row = (await screen().findByText("Produção")).closest(".connected-row") as HTMLElement;
+    // Back in Settings › Connectors, its line: name, read-only, where, who reads it.
+    await backToSettings();
+    const row = connectionLine("Produção");
     expect(row.textContent).toContain("Só lê");
     expect(row.textContent).toContain("agentes_leitura@db.acme.com/app");
-    expect(row.textContent).toContain("1 de");
+    expect(row.textContent).toContain("1 agente");
   });
 });
 
 describe("Regras em: remove all, copy to other agents", () => {
   test("Remover tudo empties the hidden columns with Desfazer, Copiar regras gives Atlas Ada's rules", async () => {
     const { api, state } = databaseApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "Banco de dados");
+    const store = await openCatalog(api);
+    await pick(store, "Banco de dados");
     await type(within(flow()).getByLabelText("Nome"), "Produção");
     await type(within(flow()).getByLabelText("Endereço do banco"), "postgres://reader:pw@db.acme.com:6543/app");
     await click(within(flow()).getByRole("button", { name: "Conectar" }));
@@ -187,8 +198,8 @@ describe("Regras em: remove all, copy to other agents", () => {
 describe("Regras em: undo a copy", () => {
   test("Desfazer after Copiar regras gives Atlas back its own unsaved edits", async () => {
     const { api, state } = databaseApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "Banco de dados");
+    const store = await openCatalog(api);
+    await pick(store, "Banco de dados");
     await type(within(flow()).getByLabelText("Nome"), "Produção");
     await type(within(flow()).getByLabelText("Endereço do banco"), "postgres://reader:pw@db.acme.com:6543/app");
     await click(within(flow()).getByRole("button", { name: "Conectar" }));
@@ -263,8 +274,8 @@ describe("the agent's database access", () => {
 describe("Quais bancos: one database, or every database of the server", () => {
   test("follows whether the address names a database; every database sends wholeServer and the prefix", async () => {
     const { api, state } = databaseApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "Banco de dados");
+    const store = await openCatalog(api);
+    await pick(store, "Banco de dados");
     const scope = () => within(flow()).getByRole("radiogroup", { name: "Quais bancos" });
     const checked = () => within(scope()).getByRole("radio", { checked: true }).textContent;
     // No address yet: every database, with the prefix field and the role that reads them all.
@@ -291,8 +302,8 @@ describe("Quais bancos: one database, or every database of the server", () => {
 
   test("picking Só este banco for an address without a name sends no wholeServer", async () => {
     const { api, state } = databaseApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "Banco de dados");
+    const store = await openCatalog(api);
+    await pick(store, "Banco de dados");
     await type(within(flow()).getByLabelText("Endereço do banco"), "postgres://reader:pw@db.acme.com");
     await click(
       within(within(flow()).getByRole("radiogroup", { name: "Quais bancos" })).getByRole("radio", {
@@ -336,7 +347,7 @@ describe("Quais bancos: one database, or every database of the server", () => {
     });
   });
 
-  test("the connected row: user@server, how many databases, the prefix, Atualizar lista", async () => {
+  test("the connected line: user@server; its page: how many databases, the prefix and Refresh list", async () => {
     const { api, state, databases } = databaseApi();
     await databases.client.connect(ORG_ID, {
       label: "Clientes",
@@ -346,10 +357,11 @@ describe("Quais bancos: one database, or every database of the server", () => {
     });
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
     await settle(8);
-    const row = (await screen().findByText("Clientes")).closest(".connected-row") as HTMLElement;
-    expect(row.textContent).toContain("reader@db.acme.com · 3 bancos · bancos que começam com cliente_");
-    await openConnected();
-    await click(within(row).getByRole("button", { name: "Atualizar a lista de bancos de Clientes" }));
+    expect(connectionLine("Clientes").textContent).toContain("reader@db.acme.com");
+    // Its page: how many databases, and Refresh list.
+    const page = await openConnection("Clientes");
+    expect(page.textContent).toContain("3 bancos · bancos que começam com cliente_");
+    await click(within(page).getByRole("button", { name: "Atualizar a lista de bancos de Clientes" }));
     await settle(4);
     expect(state.calls.some((c) => c.method === "databases.serverDatabases" && c.args[2] === true)).toBe(true);
   });
@@ -367,9 +379,8 @@ describe("Bancos of a connected database: ask before more databases open", () =>
       await databases.client.setAgent(ORG_ID, agentId, c.id, { level: "read", policy: defaultDatabasePolicy() });
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
     await settle(8);
-    const row = (await screen().findByText("Clientes")).closest(".connected-row") as HTMLElement;
-    await openConnected();
-    await click(within(row).getByRole("button", { name: "Bancos de Clientes" }));
+    const page = await openConnection("Clientes");
+    await click(within(page).getByRole("button", { name: "Bancos de Clientes" }));
     const updates = () => state.calls.filter((c) => c.method === "databases.update");
     return { updates };
   }
@@ -421,17 +432,14 @@ describe("Bancos of a connected database: ask before more databases open", () =>
     const ARCHIVED_ID = "00000000-0000-4000-8000-0000000000a9";
     await connected({}, [ADA_ID, ARCHIVED_ID]);
     await click(within(flow()).getByRole("button", { name: "Cancelar" }));
-    const row = (await screen().findByText("Clientes")).closest(".connected-row") as HTMLElement;
-    await openConnected();
-    await click(within(row).getByRole("button", { name: "Desconectar Clientes" }));
+    // The connection's page is still open: its Disconnect is at the end.
+    await click(screen().getByRole("button", { name: "Desconectar Clientes" }));
     expect(flow().textContent).toContain("1 agente perde o acesso na hora.");
     cleanup();
 
     await connected({}, [ARCHIVED_ID]);
     await click(within(flow()).getByRole("button", { name: "Cancelar" }));
-    const only = (await screen().findByText("Clientes")).closest(".connected-row") as HTMLElement;
-    await openConnected();
-    await click(within(only).getByRole("button", { name: "Desconectar Clientes" }));
+    await click(screen().getByRole("button", { name: "Desconectar Clientes" }));
     expect(flow().textContent).toContain("Nenhum agente usa agora.");
   });
 

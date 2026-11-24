@@ -417,6 +417,22 @@ async function passwordOf(deps: DatabaseDeps, row: DbConnectionRow) {
   );
 }
 
+let idleSweep: ReturnType<typeof setInterval> | null = null;
+
+/** Closes the pools unused for `IDLE_MS`; the sweep stops once none is left. */
+function closeIdle(now: number) {
+  for (const [k, c] of clients) {
+    if (now - c.usedAt > IDLE_MS) {
+      clients.delete(k);
+      closeClient(c);
+    }
+  }
+  if (clients.size === 0 && idleSweep) {
+    clearInterval(idleSweep);
+    idleSweep = null;
+  }
+}
+
 /** A client for one database of a connection (backend only; its own database by default), from the pool. */
 export async function clientFor(
   deps: DatabaseDeps,
@@ -424,11 +440,11 @@ export async function clientFor(
   database = row.database,
 ): Promise<DatabaseClient> {
   const now = Date.now();
-  for (const [k, c] of clients) {
-    if (now - c.usedAt > IDLE_MS) {
-      clients.delete(k);
-      closeClient(c);
-    }
+  closeIdle(now);
+  // A burst of queries then silence: the pools close on their own, not at the next query, whenever it comes.
+  if (!idleSweep) {
+    idleSweep = setInterval(() => closeIdle(Date.now()), IDLE_MS);
+    idleSweep.unref?.();
   }
   const key = poolKey(row.id, database);
   const version = row.updatedAt.getTime();

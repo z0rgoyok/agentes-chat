@@ -7,6 +7,7 @@ import type { ComposioConnectors } from "./composio";
 import { activeConnections } from "./connections";
 import { isCustom } from "./custom";
 import { composioToolkitUrl, MCP_PRESETS, type McpPreset, presetForServer } from "./presets";
+import { CONNECTOR_NAMES } from "./sites";
 
 /**
  * Brand icons the web app serves, keyed by icon name. One color, from
@@ -93,6 +94,11 @@ export const CONNECTOR_BRANDS: Record<string, { file: string; color: string | nu
   pinterest: { file: "pinterest", color: "#BD081C" },
   reddit: { file: "reddit", color: "#FF4500" },
   whatsapp: { file: "whatsapp", color: "#25D366" },
+  telegram: { file: "telegram", color: "#26A5E4" },
+  x: { file: "x", color: null },
+  threads: { file: "threads", color: null },
+  tiktok: { file: "tiktok", color: null },
+  "meta-ads": { file: "meta", color: "#0467DF" },
 };
 
 export interface ConnectorListingEntry {
@@ -113,6 +119,11 @@ export interface ConnectorListingEntry {
   available: boolean;
   /** A one-click server whose vendor hasn't approved agentes.chat yet, which Composio doesn't serve here ("Em breve"). */
   soon: boolean;
+  /**
+   * A connector of ours that signs in only through a developer app, on a self-hosted server that hasn't registered it:
+   * the apps say so instead of "Em breve" (on the Cloud it stays "Em breve" until the vendor approves the app).
+   */
+  needsApp?: boolean;
   /** Connects through Composio (its page, its OAuth app): available only with `COMPOSIO_API_KEY` (ADR 0107). */
   via?: "composio";
   /** Where it connects, by the way this server picked (a `remote_mcp` entry's address). */
@@ -137,7 +148,7 @@ export const offersCatalog = (id: string, oauthApps: Record<string, unknown> = {
   !MCP_PRESETS.some((p) => p.id === id) || Boolean(CONNECTOR_CATALOG[id]?.oauth && oauthApps[id]);
 
 /**
- * What this server's "Adicionar conector" can connect: its OAuth apps (`connectorOAuthApps`), its mail paths and
+ * What this server's connectors store can connect: its OAuth apps (`connectorOAuthApps`), its mail paths and
  * Composio (null without `COMPOSIO_API_KEY`).
  */
 export interface ServerCatalog {
@@ -163,7 +174,7 @@ function presetWay(p: McpPreset, composio: ComposioConnectors | null | undefined
 }
 
 /**
- * One list for "Adicionar conector": our catalog connectors and the one-click presets, each service once. A service in
+ * One list for the connectors store: our catalog connectors and the one-click presets, each service once. A service in
  * both (Linear, Sentry) is our connector when this server has its OAuth app, else the preset, which connects by the way
  * `presetWay` picks.
  */
@@ -186,6 +197,7 @@ export function connectorListing(server: ServerCatalog): ConnectorListingEntry[]
       oauthConfigured,
       available: oauthConfigured || d.auth.includes("api_key"),
       soon: false,
+      ...(d.native && !oauthConfigured && !d.auth.includes("api_key") && !server.cloud ? { needsApp: true } : {}),
       serverUrl: d.serverUrl,
       ...brand(d.id),
       scopes: Object.entries(d.scopes).map(([id, s]) => ({
@@ -221,11 +233,11 @@ export function connectorListing(server: ServerCatalog): ConnectorListingEntry[]
   return [...builtins, ...presets];
 }
 
-/** A connector of "Adicionar conector" the agent has no tool of, as `find_tools` names it (ADR 0043). */
+/** A connector of the connectors store the agent has no tool of, as `find_tools` names it (ADR 0043). */
 export interface MissingConnector {
   label: string;
   description: string;
-  /** What names it in a search: its label and its ids (`drive`). */
+  /** What names it in a search: its label, its ids (`drive`) and its other names (`CONNECTOR_NAMES`). */
   names: string[];
   /**
    * `unavailable`: this server can't connect it; `soon`: its vendor hasn't approved agentes.chat yet (a `soon`
@@ -237,10 +249,10 @@ export interface MissingConnector {
   connectionIds: string[];
 }
 
-/** A connector of "Adicionar conector" as this agent stands with it: `usable`, it has tools of it. */
+/** A connector of the connectors store as this agent stands with it: `usable`, it has tools of it. */
 export type ConnectorState = Omit<MissingConnector, "state"> & { state: MissingConnector["state"] | "usable" };
 
-/** The mailboxes "Adicionar conector" offers, by the rule of `mailChoices` (apps/web/src/components/MailConnect.tsx). */
+/** The mailboxes the connectors store offers, by the rule of `mailChoices` (apps/web/src/components/MailConnect.tsx). */
 const MAILBOXES: {
   label: string;
   description: string;
@@ -291,7 +303,7 @@ export async function missingConnectors(
 }
 
 /**
- * The connectors of "Adicionar conector" (`connectorListing` and the mailboxes) and how the agent stands with each.
+ * The connectors of the connectors store (`connectorListing` and the mailboxes) and how the agent stands with each.
  * `usable`: the agent's tools; `listed`: every tool this server lists for the workspace. Names and states only:
  * never a connection's account, address or key. `person`: who the run answers for; of personal connections only
  * theirs count, so someone else's never reads as held.
@@ -334,6 +346,7 @@ export async function connectorStates(
   for (const entry of connectorListing(catalog)) {
     const s = service(entry.label, entry.description);
     s.names.add(entry.id);
+    for (const name of CONNECTOR_NAMES[entry.id] ?? []) s.names.add(name);
     s.offered ||= entry.available;
     s.soon ||= entry.soon;
   }

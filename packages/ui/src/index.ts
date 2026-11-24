@@ -61,6 +61,7 @@ export {
   stickerSeed,
   WAVE_SECONDS,
 } from "./agent/stickers";
+export { BoundedMap } from "./bounded-map";
 export {
   BRAIN_GRID,
   BRAIN_KINDS,
@@ -223,6 +224,7 @@ export {
   type FilterChipProps,
   type FilterOption,
 } from "./components/FilterChip";
+export { FilterMenu, type FilterMenuChip } from "./components/FilterMenu";
 export { FoldRow } from "./components/FoldRow";
 export { GroupHeading } from "./components/GroupHeading";
 export { type Hosting, HostingScene, type Place, PlaceScene } from "./components/HostingScene";
@@ -369,7 +371,6 @@ export {
   SkeletonRow,
   Spinner,
   skeletonOnScreen,
-  TopProgress,
   useDelayed,
 } from "./components/Skeleton";
 export { StepTrack, type StepTrackState, type StepTrackStep } from "./components/StepTrack";
@@ -380,18 +381,18 @@ export {
   CardHeader,
   EmptyState,
   type EmptyStateProps,
-  LIST_STAGGER_MS,
   List,
   ListRow,
   type ListRowProps,
   Meter,
   OptionCard,
   Steps,
+  settleOnNextFrame,
 } from "./components/Surfaces";
 export { type TabItem, TabPanel, Tabs } from "./components/Tabs";
 export { normalizeTime, TimeSelect, type TimeSelectProps, timeOptions } from "./components/TimeSelect";
 export { TimezoneSelect, type TimezoneSelectLabels, type TimezoneSelectProps } from "./components/TimezoneSelect";
-export { Tip, type TipProps } from "./components/Tip";
+export { TIP_HOLD_MS, Tip, type TipProps } from "./components/Tip";
 export { Token, TokenList, type TokenProps } from "./components/Token";
 export {
   ToolBlock,
@@ -399,6 +400,7 @@ export {
   type ToolBlockItem,
   type ToolBlockLine,
   type ToolBlockState,
+  ToolLink,
 } from "./components/ToolBlock";
 export {
   FilterToggle,
@@ -466,6 +468,7 @@ export {
   formatShortcutHint,
   insertText,
   linkSelection,
+  pasteLink,
   prefixLines,
   type TextEdit,
   wrapSelection,
@@ -524,6 +527,7 @@ export { ditherCells, ditherSvg, ditherTones, ditherUrl } from "./sky/dither";
 export {
   drawSprite,
   holdSkies,
+  holdSkiesWhileAway,
   prefersReducedMotion,
   redrawSkies,
   type SkyBlob,
@@ -583,6 +587,7 @@ export {
   zoneOptions,
 } from "./timezones";
 export { installTitleTips, TITLE_TIP_GRACE_MS, TITLE_TIP_ID, TITLE_TIP_OPEN_MS } from "./title-tips";
+export { dragsFiles, pastedFiles, transferFiles } from "./transfer";
 export { DitherLine, fillEnds, paintCells, paintLineArea, useElementWidth } from "./widgets/ChartPieces";
 export { formatWidgetNumber, formatWithUnit, useCountUp, widgetDigits } from "./widgets/format";
 export { ditherTile, WIDGET_CELL, widgetTileVars, widgetTones } from "./widgets/tiles";

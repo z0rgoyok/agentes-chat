@@ -1,4 +1,4 @@
-import type { BlobStoreResolver, PubSub, SpeechEngine } from "@agenteschat/adapters";
+import type { BlobStore, BlobStoreResolver, PubSub, SpeechEngine } from "@agenteschat/adapters";
 import { firstWords, typingTopic } from "@agenteschat/adapters";
 import {
   and,
@@ -424,13 +424,13 @@ export async function transcribeVoiceClip(deps: VoiceDeps, clipId: string, optio
   }
 }
 
-/** A recording to play, for who can read its channel: a signed link where the store has them, else the bytes. */
+/** A recording to play, for who can read its channel: a signed link where the store has them, else where it is kept. */
 export async function voiceClipAudio(
   deps: Pick<VoiceDeps, "db" | "blobs" | "retentionDays">,
   userId: string,
   orgId: string,
   clipId: string,
-): Promise<{ expired: true } | { url: string } | { body: Uint8Array; contentType: string }> {
+): Promise<{ expired: true } | { url: string } | { store: BlobStore; key: string; size: number; contentType: string }> {
   const [clip] = await deps.db
     .select()
     .from(voiceClips)
@@ -442,11 +442,9 @@ export async function voiceClipAudio(
     return { expired: true };
   }
   const store = await deps.blobs.forConfig(orgId, clip.storageConfigId);
-  const url = await store.signedUrl(clip.blobKey, { expiresInSeconds: 300 });
+  const url = await store.signedUrl(clip.blobKey, { expiresInSeconds: 300, contentType: clip.contentType });
   if (url) return { url };
-  const object = await store.get(clip.blobKey);
-  if (!object) throw new NotFoundError();
-  return { body: object.body, contentType: clip.contentType };
+  return { store, key: clip.blobKey, size: clip.size, contentType: clip.contentType };
 }
 
 const SWEEP_PAGE = 200;

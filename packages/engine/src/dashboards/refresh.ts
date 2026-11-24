@@ -141,6 +141,7 @@ async function zoneOf(db: Database, orgId: string, userId: string | null): Promi
 async function defaultCreator(db: Database, widget: WidgetRow, board: DashboardRow): Promise<string | null> {
   const person = widget.createdByUserId ?? board.ownerUserId ?? widget.alertUserId;
   if (person) return person;
+  // A routine runs for one person: a role answering for the agent names nobody (ADR 0085, addendum of 2026-11-21).
   const [a] = await db.select({ owner: agents.ownerUserId }).from(agents).where(eq(agents.id, widget.agentId));
   return a?.owner ?? null;
 }

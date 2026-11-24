@@ -15,23 +15,29 @@ import { lookOf } from "@/lib/look";
 
 /** What every Equipe view looks up: people's names, an agent's setor, the channels I see, the right hand. */
 export function useTeamLookups(groups: readonly AgentGroup[]) {
-  const { org } = useOrg();
+  const { org, me } = useOrg();
   const dir = useDirectory(org.id);
   const channels = useChannels(org.id).data;
   return useMemo(() => {
     const channelById = new Map((channels ?? []).map((c) => [c.id, c]));
     const lodi = rightHandOf(dir.agents);
+    const personName = (id: string | null | undefined) => (id ? (dir.memberById.get(id)?.name ?? "") : "");
     return {
       dir,
       members: new Set(dir.members.map((m) => m.userId)),
-      personName: (id: string | null | undefined) => (id ? (dir.memberById.get(id)?.name ?? "") : ""),
+      personName,
+      /** Who answers for an agent, by name: its role's (ADR 0085, addendum of 2026-11-21), else its person's. */
+      ownerName: (userId: string | null | undefined, roleId?: string | null) =>
+        roleId ? (dir.roleName(roleId) ?? "") : personName(userId),
+      /** The roles I hold: an agent one of them answers for is mine too. */
+      myRoleIds: dir.rolesOf(me.user.id),
       sectorOf: (agentId: string) => groupOf(groups, agentId),
       channelById,
       channelOrder: (channels ?? []).map((c) => c.id),
       lodi,
       isLodi: (a: Pick<TeamAgent, "id">) => a.id === lodi?.id,
     };
-  }, [dir, channels, groups]);
+  }, [dir, channels, groups, me.user.id]);
 }
 
 /** A setor's mark: its color and icon. */

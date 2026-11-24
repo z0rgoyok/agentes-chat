@@ -619,7 +619,7 @@ test("an agent that changes owner queues one job for the new owner, however many
   f = await setup({ rightHand: true });
   const bia = await addMember(f.db, f.org.id, "member", "bia");
   for (let i = 0; i < 4; i++) await ask();
-  await repointApprovals(deps(), f.org.id, [f.agent.id], bia.id);
+  await repointApprovals(deps(), f.org.id, [f.agent.id], { ownerUserId: bia.id, ownerRoleId: null });
   const jobs = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, APPROVALS_DIGEST_JOB));
   expect(jobs.map((j) => j.payload)).toEqual([{ userId: bia.id }]);
   // And the card that job posts is hers, with the four.

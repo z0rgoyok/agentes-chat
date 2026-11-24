@@ -1,6 +1,6 @@
 import { ACCESS_ALLOW_PROTOCOL, type AgentScope, BROWSER_PROFILE_PROTOCOL, type PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, type Executor, eq, inArray, isNull, notInArray, schema, sql } from "@agenteschat/db";
-import { managesAgent, REACH_COLUMNS } from "../audience";
+import { managesAgent, ownsAgent, REACH_COLUMNS } from "../audience";
 import { recordAudit } from "../audit";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { type MachineCaller, MachineRequestError } from "../machine-hub";
@@ -182,7 +182,7 @@ async function requireEditableAgents(
     .from(agents)
     .where(and(eq(agents.orgId, orgId), inArray(agents.id, agentIds)));
   if (rows.length !== new Set(agentIds).size) throw new ValidationError("Unknown agent");
-  if (rows.some((a) => a.ownerUserId !== actorId && !managesAgent(a, actorId, membership))) {
+  if (rows.some((a) => !ownsAgent(a, actorId, membership.roleIds) && !managesAgent(a, actorId, membership))) {
     throw new ForbiddenError("You can give profiles only to agents you may edit");
   }
 }
@@ -431,7 +431,7 @@ export async function setAgentBrowserProfile(
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!managesAgent(agent, actorId, membership) && agent.ownerUserId !== actorId) {
+  if (!managesAgent(agent, actorId, membership) && !ownsAgent(agent, actorId, membership.roleIds)) {
     throw new ForbiddenError("Only an admin or the agent's owner can choose its browser");
   }
   let name: string | null = null;
@@ -504,7 +504,7 @@ export async function requestBrowserProfile(deps: NotificationDeps, actorId: str
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId)));
   if (!agent) throw new NotFoundError("Agent not found");
-  if (!managesAgent(agent, actorId, membership) && agent.ownerUserId !== actorId) {
+  if (!managesAgent(agent, actorId, membership) && !ownsAgent(agent, actorId, membership.roleIds)) {
     throw new ForbiddenError("Only an admin or the agent's owner can ask for a profile");
   }
   if (agent.machineId) await requireSingleMode(deps.db, orgId, agent.machineId);

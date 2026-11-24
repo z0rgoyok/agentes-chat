@@ -440,7 +440,7 @@ describe("a conversation shown again after another page", () => {
     return document.querySelector("aside.thread-panel") as HTMLElement;
   };
 
-  test("a thread open, the approvals page, a reply meanwhile, back and the thread again: the reply, and its header counts it", async () => {
+  test("a thread open, the inbox, a reply meanwhile, back and the thread again: the reply, and its header counts it", async () => {
     const w = await workspace();
     await click(link("general"));
     const root = (await (
@@ -450,15 +450,15 @@ describe("a conversation shown again after another page", () => {
     await burst();
     const first = await openThread(root.id);
     expect(first.textContent).toContain("primeira resposta");
-    await click(links().find((a) => a.getAttribute("href")?.endsWith("/approvals")));
+    await click(links().find((a) => a.getAttribute("href")?.endsWith("/notifications")));
     await w.as.admin(`/channels/${w.general}/messages`, {
-      json: { body: "resposta enquanto eu aprovava", threadId: root.id },
+      json: { body: "resposta enquanto eu estava fora", threadId: root.id },
     });
     await live();
     await click(link("general"));
     const again = await openThread(root.id);
     await live();
-    expect(again.textContent).toContain("resposta enquanto eu aprovava");
+    expect(again.textContent).toContain("resposta enquanto eu estava fora");
     expect(again.querySelector(".thread-head__meta")?.textContent).toMatch(/2 replies/i);
   });
 });

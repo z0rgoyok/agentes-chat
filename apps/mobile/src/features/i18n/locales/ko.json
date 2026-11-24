@@ -91,7 +91,7 @@
     "chats": "채팅",
     "threads": "스레드",
     "agents": "에이전트",
-    "activity": "활동",
+    "activity": "받은편지함",
     "search": "검색",
     "withCount": "{{label}}, {{count}}"
   },
@@ -153,6 +153,7 @@
     "forwards": "“{{subject}}” 전달",
     "forwardsFrom": "{{from}}의 “{{subject}}” 전달",
     "onlyOwner": "{{name}} 또는 관리자만 결정할 수 있어요.",
+    "onlyOwnerRole": "{{role}} 역할이 있는 사람이나 관리자만 결정할 수 있어요.",
     "onlyAdmins": "관리자만 결정할 수 있어요.",
     "notFound": "이 요청은 더 이상 없거나 볼 수 없어요.",
     "trait": {
@@ -182,7 +183,14 @@
     },
     "pinned": "고정됨",
     "recent": "최근",
+    "view": {
+      "title": "대화 보기",
+      "sectors": "부서",
+      "dms": "다이렉트 메시지",
+      "channels": "채널"
+    },
     "seeAll": "모든 채팅 보기",
+    "splitEmpty": "채팅이 여기에 열려요.",
     "wait": {
       "verb": {
         "approval": "승인을 기다려요",
@@ -267,8 +275,8 @@
     "to": "받는 사람:",
     "people": "사람",
     "search": "사람 또는 에이전트",
-    "create": "만들기",
     "agentHint": "이름과 하는 일",
+    "create": "만들기",
     "chatShort": "대화",
     "chatHint": "사람 또는 에이전트",
     "taskHint": "담당자와 마감일 포함",
@@ -314,6 +322,9 @@
   },
   "chat": {
     "someone": "누군가",
+    "handedTo": "{{name}}에게 넘김",
+    "handedTo_female": "{{name}}에게 넘김",
+    "pairAsked": "{{from}}의 질문",
     "messageTo": "{{name}}에게 메시지 보내기",
     "messageIn": "{{channel}}에 메시지 보내기",
     "reply": "답장",
@@ -380,10 +391,6 @@
       "working": "{{names}} 작성 중",
       "mentionsYou": "나를 멘션했어요",
       "divider": "새 메시지"
-    },
-    "connection": {
-      "down": "연결되어 있지 않아요. 보낸 내용은 다시 연결되면 알아서 전송돼요.",
-      "back": "다시 연결됐어요"
     },
     "longPressHint": "길게 눌러 반응하고 더 많은 작업 보기",
     "file": "파일",
@@ -544,6 +551,8 @@
     "camera": "카메라",
     "photos": "사진",
     "file": "파일",
+    "paste": "붙여넣기",
+    "pasteGone": "복사한 이미지를 읽을 수 없어요. 다시 복사한 다음 붙여넣기를 탭하세요.",
     "media": "GIF",
     "noCamera": "카메라에 접근할 수 없어요. 휴대폰 설정에서 허용해 주세요.",
     "summary": "채팅 요약",
@@ -736,10 +745,12 @@
     "section": {
       "missions": "미션",
       "threads": "스레드"
-    }
+    },
+    "splitEmpty": "스레드가 여기에 열려요."
   },
   "agents": {
     "title": "에이전트",
+    "splitEmpty": "에이전트 페이지가 여기에 열려요.",
     "subtitle_other": "팀에 {{count}}명 · {{working}}명 작업 중",
     "free": "대기 중",
     "workingLabel": "{{name}}, 작업 중",
@@ -834,7 +845,7 @@
     }
   },
   "activity": {
-    "title": "활동",
+    "title": "받은편지함",
     "chooseModel": "다른 모델 고르기",
     "filter": {
       "all": "전체",
@@ -852,6 +863,9 @@
     },
     "kind": {
       "proposal_waiting_other": "{{names}}이(가) 개선을 제안해요",
+      "proposal_applied_other": "{{names}}이(가) 개선 {{count}}개를 적용했어요",
+      "proposal_applied_agents_other": "{{names}}이(가) 개선 {{count}}개를 적용했어요",
+      "proposal_applied_auto_other": "개선 {{count}}개가 자동으로 적용됐어요",
       "mention_other": "{{names}}이(가) 나를 멘션했어요",
       "thread_reply_other": "{{names}}이(가) 스레드에 답장했어요",
       "agent_reply_other": "{{names}}이(가) 답했어요",
@@ -961,6 +975,46 @@
     "addA11y": "{{name}}을(를) 채널에 추가",
     "added": "{{name}}이(가) 채널에 참여했어요"
   },
+  "settingsSearch": {
+    "open": "설정 검색",
+    "title": "검색",
+    "placeholder": "나와 설정에서 검색",
+    "workspace": "워크스페이스 설정",
+    "words": {
+      "status": "자리 비움, 바쁨, 상태, 온라인",
+      "account": "이름, 사진, 이메일, 시간대, 비밀번호, 핸들",
+      "deleteAccount": "삭제, 제거, 계정 닫기",
+      "workspaces": "전환, 서버, 계정",
+      "notifications": "알림, 푸시, 배지",
+      "approvals": "승인, 위임",
+      "start": "열기, 홈, 첫 화면",
+      "activity": "도구, 에이전트가 한 일",
+      "chatLook": "말풍선, 메시지, 대화",
+      "wallpaper": "배경, 배경화면, 사진",
+      "agentStyle": "기술적, 간단, 어조",
+      "sounds": "소리, 무음, 조용히",
+      "appearance": "테마, 다크, 라이트, 모드",
+      "appIcon": "아이콘",
+      "language": "언어, 한국어, 영어",
+      "about": "버전, 라이선스",
+      "aiAccounts": "키, API, 공급자, 요금제, 모델",
+      "general": "이름, 로고, 시간대, 컨텍스트",
+      "media": "GIF, 스티커",
+      "members": "사람, 팀",
+      "invites": "초대, 초대장, 링크",
+      "roles": "권한, 역할",
+      "usage": "비용, 지출, 요금제, 토큰, 예산",
+      "connectors": "연동, MCP, 서비스",
+      "skills": "스킬",
+      "vault": "비밀번호, 키, 로그인, 비밀",
+      "access": "권한, 에이전트 접근",
+      "apps": "AI 앱, MCP",
+      "computers": "기기, 머신, 컴퓨터, 휴대폰",
+      "storage": "파일, S3, 저장소",
+      "import": "내보내기, 가져오기, 이전",
+      "audit": "로그, 기록"
+    }
+  },
   "me": {
     "title": "나",
     "role": {
@@ -1003,7 +1057,6 @@
     "fromWorkspace": "워크스페이스에서",
     "issues": "작업",
     "issuesWithMe_other": "나와 관련된 작업 {{count}}개",
-    "proposalsWaiting_other": "{{count}}개 대기 중",
     "drive": "Drive",
     "connectors": "커넥터와 MCP",
     "preferences": "환경설정",
@@ -1020,6 +1073,8 @@
     "notificationsOnHint": "브라우저와 데스크톱 앱에서 알림을 켜 두었다면 그곳에도 도착해요.",
     "notificationsOffHint": "여기서 알림을 받으려면 켜 주세요. 아래 종류는 모든 기기에 적용돼요.",
     "notificationsKindsHint": "활동에는 모든 게 남아요. 이 설정은 이 워크스페이스의 모든 기기에 적용돼요.",
+    "liveActivity": "Dynamic Island의 에이전트",
+    "liveActivityHint": "요청한 일을 에이전트가 하는 동안 어떤 앱에서든 화면 위쪽과 잠금 화면에 표시됩니다. 앱이 닫혀 있을 때는 iOS 17.2 이상이 필요합니다.",
     "version": "agentes.chat · 버전 {{version}}",
     "edit": "편집",
     "status": "상태",
@@ -1151,6 +1206,13 @@
       "fullscreen": "전체 화면",
       "open": "열기",
       "cantPlay": "이 동영상은 이 휴대폰에서 재생할 수 없습니다."
+    },
+    "talk": {
+      "hint": {
+        "pdf": "페이지를 길게 눌러 위치를 표시하세요"
+      },
+      "pdfPage": "{{page}}/{{count}}페이지",
+      "pdfFailed": "이 PDF를 표시할 수 없어요."
     }
   },
   "issues": {
@@ -1201,6 +1263,7 @@
     "criteriaOf": "{{total}}개 중 {{done}}개",
     "linkMessage": "#{{channel}}의 메시지",
     "linkMessagePlain": "원래 메시지",
+    "removeFileText": "파일은 Drive에 그대로 남아요.",
     "subIssues": "하위 작업",
     "talk": "채팅",
     "finish": "완료로 표시",
@@ -1288,13 +1351,26 @@
     "agentLine_other": "메모리 {{count}}개",
     "uses_other": "{{count}}번 사용됨",
     "confirmed": "사람이 확인함",
-    "confirm": "확인",
-    "confirmedToast": "확인됨",
     "details": "기술 세부 정보",
     "before": "이전 내용: {{text}}",
     "fix": "수정",
     "forgetTitle": "이 메모리를 잊게 할까요?",
     "forgetText": "{{name}}이(가) 앞으로 대화에서 이 내용을 쓰지 않아요."
+  },
+  "proposals": {
+    "title": "에이전트 개선",
+    "emptyTitle": "아직 바뀐 것이 없어요",
+    "empty": "에이전트가 자신이나 동료의 지침을 개선하면 그 변경이 여기에 되돌리기와 함께 표시돼요.",
+    "more": "더 보기",
+    "reviewing": "검토 중…",
+    "appliedBy": "{{name}}이(가) 적용함",
+    "appliedBy_female": "{{name}}이(가) 적용함",
+    "appliedAuto": "자동으로 적용됨",
+    "leftOutBy": "{{name}}이(가) 적용하지 않음",
+    "leftOutBy_female": "{{name}}이(가) 적용하지 않음",
+    "leftOut": "적용 안 됨",
+    "undoneBy": "{{name}}님이 되돌림",
+    "undoneByYou": "내가 되돌림"
   },
   "wiki": {
     "map": "페이지 맵",
@@ -1333,6 +1409,19 @@
       "day": "날짜",
       "monthDay": "{{day}}일",
       "lastDay": "마지막 날"
+    }
+  },
+  "coding": {
+    "pill": "{{who}}. 코드 보기",
+    "seeChanges": "변경 사항 보기",
+    "project": "프로젝트",
+    "whereSearch": "검색하거나 이름 입력",
+    "listed": "에이전트의 목록",
+    "commit": "커밋 {{short}}",
+    "waiting": "내 확인 대기",
+    "next": {
+      "pr": "브랜치 푸시됨, 아직 풀 리퀘스트 없음",
+      "mergeLocal": "{{base}}에 머지할 준비가 됐어요"
     }
   },
   "taskManager": {
@@ -1444,6 +1533,7 @@
       "ruleBody": "{{name}}이(가) 이 규칙을 더 이상 따르지 않아요. 규칙을 준 사람은 같은 규칙을 다시 줄 수 있어요.",
       "ruleRemove": "삭제",
       "footOwner": "{{name}} 또는 관리자만 수정할 수 있어요.",
+      "footOwnerRole": "{{role}} 역할이 있는 사람이나 관리자만 수정할 수 있어요.",
       "footAdmins": "관리자만 수정할 수 있어요.",
       "emptyF": "{{name}}이(가) 아직 나에 대해 저장한 게 없어요.",
       "emptyM": "{{name}}이(가) 아직 나에 대해 저장한 게 없어요.",
@@ -1493,6 +1583,7 @@
       },
       "asksYou": "머지와 게시는 에이전트가 묻지 않기로 설정되어 있지 않다면 내 승인을 받아요.",
       "asksOwner": "머지와 게시는 에이전트가 묻지 않기로 설정되어 있지 않다면 {{name}}의 승인을 받아요.",
+      "asksOwnerRole": "에이전트가 묻지 않도록 설정하지 않았다면, 병합과 게시에는 {{role}} 역할이 있는 사람의 승인이 필요해요.",
       "asksAdmins": "머지와 게시는 에이전트가 묻지 않기로 설정되어 있지 않다면 관리자의 승인을 받아요.",
       "empty": "지금은 대화만 할 수 있어요."
     }
@@ -1922,18 +2013,14 @@
     "mcps": "MCP",
     "mcpsNone": "주소로 연결한 MCP 서버가 여기에 표시돼요.",
     "addMcp": "MCP 추가",
-    "add": "추가",
-    "allServices": "모든 서비스",
     "waitLine_other": "도구 {{count}}개에 내 확인이 필요해요",
     "toolsWait_other": "{{count}}개 확인 필요",
     "connectedState": "연결됨",
     "connected": "연결됨",
-    "suggested": "{{org}}에 추천",
-    "all": "전체",
+    "seeAll": "모두 보기",
     "noResults": "그런 이름의 서비스가 없어요. 주소로 시도해 보세요.",
     "soon": "곧 지원",
     "loadFailed": "커넥터를 불러오지 못했어요.",
-    "connectedCheck": "{{name}}, 연결됨",
     "adminsOnly": "{{org}}의 관리자만 서비스를 연결할 수 있어요. 관리자에게 요청하세요.",
     "adminsOnlyPersonal": "이 워크스페이스를 관리하는 사람만 앱을 연결할 수 있어요. 그 사람에게 요청하세요.",
     "canTitle": "에이전트가 할 수 있는 일",
@@ -1977,6 +2064,31 @@
     "disconnect": "연결 해제",
     "disconnected": "{{name}} 연결을 해제했어요.",
     "usedBy_other": "{{names}}이(가) 사용 중",
+    "page": {
+      "missing": "이 서비스는 더 이상 카탈로그에 없습니다.",
+      "connected": "연결됨",
+      "open": "연결 열기",
+      "category": "카테고리",
+      "tools": "도구",
+      "toolsAsk_other": "{{count}}개는 승인이 필요",
+      "toolsAskNone": "승인이 필요한 도구 없음",
+      "toolsLater": "연결 후 표시",
+      "who": "연결할 수 있는 사람",
+      "whoAdmins": "{{org}} 관리자",
+      "whoRuns": "워크스페이스 관리자",
+      "whoYou": "나 자신",
+      "signIn": "로그인 방식",
+      "how": {
+        "signIn": "내 계정",
+        "key": "키",
+        "either": "계정 또는 키"
+      },
+      "canTitle": "에이전트가 하는 일",
+      "address": "주소",
+      "addressNote": "에이전트는 연결된 계정으로 이 주소를 사용합니다. 각 에이전트는 허용한 것만 받습니다.",
+      "host": "연결 대상",
+      "more": "{{category}}의 다른 서비스"
+    },
     "fromAgent": "서비스 연결",
     "githubApp": {
       "useApp": "agentes.chat 앱 사용",
@@ -2627,6 +2739,10 @@
       "textPersonal": "에이전트에게 작업을 만들어 주고 끝까지 지켜보세요.",
       "viewerTitlePersonal": "에이전트의 일을 지켜보세요"
     },
+    "coding": {
+      "title": "에이전트와 함께 코딩해 보세요",
+      "text": "각 세션은 자기 컴퓨터에서 자기 브랜치로 작업하는 에이전트와의 대화예요."
+    },
     "routines": {
       "title": "반복되는 일은 에이전트에게 맡기세요",
       "text": "루틴은 정해진 시간이나 어떤 일이 생겼을 때 알아서 실행돼요.",
@@ -2946,6 +3062,59 @@
       "editHint": "이 부분을 편집해요",
       "notHere": "이 부분은 컴퓨터에서 편집해요"
     }
+  },
+  "aiHub": {
+    "accounts": "계정",
+    "accountsHint": "누가 연결했든 이 워크스페이스의 모든 요금제와 API 키입니다. 계정을 탭하면 한도와 사용할 수 있는 사람을 볼 수 있어요.",
+    "order": "사용 순서",
+    "orderSub": "한도에 도달하면 에이전트가 다음 계정으로 이어갑니다.",
+    "skipped": "건너뜀",
+    "orderGroup": "{{plan}} · {{computer}}",
+    "noOrder": "한 컴퓨터에 같은 AI 계정이 두 개 있으면 순서가 여기에 표시됩니다.",
+    "keyFallback": "모든 요금제가 한도에 도달하면 API 키로 계속",
+    "keyFallbackHint": "마지막 계정 다음에는 사용량만큼 청구되는 워크스페이스 API 키로 이어갑니다. 미션은 키로 넘어가지 않아요.",
+    "keyFallbackLocked": "관리자만 변경할 수 있어요.",
+    "limits": "한도",
+    "permissions": "권한",
+    "manage": "관리",
+    "manageSub": "이름 변경, 다시 로그인, 삭제",
+    "manageHint": "이 계정의 이름을 바꾸고, 다시 로그인하고, 삭제할 수 있는 사람입니다. 연결한 사람만 변경할 수 있어요.",
+    "use": "에이전트에서 사용",
+    "useSub": "생각하는 AI에서 선택",
+    "useHint": "누구의 에이전트가 이 계정으로 생각할 수 있는지, 누구의 Lodi인지 정합니다. 관리하는 사람이 변경할 수 있어요.",
+    "reply": "모두에게 응답",
+    "replySub": "에이전트가 대화하는 상대",
+    "replyHint": "이 계정의 에이전트가 자신의 소유자 외에 누구에게 응답할지 정합니다. Claude 약관은 요금제를 결제한 사람이 쓰도록 하고 있으니, 모두에게 열기 전에 확인하세요.",
+    "audience": {
+      "owner": "나만",
+      "ownerOf": "{{name}}만",
+      "admins": "나와 관리자",
+      "adminsOf": "{{name}}와 관리자",
+      "roles": "역할…",
+      "people": "사람…",
+      "everyone": "모두",
+      "agentOwner": "에이전트 소유자만",
+      "rolesCount_other": "역할 {{count}}개",
+      "peopleCount_other": "{{count}}명"
+    },
+    "pickRoles": "역할",
+    "pickPeople": "사람",
+    "pickNone": "하나 이상 선택하세요.",
+    "choice": {
+      "account": "계정",
+      "model": "모델",
+      "effort": "노력",
+      "yours": "내 계정",
+      "others": "팀 계정",
+      "keys": "API 키",
+      "workspace": "워크스페이스 것",
+      "workspaceSub": "워크스페이스 API 키",
+      "key": "API 키",
+      "keyDefault": "워크스페이스 기본값",
+      "api": "API"
+    },
+    "missionAi": "AI",
+    "missionLocked": "작업할 주체는 시작 전에 고릅니다. 모델은 언제든 바꿀 수 있어요."
   },
   "surface": {
     "on": "켜짐",

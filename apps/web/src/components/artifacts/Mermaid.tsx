@@ -1,4 +1,4 @@
-import { Button } from "@agenteschat/ui";
+import { BoundedMap, Button } from "@agenteschat/ui";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CodeBlock } from "@/components/CodeBlock";
@@ -7,6 +7,9 @@ import { type Drawing, drawWithMermaid, mermaidDrawable, mermaidRunsApart, svgDr
 
 /** Source → SVG markup in the page's theme. Swappable for tests (the real one needs a browser layout engine). */
 export type MermaidRenderer = (id: string, source: string, dark: boolean) => Promise<string>;
+
+/** Drawings kept for the page's life: each is a whole SVG, and a long session meets many. */
+const DRAWINGS_KEPT = 50;
 
 let renderer: MermaidRenderer = drawWithMermaid;
 let runsApart = mermaidRunsApart;
@@ -18,7 +21,7 @@ let queue: Promise<void> = Promise.resolve();
  * Diagrams already drawn, by theme and source, and those mermaid couldn't draw (null): shown again (the streamed answer
  * giving way to the message, a page opened again) they show at once, and mermaid isn't asked again.
  */
-const drawn = new Map<string, Drawing | null>();
+const drawn = new BoundedMap<string, Drawing | null>(DRAWINGS_KEPT);
 
 /** Tests: a renderer in mermaid's place (null for mermaid), and whether it draws unasked (see `mermaidRunsApart`). */
 export function setMermaidRenderer(next: MermaidRenderer | null, apart = true) {

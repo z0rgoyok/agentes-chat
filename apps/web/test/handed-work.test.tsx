@@ -83,7 +83,11 @@ describe("the handed line under the reply that handed it (F1)", () => {
       "Handed to Atlas · working on it · step\u00a03\u00a0of\u00a05 · 2\u00a0min",
     );
     expect(line?.querySelector(".handed-line__who .ac-avatar")).not.toBeNull();
-    expect([...(line?.querySelectorAll(".ac-workline__action") ?? [])].map((b) => b.textContent)).toEqual(["Stop"]);
+    // View opens the two agents' talk, as the bar's does.
+    expect([...(line?.querySelectorAll(".ac-workline__action") ?? [])].map((b) => b.textContent)).toEqual([
+      "View",
+      "Stop",
+    ]);
     // No task label, no repeated update: the chip above and the messages below say them.
     expect(line?.textContent).not.toContain("Task #");
   });

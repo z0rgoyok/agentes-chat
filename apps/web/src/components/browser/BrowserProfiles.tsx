@@ -198,13 +198,13 @@ function AgentsDialog({ profile, onClose }: { profile: BrowserProfile; onClose: 
         <Button onClick={onClose}>{t("common.cancel")}</Button>
         <Button
           variant="primary"
-          loading={actions.update.isPending}
-          onClick={() =>
-            actions.update.mutate(
-              { profileId: profile.id, agentIds },
-              { onSuccess: onClose, onError: () => toast.show(t("browser.profiles.failed"), "error") },
-            )
-          }
+          onClick={() => {
+            // Shows at once and the dialog closes; a refusal puts the agents back and says so.
+            void actions.update
+              .mutateAsync({ profileId: profile.id, agentIds })
+              .catch(() => toast.show(t("browser.profiles.failed"), "error"));
+            onClose();
+          }}
         >
           {t("browser.profiles.save")}
         </Button>
@@ -239,16 +239,14 @@ function DeleteDialog({ profile, onClose }: { profile: BrowserProfile; onClose: 
         <Button onClick={onClose}>{t("common.cancel")}</Button>
         <Button
           variant="danger"
-          loading={actions.remove.isPending}
-          onClick={() =>
-            actions.remove.mutate(profile.id, {
-              onSuccess: () => {
-                toast.show(t("browser.profiles.deleted", { name: profile.name }));
-                onClose();
-              },
-              onError: () => toast.show(t("browser.profiles.failed"), "error"),
-            })
-          }
+          onClick={() => {
+            // Out of the list at once and the dialog closes; a refusal puts it back and says so.
+            void actions.remove.mutateAsync(profile.id).then(
+              () => toast.show(t("browser.profiles.deleted", { name: profile.name })),
+              () => toast.show(t("browser.profiles.failed"), "error"),
+            );
+            onClose();
+          }}
         >
           {t("browser.profiles.delete")}
         </Button>

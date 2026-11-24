@@ -1,0 +1,121 @@
+/* "Exibição" on a list's toolbar (Tasks, the Drive): the button that reads the layout and what groups it, and its popover
+   of choices (ViewOptions.tsx). */
+.view-options__trigger.ac-btn {
+  gap: 6px;
+}
+.view-options__sub {
+  color: var(--ink-muted);
+  font-weight: 500;
+}
+.view-options__trigger .view-options__chev {
+  width: 14px;
+  height: 14px;
+  color: var(--ink-muted);
+}
+
+/* The popover: the layout cards with their pictures, then the page's rows (a label over or beside its control). */
+.view-options.ac-popover {
+  --menu-pad: var(--space-2);
+  width: 344px;
+  max-width: calc(100vw - 24px);
+  padding: var(--menu-pad);
+  gap: 14px;
+}
+.view-layouts {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.view-layout {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 8px 8px;
+  border: 0;
+  /* On the popover's room, in its top corners: its corner less that room. */
+  border-radius: var(--radius-item) var(--radius-item) var(--radius-item) 4px;
+  background: var(--raised);
+  box-shadow:
+    0 0 0 1px var(--line2),
+    var(--e1);
+  color: var(--ink2);
+  font: inherit;
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    box-shadow 0.15s,
+    background-color 0.15s;
+}
+.view-layout[aria-pressed="true"] {
+  background: var(--chosen-bg);
+  box-shadow: var(--chosen-shadow);
+  color: var(--ink);
+}
+html:not([data-pointer]) .view-layout:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.view-mini {
+  image-rendering: pixelated;
+}
+.view-mini__well {
+  fill: var(--sunken);
+}
+.view-mini__card {
+  fill: var(--raised);
+  stroke: var(--line2);
+  stroke-width: 0.5;
+}
+.view-mini__ink {
+  fill: var(--ink);
+}
+.view-options__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-inline: var(--popover-in);
+}
+.view-options__row--col {
+  flex-direction: column;
+  align-items: stretch;
+}
+.view-options__label {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink2);
+}
+.view-options__fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.view-options__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  /* Its words as far under the hairline as over the popover's edge. */
+  padding: 14px var(--popover-in) var(--popover-in);
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink-muted);
+}
+.view-options__foot > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.view-options__foot .ac-icon {
+  color: var(--ok);
+}
+.view-options__reset {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+}

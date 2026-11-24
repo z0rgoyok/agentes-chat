@@ -1,0 +1,1 @@
+ALTER TABLE "oauth_clients" ADD COLUMN "provided_by_person" boolean DEFAULT false NOT NULL;

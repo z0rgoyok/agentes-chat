@@ -7,8 +7,9 @@ import {
   telemetryState,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
+import { ClientVitalsReport, clientVitals } from "../../client-vitals";
 import { telemetryFacts } from "../../telemetry";
-import { type AppDeps, body, createAppRouter, errors, json, requireSession, security } from "./context";
+import { type AppDeps, body, createAppRouter, errors, json, noContent, requireSession, security } from "./context";
 
 const tags = ["System"];
 
@@ -149,6 +150,31 @@ export function telemetryRoutes(deps: AppDeps) {
       await requireOwner(c.get("user").id);
       await setTelemetryEnabled(db, c.req.valid("json").enabled);
       return c.json(await view(), 200);
+    },
+  );
+
+  /** An app's reports: about one at each start and each return to it, numbers only. */
+  const CLIENT_VITALS_PER_USER = { limit: 30, windowMs: 60_000 };
+  app.use("/client-vitals", requireSession(deps.auth));
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/client-vitals",
+      tags,
+      summary: "How fast an app ran: its cold start, JavaScript stalls, heap and reads per return",
+      description:
+        "Kept in memory and summed up once a minute into the process's vitals (the operator's `GET /vitals`), with nobody's id. Past the per-person limit a report is dropped, still answered 204.",
+      security,
+      request: { body: body(ClientVitalsReport) },
+      responses: { 204: noContent[204], 401: errors[401] },
+    }),
+    async (c) => {
+      const limit = await deps.adapters.rateLimiter.consume(
+        `client-vitals:${c.get("user").id}`,
+        CLIENT_VITALS_PER_USER,
+      );
+      if (limit.allowed) clientVitals.add(c.req.valid("json"));
+      return c.body(null, 204);
     },
   );
 

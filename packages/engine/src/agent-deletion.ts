@@ -102,6 +102,7 @@ export async function eraseAgent(deps: AgentDeletionDeps, actorId: string, orgId
         model: "",
         credentialId: null,
         ownerUserId: null,
+        ownerRoleId: null,
         monthlyBudgetNanoUsd: null,
         audienceMode: "everyone",
         audienceUserIds: [],

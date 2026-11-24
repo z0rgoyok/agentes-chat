@@ -5,14 +5,15 @@ import { runBrainOf } from "./brains/select";
 import { cancelRun, interruptRun } from "./cancel";
 import { frontOfLine } from "./computer-queue";
 import { publishChannelEvent } from "./events";
-import { type Judge, type SteerHandling, steerHandling } from "./judge";
+import { type Judge, type SteerHandling, steerJudgment } from "./judge";
 import { deliverLive } from "./live-steer";
 import type { Message } from "./messages";
 import { missionOfThread } from "./missions";
 import { enqueue } from "./outbox";
 import { holdsMessages } from "./run-hold";
 import { handOnMessages, markTriage, queueAfterRun, releaseFromRun } from "./run-inbox";
-import { type AgentRun, computerWaitOf, replyThreadOf, runAtWork } from "./runs";
+import { type AgentRun, addRunStep, computerWaitOf, replyThreadOf, runAtWork } from "./runs";
+import { sayNowApplies } from "./say-now";
 import type { Talker } from "./talker";
 import { onMessageWhileWaiting, type WaitMessageOutcome } from "./waits";
 
@@ -51,7 +52,11 @@ export const ROUTE_RELEASED_JOB = "message.route_released";
  *    never takes it at all.
  * 5. The fast reply (`talker.ts`): when the run can't answer soon (waiting, or
  *    deep in a long turn), or the triage says a quick question or a separate request, the agent's conversation layer
- *    may answer in a second or two, or pass.
+ *    may answer in a second or two, or pass. A correction or an addition the triage was sure of is the agent's own to
+ *    answer, in one more line on the way (`say_now`, ADR 0207 addendum of 2026-11-24), where people read the
+ *    conversation as it goes: nothing speaks for it then.
+ *
+ * What the triage said is kept on the run's trail (a `context` step with `steerTriage`, `noteTriage`).
  *
  * Nothing here ever grants anything.
  */
@@ -188,7 +193,7 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
     // in one message with what they add, so nothing speaks for it meanwhile (ADR 0112 addendum of 2026-11-19).
     const talking = active.status === "running" && !computerWaitOf(active) && !(await runAtWork(deps.db, runId));
     const talks = !holds && (waiting || (deps.talker && !now && !talking));
-    const followUp = async (handling: SteerHandling | null) => {
+    const followUp = async (handling: SteerHandling | null, ownLine = false) => {
       let waited: WaitMessageOutcome | null = null;
       if (waiting) {
         waited = await onMessageWhileWaiting(deps, active, message).catch(() => null);
@@ -205,7 +210,7 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
           });
         }
       }
-      if (deps.talker && !now) await deps.talker.consider({ run: active, message, live, waited, handling });
+      if (deps.talker && !now) await deps.talker.consider({ run: active, message, live, waited, handling, ownLine });
     };
     const judge = deps.judge;
     if (!judge) {
@@ -219,11 +224,13 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
     trackStopCheck(
       (async () => {
         let judged: SteerHandling;
+        let sure = false;
         try {
-          judged = await judgeSteer(deps, judge, input, active, threadId, shared);
+          ({ handling: judged, sure } = await judgeSteer(deps, judge, input, active, threadId, shared));
           // Not for this agent: out of its task while unread, and the router decides who answers (maybe nobody). Read
           // already (its next step took it first), it stays read, as any message the run read.
           if (judged === "elsewhere") {
+            await noteTriage(deps.db, active, message.id, judged, sure, false);
             if (await releaseFromRun(deps.db, active, message).catch(() => false))
               await released(deps, active, message, threadId);
             return;
@@ -232,12 +239,20 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
           // Settled (and out of the inbox when it wasn't for the agent): the run's step reads on.
           if (shared) await markTriage(deps.db, message, false).catch(() => undefined);
         }
-        if (judged === "stop") return;
+        if (judged === "stop") return noteTriage(deps.db, active, message.id, judged, sure, false);
         // Held for the triage: for this agent after all, so a run of its own answers it.
         if (holds && shared) await handOn();
         // Only a task has an after: while the run only talks, a quick question or another request is part of the
         // conversation it is answering, read with its next step like anything else it adds.
         const handling = talking && (judged === "answer" || judged === "queue") ? "add" : judged;
+        // A correction or an addition the triage was sure of: the agent may say one more line on the way as it takes
+        // it in, where people read the conversation as it goes (`say_now` reads this step).
+        const ownLine =
+          sure &&
+          (handling === "interrupt" || handling === "add") &&
+          active.status === "running" &&
+          (await sayNowApplies(deps.db, active).catch(() => false));
+        await noteTriage(deps.db, active, message.id, handling, sure, ownLine);
         if (now) await toSend?.();
         else if (active.status === "running") {
           // A separate request: out of what the task reads, a run of its own once it ends.
@@ -249,7 +264,7 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
             if (urgent && !live) await stopToSend();
           } else if (!computer && handling === "interrupt") await interruptRun(deps.pubsub, runId, message.id);
         }
-        if (talks) await followUp(handling);
+        if (talks) await followUp(handling, ownLine);
       })(),
     );
   }
@@ -267,9 +282,9 @@ async function judgeSteer(
   run: AgentRun,
   threadId: string | null,
   shared: { fromAsker: boolean } | null,
-): Promise<SteerHandling> {
+): Promise<{ handling: SteerHandling; sure: boolean }> {
   const agentName = (await getAgentCached(deps.db, input.orgId, run.agentId))?.name ?? "the agent";
-  const handling = await steerHandling(judge, {
+  const judged = await steerJudgment(judge, {
     orgId: input.orgId,
     text: input.message.body,
     agentName,
@@ -277,8 +292,8 @@ async function judgeSteer(
     agentId: run.agentId,
     runId: run.id,
     ...(shared ? { shared } : {}),
-  }).catch((): SteerHandling => "add");
-  if (handling !== "stop") return handling;
+  }).catch(() => ({ handling: "add" as const, sure: false }));
+  if (judged.handling !== "stop") return judged;
   await publishChannelEvent(deps.pubsub, {
     type: "agent.run.steered",
     channelId: input.channelId,
@@ -290,7 +305,23 @@ async function judgeSteer(
   });
   // The "stop" itself is not handed on to a new run when the task's unread messages are.
   await cancelRun(deps, input.userId, input.orgId, run.id, { stopMessageId: input.message.id });
-  return "stop";
+  return judged;
+}
+
+/**
+ * The triage of one message on the run's trail: how the agent takes it (`reason`), whether the judge chose that way
+ * itself (`sure`), and whether the agent may say a line of its own as it takes it in (`line`, read by `say_now`).
+ * Best effort: a trail that can't take the step changes nothing of how the message is read.
+ */
+async function noteTriage(
+  db: Database,
+  run: AgentRun,
+  messageId: string,
+  handling: SteerHandling,
+  sure: boolean,
+  line: boolean,
+) {
+  await addRunStep(db, run, "context", { steerTriage: { messageId, sure, line }, reason: handling }).catch(() => {});
 }
 
 /**

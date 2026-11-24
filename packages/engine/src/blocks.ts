@@ -12,7 +12,7 @@ import {
 import { runAuthorityById } from "./authority";
 import { requireChannelAccess } from "./channels";
 import { publishDelivery } from "./delivery";
-import { isAgentOnlyDm } from "./dms";
+import { inAgentOnlyDm, isAgentOnlyDm } from "./dms";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishChannelEvent } from "./events";
 import { cutText } from "./format";
@@ -639,6 +639,9 @@ export function createBlockToolSource(deps: ArtifactDeps): ToolSource {
     tools: async (ctx) =>
       listsEveryTool(ctx)
         ? [showBlock, startPoll, choices]
-        : [showBlock, startPoll, ...((await someoneAnswers(ctx)) ? [askChoices] : [])],
+        : // A block or a poll in a conversation between agents would show to nobody.
+          ctx.runId && (await inAgentOnlyDm(ctx))
+          ? []
+          : [showBlock, startPoll, ...((await someoneAnswers(ctx)) ? [askChoices] : [])],
   };
 }

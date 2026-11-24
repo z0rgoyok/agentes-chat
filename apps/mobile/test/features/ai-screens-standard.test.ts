@@ -15,7 +15,6 @@ describe("loading is the list's shape, a failure asks again", () => {
       "ai/AgentAiScreen.tsx",
       "ai/AgentAdvancedScreen.tsx",
       "ai/AgentSetupScreen.tsx",
-      "ai/KeyForAllScreen.tsx",
       "ai/AiAccountsScreen.tsx",
       "ai/ConnectAi.tsx",
       "usage/UsageScreen.tsx",
@@ -87,19 +86,17 @@ describe("headers: the native bar's, never one drawn in the content", () => {
 });
 
 describe("pickers are the screen, never a list opening in place", () => {
-  test("Usar em todos os agentes: every run of models under its header, the agents said, Usar pinned", () => {
-    const screen = source("ai/KeyForAllScreen.tsx");
-    expect(screen).not.toContain("moreOpen");
-    expect(screen).toContain('<GroupedHeader>{t("aiAccounts.page.useAllUntested", { count: groups.untested.length })}');
-    // The agents' row is a fact, never a check that can't be unchecked.
-    const agents = screen.slice(screen.indexOf('label={t("aiAccounts.page.useAllAgents")}'));
-    expect(agents.slice(0, agents.indexOf("/>"))).not.toContain("checked");
-    // One toast for the whole save.
-    expect(screen.match(/toast\(/g)).toHaveLength(2);
+  test("Usar em todos os agentes is Usar em outros agentes on the key, every agent that can take it picked", () => {
+    const route = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/key-for-all/[id].tsx"), "utf8");
+    expect(route).toContain('<AgentSetupScreen account={{ id: id ?? "", machineId: machineId ?? "", model }} />');
+    const screen = source("ai/AgentSetupScreen.tsx");
+    expect(screen).toContain("const chosenSet = agentsPicked ?? new Set(account ? can : []);");
+    // Another AI picked: the agents are picked again for it.
+    expect(screen).toMatch(/setChoice\(next\);\s+setPicked\(null\);/);
   });
 
   test("a screen's one action is the shared bar pinned under it", () => {
-    for (const file of ["ai/KeyForAllScreen.tsx", "ai/AgentSetupScreen.tsx", "ai/ConnectAi.tsx"]) {
+    for (const file of ["ai/AgentSetupScreen.tsx", "ai/ConnectAi.tsx"]) {
       const screen = source(file);
       expect([file, screen.includes("<BottomBar bottom={insets.bottom}>")]).toEqual([file, true]);
       expect([file, screen.includes("borderTopWidth")]).toEqual([file, false]);
@@ -109,10 +106,10 @@ describe("pickers are the screen, never a list opening in place", () => {
 
 test("a row that opens a choice in place wears the up-down mark, never a chevron (that pushes a screen)", () => {
   const settings = source("right-hand/SettingsScreen.tsx");
-  expect(settings).toContain("menu={!hold}");
   expect(settings).not.toContain("chevron={!hold}");
-  const mine = settings.slice(settings.indexOf("export function RightHandMine("), settings.indexOf("const KEY = "));
-  expect(mine.slice(mine.lastIndexOf("<GroupedRow"))).toContain("menu\n");
+  // The one choice's fields open their lists in place: the up-down mark.
+  const choice = source("ai/AiChoice.tsx");
+  expect(choice.match(/\bmenu(=\{!lockAccount\})?\n/g)?.length).toBe(3);
   // A plan's agent is picked on the agent picker's pushed screen: its row wears the chevron.
   expect(source("ai/ConnectAiSteps.tsx")).toContain("{...(agents.length > 1 ? { chevron: true, onPress: pick } : {})}");
 });
@@ -120,12 +117,7 @@ test("a row that opens a choice in place wears the up-down mark, never a chevron
 describe("rows and notes on the groups' edges", () => {
   test("a note under a group reads as its footer", () => {
     expect(source("ai/parts.tsx")).toContain("noteInset: { paddingHorizontal: 16, paddingTop: 8 },");
-    for (const file of [
-      "ai/AgentAiScreen.tsx",
-      "ai/KeyForAllScreen.tsx",
-      "ai/ConnectAiSteps.tsx",
-      "ai/EndpointForm.tsx",
-    ])
+    for (const file of ["ai/AgentAiScreen.tsx", "ai/ConnectAiSteps.tsx", "ai/EndpointForm.tsx"])
       expect([file, /<Note icon=[^>]*inset/.test(source(file))]).toEqual([file, true]);
   });
 

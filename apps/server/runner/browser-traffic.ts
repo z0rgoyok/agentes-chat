@@ -227,13 +227,15 @@ function requestBytes(headers: unknown): number {
 
 /**
  * Counts the Chrome whose browser endpoint is `wsUrl` (`ws://127.0.0.1:<port>/devtools/browser/<id>`). `onPage` hears
- * of each tab it has or opens, and whether another page opened it (a popup: `window.open`, a sign-in window).
+ * of each tab it has or opens, and whether another page opened it (a popup: `window.open`, a sign-in window);
+ * `onPageClosed` of each that closes.
  */
 export function countChromeTraffic(
   wsUrl: string,
   open: (url: string) => StreamSocket = (url) => new WebSocket(url) as unknown as StreamSocket,
   onCrash?: (page: CrashedPage) => void,
   onPage?: (targetId: string, popup: boolean) => void,
+  onPageClosed?: (targetId: string) => void,
 ): TrafficCounter {
   let up = 0;
   let down = 0;
@@ -459,10 +461,12 @@ export function countChromeTraffic(
       }
       case "Target.detachedFromTarget":
         if (typeof p.sessionId === "string") {
+          const closed = pages.get(p.sessionId);
           sessions.delete(p.sessionId);
           pages.delete(p.sessionId);
           workers.delete(p.sessionId);
           fetchStates.delete(p.sessionId);
+          if (closed) onPageClosed?.(closed);
         }
         return;
       case "Inspector.targetCrashed": {

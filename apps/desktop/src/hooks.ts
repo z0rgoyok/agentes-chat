@@ -42,7 +42,9 @@ export function useWifiIphones(
         .then((r) => live && setAvailable(r.available))
         .catch(() => live && setAvailable([]));
     void ask();
-    const timer = setInterval(() => void ask(), WIFI_IPHONES_POLL_MS);
+    const timer = setInterval(() => {
+      if (!document.hidden) void ask();
+    }, WIFI_IPHONES_POLL_MS);
     return () => {
       live = false;
       clearInterval(timer);
@@ -183,17 +185,24 @@ export function useTailnet(): Tailnet | null {
   const host = useHost();
   const [tailnet, setTailnet] = useState<Tailnet | null>(null);
   useEffect(() => {
-    const read = () =>
+    let readAt = 0;
+    const read = () => {
+      // Each read runs `tailscale status`: a window brought up again and again reads at most every 15 s.
+      if (Date.now() - readAt < TAILNET_READ_GAP_MS) return;
+      readAt = Date.now();
       void host
         .tailscale()
         .then(setTailnet)
         .catch(() => setTailnet({ state: "missing" }));
+    };
     read();
     window.addEventListener("focus", read);
     return () => window.removeEventListener("focus", read);
   }, [host]);
   return tailnet;
 }
+
+const TAILNET_READ_GAP_MS = 15_000;
 
 /** Runs `fn` whenever the shell brings this window up. */
 export function useOnShown(name: WindowName, fn: () => void) {

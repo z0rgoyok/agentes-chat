@@ -1,5 +1,6 @@
 import {
   type Approval,
+  applyCodeSessionEvent,
   applyComputerEvent,
   applyDashboardEvent,
   applyIssueEvent,
@@ -21,6 +22,7 @@ import { playSound, soundForEvent } from "@agenteschat/client/lib/sounds";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { AppState } from "react-native";
+import { countReconnect } from "@/lib/perf";
 import { feedIsland, island } from "../island/island";
 import { useConnection, useOrgId } from "./hooks";
 
@@ -45,11 +47,11 @@ export function useUserEvents() {
         applyNotificationEvent(qc, orgId, event);
         // The island at the top (ADR 0071 §9): what reaches me while the app is open, and what I settled elsewhere.
         feedIsland(event);
-        // Something new reached you somewhere: the conversation list's unread and last lines, at once. A fetch under
-        // way serves a burst (the undo of "Clear all" restores row by row); a new one stands for the burst read
-        // the message's own `channel.activity` queued.
+        // Something new reached you somewhere: the conversation list's unread and last lines, at once, unless its
+        // message's `channel.activity` already put them in. A fetch under way serves a burst (the undo of "Clear all"
+        // restores row by row); a new one stands for the burst read the message's own `channel.activity` queued.
         if (event.type === "notification.upserted") {
-          readConversationListsNow(qc, orgId);
+          readConversationListsNow(qc, orgId, event.notification.source.messageId);
           // Its sound (ADR 0070); the push covers the app in the background.
           const sound = soundForEvent(event, AppState.currentState !== "active");
           if (sound) playSound(sound);
@@ -83,6 +85,8 @@ export function useUserEvents() {
       if (event.type === "issue.columns" || event.type === "issue.projects")
         void qc.invalidateQueries({ queryKey: keys.issues(orgId) });
       applyIssueEvent(qc, orgId, event);
+      // A code session I'm in changed (ADR 0215): its worktree, name or pull request.
+      applyCodeSessionEvent(qc, orgId, event);
       // A change I asked the right hand for was decided by someone else (ADR 0137): "Aplicado por …" on my card.
       if (event.type === "proposal.created") void refreshProposals(qc, orgId);
       if (event.type === "proposal.decided") {
@@ -93,9 +97,12 @@ export function useUserEvents() {
         refreshMission(qc, orgId, event.missionId);
     });
     // Missed while offline (the inbox, the requests, the standing, the computers, the lists): `RealtimeProvider` reads
-    // everything again on a reconnect; reading them here too would only start those reads over.
+    // everything again on a reconnect; reading them here too would only start those reads over. Counted for the app's
+    // vitals.
+    const offReconnect = connection.onReconnect(countReconnect);
     return () => {
       offUser();
+      offReconnect();
       // In the background, or another workspace: its notices go (the inbox keeps them).
       island.clear();
     };

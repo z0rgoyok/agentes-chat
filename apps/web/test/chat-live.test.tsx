@@ -355,6 +355,8 @@ describe("bottom anchoring", () => {
     Object.defineProperty(log, "clientHeight", { configurable: true, value: 500 });
     await sendText("primeira");
     await settle(3);
+    // The list measures how far up it is once a frame.
+    const frame = () => act(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
     const latest = () => screen().queryByRole("button", { name: /Ir para as mensagens mais recentes/ });
     expect(latest()).toBeNull();
     // Less than a screen up: nothing new, no button.
@@ -363,6 +365,7 @@ describe("bottom anchoring", () => {
       fireEvent.wheel(log, { deltaY: -40 });
       fireEvent.scroll(log);
     });
+    await frame();
     expect(latest()).toBeNull();
     // More than a screen up: the button, keyboard reachable, with no count yet.
     log.scrollTop = 600;
@@ -370,6 +373,7 @@ describe("bottom anchoring", () => {
       fireEvent.wheel(log, { deltaY: -40 });
       fireEvent.scroll(log);
     });
+    await frame();
     const button = latest() as HTMLElement;
     expect(button.getAttribute("aria-label")).toBe("Ir para as mensagens mais recentes");
     expect(button.tabIndex).toBe(0);
@@ -406,6 +410,7 @@ describe("bottom anchoring", () => {
     // A frame of the glide down, still far up: the button does not come back.
     log.scrollTop = 1200;
     await act(async () => fireEvent.scroll(log));
+    await frame();
     expect(latest()).toBeNull();
   });
 
@@ -1236,7 +1241,7 @@ describe("memory changes and proposals in the chat", () => {
     expect(screen().getByRole("group", { name: "Proposta de mudança de Ada" })).toBeTruthy();
   });
 
-  test("a proposal in the chat: Ver a mudança opens the diff, Editar there, Aceitar / Recusar in the footer", async () => {
+  test("a proposal in the chat: Ver a mudança opens the diff, nothing to edit or decide; its review's end lands live", async () => {
     const state = seedState();
     state.messages.push({
       id: "msg-prop",
@@ -1249,33 +1254,44 @@ describe("memory changes and proposals in the chat", () => {
       meta: { proposalId: "prop-1" },
       createdAt: new Date().toISOString(),
     });
-    await open(state);
+    const { socket } = await open(state);
     const card = screen().getByRole("group", { name: "Proposta de mudança de Ada" });
     expect(card.getAttribute("data-ask-kind")).toBe("proposal");
-    // The change is behind "Ver a mudança", drawn as its Markdown in green and red blocks; Editar lives there too.
+    // While the agent's review weighs it (ADR 0219), its head says so.
+    expect(card.querySelector(".rq__state--other")?.textContent).toBe("Avaliando…");
+    // The change is behind "See the change", drawn as its Markdown in green and red blocks.
     expect(card.querySelector(".ac-diff__block--add")).toBeNull();
     await act(async () => fireEvent.click(within(card).getByRole("button", { name: "Ver a mudança" })));
     expect(card.querySelectorAll(".ac-diff__block--add").length).toBeGreaterThan(0);
-    await act(async () => fireEvent.click(within(card).getByRole("button", { name: "Editar" })));
+    for (const name of ["Editar", /^Aceitar/, /^Recusar/])
+      expect(within(card).queryByRole("button", { name })).toBeNull();
+    expect(within(card).queryByRole("textbox")).toBeNull();
+    // Its review applied it: the server says so to whoever looks after Ada, and the same card ends.
+    const prop = state.proposals.find((p) => p.id === "prop-1");
+    if (!prop) throw new Error("no prop-1");
+    Object.assign(prop, {
+      status: "accepted",
+      reviewed: true,
+      decidedByAgent: { agentId: ADA_ID, name: "Ada" },
+      review: "O João pediu isso três vezes.",
+      undoable: true,
+      decidedAt: new Date().toISOString(),
+    });
     await act(async () =>
-      fireEvent.change(within(card).getByLabelText("Texto final das instruções"), {
-        target: { value: "Só PRs pequenos." },
+      socket.push({
+        type: "event",
+        scope: "user",
+        event: { type: "proposal.decided", proposalId: "prop-1", status: "accepted" },
       }),
     );
-    await act(async () => fireEvent.click(within(card).getByRole("button", { name: "Aceitar com ajustes" })));
     await settle(4);
-    expect(state.calls.find((c) => c.method === "proposals.accept")?.args).toEqual([
-      ORG_ID,
-      "prop-1",
-      "Só PRs pequenos.",
-    ]);
-    // Decided: the same card, who accepted where the buttons were, and nothing left to edit.
     const done = screen().getByRole("group", { name: "Proposta de mudança de Ada" });
     expect(done.classList.contains("rq--ended")).toBe(true);
     expect(done.querySelector(".rq-done__mark[data-done]")).not.toBeNull();
-    expect(done.querySelector(".rq__answer-text")?.textContent).toBe("Aplicado por você");
-    expect(within(done).queryByRole("textbox")).toBeNull();
-    expect(within(done).queryByRole("button", { name: "Aceitar com ajustes" })).toBeNull();
+    expect(done.querySelector(".rq__answer-text")?.firstChild?.textContent).toBe("Aplicado pela Ada");
+    expect(done.querySelector(".rq__answer-note")?.textContent).toBe("O João pediu isso três vezes.");
+    expect(within(done).getByRole("button", { name: "Desfazer" })).toBeTruthy();
+    expect(state.calls.some((c) => c.method === "proposals.accept")).toBe(false);
   });
 });
 

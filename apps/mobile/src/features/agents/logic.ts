@@ -12,9 +12,12 @@ import type {
   Memory,
   OrgSummary,
   PreviewMeta,
+  Proposal,
 } from "@agenteschat/client";
 import { asksAt, levelOf, resourcesOf } from "@agenteschat/client/lib/access-levels";
 import { agentSections } from "@agenteschat/client/lib/agent-groups";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
+import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { planLabel, planOfAccount } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
 import { isOutOfOffice } from "@agenteschat/client/lib/presence";
@@ -262,14 +265,21 @@ export function statusCardShown(
   return !now.working;
 }
 
-/** Only the agent's owner or who reviews memory may correct or forget its memories (the server checks it again). */
+/**
+ * Only who answers for the agent (its owner, or who holds the role that does: ADR 0085, addendum of 2026-11-21) or who
+ * reviews memory may correct or forget its memories (the server checks it again). `roleIds`: the viewer's roles.
+ */
 export function canEditMemories(
-  agent: Pick<Agent, "ownerUserId"> | undefined,
-  viewer: { id: string | null; org: Pick<OrgSummary, "permissions"> | null | undefined },
+  agent: Pick<Agent, "ownerUserId" | "ownerRoleId"> | undefined,
+  viewer: {
+    id: string | null;
+    org: Pick<OrgSummary, "permissions"> | null | undefined;
+    roleIds?: readonly string[];
+  },
 ): boolean {
   if (!viewer.id) return false;
   if (can(viewer.org, "review_memory")) return true;
-  return Boolean(agent?.ownerUserId && agent.ownerUserId === viewer.id);
+  return Boolean(agent && ownsAgentAs(agent, viewer.id, viewer.roleIds ?? []));
 }
 
 /** Where a memory came from, said from the viewer's side. */
@@ -493,4 +503,74 @@ export function modelRow(t: TFunction, brain: AgentBrainLine | undefined, apiMod
     value: isAuto(brain.model) ? t("brain.auto.label") : (brain.model ?? apiModel),
     valueNote: planLabel(t, planOfAccount({ kind: brain.kind, provider: brain.provider ?? null })),
   };
+}
+
+/** How a proposed change stands, as its card and the history of agents' improvements say it (ADR 0219). */
+export interface ProposalOutcome {
+  /** The agent's review hasn't weighed it yet (a few seconds): only that is said. */
+  reviewing: boolean;
+  /** Applied and still in effect: the card's check. */
+  applied: boolean;
+  /** "Reviewing…", or how it ended and who did it ("Applied by Lodi", "Undone by you"). */
+  words: string;
+  /** The review's line: why it was applied or left out, in the language of the text it changed. */
+  why: string | null;
+  /** When it ended, or was put back. */
+  at: string | null;
+}
+
+/**
+ * A proposal's state in words (ADR 0219): nobody is asked to decide it any more. The agent's review applies it or
+ * leaves it out (a workspace-wide lesson no agent holds is applied automatically), and whoever may make the change
+ * can put it back. A row a person decided keeps the words it always had.
+ */
+export function proposalOutcome(
+  t: TFunction,
+  p: Pick<
+    Proposal,
+    "status" | "stale" | "decidedBy" | "decidedByAgent" | "reviewed" | "review" | "undoneBy" | "undoneAt" | "decidedAt"
+  >,
+  meId: string | null,
+): ProposalOutcome {
+  const why = p.review || null;
+  const ended = (words: string, applied = false, at = p.decidedAt): ProposalOutcome => ({
+    reviewing: false,
+    applied,
+    words,
+    why,
+    at,
+  });
+  if (p.stale) return { ...ended(t("proposals.stale")), why: null };
+  if (p.status === "pending")
+    return { reviewing: true, applied: false, words: t("mobile.proposals.reviewing"), why: null, at: null };
+  if (p.status === "undone") {
+    const by = p.undoneBy;
+    const words = !by
+      ? t("rightHand.card.undone")
+      : by.userId === meId
+        ? t("mobile.proposals.undoneByYou")
+        : t("mobile.proposals.undoneBy", { name: by.name });
+    return ended(words, false, p.undoneAt ?? p.decidedAt);
+  }
+  const accepted = p.status === "accepted";
+  const person = p.decidedBy;
+  if (person) {
+    const mine = person.userId === meId;
+    if (accepted)
+      return ended(
+        mine ? t("rightHand.card.appliedByYou") : t("rightHand.card.appliedBy", { name: person.name }),
+        true,
+      );
+    return ended(mine ? t("rightHand.card.declinedByYou") : t("rightHand.card.declinedBy", { name: person.name }));
+  }
+  // Decided with no one named and no review behind it (an older row): the plain word, as the web says.
+  if (!p.reviewed) return ended(t(accepted ? "proposals.accepted" : "proposals.refused"), accepted);
+  // An agent deleted since (no name) still applied it, as the web says: never "Applied automatically".
+  const agent = p.decidedByAgent ? p.decidedByAgent.name || t("channel.unknownAgent") : null;
+  if (accepted)
+    return ended(
+      agent ? t("mobile.proposals.appliedBy", agentGrammar(agent)) : t("mobile.proposals.appliedAuto"),
+      true,
+    );
+  return ended(agent ? t("mobile.proposals.leftOutBy", agentGrammar(agent)) : t("mobile.proposals.leftOut"));
 }

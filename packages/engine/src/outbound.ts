@@ -1,8 +1,8 @@
 import {
-  foldText,
   normalizeUrl,
   type OutboundCode,
   outboundUrlProblem,
+  TextPrints,
   urlCopiesPrivateText,
   urlsIn,
 } from "@agenteschat/adapters";
@@ -13,19 +13,67 @@ import { IMAGE_SEARCH_TOOL, WEB_FETCH_TOOL, WEB_SEARCH_TOOL } from "./web-tools"
 const THREAD_LIMIT = 500;
 const CHANNEL_LIMIT = 50;
 const CACHED_RUNS = 200;
+/**
+ * Bytes of fingerprints (`TextPrints`) the cache holds at most, across runs. Past it the least recently used runs go;
+ * their next check reads their stored steps again, as an evicted run's always did.
+ */
+export const CACHED_BYTES = 32 * 1024 * 1024;
+/**
+ * Bytes of fingerprints of what one run read from private data: at full precision about 2 M characters of random data,
+ * many more of prose, which repeats. A run that reads more keeps every read checked, at the cost of refusing more
+ * addresses wrongly (`TextPrints`).
+ */
+export const RUN_BYTES = 4 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface RunReads {
   seq: number;
   seen: Set<string>;
-  privateText: string[];
-  /** What the agent itself wrote to its browser: where it can make a page or a tool's answer show any address. */
-  written: string[];
+  privateText: TextPrints;
+  /** What the agent wrote to its browser: where it can make a page or a tool's answer show any address. */
+  written: TextPrints;
   names: Map<string, string>;
+  /** Null: a call outside a stored run, never cached. */
+  runId: string | null;
 }
 
-/** Per run, what its steps added so far: each check reads only the steps since the last one. */
+const bytesOf = (reads: RunReads) => reads.privateText.bytes + reads.written.bytes;
+
+/** Per run, what its steps added so far: each check reads only the steps since the last one. Least recently used first. */
 const cache = new Map<string, RunReads>();
+let cachedBytes = 0;
+
+const evict = (runId: string) => {
+  const reads = cache.get(runId);
+  if (reads) cachedBytes -= bytesOf(reads);
+  cache.delete(runId);
+};
+
+/** Bytes `addResult` and `addWritten` just added to a run: past `CACHED_BYTES`, the least recently used runs go. */
+function grew(reads: RunReads, bytes: number) {
+  // Evicted meanwhile (or never cached): it holds nothing the cache counts.
+  if (bytes === 0 || !reads.runId || cache.get(reads.runId) !== reads) return;
+  cachedBytes += bytes;
+  for (const oldest of cache.keys()) {
+    if (cachedBytes <= CACHED_BYTES) break;
+    evict(oldest);
+  }
+}
+
+/** Whether this process holds reads of the run (`forgetRunReads`). */
+export const holdsRunReads = (runId: string) => cache.has(runId);
+
+/**
+ * Drops a run's reads: one that ended (done, failed, canceled) never checks an address again. A run that parked (an
+ * approval, its computer, a plan's limit) keeps them for when it goes on.
+ */
+export const forgetRunReads = (runId: string) => evict(runId);
+
+/** Tests: the runs the cache holds, least recently used first, their bytes, and one run's. */
+export const outboundCached = (runId?: string) => {
+  const run = runId ? cache.get(runId) : undefined;
+  return { runs: [...cache.keys()], bytes: cachedBytes, run: run ? bytesOf(run) : 0 };
+};
 
 /**
  * `outboundUrlProblem` with what this run knows (ADR 0117): `seen` is every address in the conversation (the
@@ -53,15 +101,26 @@ export async function outboundRefusal(
   return problem ? { content: problem.message, isError: true, data: { code: problem.code, url } } : null;
 }
 
-const emptyReads = (): RunReads => ({ seq: -1, seen: new Set(), privateText: [], written: [], names: new Map() });
+const emptyReads = (runId: string | null = null): RunReads => ({
+  runId,
+  seq: -1,
+  seen: new Set(),
+  privateText: new TextPrints(RUN_BYTES),
+  written: new TextPrints(RUN_BYTES / 8),
+  names: new Map(),
+});
 
 function cachedReads(runId: string): RunReads {
   let reads = cache.get(runId);
-  if (!reads) {
-    reads = emptyReads();
-    if (cache.size >= CACHED_RUNS) cache.delete(cache.keys().next().value as string);
+  if (reads) {
+    // Used again: the newest, the last to go.
+    cache.delete(runId);
     cache.set(runId, reads);
+    return reads;
   }
+  reads = emptyReads(runId);
+  if (cache.size >= CACHED_RUNS) evict(cache.keys().next().value as string);
+  cache.set(runId, reads);
   return reads;
 }
 
@@ -93,7 +152,10 @@ function addResult(reads: RunReads, tool: string, content: string, data?: unknow
     if (web || own || reads.seen.has(u) || !urlCopiesPrivateText(u, reads.privateText)) reads.seen.add(u);
   }
   // The public web's results are no private text.
-  if (!web) reads.privateText.push(foldText(content));
+  if (web) return;
+  const before = reads.privateText.bytes;
+  reads.privateText.add(content);
+  grew(reads, reads.privateText.bytes - before);
 }
 
 const stringsIn = (value: unknown): string[] =>
@@ -107,7 +169,11 @@ const stringsIn = (value: unknown): string[] =>
 function addWritten(reads: RunReads, tool: string, input: unknown) {
   if (!tool.startsWith("browser_")) return;
   for (const text of stringsIn(input)) {
-    reads.written.push(text, ...urlsIn(text).map((u) => [...new URL(u).searchParams.values()].join(" ")));
+    const before = reads.written.bytes;
+    for (const added of [text, ...urlsIn(text).map((u) => [...new URL(u).searchParams.values()].join(" "))]) {
+      reads.written.add(added);
+    }
+    grew(reads, reads.written.bytes - before);
   }
 }
 

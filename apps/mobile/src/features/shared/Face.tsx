@@ -274,11 +274,13 @@ export function AgentWho({
   // A view inside a line of text sits on the baseline and iOS drops its margins, so the face touched the name: the
   // room around it is text (a narrow space before, unless it opens the line, and after), and it is lowered to sit on
   // the words' middle (its bottom on the baseline put it a little high next to lowercase text).
+  // In its sky tile, standing in its middle: bare, the body sits at its box's foot under the room kept for a hat, so
+  // the face read as sunk under the words and smaller than it is.
   return (
     <RNText style={whoStyles.who}>
       {lead ? "" : NARROW}
       <View style={{ width: size, height: size, transform: [{ translateY: Math.round(size * 0.2) }] }}>
-        <AgentFace agentId={agentId} size={size} live={false} />
+        <AgentFace agentId={agentId} size={size} live={false} framed />
       </View>
       {NARROW}
       {name}

@@ -118,8 +118,10 @@ test("alone in a personal workspace, nothing asks who else talks to an agent (AD
   expect(setupStepsInSight(steps, { mode: "people" }, true)).toEqual([...steps]);
   expect(setupStepsInSight(steps, { mode: "everyone" }, false)).toEqual([...steps]);
   const card = src("agents/setup/SetupCard.tsx");
+  // One who holds the role that answers for it reads its steps as its owner (ADR 0085, addendum of 2026-11-21).
+  expect(card).toContain("const asOwner = owns(agent) ? { ...agent, ownerUserId: meId } : agent;");
   expect(card).toContain(
-    "const steps = setupSteps(agent, { meId, admin: managesAgent(agent), edits: editsAgent(agent) });",
+    "const steps = setupSteps(asOwner, { meId, admin: managesAgent(agent), edits: editsAgent(agent) });",
   );
   expect(card).toContain("return setupStepsInSight(steps, audienceOf(agent), solo);");
   expect(card).toContain("personal: isPersonal(org),");

@@ -1,7 +1,7 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, type Database, type Executor, eq, schema, sql } from "@agenteschat/db";
 import { getAgentCached } from "./agents";
-import { managesAgent } from "./audience";
+import { managesAgent, ownsAgent } from "./audience";
 import { type DeviceTarget, firstNames, targetMachineId, targetName, targetRule } from "./device-resolve";
 import type { MachinePhoneRow } from "./devices";
 import { ForbiddenError, NotFoundError } from "./errors";
@@ -459,7 +459,7 @@ export async function deviceWaitAction(
   const agent = await getAgentCached(deps.db, orgId, w.run.agentId);
   const mayAct =
     found?.card.requesterUserId === actorId ||
-    agent?.ownerUserId === actorId ||
+    (!!agent && ownsAgent(agent, actorId, membership.roleIds)) ||
     (agent ? managesAgent(agent, actorId, membership) : can(membership, "manage_agents"));
   if (!mayAct) throw new ForbiddenError("Only the person it works for, the agent's owner or an admin can do this");
   const who = (await firstNames(deps.db, [actorId])).get(actorId) ?? "A person";

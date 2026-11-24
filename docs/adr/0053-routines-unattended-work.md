@@ -291,3 +291,13 @@ Outside a mission (a chat, a DM, a routine's run) nobody is there to answer a ca
 4. **`run_code` meets the same rule** (`badActorCode`, bash, Python or JavaScript) before the computer hears of the call, unless a person approved that call; a project's own key files stay its work there, as before.
 5. **Both brains.** Codex's approvals reach the same `runPermissionPrompt`. Claude Code's inline code (`INLINE_CODE_DENY_RULES`) moves from its deny rules to its `ask` rules in a `work` turn, so it reaches our prompt tool instead of being refused on the computer; `plan` and the right hand still deny it.
 6. **Missions are unchanged**, but for that last point: in a mission's work turn, Claude Code's inline code now reaches the mission's command card, as Codex's already did, instead of being refused outright. `forbiddenReason` still bounds the judge and "Aprovar sempre". `secretRead`, which comes first everywhere, also reads a wildcard (`~/.s?h/id_*`, `.env*`), a Windows path and the system's own secrets (`/etc/shadow`, `/etc/sudoers.d`, ssh host keys, `/proc/*/environ`), so a mission and the computer's own check refuse those too.
+
+## Addendum 2026-11-21: a `why` never makes a call ask (§3)
+
+`run_code`, `run_skill_script` and `start_task` asked a person whenever the call carried a `why`, so the same command asked or ran by whether the agent wrote a reason: at the default level ("Só o arriscado") a read-only command with a `why` waited for a card, and the same one without it ran. Now only the command decides:
+
+1. **Every call goes to the computer**, whose command policy holds what waits for a person (merges, deploys, rollbacks, publishing, `gh api`, a push to a default or protected branch, a push it can't read). Held, the gateway posts the card at once, with the agent's `why` when it gave one and the computer's reason otherwise.
+2. **Everything else runs**, with or without a `why`, as §3 and its addendum of 2026-11-19 say. A secret read and an obvious harm stay refused, never asked.
+3. **The `why` is the card's text only**: the tool ignores it, and its schema tells the model so.
+4. **The levels are unchanged.** "Sempre perguntar" asks for every call, with a required `why`; "Nunca perguntar" asks for nothing; "Aprovar sempre" and a routine's own actions still cover a held command.
+5. **`computerDecides` is gone**: a lone merge goes to the computer like any command, which runs it alone in a repository on the agent's list and holds it elsewhere. An older runner whose held words the server doesn't read: the agent calls again with its `why`, and that call asks.

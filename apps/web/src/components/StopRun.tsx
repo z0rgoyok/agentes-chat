@@ -1,6 +1,7 @@
 import type { LiveRun, Message } from "@agenteschat/client";
 import { ApiError, continuedRunIdOf, keys, useContinuedRun, workingSinceOf } from "@agenteschat/client";
 import { activityVerb, toolActivity } from "@agenteschat/client/lib/activity";
+import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { playSound } from "@agenteschat/client/lib/sounds";
@@ -53,7 +54,10 @@ export function useStopRun() {
   };
   const canStop = (r: RunOwner) => {
     const agent = dir.agentById.get(r.agentId);
-    return managesAgent(agent) || agent?.ownerUserId === me.user.id || startedByMe(r);
+    // Its owner, or whoever holds the role that answers for it (ADR 0085, addendum of 2026-11-21).
+    return (
+      managesAgent(agent) || (!!agent && ownsAgentAs(agent, me.user.id, dir.rolesOf(me.user.id))) || startedByMe(r)
+    );
   };
   return {
     canStop,

@@ -11,11 +11,14 @@ import {
   type LiveDeps,
   type LiveDocs,
   liveSnapshotOf,
+  MARK_PICTURE_BYTES,
   MAX_MESSAGE_LENGTH,
   putAsset,
+  putMarkPicture,
   renameLiveFile,
   requireActiveMembership,
   requireLiveFile,
+  resolveComment,
   withPersonFacts,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
@@ -94,6 +97,14 @@ const AssetSource = z.union([
   z.object({ fileId: z.uuid(), assetId: z.uuid() }),
 ]);
 
+/** Who resolved a comment on a picture, a video or a PDF, and when (ADR 0208). */
+const ResolvedMark = z
+  .object({
+    by: z.object({ type: z.enum(["person", "agent"]), id: z.string() }),
+    at: z.string(),
+  })
+  .openapi("ResolvedMark");
+
 /** A file upload (multipart). */
 const fileField = z
   .any()
@@ -109,6 +120,13 @@ export function liveRoutes(deps: AppDeps) {
   const app = createAppRouter(deps);
   app.use("/organizations/*", requireSession(deps.auth));
   // The picture's bytes are counted as they arrive, so a request that states no length is held to the same size.
+  app.use(
+    "/organizations/:orgId/artifacts/:artifactId/marks",
+    bodyLimit({
+      maxSize: MARK_PICTURE_BYTES + MULTIPART_SLACK_BYTES,
+      onError: (c) => apiError(c, 413, "live.asset_too_large", "The picture is too large (max 2 MB)", { max: 2 }),
+    }),
+  );
   app.use(
     "/organizations/:orgId/artifacts/:artifactId/assets",
     bodyLimit({
@@ -403,6 +421,76 @@ export function liveRoutes(deps: AppDeps) {
         presence[id] = list.filter((p) => p.kind !== "person" || p.id === userId || !hidden.has(p.id));
       }
       return c.json({ presence }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/artifacts/{artifactId}/marks",
+      tags,
+      security,
+      summary: "Add the picture of a comment's place on a picture, a video or a PDF (ADR 0208)",
+      description:
+        "What the app took of the place a comment points at: what was marked, or the whole picture, frame or page with the mark drawn. PNG, JPEG or WebP, at most 2 MB, told by its bytes. Whoever reads the file adds one; the message names it in `liveRef.selection` (`crop`, `frame`), and it is served like a live file's pictures (`GET …/assets/{assetId}`).",
+      request: {
+        params: ArtifactParams,
+        body: { required: true, content: { "multipart/form-data": { schema: z.object({ file: fileField }) } } },
+      },
+      responses: { 201: json(LiveAsset, "Added"), 413: errorResponse("The picture is too large"), ...errors },
+    }),
+    async (c) => {
+      const { orgId, artifactId } = c.req.valid("param");
+      const { file } = c.req.valid("form");
+      if (!(file instanceof File)) {
+        return apiError(c, 400, "artifact.file_required", "send the picture in the field file");
+      }
+      if (file.size > MARK_PICTURE_BYTES) {
+        return apiError(c, 413, "live.asset_too_large", "The picture is too large (max 2 MB)", { max: 2 });
+      }
+      const userId = c.get("user").id;
+      await requireActiveMembership(db, userId, orgId);
+      const asset = await putMarkPicture(
+        artifacts(),
+        person(userId),
+        orgId,
+        artifactId,
+        new Uint8Array(await file.arrayBuffer()),
+      );
+      return c.json(assetView(asset), 201);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/messages/{messageId}/resolve",
+      tags,
+      security,
+      summary: "Resolve a comment on a picture, a video or a PDF, or open it again (ADR 0208)",
+      description:
+        "Only a message of a file's conversation that points at a place there (`liveRef.selection` with `mark`, `time` or `page`); 400 `message.not_comment` otherwise. Whoever writes in that conversation. The message stays; its pin leaves the file. Everyone there gets `message.resolved`.",
+      request: {
+        params: OrgParams.extend({ messageId: z.uuid() }),
+        body: { required: true, content: { "application/json": { schema: z.object({ resolved: z.boolean() }) } } },
+      },
+      responses: {
+        200: json(z.object({ resolved: ResolvedMark.nullable() }).openapi("ResolveResult"), "Resolved, or open"),
+        ...errors,
+      },
+    }),
+    async (c) => {
+      const { orgId, messageId } = c.req.valid("param");
+      const { resolved } = c.req.valid("json");
+      const userId = c.get("user").id;
+      const mark = await resolveComment(
+        { db, pubsub: deps.adapters.pubsub },
+        { type: "person", userId },
+        orgId,
+        messageId,
+        resolved,
+      );
+      return c.json({ resolved: mark }, 200);
     },
   );
 

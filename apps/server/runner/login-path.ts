@@ -123,6 +123,19 @@ export function adoptWindowsPath(
   env.PATH = mergePathWith(";", envValue(env, "PATH", "win32"), registry(), usual.join(";"));
 }
 
+/**
+ * The usual folders that exist, after what `env.PATH` has: a service keeps the PATH of the shell that installed it,
+ * which may lack `~/.local/bin` (or it was made since), where Google's, xAI's, Cursor's and Claude's installers put
+ * their CLIs. Never in system mode: root's own folders are no agent's.
+ */
+export function addUsualDirs(
+  env: NodeJS.ProcessEnv = process.env,
+  home = os.homedir(),
+  exists: (dir: string) => boolean = existsSync,
+): void {
+  env.PATH = mergePath(env.PATH, usualDirs(home).filter(exists).join(path.delimiter));
+}
+
 /** Sets `process.env.PATH` to the login shell's PATH + the usual folders that exist + what we had. */
 export function adoptLoginPath(log: (line: string) => void = () => {}): void {
   if (process.platform === "win32") {

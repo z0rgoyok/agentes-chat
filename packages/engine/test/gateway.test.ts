@@ -8,6 +8,7 @@ import {
   BudgetExceededError,
   createCredential,
   createModelGateway,
+  drainOutbox,
   executeRun,
   listCredentials,
   MissingCredentialError,
@@ -17,6 +18,7 @@ import {
   updateAgent,
   usageSummary,
 } from "../src";
+import { turnEffort } from "../src/brains/model";
 import { addMember, type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -31,6 +33,31 @@ const call = (fx: Fixture, deltas: string[] = [], maxTokens = 100) =>
     maxTokens,
     onDelta: (d) => deltas.push(d),
   });
+
+test("an agent's call with no server cap gets the model's room at its effort, within the budget reserved first", async () => {
+  const ask = async (budgetNanoUsd: number | null) => {
+    f = await setup({ maxOutputTokens: null, budgetNanoUsd, reply: () => ({ chunks: ["ok"] }) });
+    await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { model: "claude-opus-5-5" });
+    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body: "@dev oi" });
+    await drainOutbox(f.db, f.handlers);
+    const request = f.provider.calls[0]?.request;
+    await f.close();
+    return request;
+  };
+  // No effort set: high, with 64K of room (thinking included) instead of 16K.
+  expect(await ask(null)).toMatchObject({ model: "claude-opus-5-5", effort: "high", maxTokens: 64_000 });
+  // US$ 0.50 left can't pay for 64K of Opus output: the reservation shrinks the call to what it pays for.
+  const tight = await ask(500_000_000);
+  expect(tight?.maxTokens).toBeGreaterThan(1000);
+  expect(tight?.maxTokens).toBeLessThan(25_000);
+  f = undefined as unknown as Fixture;
+});
+
+test("no effort set: high only where the model's output limit is known, else the provider's default", () => {
+  expect(turnEffort("claude-opus-5-5", undefined)).toBe("high");
+  expect(turnEffort("gpt-6.2-sol", undefined)).toBeUndefined();
+  expect(turnEffort("gpt-6.2-sol", "low")).toBe("low");
+});
 
 test("decrypts the org credential, streams, and records tokens and cost with org and agent", async () => {
   f = await setup({

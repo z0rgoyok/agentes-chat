@@ -8,6 +8,11 @@ import type { VoiceSend } from "./outbox";
  */
 /** How long a press is held before it records. */
 export const HOLD_MS = 220;
+/**
+ * The take's start sound (`record`) rings for under this long, and the recorder starts after it: the microphone would
+ * take it into the take. Below the time a person takes to start speaking after the haptic.
+ */
+export const START_SOUND_MS = 90;
 /** How far left deletes, and how far up locks. */
 export const CANCEL_X = -110;
 export const LOCK_Y = -70;

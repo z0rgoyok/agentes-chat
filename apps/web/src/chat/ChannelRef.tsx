@@ -1,4 +1,4 @@
-import { useArchivedChannels, useChannelCard, useChannels, useJoinChannel } from "@agenteschat/client";
+import { useArchivedChannels, useChannelCard, useChannelsPick, useJoinChannel } from "@agenteschat/client";
 import { joinable } from "@agenteschat/client/lib/channel-access";
 import { channelCardFacts, resolveChannelRef } from "@agenteschat/client/lib/channel-refs";
 import { Button, Chip, Icon, movesByKeys, Popover, useHoverCard } from "@agenteschat/ui";
@@ -18,8 +18,9 @@ export function ChannelRef({ name, text, refs }: { name: string; text: string; r
   const { t } = useTranslation();
   const { org } = useOrg();
   const navigate = useNavigate();
-  const channels = useChannels(org.id).data ?? [];
-  const ref = resolveChannelRef(name, refs, channels);
+  // Only this link's channel: the whole list moves with every message's unread count.
+  const ref =
+    useChannelsPick(org.id, (list) => resolveChannelRef(name, refs, list)) ?? resolveChannelRef(name, refs, []);
   // A channel the list doesn't have (archived, or not mine): only the server knows if it may show.
   const lookup = useChannelCard(org.id, ref?.id ?? "", Boolean(ref && !ref.known));
   const card = useHoverCard(HOVER_OPEN_MS);
@@ -145,8 +146,11 @@ function ChannelCardBody({ channelId, onDone }: { channelId: string; onDone: () 
             <Button
               size="sm"
               variant="primary"
-              loading={join.isPending}
-              onClick={() => join.mutate(undefined, { onSuccess: openIt })}
+              onClick={() => {
+                // The lists take the join at once, so the channel opens now, as its member.
+                join.mutate();
+                openIt();
+              }}
             >
               {t("channelRefs.join")}
             </Button>

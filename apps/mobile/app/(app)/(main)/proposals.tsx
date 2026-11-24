@@ -1,6 +1,6 @@
 import { ProposalsScreen } from "@/features/agents/ProposalsScreen";
 
-/** Propostas de melhoria: what waits on you, as the web's tab in Aprovações. */
+/** Agent improvements: what agents changed after their review, with Undo (ADR 0219). */
 export default function ProposalsRoute() {
   return <ProposalsScreen />;
 }

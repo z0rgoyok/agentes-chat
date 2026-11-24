@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import type { BlobStore } from "./blob";
+import { attachmentDisposition, type BlobStore, type ByteRange } from "./blob";
 
 /** The HTTP transport (global `fetch` by default; a fake S3 server in tests). */
 export type S3Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -116,10 +116,12 @@ export function s3Error(status: number, body: string): StorageError {
 /**
  * A minimal S3 client (SigV4 over `fetch`): put, get, delete, list and
  * presigned GET. No SDK, so the transport can be swapped in tests.
+ * `presign: false` hands out no links, for a bucket only the server reaches;
+ * an http endpoint never does.
  */
 export function createS3BlobStore(
   settings: S3Settings,
-  options: { fetch?: S3Fetch; now?: () => Date; timeoutMs?: number } = {},
+  options: { fetch?: S3Fetch; now?: () => Date; timeoutMs?: number; presign?: boolean } = {},
 ): BlobStore {
   const http: S3Fetch = options.fetch ?? ((url, init) => fetch(url, init));
   const now = options.now ?? (() => new Date());
@@ -135,7 +137,13 @@ export function createS3BlobStore(
   async function send(
     method: "GET" | "PUT" | "DELETE" | "HEAD",
     key: string,
-    init: { query?: Record<string, string>; body?: Uint8Array; contentType?: string; timeoutMs?: number } = {},
+    init: {
+      query?: Record<string, string>;
+      body?: Uint8Array;
+      contentType?: string;
+      range?: ByteRange;
+      timeoutMs?: number;
+    } = {},
   ): Promise<Response> {
     const { origin, host, path } = locate(settings, key);
     const query = init.query ?? {};
@@ -146,6 +154,7 @@ export function createS3BlobStore(
       "x-amz-content-sha256": payloadHash,
       "x-amz-date": amzDate,
       ...(init.contentType ? { "content-type": init.contentType } : {}),
+      ...(init.range ? { range: `bytes=${init.range.start}-${init.range.end}` } : {}),
     };
     const names = Object.keys(headers).sort();
     const canonicalHeaders = names.map((n) => `${n}:${String(headers[n]).trim()}\n`).join("");
@@ -174,14 +183,19 @@ export function createS3BlobStore(
 
   const fail = async (res: Response) => s3Error(res.status, await res.text().catch(() => ""));
 
-  async function object(key: string, timeoutMs?: number) {
-    const res = await send("GET", key, { ...(timeoutMs ? { timeoutMs } : {}) });
+  async function object(key: string, timeoutMs?: number, range?: ByteRange) {
+    const res = await send("GET", key, { ...(timeoutMs ? { timeoutMs } : {}), ...(range ? { range } : {}) });
     if (res.status === 404) {
       const err = await fail(res);
       if (err.code === "not_found") return null;
       throw err;
     }
     if (!res.ok) throw await fail(res);
+    // A store that ignores the range answers the whole object: sent as the part, it would play as garbage.
+    if (range && res.status !== 206) {
+      await res.body?.cancel();
+      throw new StorageError("other", `The storage answered ${res.status} to a byte range`, res.status);
+    }
     return res;
   }
 
@@ -199,8 +213,8 @@ export function createS3BlobStore(
         contentType: res.headers.get("content-type") ?? "application/octet-stream",
       };
     },
-    async stream(key) {
-      return (await object(key, STREAM_TIMEOUT_MS))?.body ?? null;
+    async stream(key, range) {
+      return (await object(key, STREAM_TIMEOUT_MS, range))?.body ?? null;
     },
     async delete(key) {
       const res = await send("DELETE", key);
@@ -214,18 +228,21 @@ export function createS3BlobStore(
       const xml = await res.text();
       return [...xml.matchAll(/<Key>([^<]*)<\/Key>/g)].map((m) => decodeXml(m[1] ?? "")).slice(0, limit);
     },
-    async signedUrl(key, { expiresInSeconds, filename }) {
+    async signedUrl(key, { expiresInSeconds, filename, contentType }) {
+      // An http endpoint is never linked to: a page served over https can't load it (mixed content), and it is most
+      // often a bucket on the server's own network. Its files go through the server.
+      if (options.presign === false || endpoint.protocol === "http:") return null;
       const { origin, host, path } = locate(settings, key);
       const { amzDate, date } = amzDates(now());
       const expires = Math.max(1, Math.min(604_800, Math.round(expiresInSeconds)));
-      const safeName = filename?.replace(/["\\\r\n]/g, "_");
       const query: Record<string, string> = {
         "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
         "X-Amz-Credential": `${settings.accessKeyId}/${date}/${settings.region}/s3/aws4_request`,
         "X-Amz-Date": amzDate,
         "X-Amz-Expires": String(expires),
         "X-Amz-SignedHeaders": "host",
-        ...(safeName ? { "response-content-disposition": `attachment; filename="${safeName}"` } : {}),
+        ...(filename ? { "response-content-disposition": attachmentDisposition(filename) } : {}),
+        ...(contentType ? { "response-content-type": contentType } : {}),
       };
       const qs = canonicalQuery(query);
       const canonicalRequest = ["GET", path, qs, `host:${host}\n`, "host", "UNSIGNED-PAYLOAD"].join("\n");

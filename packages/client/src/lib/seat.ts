@@ -16,8 +16,10 @@ export interface SeatOf {
 
 /**
  * The place the right hand's work in a conversation is on, as the server chooses it (`runSeat` in
- * `packages/engine/src/right-hand-seats.ts`): the viewer's own only in their own DM with it, the shared one anywhere
- * else it answers. `ownDm`: the conversation is the viewer's DM with it. Undefined: the viewer's own.
+ * `packages/engine/src/right-hand-seats.ts`): the viewer's own in their own DM with it, the shared one anywhere else
+ * it answers. `ownDm`: the conversation is the viewer's DM with it. Undefined: the viewer's own.
+ * ponytail: a run in that DM the viewer did not ask for (a routine's) works in the shared seat, but its cards there
+ * still read the viewer's own; the run's seat on its messages would fix it.
  */
 export const conversationSeat = (rightHandId: string | undefined, ownDm: boolean): SeatOf | undefined =>
   rightHandId && !ownDm ? { agentId: rightHandId, seat: SHARED_SEAT } : undefined;

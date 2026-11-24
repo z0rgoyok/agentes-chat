@@ -1,8 +1,15 @@
+import { Platform } from "react-native";
 import { Icon } from "./Icon";
 import { useTheme } from "./theme";
 
-/** The marks at a row's end, in points: the system lists' chevron, a menu's up-down mark and the chosen check. */
-export const ROW_MARK = { disclosure: 17, menu: 16, check: 20 } as const;
+/**
+ * The marks at a row's end, in points: the system lists' chevron, a menu's up-down mark and the chosen check. Apple's
+ * at the system's own sizes on iOS; Google's on Android a size up (their chevron fills less of its box).
+ */
+export const ROW_MARK =
+  Platform.OS === "ios"
+    ? ({ disclosure: 17, menu: 16, check: 20 } as const)
+    : ({ disclosure: 22, menu: 20, check: 22 } as const);
 
 /** › at a row's end: it opens a screen. The system's chevron, semibold, in its tertiary gray. */
 export function Disclosure({ color }: { color?: string }) {

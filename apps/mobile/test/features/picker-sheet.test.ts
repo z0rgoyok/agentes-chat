@@ -48,7 +48,8 @@ describe("pickers are the app's sheet, never the system's alert list", () => {
     // The audit's agent is one of many: it is picked on the shared agent picker's pushed screen instead
     // (settings-sweep.test.ts).
     for (const file of [
-      "features/me/MeScreen.tsx",
+      // Sons and Aparência, shared by Você and the settings search.
+      "features/me/pickers.ts",
       "features/routines/RoutineForm.tsx",
       "features/computer/usePickComputer.ts",
       "features/vault/VaultConnectScreen.tsx",
@@ -112,9 +113,21 @@ describe("every sheet is the system's own (TrueSheet), and a sheet's next step s
     const app = root("(app)/_layout.tsx");
     expect(app).toContain('from "@lodev09/react-native-true-sheet/navigation/expo-router"');
     expect(app).toContain('<Sheet.Screen name="(main)" />');
-    for (const name of ["new", "approval/[id]", "consultation/[id]", "chart", "code", "me/add-workspace"]) {
+    for (const name of ["new", "consultation/[id]", "chart", "code", "me/add-workspace"]) {
       expect({ name, sheet: app.includes(`<Sheet.Screen name="${name}"`) }).toEqual({ name, sheet: true });
     }
+    // A request and a question are no sheets: screens pushed among the app's own, with the system's back (ADR 0218 §6).
+    expect(app).not.toContain('name="approval/[id]"');
+    expect(existsSync(join(import.meta.dir, "../../app/(app)/approval/[id].tsx"))).toBe(false);
+    for (const route of ["approval/[id].tsx", "question/[id].tsx"]) {
+      expect({ route, pushed: existsSync(join(import.meta.dir, "../../app/(app)/(main)", route)) }).toEqual({
+        route,
+        pushed: true,
+      });
+    }
+    expect(root("(app)/(main)/approval/[id].tsx")).toContain(
+      '<ApprovalSheet id={id} refuse={mode === "refuse"} onClose={goBack} />',
+    );
     expect(root("(auth)/_layout.tsx")).toContain('<Sheet.Screen name="where" options={sheet(["auto"])} />');
     expect(src("ui/Sheet.tsx")).toContain("export function useRouteSheetOptions()");
     expect(src("ui/navigation.tsx")).not.toContain('presentation: "formSheet"');

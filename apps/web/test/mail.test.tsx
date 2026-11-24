@@ -7,7 +7,7 @@ import { ApiError, type MailAccount, type RoutineInput } from "@agenteschat/clie
 import { defaultPolicy } from "@agenteschat/client/lib/mail";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { setNavigateAway } from "@/lib/navigate";
-import { openConnected, pick, service } from "./catalog";
+import { backToList, connectionLine, openConnection, openStore, pick, service } from "./catalog";
 import { ADA_ID, ATLAS_ID, createFakeApi, fakeMailOf, ORG_ID, seedState } from "./fake-api";
 import { MAIL_PROVIDERS } from "./fakes/mail";
 import { renderApp, screen, settle } from "./render";
@@ -71,51 +71,71 @@ function mailApi(accounts: Partial<MailAccount>[] = []) {
   return { state, api, mail };
 }
 
+/** Settings › Connectors, then Browse connectors: the store, its root. */
 const openCatalog = async (api: ReturnType<typeof createFakeApi>, url = `/org/${ORG_ID}/settings/connectors`) => {
   await renderApp(url, { api });
   await settle(8);
-  await click(screen().getByRole("button", { name: "Adicionar conector" }));
-  return screen().getByRole("dialog", { name: "Adicionar conector" });
+  return openStore();
+};
+/** The store's category tabs. */
+const tabs = (store: HTMLElement) => within(store).getByRole("navigation", { name: "Categorias" });
+/** The names of the services listed in the store now. */
+const listed = (store: HTMLElement) => [...store.querySelectorAll(".store-item__text b")].map((el) => el.textContent);
+/** A service's line in the store, pressed: its page. */
+const openLine = async (store: HTMLElement, name: string) => {
+  const line = [...store.querySelectorAll(".store-item__open")].find(
+    (el) => el.querySelector(".store-item__text b")?.textContent === name,
+  ) as HTMLElement;
+  await click(line);
+  await settle(4);
+  return service(name);
+};
+/** From the store, Settings at its top: back to Settings › Connectors and what is connected. */
+const backToSettings = async () => {
+  const store = document.querySelector(".store") as HTMLElement;
+  await click(within(store).getByRole("link", { name: "Configurações" }));
+  await settle(8);
+};
+/** Others' personal connections are folded rows: each opened, so its actions are in reach. */
+const unfold = async () => {
+  for (const head of document.querySelectorAll('.connected-row > [aria-expanded="false"]')) await click(head);
 };
 
-describe("Conectores → Email", () => {
-  test("the Email group: Gmail, Outlook, iCloud and Outro email, each with how it connects", async () => {
+describe("Connectors → Email", () => {
+  test("the Email tab: Gmail, Outlook, iCloud and Other email, each page saying how it connects", async () => {
     const { api } = mailApi();
-    const dialog = await openCatalog(api);
-    // The categories, each with its count ("Email 4").
-    const cats = within(dialog).getByRole("radiogroup", { name: "Categorias" });
-    await click(within(cats).getByRole("radio", { name: /^Email/ }));
-    const names = [...dialog.querySelectorAll(".catalog-tile__name")].map((el) => el.textContent);
-    expect(names).toEqual(["Gmail", "Outlook", "iCloud", "Outro email", "Não achou?"]);
-    const gmail = within(dialog).getByRole("button", { name: "Gmail" });
+    const store = await openCatalog(api);
+    await click(within(tabs(store)).getByRole("button", { name: "Email" }));
+    expect(listed(store)).toEqual(["Gmail", "Outlook", "iCloud", "Outro email"]);
+    const gmail = within(store).getByRole("button", { name: "Gmail" });
     expect(gmail.querySelector(".connector-icon__mark")?.getAttribute("style")).toContain("/connectors/gmail.svg");
-    // How it connects lives in the service's dialog, not on the card.
-    await click(gmail);
-    const google = service("Gmail").textContent;
+    const list = store.textContent;
+    // How it connects lives on the service's page.
+    const google = (await openLine(store, "Gmail")).textContent;
     expect(google).toContain("Um clique");
-    await click(within(service("Gmail")).getByRole("button", { name: "Fechar detalhe" }));
-    await click(within(dialog).getByRole("button", { name: "iCloud" }));
-    const apple = service("iCloud").textContent;
+    await backToList();
+    const back = document.querySelector(".store") as HTMLElement;
+    await click(within(tabs(back)).getByRole("button", { name: "Email" }));
+    const apple = (await openLine(back, "iCloud")).textContent;
     expect(apple).toContain("Precisa de uma senha de app");
     // No internal names in the copy.
-    expect(`${dialog.textContent} ${google} ${apple}`).not.toMatch(/Composio|IMAP/);
+    expect(`${list} ${google} ${apple}`).not.toMatch(/Composio|IMAP/);
   });
 
-  test("a server without email shows no Email group", async () => {
+  test("a server without email shows no Email tab", async () => {
     const state = seedState({ connections: [] });
-    const dialog = await openCatalog(createFakeApi(state));
-    expect(within(dialog).queryByRole("button", { name: "Gmail" })).toBeNull();
-    expect(
-      within(within(dialog).getByRole("radiogroup", { name: "Categorias" })).queryByRole("radio", { name: /^Email/ }),
-    ).toBeNull();
+    const store = await openCatalog(createFakeApi(state));
+    expect(within(tabs(store)).queryByRole("button", { name: "Email" })).toBeNull();
+    expect(within(store).queryByRole("button", { name: "Conectar Gmail" })).toBeNull();
+    expect(listed(store)).not.toContain("Gmail");
   });
 
   test("Gmail: 'Conectar com Google' leaves for the provider's page", async () => {
     const left: string[] = [];
     setNavigateAway((url) => left.push(url));
     const { api, state } = mailApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "Gmail");
+    const store = await openCatalog(api);
+    await pick(store, "Gmail");
     expect(flow().textContent).toContain("Conectar Gmail");
     await click(within(flow()).getByRole("button", { name: "Conectar com Google" }));
     await settle(4);
@@ -156,8 +176,8 @@ describe("Conectores → Email", () => {
 
   test("iCloud: address and app password; a 422 says why in plain words; then o que faz → quem pode usar", async () => {
     const { api, state, mail } = mailApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "iCloud");
+    const store = await openCatalog(api);
+    await pick(store, "iCloud");
     // What an app password is, the steps and the provider's page; the hint for a dedicated mailbox.
     expect(flow().textContent).toContain("O que é uma senha de app?");
     expect(within(flow()).getByRole("link", { name: "Abrir a página de iCloud" }).getAttribute("href")).toBe(
@@ -232,20 +252,21 @@ describe("Conectores → Email", () => {
     expect(rules?.args[3]).toEqual(
       expect.objectContaining({ level: "read", policy: expect.objectContaining({ folders: ["INBOX"] }) }),
     );
-    // The new row: the mailbox, active, used by 2 agents.
-    await openConnected();
-    const row = screen()
-      .getByRole("button", { name: "Quem usa ana@example.com" })
-      .closest(".connected-row") as HTMLElement;
-    expect(row.textContent).toContain("iCloud");
-    expect(row.textContent).toContain("Ativo");
-    expect(row.textContent).toContain("Conectado como ana@example.com");
+    // Back in Settings › Connectors, the new line: the mailbox and its address, nothing to do; its page says connected.
+    await backToSettings();
+    const row = connectionLine("iCloud");
+    expect(row.textContent).toContain("ana@example.com");
+    expect(row.querySelector('.store-state[data-s="wait"]')).toBeNull();
+    const page = await openConnection("iCloud");
+    expect(page.textContent).toContain("Conectado");
+    expect(page.textContent).toContain("Conectado como ana@example.com");
+    expect(within(page).getByRole("button", { name: "Quem usa ana@example.com" })).toBeTruthy();
   });
 
   test("iCloud with a Gmail address: where to find the iCloud Mail one, before sending; other emails keep their copy", async () => {
     const { api } = mailApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "iCloud");
+    const store = await openCatalog(api);
+    await pick(store, "iCloud");
     const address = () => within(flow()).getByLabelText("Endereço de email");
     const hint = () => document.getElementById(address().getAttribute("aria-describedby") ?? "")?.textContent ?? null;
     await type(address(), "Ana@Gmail.com");
@@ -277,8 +298,8 @@ describe("Conectores → Email", () => {
   test("iCloud with its own domain: the sent folder's addresses come filled in, then the default From", async () => {
     const { api, state, mail } = mailApi();
     mail.suggested = ["suporte@acme.com.br"];
-    const dialog = await openCatalog(api);
-    await pick(dialog, "iCloud");
+    const store = await openCatalog(api);
+    await pick(store, "iCloud");
     await type(within(flow()).getByLabelText("Endereço de email"), "ana@icloud.com");
     await type(within(flow()).getByLabelText("Senha de app"), "abcd-efgh-ijkl-mnop");
     await click(within(flow()).getByRole("button", { name: "Conectar" }));
@@ -310,8 +331,8 @@ describe("Conectores → Email", () => {
     const { api, state } = mailApi([{ address: "ana@icloud.com", aliases: ["suporte@acme.com.br"] }]);
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
     await settle(8);
-    await openConnected();
-    await click(screen().getByRole("button", { name: "Endereços de ana@icloud.com" }));
+    const page = await openConnection("iCloud");
+    await click(within(page).getByRole("button", { name: "Endereços de ana@icloud.com" }));
     await settle(4);
     const dialog = screen().getByRole("dialog", { name: "Endereços de ana@icloud.com" });
     // Nothing changed yet: nothing to save.
@@ -348,8 +369,8 @@ describe("Conectores → Email", () => {
 
   test("each connect error has its own message", async () => {
     const { api, mail } = mailApi();
-    const dialog = await openCatalog(api);
-    await pick(dialog, "iCloud");
+    const store = await openCatalog(api);
+    await pick(store, "iCloud");
     await type(within(flow()).getByLabelText("Endereço de email"), "ana@example.com");
     await type(within(flow()).getByLabelText("Senha de app"), "x");
     const said: string[] = [];
@@ -466,7 +487,7 @@ describe("Conectores → Email", () => {
     expect(screen().queryByRole("dialog", { name: "O que joao@example.com faz" })).toBeNull();
     const others = screen().getByRole("region", { name: /Pessoais de outras pessoas/ });
     expect(others.textContent).toContain("Pessoal de João");
-    await openConnected();
+    await unfold();
     expect(within(others).queryByRole("button", { name: /Quem usa|Ferramentas|Endereços/ })).toBeNull();
     await click(within(others).getByRole("button", { name: "Remover joao@example.com" }));
     await click(
@@ -487,11 +508,10 @@ describe("Conectores → Email", () => {
     ]);
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
     await settle(8);
-    await openConnected();
-    const row = screen()
-      .getByRole("button", { name: "Quem usa ana@example.com" })
-      .closest(".connected-row") as HTMLElement;
+    // What needs the person is on the line itself, with its button.
+    const row = connectionLine("iCloud");
     expect(row.textContent).toContain("Precisa reconectar");
+    expect(row.textContent).toContain("ana@example.com");
     await click(within(row).getByRole("button", { name: "Reconectar ana@example.com" }));
     const dialog = screen().getByRole("dialog", { name: "Reconectar ana@example.com" });
     await type(within(dialog).getByLabelText("Senha de app"), "nova-senha");
@@ -501,7 +521,7 @@ describe("Conectores → Email", () => {
       "mail-1",
       { password: "[redacted]" },
     ]);
-    await click(screen().getByRole("button", { name: "Reconectar bia@example.com" }));
+    await click(within(connectionLine("Gmail")).getByRole("button", { name: "Reconectar bia@example.com" }));
     await settle(4);
     // The same mailbox signs in again (a new one would be refused: the address is taken).
     expect(state.calls.find((c) => c.method === "mail.connectComposio")?.args[1]).toEqual({
@@ -516,7 +536,8 @@ describe("Conectores → Email", () => {
     const { api, state } = mailApi([{ address: "ana@example.com" }]);
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
     await settle(8);
-    await openConnected();
+    await openConnection("iCloud");
+    // The link names the address: two mailboxes of one provider share its name.
     await click(screen().getByRole("button", { name: "Desconectar ana@example.com" }));
     const confirm = screen().getByRole("dialog", { name: "Desconectar ana@example.com?" });
     await click(within(confirm).getByRole("button", { name: "Desconectar" }));

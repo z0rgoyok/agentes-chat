@@ -1,5 +1,6 @@
 import type { Routine, Team, TeamAgent } from "@agenteschat/client";
 import { useAgentGroups, useApprovals, useProposeChannelMove, useRoutines } from "@agenteschat/client";
+import { ownerValueOf, ownsAgentAs, roleOfOwnerValue } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
 import {
@@ -10,7 +11,7 @@ import {
   supervisors,
 } from "@agenteschat/client/lib/team-views";
 import { excerpt } from "@agenteschat/client/lib/text";
-import { Button, EmptyState, HintLine, Icon } from "@agenteschat/ui";
+import { Button, EmptyState, HintLine, Icon, RoleMark } from "@agenteschat/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type DragEvent, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -58,9 +59,12 @@ export function TeamMap({ team }: { team: Team }) {
   const columns = mapColumns(team.agents, look.channelOrder, look.isLodi);
   const sups = supervisors(team.agents.filter((a) => !look.isLodi(a)));
   const setReportsTo = useSetReportsTo();
-  const owners = [
-    ...new Set(columns.flatMap((c) => c.agents.map((a) => a.ownerUserId)).filter((id): id is string => !!id)),
-  ].filter((id) => look.members.has(id));
+  // Who answers for the agents shown: a person, or a role as `role:<id>` (ADR 0085, addendum of 2026-11-21).
+  const ownerKey = (a: TeamAgent) => ownerValueOf(a, "");
+  const owners = [...new Set(columns.flatMap((c) => c.agents.map(ownerKey)).filter(Boolean))].filter((key) => {
+    const roleId = roleOfOwnerValue(key);
+    return roleId ? look.dir.roleById.has(roleId) : look.members.has(key);
+  });
   const waiting = (id: string) => approvals.filter((a) => a.agentId === id && a.status === "pending").length;
   // A routine shows in the column of the channel it posts to, else in its agent's first column.
   const routinesIn = (agent: TeamAgent, channelId: string | null, first: boolean) =>
@@ -107,7 +111,7 @@ export function TeamMap({ team }: { team: Team }) {
         const x0 = p.left + p.width / 2 - base.left;
         const y0 = p.bottom - base.top;
         for (const c of columns) {
-          if (!c.agents.some((a) => a.ownerUserId === id)) continue;
+          if (!c.agents.some((a) => ownerKey(a) === id)) continue;
           const col = rect(`[data-map-col="${c.channelId ?? NO_CHANNEL}"]`);
           if (!col) continue;
           const x1 = col.left + col.width / 2 - base.left;
@@ -258,7 +262,9 @@ export function TeamMap({ team }: { team: Team }) {
   // Every agent still outside the channels: there's no map to draw yet. One in a channel I don't see is placed.
   if (columns.every((c) => c.channelId === null && c.agents.every((a) => !a.channelIds?.length))) {
     // The one agent this person may place: an agent's channels are its owner's or who manages it's to change.
-    const first = team.agents.find((a) => !look.isLodi(a) && (managesAgent(a) || a.ownerUserId === me.user.id));
+    const first = team.agents.find(
+      (a) => !look.isLodi(a) && (managesAgent(a) || ownsAgentAs(a, me.user.id, look.myRoleIds)),
+    );
     return (
       <EmptyState
         size="page"
@@ -301,6 +307,18 @@ export function TeamMap({ team }: { team: Team }) {
         {owners.length > 0 && (
           <div className="team-map__people">
             {owners.map((id) => {
+              const roleId = roleOfOwnerValue(id);
+              const role = roleId ? look.dir.roleById.get(roleId) : undefined;
+              if (role)
+                return (
+                  <span key={id} className="team-node team-node--person" data-map-person={id}>
+                    <RoleMark color={role.color} icon={role.icon} size={24} />
+                    <span className="team-node__text">
+                      <b className="ac-captop">{role.name}</b>
+                      <span className="muted">{t("audience.roleMembers", { count: role.people })}</span>
+                    </span>
+                  </span>
+                );
               const m = look.dir.memberById.get(id);
               return (
                 <span key={id} className="team-node team-node--person" data-map-person={id}>

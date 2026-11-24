@@ -1,8 +1,9 @@
 import type { PlanUsage } from "@agenteschat/adapters";
-import { and, type Executor, eq, inArray, isNull, ne, or, schema, sql } from "@agenteschat/db";
+import { and, type Executor, eq, isNull, ne, schema, sql } from "@agenteschat/db";
 import { isAutoModel } from "@agenteschat/providers";
 import { autoPlanModel, claudeCodeModel, NEXT_ACCOUNT_KINDS, planOf } from "@agenteschat/providers/plans";
 import type { Agent } from "./agents";
+import { accountOrderSql, chainWhereSql } from "./ai-accounts/chain";
 import { type BrainPlan, computerBrainUnavailable, NO_AI_CODES, planIsOwners, storedPlanUsage } from "./brains/select";
 import type { BrainAccount, BrainSession } from "./brains/types";
 import { machineRule, mayUseDevice } from "./devices";
@@ -93,6 +94,14 @@ export interface AccountMove {
   tried: string[];
 }
 
+/** `Transcript.accountSwitch`: each account by id and the name the run's details show it by. */
+export interface AccountSwitch {
+  from: { id: string; name: string };
+  to: { id: string; name: string };
+  /** What moved it: its plan's limit, the pause line (99%) of long work, or the paid extra usage it would go into. */
+  cause: "limit" | "line" | "extra";
+}
+
 /** Where `nextAccountPlan` landed: the plan on the next account, else how many accounts are all limited and the first reset. */
 export type NextAccount =
   | { plan: BrainPlan; lentBy: string | null; lenderName?: string }
@@ -109,29 +118,23 @@ const sameSeat = (a: SeatRow, b: SeatRow) =>
 type ChainAgent = Pick<Agent, "id" | "orgId" | "ownerUserId" | "brainAccountPinned" | "builtin">;
 
 /**
- * The accounts on `machineId` of `kind` a run of `agent` may go on with at its plan's limit (ADR 0041 §6): a CLI
- * sign-in (never a key, which is paid by the token) shared between agents, whose owner is still a member
- * (`planIsOwners`) and that serves this agent: its owner's own, or one that serves everyone. The right hand goes on
- * only with the accounts of the person it answers (`forPerson`), so never on a plan someone else gave it. `keep`: the run's own
- * accounts, whatever their sharing. A one-agent login is never another's: the runner lends its folder to that agent only.
+ * The accounts on `machineId` of `kind` a run of `agent` may go on with at its plan's limit (ADR 0041 §6,
+ * `chainWhereSql`): those that serve its owner. The right hand goes on only with the accounts of the person it answers
+ * (`forPerson`), so never on a plan someone else gave it. `keep`: the run's own accounts, whatever their sharing.
+ * `asker`: someone besides its owner the run answers, whom the account's "Atender todos" must take.
  */
-function chainWhere(agent: ChainAgent, kind: string, machineId: string, forPerson: string | null, keep: string[]) {
-  const owner = agent.ownerUserId ?? "";
-  return and(
-    eq(machineAccounts.orgId, agent.orgId),
-    eq(machineAccounts.machineId, machineId),
-    eq(machineAccounts.kind, kind),
-    isNull(machineAccounts.provider),
-    sql`${machineAccounts.authMethod} is distinct from 'api_key'`,
-    isRightHand(agent)
-      ? forPerson === owner
-        ? eq(machineAccounts.createdBy, owner)
-        : sql`false`
-      : or(eq(machineAccounts.createdBy, owner), eq(machineAccounts.serves, "everyone")),
-    keep.length > 0
-      ? or(inArray(machineAccounts.id, keep), eq(machineAccounts.shared, true))
-      : eq(machineAccounts.shared, true),
-  );
+function chainWhere(
+  agent: ChainAgent,
+  kind: string,
+  machineId: string,
+  forPerson: string | null,
+  keep: string[],
+  asker: string | null = null,
+) {
+  const owner = agent.ownerUserId ?? null;
+  if (isRightHand(agent))
+    return chainWhereSql(agent.orgId, machineId, kind, forPerson === owner ? owner : null, keep, true);
+  return chainWhereSql(agent.orgId, machineId, kind, owner, keep, false, asker);
 }
 
 /** Its owner still in the workspace (`planIsOwners`). */
@@ -156,6 +159,8 @@ export async function nextAccountPlan(
   options: {
     room?: (usage: PlanUsage | null, accountId: string) => boolean;
     forPerson?: string | null;
+    /** Someone besides the agent's owner the run answers (`runAsker`). */
+    asker?: string | null;
     own?: string;
   } = {},
 ): Promise<NextAccount> {
@@ -182,16 +187,11 @@ export async function nextAccountPlan(
       .leftJoin(schema.users, eq(schema.users.id, machineAccounts.createdBy))
       .where(
         and(
-          chainWhere(agent, plan.kind, machineId, options.forPerson ?? null, keep),
+          chainWhere(agent, plan.kind, machineId, options.forPerson ?? null, keep, options.asker ?? null),
           eq(machineAccounts.status, "active"),
         ),
       )
-      .orderBy(
-        sql`${machineAccounts.createdBy} = ${owner} desc`,
-        sql`${machineAccounts.useOrder} asc nulls last`,
-        machineAccounts.createdAt,
-        machineAccounts.id,
-      ),
+      .orderBy(...accountOrderSql(owner)),
   ]);
   const triedRows = rows.filter((r) => tried.includes(r.id));
   const now = Date.now();
@@ -241,6 +241,7 @@ export async function movedAccountPlan(
   plan: BrainPlan,
   accountId: string,
   forPerson: string | null = null,
+  asker: string | null = null,
 ): Promise<BrainPlan | null> {
   const machineId = plan.session?.machineId;
   if (!machineId || plan.kind === "model") return null;
@@ -248,7 +249,7 @@ export async function movedAccountPlan(
     .select({ id: machineAccounts.id, label: machineAccounts.label, status: machineAccounts.status })
     .from(machineAccounts)
     .innerJoin(schema.organizationMembers, ownerIsMember)
-    .where(and(eq(machineAccounts.id, accountId), chainWhere(agent, plan.kind, machineId, forPerson, [])));
+    .where(and(eq(machineAccounts.id, accountId), chainWhere(agent, plan.kind, machineId, forPerson, [], asker)));
   if (!row) return null;
   const account: BrainAccount = {
     id: row.id,
@@ -284,7 +285,7 @@ const spillable = (orgId: string, home: string) =>
     sql`${machines.executors}->>'mode' is distinct from 'system'`,
     sql`not exists (select 1 from ${agentRuns} w where w.org_id = ${machines.orgId}
       and w.waiting_machine_id = ${machines.id} and w.status = 'waiting_input'
-      and w.transcript->'waitingForBrain'->>'code' = 'busy')`,
+      and coalesce(w.state, w.transcript)->'waitingForBrain'->>'code' = 'busy')`,
   );
 
 /** Whether a turn waiting behind others on `home` may find another computer (`spillTarget`): worth a look now. */

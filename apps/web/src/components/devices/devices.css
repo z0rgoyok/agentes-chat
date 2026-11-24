@@ -23,6 +23,26 @@
 .dv-status[data-status="paused"] {
   color: var(--ink-muted);
 }
+/* On a computer's page a phone's pill carries its detail in a tip (`StatusTip`): a button when it opens the fix, else a
+   stop for the keys. Only the pill shows, its ring round the pill. */
+.dv-status-tip {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-full);
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: start;
+}
+button.dv-status-tip {
+  cursor: pointer;
+}
+html:not([data-pointer]) .dv-status-tip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
 
 /* ---------- Portrait (img.ac-computer) ---------------------------------------------
    The engine draws on a 48-cell grid, so only 48 (rows) and 96 (the page header) stay crisp.

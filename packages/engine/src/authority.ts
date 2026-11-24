@@ -2,6 +2,7 @@ import { and, type Executor, eq, gte, inArray, schema, sql } from "@agenteschat/
 import { caches, cachesEnabled } from "./cache";
 import { getMembership } from "./organizations";
 import { type RoutineBrief, routineBriefOf } from "./routine-brief";
+import { RUN_STATE_KEYS, runState } from "./run-state";
 
 const { agentRuns, messages, routineRuns } = schema;
 
@@ -23,8 +24,8 @@ const { agentRuns, messages, routineRuns } = schema;
  *   message, work either started. It works as the agent itself, with the tools a person's run has (one a
  *   routine's report or work woke keeps within that routine's `brief`: see `run-policy.ts`); what
  *   needs a person's request (their channels, their reminders) is refused, and its approvals and pauses
- *   go to the agent's owner. A person writing into such a run (`steeredBy`) puts that person behind it
- *   from then on.
+ *   go to the agent's owner (or whoever holds its owner role, ADR 0085, addendum of 2026-11-21). A person writing
+ *   into such a run (`steeredBy`) puts that person behind it from then on.
  *
  * Message metadata alone never proves a person: only authorship and server-set links (a message's run, a
  * notice's run, the run on a task's or a folder request's line) are followed, within the workspace.
@@ -286,17 +287,22 @@ export type AuthorityRun = {
   triggerMessageId: string;
   background: boolean;
   transcript?: Record<string, unknown> | null;
+  /** Its `state` copy of the transcript's status keys, read when no transcript is given. */
+  state?: Record<string, unknown> | null;
 };
 
 /**
  * Only these keys of a run's transcript, in its place in a select: a transcript holds the whole conversation (tens of
- * KB), and the lookups that read a key or two would otherwise ship and parse all of it.
+ * KB), and the lookups that read a key or two would otherwise ship and parse all of it. Keys that are all in its
+ * `state` copy are read there, without decompressing the transcript.
  */
-export const transcriptKeys = (...keys: string[]) =>
-  sql<Record<string, unknown> | null>`jsonb_build_object(${sql.join(
-    keys.map((k) => sql`${k}::text, ${agentRuns.transcript}->${k}::text`),
+export const transcriptKeys = (...keys: string[]) => {
+  const from = keys.every((k) => (RUN_STATE_KEYS as readonly string[]).includes(k)) ? runState : agentRuns.transcript;
+  return sql<Record<string, unknown> | null>`jsonb_build_object(${sql.join(
+    keys.map((k) => sql`${k}::text, ${from}->${k}::text`),
     sql`, `,
   )})`;
+};
 
 /** The person who wrote into an unattended run while it worked (`Transcript.steeredBy`), if any. */
 export const steeredByOf = (transcript: Record<string, unknown> | null | undefined) =>
@@ -313,7 +319,7 @@ export async function runAuthority(db: Executor, run: AuthorityRun): Promise<Run
   }
   const root = await messageRoot(db, run.orgId, run.triggerMessageId);
   if (root.kind === "person") return { kind: "person", personId: root.personId };
-  const steeredBy = steeredByOf(run.transcript);
+  const steeredBy = steeredByOf(run.transcript ?? run.state);
   if (steeredBy) return { kind: "person", personId: steeredBy };
   if (root.kind === "agent") return { kind: "unattended", personId: null, reason: "agent" };
   return { kind: "unattended", personId: null, reason: root.kind, brief: await feedingBrief(db, run.orgId, root) };
@@ -366,7 +372,7 @@ export async function runAuthorityById(db: Executor, orgId: string, runId: strin
   if (!run) return { kind: "unattended", personId: null, reason: "agent" };
   const authority = await runAuthority(db, run);
   if (authority.kind !== "unattended") return authority;
-  // Any key read detoasts the whole transcript (a large jsonb): `steeredBy` only for a run no person is behind yet.
+  // `steeredBy` (read off the run's state copy) only for a run no person is behind yet.
   const [steered] = await db
     .select({ transcript: transcriptKeys("steeredBy") })
     .from(agentRuns)
@@ -377,7 +383,7 @@ export async function runAuthorityById(db: Executor, orgId: string, runId: strin
 
 /**
  * Who answers for a run's requests (approvals, questions, failures): the person behind it, else the
- * routine's creator. Null for an unattended run: the caller falls back to the agent's owner.
+ * routine's creator. Null for an unattended run: the caller falls back to the agent's owner (`agentOwnerIds`).
  */
 export const accountablePerson = (authority: RunAuthority): string | null =>
   authority.kind === "person"

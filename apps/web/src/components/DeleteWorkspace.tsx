@@ -5,6 +5,7 @@ import {
   useAuthConfig,
   useDeleteWorkspace,
   useMe,
+  usePlanMove,
   useResetWorkspace,
 } from "@agenteschat/client";
 import { formatTimeLeft } from "@agenteschat/client/lib/actions";
@@ -32,6 +33,7 @@ import { useRouter } from "@tanstack/react-router";
 import { type ReactNode, useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { AddPasswordDialog } from "@/components/AddPassword";
+import { PlanMoveLine } from "@/components/PlanMove";
 import { useLocalServerHere } from "@/components/ThisMac";
 import { useNow } from "@/hooks/useNow";
 import { thisMac } from "@/lib/desktop";
@@ -64,6 +66,7 @@ export function DeleteWorkspaceDialog({
   const api = useApi();
   const config = useAuthConfig().data;
   const del = useDeleteWorkspace(org.id);
+  const plan = usePlanMove(org.id);
   const proof = useDeletionProof(open, org.id, del.error);
   const pending = del.isPending || proof.thisMac.pending;
   const [name, setName] = useState("");
@@ -117,7 +120,12 @@ export function DeleteWorkspaceDialog({
                   </InfoHint>
                 </span>
               </DeletionLine>
-              {config?.billingUrl && <DeletionLine icon="coin">{t("deleteOrg.plan")}</DeletionLine>}
+              {config?.billingUrl &&
+                (plan.targets.length > 0 ? (
+                  <PlanMoveLine plan={plan} />
+                ) : (
+                  <DeletionLine icon="coin">{t("deleteOrg.plan")}</DeletionLine>
+                ))}
             </ul>
             <p className="small muted deletion-export">
               <Trans

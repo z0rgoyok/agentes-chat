@@ -10,8 +10,8 @@ import { fileIcon, formatBytes, MAX_UPLOAD_BYTES, previewKind } from "@agentesch
 import { taskNoticeOf } from "@agenteschat/client/lib/missions";
 import { QueryClient } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { fileSaver } from "@/components/artifacts/ArtifactViewer";
 import { objectUrls } from "@/components/artifacts/FileView";
+import { fileSaver } from "@/components/artifacts/fileSaver";
 import { createI18n } from "@/i18n";
 import { ADA_ID, createFakeApi, ENG_ID, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
 import { hintOf, shownText } from "./hint";
@@ -114,7 +114,9 @@ describe("uploaded files in the Drive", () => {
     const tiles = Array.from(document.querySelectorAll<HTMLElement>(".artifact-cards > .artifact-tile"));
     expect(tiles).toHaveLength(2);
     const [thumb, row] = tiles as [HTMLElement, HTMLElement];
-    expect(thumb.querySelector(".artifact-tile__picture img")?.getAttribute("src")).toMatch(/^blob:preview-/);
+    expect(thumb.querySelector(".artifact-tile__picture img")?.getAttribute("src")).toEndWith(
+      `/artifacts/${image.id}/thumb?version=1&w=480`,
+    );
     // A picture is only the picture (its name and size are in its tip and the viewer's header, below).
     expect(thumb.querySelector(".artifact-tile__foot")).toBeNull();
     expect(row.querySelector(".artifact-tile__title")?.textContent).toBe("carrossel.zip");
@@ -211,6 +213,26 @@ describe("uploaded files in the Drive", () => {
     dialog = screen().getByRole("dialog", { name: "notas.txt" });
     expect(dialog.querySelector(".file-view__text")?.textContent).toBe("linha 1\nlinha 2");
     expect(dialog.querySelector("textarea")).toBeNull();
+  });
+
+  test("a Markdown file reads as a document and a code file in a code card", async () => {
+    const api = createFakeApi(seedState());
+    const md = await api.artifacts.upload(
+      ORG_ID,
+      new File(["# Plano\n\nUm **passo** por vez"], "plano.md", { type: "text/markdown" }),
+    );
+    const ts = await api.artifacts.upload(ORG_ID, new File(["const total = 1;"], "soma.ts", { type: "text/plain" }));
+    await renderApp(`/org/${ORG_ID}/drive?artifact=${md.id}`, { api });
+    await settle(8);
+    let dialog = screen().getByRole("dialog", { name: "plano.md" });
+    expect(dialog.querySelector(".file-view__doc strong")?.textContent).toBe("passo");
+    expect(dialog.querySelector(".file-view__text")).toBeNull();
+    cleanup();
+    await renderApp(`/org/${ORG_ID}/drive?artifact=${ts.id}`, { api });
+    await settle(8);
+    dialog = screen().getByRole("dialog", { name: "soma.ts" });
+    expect(dialog.querySelector(".code-card .code-card__code")?.textContent).toBe("const total = 1;");
+    expect(dialog.querySelector(".file-view__text")).toBeNull();
   });
 
   test("a JSON file reads formatted in a code card, the text as written one press away", async () => {

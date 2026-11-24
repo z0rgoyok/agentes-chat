@@ -1,20 +1,9 @@
 import type { TFunction } from "i18next";
-import type {
-  Agent,
-  Memory,
-  MemoryUpdate,
-  OrgRole,
-  OrgSummary,
-  Person,
-  Proposal,
-  ProposalAccessLine,
-  ProposalSettingField,
-  ProposalSettingLine,
-} from "../api/types";
-import { audienceAdmits } from "./audience";
+import type { Memory, MemoryUpdate, OrgSummary, Proposal, ProposalAccessLine, ProposalSettingLine } from "../api/types";
+import { effortLevel } from "./brain-advanced";
 import { formatTime, formatUsd, joinNames } from "./format";
 import { agentGrammar } from "./grammar";
-import { holdersOf } from "./roles";
+import { isAuto } from "./providers";
 import { scopeText } from "./scopes";
 import { modeKey } from "./workspace-mode";
 
@@ -32,7 +21,7 @@ function contextWords<K extends string>(ws: ProposalWorkspace, key: K) {
 /*
  * A card of proposed changes in the chat (`memory.updated`, `proposed`, ADR 0092): an agent asked to change its own
  * or its teammates' instructions, roles or apps, or the org context. One proposal per agent and kind of change, each
- * decided by whoever may make that change on the agent's page; the apps lay these rules out.
+ * applied or left out by the agent's review as someone who may make that change (ADR 0219); the apps say how it ended.
  */
 
 /** The proposals on a card: every row, or the one an older server named (`proposalId`). */
@@ -46,7 +35,7 @@ export function messageProposalCards(meta: Record<string, unknown> | null | unde
   return cards.length || typeof meta?.proposalId !== "string" ? cards : [[meta.proposalId]];
 }
 
-/** What waits on an agent's page: its instructions and the skills it asked to change, both decided from there. */
+/** What the agent's review still weighs on an agent's page (ADR 0219): its instructions and the skills it changes. */
 export const pendingOnAgent = <P extends Pick<Proposal, "agentId" | "status" | "target">>(list: P[], agentId: string) =>
   list.filter(
     (p) =>
@@ -57,16 +46,6 @@ export const pendingOnAgent = <P extends Pick<Proposal, "agentId" | "status" | "
 
 /** The agent that proposed it (older servers: the agent it changes). */
 export const proposerOf = (p: Pick<Proposal, "agentId" | "proposedByAgentId">) => p.proposedByAgentId || p.agentId;
-
-/** Still waiting for a decision. */
-export const isOpen = (p: Pick<Proposal, "status" | "stale">) => p.status === "pending" && !p.stale;
-
-const place = (p: Proposal) => (isOpen(p) ? (p.canDecide ? 0 : 1) : 2);
-
-/** What waits on me first, then what waits on someone else, then what was decided: newest first inside each. */
-export function sortProposals(list: Proposal[]) {
-  return [...list].sort((a, b) => place(a) - place(b) || (a.createdAt < b.createdAt ? 1 : -1));
-}
 
 export interface ChangedLine {
   kind: "add" | "del";
@@ -129,53 +108,6 @@ export function proposalSections(rows: Proposal[]): ProposalSection[] {
     ...(settings.length ? [{ kind: "settings" as const, rows: settings }] : []),
   ];
 }
-
-/**
- * What the card's Aceitar and Recusar act on: the open rows the viewer may decide and left switched on. `all`
- * while that is every open row on the card ("Aceitar para todos"), else the button counts them ("Aceitar para 2").
- */
-export function chosenRows(rows: Proposal[], off: ReadonlySet<string>) {
-  const open = rows.filter(isOpen);
-  const chosen = open.filter((p) => p.canDecide && !off.has(p.id));
-  return { chosen, all: chosen.length === open.length };
-}
-
-/** A row's state in words: decided, stale, or whom it waits for; null while the viewer may decide it. */
-export function rowStatus(t: TFunction, p: Proposal): string | null {
-  if (p.stale) return t("proposals.stale");
-  if (p.status === "accepted") return t("proposals.accepted");
-  if (p.status === "refused") return t("proposals.refused");
-  if (p.canDecide) return null;
-  return p.decider.type === "user" ? t("proposals.waitingFor", { name: p.decider.name }) : t("proposals.waitingAdmin");
-}
-
-/** How a decided card ended, in a word: each row's status when they all agree, else how many were accepted. */
-export function cardOutcome(t: TFunction, rows: Proposal[]): { accepted: boolean; label: string } {
-  const done = rows.filter((p) => p.status === "accepted" && !p.stale).length;
-  const states = [...new Set(rows.map((p) => rowStatus(t, p)))];
-  const label =
-    states.length === 1 && states[0] ? states[0] : t("proposals.acceptedSome", { done, total: rows.length });
-  return { accepted: done > 0, label };
-}
-
-/**
- * How a decided card ended and who did it: "Aplicado por você", "Recusado por Ana" when one person decided every row
- * the same way, else how it ended (`cardOutcome`: a newer text took its place, or the rows ended apart).
- */
-export function cardDecidedBy(t: TFunction, rows: Proposal[], meId: string): string {
-  const [first] = rows;
-  const by = first?.decidedBy;
-  const alike = rows.every((p) => !p.stale && p.status === first?.status && p.decidedBy?.userId === by?.userId);
-  if (!first || !by || !alike || first.status === "pending") return cardOutcome(t, rows).label;
-  const mine = by.userId === meId;
-  if (first.status === "accepted")
-    return mine ? t("rightHand.card.appliedByYou") : t("rightHand.card.appliedBy", { name: by.name });
-  return mine ? t("rightHand.card.declinedByYou") : t("rightHand.card.declinedBy", { name: by.name });
-}
-
-/** Rows a decision couldn't apply because what they were made against changed since (409). */
-export const staleCount = (failed: { error: unknown }[]) =>
-  failed.filter((f) => (f.error as { status?: unknown } | null)?.status === 409).length;
 
 /** An app on an access row in the person's language: a built-in scope translated, a connection by its name. */
 export const appLabel = (t: TFunction, line: ProposalAccessLine) =>
@@ -330,6 +262,10 @@ export function settingLineText(
     switch (line.field) {
       case "model":
         return typeof v === "string" && v ? names.model(v) : t("rightHand.value.none");
+      case "effort":
+        return t(
+          `agentPage.work.brain.efforts.${isAuto(v as string) ? "auto" : typeof v === "string" && v ? effortLevel(v) : "none"}`,
+        );
       case "budget":
         return typeof v === "number" ? formatUsd(locale, v / NANO_PER_USD) : t("rightHand.value.budgetDefault");
       case "owner":
@@ -375,7 +311,13 @@ export function settingLineText(
         : (t as unknown as (key: string) => string)(
             `rightHand.field.${line.field === "delete" ? "archive" : line.field}`,
           );
-  return { field, from: value(line.from, "from"), to: value(line.to, "to") };
+  const to = value(line.to, "to");
+  // A budget at or below the month's spend stops the agent the moment it is applied: the card says so.
+  return {
+    field,
+    from: value(line.from, "from"),
+    to: line.pausesNow ? `${to} · ${t("rightHand.value.pausesNow")}` : to,
+  };
 }
 
 /**
@@ -386,78 +328,6 @@ export function removalOf(rows: Pick<Proposal, "settings">[]): "archive" | "dele
   const fields = new Set(rows.map((p) => (p.settings?.length === 1 ? p.settings[0]?.field : undefined)));
   const [field] = fields;
   return fields.size === 1 && (field === "archive" || field === "delete") ? field : null;
-}
-
-/** Which "Só admins …" line a row the viewer can't decide reads, by what it changes. */
-export function onlyKey(p: Pick<Proposal, "settings">) {
-  const kinds = new Set(
-    (p.settings ?? []).map((l) =>
-      l.field === "channel_add" || l.field === "channel_remove" || l.field === "reply_mode" ? "channels" : l.field,
-    ),
-  );
-  const [only] = kinds;
-  return `rightHand.card.only.${kinds.size === 1 && only ? only : "many"}` as const;
-}
-
-/**
- * The settings whose rows the agent's owner decides too, besides who manages it (the server's `SETTING_GROUP`:
- * `admin_or_owner`, and `editor` for its skills, ADR 0085 addendum of 2026-11-17).
- */
-const OWNER_DECIDES_TOO: ReadonlySet<ProposalSettingField> = new Set<ProposalSettingField>([
-  "audience",
-  "channel_add",
-  "channel_remove",
-  "reply_mode",
-  "look",
-  "skill",
-]);
-
-/** The agent a row's "Reports to" line puts its agent under (null: none), as the server's `supervisorOf` reads it. */
-const lineSupervisorId = (p: Pick<Proposal, "settings">) => {
-  const to = (p.settings ?? []).find((l) => l.field === "reports_to")?.to;
-  return typeof to === "string" ? to : null;
-};
-
-/**
- * The people a row sent with "Pedir a um admin" went to, as the server picks them (`settingsDeciders`): who manages its
- * agent, the "Edit agents" key where it reaches (every agent for the workspace's owners and administrators, else one
- * with no owner or whose audience takes them, ADR 0085 addendum of 2026-11-17), with its owner where its owner decides
- * too and, for its skills, who its "Who can edit" names; an AI account's row only its owner (who owns the agent). A row
- * that puts its agent under another ("Reports to") goes only to who manages that one too, found with `agentOf` (the
- * workspace's agents by id; one not found leaves the rest, as on the server). Nobody to name for an agent no longer
- * here.
- */
-export function decidersOf<P extends Pick<Person, "userId" | "name" | "role" | "roleIds">>(
-  p: Pick<Proposal, "decider" | "settings">,
-  people: readonly P[],
-  roles: readonly OrgRole[],
-  agent: Agent | null | undefined,
-  agentOf: (agentId: string) => Agent | null | undefined,
-): string[] {
-  if (!agent) return [];
-  if (p.decider.type === "account_owner")
-    return people.filter((m) => m.userId === agent.ownerUserId).map((m) => m.name);
-  const everyAgent = new Set(holdersOf(people, roles, "administrator").map((m) => m.userId));
-  const reaches = (a: Agent) => (m: P) =>
-    everyAgent.has(m.userId) || !a.ownerUserId || audienceAdmits(a, m.userId, m.roleIds ?? []);
-  // Putting the agent under another changes that one too: only who manages both decides it (ADR 0085 addendum).
-  const under = lineSupervisorId(p);
-  const supervisor = under ? agentOf(under) : null;
-  const managers = holdersOf(people, roles, "manage_agents").filter(
-    (m) => reaches(agent)(m) && (!supervisor || reaches(supervisor)(m)),
-  );
-  const ids = new Set(managers.map((m) => m.userId));
-  if (agent.ownerUserId && OWNER_DECIDES_TOO.has(p.settings?.[0]?.field ?? "model")) ids.add(agent.ownerUserId);
-  // A skill row (the server's `editor` group, one row per group) goes to who edits the agent too: the people and roles
-  // its "Who can edit" names (`agentEditorIds`, ADR 0085 addendum of 2026-11-17). `editors` comes empty to who
-  // doesn't see its details, so there it names only the rest.
-  if (p.settings?.[0]?.field === "skill" && agent.editors) {
-    const e = agent.editors;
-    for (const m of people)
-      if (e.userIds.includes(m.userId) || (m.roleIds ?? []).some((r) => e.roleIds.includes(r))) ids.add(m.userId);
-  }
-  const names = people.filter((m) => ids.has(m.userId)).map((m) => m.name);
-  return p.decider.type === "user" ? [...new Set([p.decider.name, ...names])] : names;
 }
 
 /** "Enviado para Ana e Bruno · 14:02" under a card someone sent on with "Pedir a um admin" (ADR 0137). */

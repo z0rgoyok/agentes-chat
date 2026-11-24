@@ -6,7 +6,7 @@ setupDom();
 import { ApiError, type CustomConnectStart } from "@agenteschat/client";
 import { MAX_HEADER_NAME, MAX_REQUEST_HEADERS } from "@agenteschat/client/lib/request-headers";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { openConnected, pick, rowMenu } from "./catalog";
+import { backToList, openConnection, openStore, pick } from "./catalog";
 import { createFakeApi, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle, showIn } from "./render";
 
@@ -44,18 +44,24 @@ async function scrolledBy(run: () => Promise<void>) {
 }
 
 const ADDRESS = "https://mcp.example.com/mcp";
-/** "Adicionar MCP" with an address and a name typed, the headers open. */
+/** "Connect by address" under the list, with an address and a name typed, the headers open. */
 async function openForm(state = seedState(), api = createFakeApi(state)) {
   const app = await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
   await settle(8);
-  await click(within(screen().getByRole("region", { name: "MCPs" })).getByRole("button", { name: "Adicionar MCP" }));
+  await click(screen().getByRole("button", { name: "Conectar pelo endereço" }));
   await type(within(flow()).getByLabelText("Endereço do servidor MCP"), ADDRESS);
   await type(within(flow()).getByLabelText("Nome"), "Suporte");
   expect(disclosure().hasAttribute("open")).toBe(false);
   await click(within(flow()).getByText("Cabeçalhos da requisição"));
   return { state, api, app };
 }
-/** Conectores with "Suporte" connected by headers alone, and its Reconectar open. */
+/** Reconnect on a connection's page (its line opened first when no page is open yet). */
+async function reconnectFromPage(name: string) {
+  const page = (document.querySelector(".store-page") as HTMLElement | null) ?? (await openConnection(name));
+  await click(within(page).getByRole("button", { name: `Reconectar ${name}` }));
+  await settle(2);
+}
+/** Conectores with "Suporte" connected by headers alone, and its Reconnect at hand. */
 async function openReconnect(names = ["X-API-Key", "X-Tenant"]) {
   const state = seedState();
   const api = createFakeApi(state);
@@ -69,10 +75,7 @@ async function openReconnect(names = ["X-API-Key", "X-Tenant"]) {
   state.calls.length = 0;
   const app = await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
   await settle(8);
-  const reconnect = async () => {
-    await click(within(await rowMenu("Suporte")).getByRole("menuitem", { name: "Reconectar" }));
-    await settle(2);
-  };
+  const reconnect = () => reconnectFromPage("Suporte");
   return { state, api, app, server: res.server, reconnect };
 }
 
@@ -256,15 +259,14 @@ describe("request headers for a server by address", () => {
   test("a catalog connector has none", async () => {
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api: createFakeApi(seedState({ connections: [] })) });
     await settle(8);
-    await click(screen().getByRole("button", { name: "Adicionar conector" }));
-    await pick(screen().getByRole("dialog", { name: "Adicionar conector" }), "Linear");
+    await pick(await openStore(), "Linear");
     expect(flow().textContent).toContain("Conectar Linear");
     expect(flow().textContent).not.toContain("Cabeçalhos da requisição");
   });
 });
 
-describe("Reconectar and the server's row", () => {
-  test("the row names what is sent, with Reconectar as the way to change it; nothing for a server with none", async () => {
+describe("Reconectar and the server's page", () => {
+  test("its page names what is sent, with Reconnect as the way to change it; nothing for a server with none", async () => {
     const { api } = await openReconnect();
     await api.customConnectors.connect(ORG_ID, {
       serverUrl: "https://oauth.example.com/mcp",
@@ -274,11 +276,13 @@ describe("Reconectar and the server's row", () => {
     cleanup();
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
     await settle(8);
-    await openConnected();
-    const rows = [...screen().getByRole("region", { name: "MCPs" }).querySelectorAll(".connected-row")];
-    const sends = rows.map((row) => [...row.querySelectorAll(".connected-row__text")].map((el) => el.textContent)[1]);
-    expect(sends).toEqual(["Envia também: X-API-Key e X-Tenant. Para mudar, use Reconectar.", undefined]);
+    // On the Account line of the server's page, by name; never a value.
+    expect((await openConnection("Suporte")).textContent).toContain(
+      "Envia também: X-API-Key e X-Tenant. Para mudar, use Reconectar.",
+    );
     expect(document.body.textContent).not.toContain("fake-value");
+    await backToList();
+    expect((await openConnection("Outro")).textContent).not.toContain("Envia também");
   });
 
   test("the saved names stay unless new ones are typed: untouched, nothing about headers is sent", async () => {
@@ -318,8 +322,8 @@ describe("Reconectar and the server's row", () => {
     await click(within(flow()).getByRole("button", { name: "Conectar" }));
     await settle(4);
     expect(connectCalls(state).at(-1)).toMatchObject({ headers: [{ name: "X-Token", value: "[redacted]" }] });
-    await openConnected();
-    expect(screen().getByRole("region", { name: "MCPs" }).textContent).toContain(
+    // The server's page, open behind the flow, names the new one.
+    expect(document.querySelector(".store-page")?.textContent).toContain(
       "Envia também: X-Token. Para mudar, use Reconectar.",
     );
   });
@@ -392,8 +396,7 @@ describe("Reconectar and the server's row", () => {
     };
     await renderApp(`/org/${ORG_ID}/settings/connectors`, { api });
     await settle(8);
-    await click(within(await rowMenu("Suporte")).getByRole("menuitem", { name: "Reconectar" }));
-    await settle(2);
+    await reconnectFromPage("Suporte");
     await click(within(flow()).getByRole("button", { name: "Conectar" }));
     await settle(4);
     expect(disclosure().hasAttribute("open")).toBe(true);
@@ -536,9 +539,9 @@ describe("worst cases", () => {
     expect(alert()?.nextElementSibling?.textContent).toBe("Remove");
   });
 
-  test("Reconectar and the row of a server with ten long names, removed and not", async () => {
+  test("Reconectar and the page of a server with ten long names, removed and not", async () => {
     const { app, reconnect } = await openReconnect(LONG);
-    await openConnected();
+    await openConnection("Suporte");
     snapshot();
     await reconnect();
     expect(disclosure().textContent).toContain(LONG.at(-1) as string);

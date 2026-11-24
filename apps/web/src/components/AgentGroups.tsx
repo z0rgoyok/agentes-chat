@@ -44,16 +44,19 @@ export function GroupNameDialog({ purpose, onClose }: { purpose: GroupDialogFor;
     const value = name.trim();
     if (!value) return;
     if (renaming && value === renaming.name && color === renaming.color && icon === renaming.icon) return onClose();
+    // A change to a group shows at once, so the dialog closes now; a new one waits for the server to make it.
+    if (renaming) {
+      action.mutate({ type: "update", groupId: renaming.id, name: value, color, icon });
+      return onClose();
+    }
     action.mutate(
-      renaming
-        ? { type: "update", groupId: renaming.id, name: value, color, icon }
-        : {
-            type: "create",
-            name: value,
-            color,
-            icon,
-            agentIds: purpose.mode === "create" ? purpose.agentIds : undefined,
-          },
+      {
+        type: "create",
+        name: value,
+        color,
+        icon,
+        agentIds: purpose.mode === "create" ? purpose.agentIds : undefined,
+      },
       { onSuccess: onClose },
     );
   };
@@ -160,7 +163,11 @@ export function DeleteGroupDialog({ group, onClose }: { group: AgentGroup; onClo
         <Button
           variant="danger"
           loading={action.isPending}
-          onClick={() => action.mutate({ type: "remove", groupId: group.id }, { onSuccess: onClose })}
+          onClick={() => {
+            // It leaves the sidebar at once: the dialog closes now (a refusal brings it back).
+            action.mutate({ type: "remove", groupId: group.id });
+            onClose();
+          }}
         >
           {t("agentGroups.delete")}
         </Button>

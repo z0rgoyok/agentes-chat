@@ -8,7 +8,7 @@ import { Link } from "@tanstack/react-router";
 import { useDeferredValue, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AskAgentButton } from "@/components/AskAgentButton";
-import { useArtifactViewer, useAuthorName } from "@/components/artifacts/ArtifactViewer";
+import { useArtifactViewer, useAuthorName } from "@/components/artifacts/viewer-context";
 import { DrivePreview } from "@/components/drive/DrivePreview";
 import { ErrorState, LoadingLine } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";

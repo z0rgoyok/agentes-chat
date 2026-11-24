@@ -235,6 +235,9 @@ function renderOne(locale: PushLocale, input: PushTextInput): { title: string; b
     case "team_watch":
       // The right hand's name, then its whole sentence: what is wrong and the one way out, in the person's language.
       return out(actor, text || s.openBody);
+    case "budget_paused":
+      // The agent's name, then its pause line in the person's language.
+      return out(actor, text || s.openBody);
     default:
       return out(input.waiting ? s.waitingTitle : actor, text || what || s.openBody);
   }

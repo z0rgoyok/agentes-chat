@@ -26,6 +26,7 @@ export function Popover({
   hover,
   moveFocus = hover?.open !== "hover",
   sideOffset = 6,
+  anchor = false,
 }: {
   /** A focusable element (a button with an accessible name). */
   trigger: ReactNode;
@@ -48,7 +49,13 @@ export function Popover({
   moveFocus?: boolean;
   /** How far from its trigger it opens (px): past a column the trigger sits in, so it covers none of it. */
   sideOffset?: number;
+  /**
+   * The trigger only places it: something else opens it (an item of a menu on that trigger), so a press on the trigger
+   * keeps doing its own thing. Focus goes back to the trigger's button as it closes.
+   */
+  anchor?: boolean;
 }) {
+  const anchorBox = useRef<HTMLSpanElement>(null);
   // How far it moves over its trigger to fit the window (`pullToFit`): only ever for a card the room on its side cuts.
   const [pull, setPull] = useState(0);
   const pulled = useRef({ now: 0, base: 0 });
@@ -109,10 +116,19 @@ export function Popover({
         onOpenChange?.(o);
       }}
     >
-      {/* A hover card says more than a tip would: its trigger gets none (`installTitleTips`). */}
-      <RPopover.Trigger asChild {...hover?.trigger} data-no-tip={hover ? "" : undefined}>
-        {trigger}
-      </RPopover.Trigger>
+      {anchor ? (
+        // A box of its own, measured to place the card: a menu's trigger takes no ref to measure.
+        <RPopover.Anchor asChild>
+          <span ref={anchorBox} className="ac-popover__anchor" data-state={open ? "open" : "closed"}>
+            {trigger}
+          </span>
+        </RPopover.Anchor>
+      ) : (
+        // A hover card says more than a tip would: its trigger gets none (`installTitleTips`).
+        <RPopover.Trigger asChild {...hover?.trigger} data-no-tip={hover ? "" : undefined}>
+          {trigger}
+        </RPopover.Trigger>
+      )}
       <RPopover.Portal>
         <RPopover.Content
           className={cx("ac-menu ac-popover", className)}
@@ -132,6 +148,14 @@ export function Popover({
           // Each opening's own content: by the time one closes, `moveFocus` may already say how the next one opens.
           onCloseAutoFocus={(e) => {
             if ((e.currentTarget && keptFocus.has(e.currentTarget)) || focusHeld()) e.preventDefault();
+            else if (anchor) {
+              // Radix gives focus back only to a trigger: an anchor's card would leave it on the page's body. A press
+              // elsewhere that took the focus keeps it.
+              e.preventDefault();
+              const at = document.activeElement;
+              const lost = !at || at === document.body || (e.currentTarget as Node | null)?.contains(at);
+              if (lost) anchorBox.current?.querySelector<HTMLElement>("button")?.focus();
+            }
           }}
         >
           {children}

@@ -3,6 +3,7 @@ import { isPaidReturn } from "@agenteschat/client/lib/billing";
 import { settingUp } from "@agenteschat/client/lib/guards";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { requireUser } from "@/app/guards";
+import { ConfirmEmailScreen } from "@/components/ConfirmEmail";
 import { useServerLocale } from "@/i18n";
 import { ARRIVAL_PARAM } from "@/lib/arrival";
 import { OnboardingPage } from "@/pages/OnboardingPage";
@@ -22,7 +23,7 @@ export const Route = createFileRoute("/onboarding")({
   // workspace set up meanwhile (another tab) opens as it is, on its arrival when it was paid for.
   loader: async ({ context, deps: { resume, paid } }) => {
     if (!resume) return;
-    const me = await context.queryClient.fetchQuery(meQuery(context.api)).catch(() => null);
+    const me = await context.queryClient.fetchQuery({ ...meQuery(context.api), staleTime: 0 }).catch(() => null);
     const org = me?.organizations.find((o) => o.id === resume);
     if (!org || settingUp(org)) return;
     if (paid)
@@ -34,7 +35,10 @@ export const Route = createFileRoute("/onboarding")({
     throw redirect({ to: "/org/$orgId", params: { orgId: resume } });
   },
   component: function Onboarding() {
-    useServerLocale(useMe().data?.user);
+    const user = useMe().data?.user;
+    useServerLocale(user);
+    // A new account makes its first workspace once its address is confirmed (ADR 0006, addendum 2026-11-22).
+    if (user?.emailConfirmation === "required") return <ConfirmEmailScreen email={user.email} />;
     return <OnboardingPage />;
   },
 });

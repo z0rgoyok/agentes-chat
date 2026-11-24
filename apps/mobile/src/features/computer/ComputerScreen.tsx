@@ -30,6 +30,7 @@ import { useMachineOutages } from "../outages/queries";
 import { AgentFace } from "../shared/Face";
 import { useColors, useDirectory, useMeId, useNow } from "../shared/hooks";
 import { agentLook } from "../shared/logic";
+import { ownsIn } from "../shared/owner";
 import { PushedHeader } from "../shared/parts";
 import { SheetHostProvider } from "../shared/SheetHost";
 import { AgentScreen } from "./AgentScreen";
@@ -127,8 +128,9 @@ function ComputerView({ agentId, onLeave }: { agentId: string; onLeave: (held: B
   const g = agentGrammar(agent?.name ?? "", name);
   const machine = view.machine;
   const computer = computerName(t, org?.name ?? "", machine, isPersonal(org));
-  // Who manages it (the server's `canManage`) or owns it moves it to another computer.
-  const manages = managesAgent(agent) || (Boolean(meId) && agent?.ownerUserId === meId);
+  // Who manages it (the server's `canManage`) or owns it (or holds the role that does, ADR 0085, addendum of
+  // 2026-11-21) moves it to another computer.
+  const manages = managesAgent(agent) || ownsIn(dir.memberById, meId, agent);
   const pickComputer = usePickComputer(agentId);
   const person = (id: string) => dir.nameOf({ type: "person", id }) || t("channel.unknownPerson");
   // What leaving hands back: the agent's browser or screen in this person's hands.

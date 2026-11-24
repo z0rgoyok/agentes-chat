@@ -28,7 +28,7 @@ import type { TFunction } from "i18next";
 import { type DragEvent, type MouseEvent, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorAvatar } from "@/components/AgentAvatar";
-import { useAuthorName } from "@/components/artifacts/ArtifactViewer";
+import { useAuthorName } from "@/components/artifacts/viewer-context";
 import { MenuEntries } from "@/components/DesktopMenus";
 import { useOrg } from "@/components/org-context";
 import type { MenuEntry } from "@/lib/context-menu";
@@ -279,8 +279,8 @@ export function useFolderActions() {
       const count = drag.files.length + folderMoves.length;
       if (count > 0) toast.show(t("drive.moved", { count, name: nameOf(target) }));
       return true;
-    } catch (e) {
-      failed(e);
+    } catch {
+      // Only mutations above: a refusal puts things back and says so once, from the app's own handler.
       return false;
     }
   };
@@ -290,18 +290,27 @@ export function useFolderActions() {
   /** Folders with what's inside (as the server decides), then files to the trash; one toast for all. */
   const remove = async () => {
     if (!deleting) return;
-    setRemoving(true);
+    const target = deleting;
+    // Folders leave their lists at once (`useDriveArrange`): with only folders the dialog closes now and the toast
+    // comes with the server's count. Files go to the trash one call at a time, so the dialog waits for those.
+    const atOnce = target.files.length === 0;
+    if (atOnce) {
+      target.done?.();
+      setDeleting(null);
+    } else setRemoving(true);
     let trashed = 0;
     let kept = 0;
     let gone = 0;
+    let stage: "folders" | "files" = "folders";
     try {
-      for (const f of deleting.folders) {
+      for (const f of target.folders) {
         const r = await arrange.deleteFolder.mutateAsync(f.id);
         trashed += r.trashed;
         kept += r.kept;
         gone += 1;
       }
-      for (const a of deleting.files) {
+      stage = "files";
+      for (const a of target.files) {
         await api.artifacts.remove(org.id, a.id);
         gone += 1;
       }
@@ -314,13 +323,16 @@ export function useFolderActions() {
               ? t("drive.folderDeleted", { count: trashed })
               : t("drive.folderDeletedEmpty"),
       );
-      deleting.done?.();
-      setDeleting(null);
+      if (!atOnce) {
+        target.done?.();
+        setDeleting(null);
+      }
     } catch (e) {
-      failed(e);
+      // A folder's refusal was said by the app's own handler (a mutation); a file's is said here.
+      if (stage === "files") failed(e);
     } finally {
       setRemoving(false);
-      if (deleting.files.length > 0) void qc.invalidateQueries({ queryKey: keys.artifacts(org.id) });
+      if (target.files.length > 0) void qc.invalidateQueries({ queryKey: keys.artifacts(org.id) });
     }
   };
 
@@ -340,13 +352,23 @@ export function useFolderActions() {
       maxLength={naming.kind === "file" ? 200 : NAME_MAX}
       onClose={() => setNaming(null)}
       onSubmit={async (name) => {
-        try {
-          if (naming.kind === "new") await arrange.createFolder.mutateAsync({ name, parentId: naming.parentId });
-          else if (naming.kind === "folder") await arrange.updateFolder.mutateAsync({ id: naming.folder.id, name });
-          else await arrange.rename.mutateAsync({ id: naming.file.id, title: name });
+        // A rename shows at once (`useDriveArrange`), so the dialog closes with it; a refusal puts the name back and
+        // says so once, from the app's own handler. A new folder waits for the server, which makes its id.
+        if (naming.kind === "folder") {
           setNaming(null);
-        } catch (e) {
-          failed(e);
+          void arrange.updateFolder.mutateAsync({ id: naming.folder.id, name }).catch(() => undefined);
+          return;
+        }
+        if (naming.kind === "file") {
+          setNaming(null);
+          void arrange.rename.mutateAsync({ id: naming.file.id, title: name }).catch(() => undefined);
+          return;
+        }
+        try {
+          await arrange.createFolder.mutateAsync({ name, parentId: naming.parentId });
+          setNaming(null);
+        } catch {
+          // The app's own handler said why; the dialog stays with what was typed.
         }
       }}
     />
@@ -360,8 +382,12 @@ export function useFolderActions() {
         from={moving?.from}
         folders={all}
         onClose={() => setMoving(null)}
+        // Moves show at once (`useDriveArrange`): the dialog closes with them, and the toast says where they went.
         onMove={async (target) => {
-          if (moving && (await move(moving.drag, target))) setMoving(null);
+          if (!moving) return;
+          const drag = moving.drag;
+          setMoving(null);
+          await move(drag, target);
         }}
       />
       <Dialog

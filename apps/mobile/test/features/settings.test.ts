@@ -233,10 +233,11 @@ describe("a personal workspace's settings on the phone (ADR 0159 §3): one short
   test("the settings screen picks the short list in a personal workspace; a team's keeps its groups", () => {
     const screen = src("settings/WorkspaceScreen.tsx");
     expect(screen).toContain("return personal ? <PersonalSettingsList others={others} /> : <TeamSettingsList />;");
-    // Your account first (the person's own page), then the sections in a personal workspace's names, then Advanced.
-    expect(screen).toContain('onPress={() => router.push("/me/account")}');
+    // Your account first (the person's own page), then the sections in a personal workspace's names, then Advanced
+    // (pushed, or beside the list on a large screen: `useOpenPage`, ADR 0212).
+    expect(screen).toContain('onPress={() => open("/me/account")}');
     expect(screen).toContain("label={t(settingsSectionNameKey(org, s.id))}");
-    expect(screen).toContain('onPress={() => router.push("/settings/advanced")}');
+    expect(screen).toContain('onPress={() => open("/settings/advanced")}');
     const advanced = src("settings/AdvancedScreen.tsx");
     expect(advanced).toContain("<SectionGroups");
     // Its own group is the screen's title, never a header saying "Avançado" again under it.

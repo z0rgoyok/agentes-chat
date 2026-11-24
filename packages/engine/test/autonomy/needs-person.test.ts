@@ -90,37 +90,43 @@ const nudged = (w: World) =>
   );
 
 for (const c of CASES) {
-  scenario(c.id, `${c.lang}: a "can't, it needs your QR code" is sent back with the hand-off, then done`, async () => {
-    handOffs.length = 0;
-    const w = await world({
-      agents: ["rui"],
-      setup: { toolSources: [fakeBrowserHandOff] },
-      judge: { followThrough: rubric },
-      script: {
-        rui: [
-          { text: c.giveUp },
-          { calls: [{ name: "browser_ask_person", input: { instructions: c.instructions } }] },
-          { text: c.final },
-        ],
-      },
-    });
-    await w.say(c.request);
-    await w.settle();
-    // The judge read a hand-off among the means; the give-up was sent back with how to hand the step over.
-    const [held] = w.judgedAs("follow_through");
-    expect(String(held?.state.reply)).toBe(c.giveUp);
-    expect(((held?.state.means ?? []) as string[]).join(" ")).toContain("browser_ask_person");
-    expect(nudged(w)).toBe(true);
-    expect(handOffs).toEqual([{ instructions: c.instructions }]);
-    // Only the final attempt is posted, never the "can't" before it.
-    expect((await w.posts("rui")).map((p) => p.body)).toEqual([c.final]);
-    await assertInvariants(w);
-  });
+  scenario(
+    c.id,
+    `${c.lang}: a "can't, it needs your QR code" is posted, sent back with the hand-off, then done`,
+    async () => {
+      handOffs.length = 0;
+      const w = await world({
+        agents: ["rui"],
+        setup: { toolSources: [fakeBrowserHandOff] },
+        judge: { followThrough: rubric },
+        script: {
+          rui: [
+            { text: c.giveUp },
+            { calls: [{ name: "browser_ask_person", input: { instructions: c.instructions } }] },
+            { text: c.final },
+          ],
+        },
+      });
+      await w.say(c.request);
+      await w.settle();
+      // The judge read a hand-off among the means; the give-up was sent back with how to hand the step over.
+      const [held] = w.judgedAs("follow_through");
+      expect(String(held?.state.reply)).toBe(c.giveUp);
+      expect(((held?.state.means ?? []) as string[]).join(" ")).toContain("browser_ask_person");
+      expect(nudged(w)).toBe(true);
+      expect(handOffs).toEqual([{ instructions: c.instructions }]);
+      // The person reads its first reply at once, while it goes on; what it got goes out below.
+      expect((await w.posts("rui")).map((p) => p.body)).toEqual([c.giveUp, c.final]);
+      await assertInvariants(w);
+    },
+  );
 }
 
 describe("a step that needs the person is never a blocker", () => {
   test("the prompt carries the rule and the consent of a person's own request", () => {
-    expect(HOW_YOU_WORK).toContain(`- ${HAND_OVER_STEP} If nothing you have can hand it over`);
+    expect(HOW_YOU_WORK).toContain(
+      `- ${HAND_OVER_STEP} Never end on a list of what's missing. If nothing you have can hand it over`,
+    );
     expect(HOW_YOU_WORK).toContain("consents to the access it needs: don't ask again or warn about privacy");
     expect(HOW_YOU_WORK).toContain("Someone else's account is not consent; passwords never come through the chat");
     expect(HOW_YOU_WORK).not.toContain("A real blocker is only");

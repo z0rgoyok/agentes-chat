@@ -1,3 +1,4 @@
+import { Icon } from "@agenteschat/ui";
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MessageBody } from "@/chat/MessageBody";
@@ -39,6 +40,7 @@ export function FoldedBody({ body }: { body: string }) {
           }}
         >
           {t("channel.long.more")}
+          <Icon name="chevronDown" size={16} inline />
         </button>
       )}
     </div>

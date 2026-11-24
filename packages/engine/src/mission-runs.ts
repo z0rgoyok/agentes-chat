@@ -2,6 +2,7 @@ import { and, type Executor, eq, inArray, schema, sql } from "@agenteschat/db";
 import { enqueue } from "./outbox";
 import { holdsMessages } from "./run-hold";
 import { ACTIVE_RUN_STATUSES, queueOnRun } from "./run-inbox";
+import { runState } from "./run-state";
 
 const { agentRuns } = schema;
 
@@ -32,7 +33,7 @@ export async function enqueueRunJob(
       id: agentRuns.id,
       orgId: agentRuns.orgId,
       status: agentRuns.status,
-      waitCode: sql<string | null>`${agentRuns.transcript}->'waitingForBrain'->>'code'`,
+      waitCode: sql<string | null>`${runState}->'waitingForBrain'->>'code'`,
     })
     .from(agentRuns)
     .where(

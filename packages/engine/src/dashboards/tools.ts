@@ -92,6 +92,7 @@ async function makerOf(ctx: ToolContext): Promise<{ maker: AgentMaker; routine: 
   const personId = authority.kind === "person" ? authority.personId : null;
   let accountable = accountablePerson(authority);
   if (!accountable) {
+    // A board is one person's: an agent a role answers for has none to make it for (ADR 0085, addendum of 2026-11-21).
     const [a] = await ctx.db.select({ owner: agents.ownerUserId }).from(agents).where(eq(agents.id, ctx.agentId));
     accountable = a?.owner ?? null;
   }

@@ -501,6 +501,36 @@ export const words: EmailWords = {
     table: (day) => `Tablonun tamamı: bun run report:autonomy --day ${day}`,
     why: "Bu e-postayı, bu adres bu sunucudaki OPS_REPORT_EMAIL içinde olduğu için aldınız. Günde bir kez gönderilir.",
   },
+  accountOpened: {
+    subject: (plan) => `${plan} hesabını daha fazla kişi kullanabilir`,
+    preheader: (plan) => `Onunla yaptıkları ${plan} planını ve limitlerini kullanır.`,
+    headline: "Biri yapay zekâ hesabını kimlerin kullanabileceğini değiştirdi",
+    body: (by, account, plan) => [
+      { b: by },
+      `, ${plan} hesabın `,
+      { b: account },
+      ` için kimlerin kullanabileceğini değiştirdi. Onunla yapılanlar planını ve limitlerini kullanır.`,
+    ],
+    account: "Hesap",
+    by: "Değiştiren",
+    setting: "İzin",
+    use: "Ajanlarda kullan",
+    reply: "Herkese yanıt ver",
+    was: "Önce",
+    now: "Şimdi",
+    everyone: "Workspace'teki herkes",
+    admins: "Sen ve yöneticiler",
+    onlyYou: "Yalnızca sen",
+    agentOwner: "Yalnızca ajanın sahibi",
+    note: "Geri almak için hesabı Yapay zekâ ve kullanım bölümünde aç ve izinlerini değiştir.",
+    button: "Yapay zekâ hesaplarını aç",
+    why: (org) =>
+      `Bu e-postayı, ${org} içinde bu yapay zekâ hesabını bağladığın ve başka biri onu kimlerin kullanabileceğini değiştirdiği için aldın.`,
+    personal: {
+      why: () =>
+        "Bu e-postayı, bu yapay zekâ hesabını bağladığın ve başka biri onu kimlerin kullanabileceğini değiştirdiği için aldın.",
+    },
+  },
   planOpened: {
     subject: (plan) => `${plan} planın üzerinden ajanınla daha fazla kişi konuşabilir`,
     preheader: (plan) => `Onların konuşmaları ${plan} planını ve limitlerini kullanır.`,

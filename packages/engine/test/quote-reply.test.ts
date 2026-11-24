@@ -139,7 +139,16 @@ test("attachments: own uploads or files of the channel become meta.artifacts; fi
     channelId: f.general.id,
   });
   const message = await post("", { attachments: [mine.id] });
-  expect(message.meta.artifacts).toEqual([{ id: mine.id, version: 1, title: "notas.txt" }]);
+  expect(message.meta.artifacts).toEqual([
+    {
+      id: mine.id,
+      version: 1,
+      title: "notas.txt",
+      name: "notas.txt",
+      contentType: "text/plain; charset=utf-8",
+      size: 2,
+    },
+  ]);
   // Someone else's private Drive file can't be attached.
   const bia = await addMember(f.db, f.org.id, "member", "bia");
   const hers = await createFileArtifact(f.artifactDeps, { type: "person", userId: bia.id }, f.org.id, {

@@ -21,7 +21,8 @@ test("the settings' forms ask before a back swipe drops what was typed, and a fi
   // Account: a changed name, @ or zone (Fuso and E-mail open over it and keep the form).
   const account = src("features/me/AccountPage.tsx");
   expect(account).toContain("const leave = useUnsavedGuard(changed);");
-  expect(account.indexOf("leave();")).toBeLessThan(account.indexOf("goBack();", account.indexOf("leave();")));
+  // Back where it came from, or drawn afresh beside a list on a large screen (ADR 0212): either way after `leave`.
+  expect(account.indexOf("leave();")).toBeLessThan(account.indexOf("leavePage();", account.indexOf("leave();")));
   // A new Vault item, with anything typed in it; saved, it opens its own page without asking.
   const vault = src("features/vault/VaultNewScreen.tsx");
   expect(vault).toContain("const leave = useUnsavedGuard(typed);");

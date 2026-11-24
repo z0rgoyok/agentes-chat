@@ -116,6 +116,8 @@ export const SHOWN_ONLY: Record<Condition, readonly string[]> = {
     // The way out for the right hand's plan on a computer that is away: Cloud's own computer is always on.
     "rightHand.unusable.connect",
     "aiAccounts.connect.noComputer",
+    // A connector of ours whose developer app this server lacks: the listing marks it off the Cloud only (`needsApp`).
+    "connectors.needsApp",
     "brain.reasons.no_computer",
     "browser.inCard.noComputer",
     "browser.live.noComputer",
@@ -195,6 +197,9 @@ export const SHOWN_ONLY: Record<Condition, readonly string[]> = {
     // the admins' line about it only where `ownerCreates` (false on agentes.chat, ADR 0156).
     "githubApp.server.",
     "githubApp.ownerHint",
+    // The same app as a line of Settings › Connectors: listed only where `setup` is there (its owner, off agentes.chat).
+    "connectors.store.appMissing",
+    "connectors.store.appLine",
   ],
   email: [
     // Said once the link to a new address went out, which only a server that sends e-mail does.
@@ -215,6 +220,9 @@ export const SHOWN_ONLY: Record<Condition, readonly string[]> = {
     "errors.reauth.code",
     // An address held for an account that just left it (`changeAccountEmail`): only a server that sends e-mail holds it.
     "auth.flow.emailHeld",
+    // An address never confirmed holds anything back only where the server sends e-mail (`emailConfirmation`).
+    "auth.confirm.",
+    "errors.org.createUnconfirmed",
   ],
   apiKey: [],
   // A message nobody mentions still gets an agent: routing.mine (the chip and its help line), routing.by (Settings),

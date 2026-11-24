@@ -3,8 +3,11 @@ export const KEY_SHAPES =
   /\b(sk-[A-Za-z0-9_-]{12,}|sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9._-]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})/g;
 /** Credential shapes that signed and presigned addresses carry by design (an AWS key id, a JWT). */
 export const SIGNED_SHAPES = /\b(AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,})/g;
+/** `text` with every key shape (`KEY_SHAPES`, `SIGNED_SHAPES`) replaced by `[REDACTED]`. */
+export const maskKeyShapes = (text: string) =>
+  text.replace(KEY_SHAPES, "[REDACTED]").replace(SIGNED_SHAPES, "[REDACTED]");
 /** A private key, by its first line. */
-export const PRIVATE_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY-----/;
+export const PRIVATE_KEY = /-----BEGIN[A-Z0-9\s]*?\sPRIVATE\s+KEY/;
 
 export type OutboundCode = "outbound.private_text" | "outbound.credential" | "outbound.long";
 
@@ -65,12 +68,12 @@ const decode = (s: string) => {
 /**
  * Why an agent may not open this address by itself (null: it may): the address carries a key, is long enough to
  * smuggle data, or copies text the run read from private data (`privateText`). An address that appeared as is
- * (`seen`: in the conversation or a tool's result) always passes, whatever it carries. No privateText (the
- * runner, where the run's reads aren't known): AWS key ids and JWTs pass, since signed addresses carry them.
+ * (`seen`: in the conversation or a tool's result) always passes, whatever it carries. No privateText (the runner,
+ * where the run's reads aren't known): AWS key ids and JWTs pass, since signed addresses carry them.
  */
 export function outboundUrlProblem(
   url: string,
-  opts: { seen?: (normalized: string) => boolean; privateText?: string[] } = {},
+  opts: { seen?: (normalized: string) => boolean; privateText?: TextPrints } = {},
 ): { code: OutboundCode; message: string } | null {
   let u: URL;
   try {
@@ -88,7 +91,7 @@ export function outboundUrlProblem(
   if (decoded.length > MAX_QUERY || u.pathname.split("/").some((s) => s.length > MAX_SEGMENT)) {
     return problem("outbound.long");
   }
-  if (opts.privateText?.length && copiesPrivateText(foldText(decoded), opts.privateText)) {
+  if (opts.privateText?.copiedIn(decoded)) {
     return problem("outbound.private_text");
   }
   return null;
@@ -100,24 +103,138 @@ function carried(u: URL) {
 }
 
 /** Whether an address's query or fragment copies a private text (`outboundUrlProblem`'s private-text rule alone). */
-export function urlCopiesPrivateText(url: string, privateText: string[]): boolean {
+export function urlCopiesPrivateText(url: string, privateText: TextPrints): boolean {
   try {
-    return copiesPrivateText(foldText(carried(new URL(url))), privateText);
+    return privateText.copiedIn(carried(new URL(url)));
   } catch {
     return false;
   }
 }
 
-/** Whether some `WINDOW`-long run of `query` appears in a private text (both folded). */
-function copiesPrivateText(query: string, privateText: string[]) {
-  if (query.length < WINDOW) return false;
-  const windows = new Set<string>();
-  for (let i = 0; i + WINDOW <= query.length; i++) windows.add(query.slice(i, i + WINDOW));
-  for (const raw of privateText) {
-    const text = foldText(raw);
-    for (let i = 0; i + WINDOW <= text.length; i++) if (windows.has(text.slice(i, i + WINDOW))) return true;
+/** Characters per fingerprinted gram. Any `WINDOW`-long run spans `GRAMS` of them, so it holds one both sides keep. */
+const GRAM = 20;
+const GRAMS = WINDOW - GRAM + 1;
+const B1 = 0x01000193;
+const B2 = 0x5bd1e995;
+const B1_OUT = (() => {
+  let p = 1;
+  for (let i = 0; i < GRAM; i++) p = Math.imul(p, B1);
+  return p;
+})();
+const B2_OUT = (() => {
+  let p = 1;
+  for (let i = 0; i < GRAM; i++) p = Math.imul(p, B2);
+  return p;
+})();
+const mix = (h: number) => {
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+};
+
+/**
+ * Winnowing (Schleimer et al., 2003): two 32-bit hashes of each `GRAM`-character gram of the folded text, and of every
+ * `GRAMS` grams in a row the one with the smallest hash (the rightmost on a tie) goes to `keep`. The choice depends on
+ * those grams alone, so two texts sharing `WINDOW` characters in a row both keep the same gram. `keep` returns true to
+ * stop.
+ */
+function winnow(text: string, keep: (a: number, b: number) => boolean) {
+  const folded = foldText(text);
+  if (folded.length < WINDOW) return;
+  const as = new Uint32Array(GRAMS);
+  const bs = new Uint32Array(GRAMS);
+  let h1 = 0;
+  let h2 = 0;
+  let last = -1;
+  for (let i = 0; i < folded.length; i++) {
+    const c = folded.charCodeAt(i);
+    h1 = (Math.imul(h1, B1) + c) | 0;
+    h2 = (Math.imul(h2, B2) + c) | 0;
+    if (i >= GRAM) {
+      const out = folded.charCodeAt(i - GRAM);
+      h1 = (h1 - Math.imul(out, B1_OUT)) | 0;
+      h2 = (h2 - Math.imul(out, B2_OUT)) | 0;
+    }
+    const g = i - GRAM + 1;
+    if (g < 0) continue;
+    as[g % GRAMS] = mix(h1);
+    bs[g % GRAMS] = mix(h2 ^ 0x9e3779b9);
+    if (g < GRAMS - 1) continue;
+    let min = g;
+    for (let p = g - 1; p > g - GRAMS; p--) if ((as[p % GRAMS] as number) < (as[min % GRAMS] as number)) min = p;
+    if (min === last) continue;
+    last = min;
+    if (keep(as[min % GRAMS] as number, bs[min % GRAMS] as number)) return;
   }
-  return false;
+}
+
+/** Bits each fingerprint takes in a filter, and the bits it sets: about 5 in 100 million lookups wrongly match. */
+const BITS_PER_PRINT = 48;
+const PROBES = 10;
+const FIRST_WORDS = 256;
+
+/**
+ * What a run read from private data, as fingerprints of its text (`winnow`) in Bloom filters: no text is kept, and
+ * checking an address costs its own length, not all the run read. Each new filter is twice the last, up to `maxBytes`
+ * in all; past it the newest takes every further fingerprint, so a run that read more than that refuses more addresses
+ * wrongly, never fewer: no read stops being checked.
+ */
+export class TextPrints {
+  private filters: Uint32Array[] = [];
+  private room = 0;
+  /** Bytes its filters take. */
+  bytes = 0;
+  constructor(private readonly maxBytes: number) {}
+
+  add(text: string) {
+    winnow(text, (a, b) => {
+      if (this.has(a, b)) return false;
+      if (this.room === 0) this.grow();
+      const filter = this.filters.at(-1) as Uint32Array;
+      const mask = filter.length * 32 - 1;
+      for (let i = 0; i < PROBES; i++) {
+        const bit = mix(a + Math.imul(i, b)) & mask;
+        filter[bit >>> 5] = (filter[bit >>> 5] as number) | (1 << (bit & 31));
+      }
+      this.room--;
+      return false;
+    });
+  }
+
+  /**
+   * Whether `text` copies a text added: true whenever `WINDOW` characters in a row of it (any case and spacing) appear
+   * in one, and at times for a shared `GRAM` or a filter's false match.
+   */
+  copiedIn(text: string) {
+    let hit = false;
+    winnow(text, (a, b) => {
+      hit = this.has(a, b);
+      return hit;
+    });
+    return hit;
+  }
+
+  private has(a: number, b: number) {
+    return this.filters.some((filter) => {
+      const mask = filter.length * 32 - 1;
+      for (let i = 0; i < PROBES; i++) {
+        const bit = mix(a + Math.imul(i, b)) & mask;
+        if (!((filter[bit >>> 5] as number) & (1 << (bit & 31)))) return false;
+      }
+      return true;
+    });
+  }
+
+  private grow() {
+    const words = (this.filters.at(-1)?.length ?? FIRST_WORDS / 2) * 2;
+    if (this.filters.length > 0 && this.bytes + words * 4 > this.maxBytes) {
+      this.room = Number.POSITIVE_INFINITY;
+      return;
+    }
+    this.filters.push(new Uint32Array(words));
+    this.bytes += words * 4;
+    this.room = Math.floor((words * 32) / BITS_PER_PRINT);
+  }
 }
 
 /**

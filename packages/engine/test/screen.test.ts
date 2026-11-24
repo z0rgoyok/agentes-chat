@@ -688,11 +688,11 @@ describe("plans", () => {
   });
 
   test("a read step at the end brings what the page says, with the page text kept apart", async () => {
-    const judge = createFakeJudge((kind, id, _state, q) => {
+    const judge = createFakeJudge((kind, id, state) => {
       if (kind !== "screen_find") return undefined;
       if (id === "answers") return 0.9;
-      const keys = Object.keys((q as { criteria: Record<string, string> }).criteria);
-      const line = keys.find((k) => (q as { criteria: Record<string, string> }).criteria[k]?.includes("Export"));
+      // The options are line ids: the line's text is in `state`.
+      const line = /^(L\d+): .*Export/m.exec((state.page as { lines: string }).lines)?.[1];
       return line ? { choice: line, probabilities: { [line]: 0.9 } } : "none";
     });
     const surface = fakeSurface(PAGES, "home");

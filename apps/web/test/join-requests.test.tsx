@@ -1019,11 +1019,34 @@ test("a name typed with markup reads as typed, in Members and in the inbox", asy
   });
   await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
   await settle(6);
-  const notice = document.querySelector('[data-n="n-join"]') as HTMLElement;
-  expect(notice.getAttribute("aria-label")).toBe(`${name} pede para entrar, não lida`);
-  const headline = notice.querySelector(".nt-what b");
-  expect(headline?.textContent).toBe(name);
-  expect(headline?.children.length).toBe(0);
+  // In its row and, open by itself (the only item), in its headline.
+  for (const place of ['.ib-list [data-n="n-join"] .nt-what b', "section.ib-read h2.nt-what b"]) {
+    const headline = document.querySelector(place);
+    expect(headline?.textContent).toBe(name);
+    expect(headline?.children.length).toBe(0);
+  }
+});
+
+test("a screen reader hears the name as typed on the inbox's row", async () => {
+  const name = "Ana <strong>CEO</strong><br/>x";
+  const state = seedState({
+    proposals: [],
+    notifications: [
+      notification({
+        id: "n-join",
+        kind: "join_request",
+        waiting: true,
+        count: 1,
+        source: { label: "Acme" },
+        latest: { title: name },
+      }),
+    ],
+  });
+  await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
+  await settle(6);
+  expect(document.querySelector('.ib-list [data-n="n-join"]')?.getAttribute("aria-label")).toBe(
+    `${name} pede para entrar, não lida`,
+  );
 });
 
 /** Members' "Convidar pessoas" (the page's own, the first of that name): the workspace's invite dialog (ADR 0090). */
@@ -1179,9 +1202,10 @@ describe("People › Convites › the workspace's link", () => {
   });
 });
 
-test("the admins' notice: who asks, a Convites chip, and it opens Convites, from Abrir or the row itself", async () => {
+test("the admins' notice: who asks and Convites under it; open beside the list, Abrir goes to Convites, as a double click does", async () => {
   const notice = async () => {
     const state = seedState({
+      proposals: [],
       notifications: [
         notification({
           id: "n-join",
@@ -1195,23 +1219,47 @@ test("the admins' notice: who asks, a Convites chip, and it opens Convites, from
     });
     const { router } = await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
     await settle(6);
-    return { router, row: document.querySelector('[data-n="n-join"]') as HTMLElement };
+    return { router, row: document.querySelector('.ib-list [data-n="n-join"]') as HTMLElement };
   };
   const { router, row } = await notice();
   // Two people: both by name, the first to ask first, as the notice's face and time are hers.
-  expect(row.getAttribute("aria-label")).toBe("Ana Souza e Bruno Lima pedem para entrar, não lida");
-  expect(row.textContent).toContain("Ana Souza e Bruno Lima pedem para entrar");
-  expect(row.querySelector(".nt-face")?.textContent).toBe("AS");
-  expect(row.querySelector(".nt-wr__src")?.textContent).toBe("Convites");
-  await click(within(row).getByRole("button", { name: "Abrir" }));
+  expect(row.querySelector(".ib-row__line")?.textContent).toBe("Ana Souza e Bruno Lima pedem para entrar");
+  expect(row.querySelector(".ib-row__face")?.textContent).toBe("AS");
+  expect(row.querySelector(".ib-row__sub")?.textContent).toBe("Convites");
+  // What waits first is open beside the list (ADR 0218): where it is from, who asks, and Abrir.
+  const open = document.querySelector("section.ib-read") as HTMLElement;
+  expect(open.querySelector(".ib-read__who")?.textContent).toMatch(/^Convites · /);
+  expect(open.querySelector("h2.ib-read__title")?.textContent).toBe("Ana Souza e Bruno Lima pedem para entrar");
+  await click(within(open).getByRole("button", { name: "Abrir" }));
   await settle(6);
   expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/settings/invites`);
   cleanup();
 
   const again = await notice();
-  await click(again.row.querySelector(".nt-what") as HTMLElement);
+  await act(async () => fireEvent.doubleClick(again.row));
   await settle(6);
   expect(again.router.state.location.pathname).toBe(`/org/${ORG_ID}/settings/invites`);
+});
+
+test("a screen reader hears who asks to join on the admins' notice", async () => {
+  const state = seedState({
+    proposals: [],
+    notifications: [
+      notification({
+        id: "n-join",
+        kind: "join_request",
+        waiting: true,
+        count: 2,
+        source: { label: "Acme" },
+        latest: { title: "Bruno Lima", names: ["Ana Souza", "Bruno Lima"] },
+      }),
+    ],
+  });
+  await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
+  await settle(6);
+  expect(document.querySelector('.ib-list [data-n="n-join"]')?.getAttribute("aria-label")).toBe(
+    "Ana Souza e Bruno Lima pedem para entrar, não lida",
+  );
 });
 
 test("the admins' notice names the first two who asked and counts the rest", async () => {
@@ -1232,16 +1280,18 @@ test("the admins' notice names the first two who asked and counts the rest", asy
     });
     await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
     await settle(6);
-    const notice = document.querySelector('[data-n="n-join"]') as HTMLElement;
-    expect(notice.getAttribute("aria-label")).toBe(`${said}, não lida`);
-    expect(notice.querySelector(".nt-what")?.textContent).toContain(said);
+    const notice = document.querySelector('.ib-list [data-n="n-join"]') as HTMLElement;
+    expect(notice.querySelector(".nt-what")?.textContent).toBe(said);
+    expect(document.querySelector("section.ib-read h2.nt-what")?.textContent).toBe(said);
     cleanup();
   }
 });
 
-test("the inviter's notice when someone joins: their face and name, a Members chip; Abrir opens a conversation with them", async () => {
+test("the inviter's notice when someone joins: their face and name, Membros under it; Abrir opens a conversation with them", async () => {
   const accepted = (latest: NotificationLatest) =>
     seedState({
+      // Its notice alone: the seed's proposals would be rows ahead of it (ADR 0218).
+      proposals: [],
       notifications: [
         notification({
           id: "n-in",
@@ -1257,15 +1307,17 @@ test("the inviter's notice when someone joins: their face and name, a Members ch
     api: createFakeApi(accepted({ title: "Carla <b>Dias</b>" })),
   });
   await settle(6);
-  const row = document.querySelector('[data-n="n-in"]') as HTMLElement;
-  expect(row.getAttribute("aria-label")).toBe("Carla <b>Dias</b>, não lida");
+  const row = document.querySelector('.ib-list [data-n="n-in"]') as HTMLElement;
   expect(row.querySelector(".nt-what")?.textContent).toBe("Carla <b>Dias</b> aceitou seu convite e entrou na Acme");
   // Typed by a person: text, never markup.
   expect(row.querySelector(".nt-what b")?.textContent).toBe("Carla <b>Dias</b>");
   expect(row.querySelector(".nt-what b")?.children.length).toBe(0);
-  expect(row.querySelector(".nt-where")?.textContent).toBe("Membros");
-  expect(row.querySelector(".ac-mediarow__face .ac-avatar")).toBeTruthy();
-  await click(within(row).getByRole("button", { name: "Abrir" }));
+  expect(row.querySelector(".ib-row__sub")?.textContent).toBe("Membros");
+  expect(row.querySelector(".ib-row__face .ac-avatar")).toBeTruthy();
+  // The only item: open beside the list (ADR 0218), with its Abrir.
+  const open = document.querySelector("section.ib-read") as HTMLElement;
+  expect(open.querySelector("h2.nt-what b")?.children.length).toBe(0);
+  await click(within(open).getByRole("button", { name: "Abrir" }));
   await settle(6);
   expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/dm/person/u-carla`);
   cleanup();
@@ -1276,9 +1328,9 @@ test("the inviter's notice when someone joins: their face and name, a Members ch
   state.members.push(carla);
   await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
   await settle(6);
-  const known = document.querySelector('[data-n="n-in"]') as HTMLElement;
+  const known = document.querySelector('.ib-list [data-n="n-in"]') as HTMLElement;
   expect(known.querySelector(".nt-what")?.textContent).toBe("Carla Dias aceitou seu convite e entrou na Acme");
-  expect(known.querySelector(".ac-mediarow__face .ac-avatar")?.textContent).toBe("CD");
+  expect(known.querySelector(".ib-row__face .ac-avatar")?.textContent).toBe("CD");
   // No workspace on it: who joined, all the same.
   cleanup();
   await renderApp(`/org/${ORG_ID}/notifications`, {
@@ -1296,7 +1348,30 @@ test("the inviter's notice when someone joins: their face and name, a Members ch
     ),
   });
   await settle(6);
-  expect(document.querySelector('[data-n="n-in"] .nt-what')?.textContent).toBe("Carla Dias aceitou seu convite");
+  expect(document.querySelector('.ib-list [data-n="n-in"] .nt-what')?.textContent).toBe(
+    "Carla Dias aceitou seu convite",
+  );
+});
+
+test("a screen reader hears who joined on the inviter's notice, by the name the notice itself has", async () => {
+  // Just joined: the members list hasn't caught up yet.
+  const state = seedState({
+    proposals: [],
+    notifications: [
+      notification({
+        id: "n-in",
+        kind: "invitation_accepted",
+        actors: [{ type: "user", id: "u-carla" }],
+        source: { label: "Acme" },
+        latest: { title: "Carla <b>Dias</b>" },
+      }),
+    ],
+  });
+  await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
+  await settle(6);
+  expect(document.querySelector('.ib-list [data-n="n-in"]')?.getAttribute("aria-label")).toBe(
+    "Carla <b>Dias</b>, não lida",
+  );
 });
 
 test("in a personal workspace the inviter's notice names no workspace: its name says no place (ADR 0159)", async () => {
@@ -1315,5 +1390,7 @@ test("in a personal workspace the inviter's notice names no workspace: its name 
   if (org) org.mode = "personal";
   await renderApp(`/org/${ORG_ID}/notifications`, { api: createFakeApi(state) });
   await settle(6);
-  expect(document.querySelector('[data-n="n-in"] .nt-what')?.textContent).toBe("Carla Dias aceitou seu convite");
+  expect(document.querySelector('.ib-list [data-n="n-in"] .nt-what')?.textContent).toBe(
+    "Carla Dias aceitou seu convite",
+  );
 });

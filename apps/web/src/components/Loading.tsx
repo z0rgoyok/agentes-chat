@@ -7,11 +7,9 @@ import {
   SkeletonConversation,
   SkeletonGroup,
   SkeletonList,
-  TopProgress,
   useDelayed,
 } from "@agenteschat/ui";
-import { notifyManager, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 /** Placeholder rows for a list (members, routines, PCs, search results…). */
@@ -107,8 +105,9 @@ export function useStepText(active: boolean, steps: string[]) {
     const timer = setInterval(() => setNow(Date.now()), 500);
     return () => clearInterval(timer);
   }, [active]);
-  if (!active || since === null || steps.length === 0) return undefined;
-  return steps[stepAt(since, now, steps.length)];
+  if (!active || steps.length === 0) return undefined;
+  // The first step from the render that starts it (the timer starts after): a footer note never blinks out between.
+  return since === null ? steps[0] : steps[stepAt(since, now, steps.length)];
 }
 
 /**
@@ -140,32 +139,4 @@ export function ErrorState({ error, onRetry }: { error?: unknown; onRetry?: () =
       {message}
     </EmptyState>
   );
-}
-
-/**
- * A thin bar at the top of the page while cached data refreshes (queries
- * that already have data; polling and background queries opt out with
- * `meta: { quiet: true }`).
- */
-export function RefetchBar() {
-  const { t } = useTranslation();
-  const cache = useQueryClient().getQueryCache();
-  // Not `useIsFetching`: it scans every query on every cache event, each row's observers coming and going included,
-  // and with a long conversation on screen that is most of the work of drawing it. A fetch starting or ending is an
-  // `updated` event.
-  const subscribe = useCallback(
-    (change: () => void) => {
-      const batched = notifyManager.batchCalls(change);
-      return cache.subscribe((e) => {
-        if (e.type === "updated" || e.type === "removed") batched();
-      });
-    },
-    [cache],
-  );
-  const refreshing = useSyncExternalStore(subscribe, () =>
-    cache
-      .getAll()
-      .some((q) => q.state.fetchStatus === "fetching" && q.state.data !== undefined && q.meta?.quiet !== true),
-  );
-  return <TopProgress active={refreshing} label={t("common.refreshing")} />;
 }

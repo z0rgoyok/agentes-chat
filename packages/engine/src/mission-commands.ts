@@ -103,6 +103,7 @@ function scopeOf(value: unknown): CommandScope | null {
     folders: folders.length ? folders : [v.cwd],
     ...(abs(v.home) ? { home: v.home } : {}),
     ...(abs(v.runnerHome) ? { runnerHome: v.runnerHome } : {}),
+    ...(v.rootlessContainers === true ? { rootlessContainers: true } : {}),
   };
 }
 const NO_SCOPE: CommandScope = { cwd: "/nonexistent", folders: [] };
@@ -296,6 +297,22 @@ const allow = () => JSON.stringify({ behavior: "allow" });
 const deny = (message: string, code: string) => JSON.stringify({ behavior: "deny", message, code });
 
 /**
+ * A call the runner's command policy already refused (`refused`: `localVerdict`'s code and words), told only so the
+ * run keeps its step: answered with that refusal as it was, never judged, asked or shown as a card.
+ */
+function refusedOnComputer(args: Record<string, unknown>): string | null {
+  const r = args.refused;
+  if (!r || typeof r !== "object" || Array.isArray(r)) return null;
+  const { code, message } = r as Record<string, unknown>;
+  return JSON.stringify({
+    behavior: "deny",
+    message: cutText(str(message), 500) || "Refused on the computer.",
+    code: str(code).slice(0, 40) || "policy",
+    refusal: "policy",
+  });
+}
+
+/**
  * `permission_prompt` from the runner: a new prompt (`tool_name`, `input`),
  * or the state of one it made (`request_id`). Answers JSON: `{behavior}`
  * when decided, `{status: "pending", request_id}` while it waits.
@@ -313,6 +330,8 @@ export async function handlePermissionPrompt(
   task: PromptAsker,
   args: Record<string, unknown>,
 ): Promise<string> {
+  const refused = refusedOnComputer(args);
+  if (refused) return refused;
   const requestId = str(args.request_id);
   if (requestId) {
     const [p] = await readPrompts(deps.db, mission.id, requestId);
@@ -452,7 +471,7 @@ export async function decideCommand(
     // Only who decides the agent's approvals keeps something for it everywhere (its owner, `approve_actions`).
     const agent = p.agentKind ? await getAgent(deps.db, orgId, mission.agentId) : null;
     if (!agent) throw new ConflictError("This command can't be approved for good", "approval.always_unavailable");
-    if (!(await decidesAgentApprovals(deps.db, orgId, userId, agent.ownerUserId))) {
+    if (!(await decidesAgentApprovals(deps.db, orgId, userId, agent))) {
       throw new ForbiddenError("Only the agent's owner or an admin can approve this for good");
     }
   }
@@ -601,6 +620,8 @@ export function runPermissionPrompt(
     asksFirst?: boolean;
   },
 ): string {
+  const refused = refusedOnComputer(args);
+  if (refused) return refused;
   if (str(args.request_id)) return deny("That request is unknown.", "unknown");
   const tool = str(args.tool_name).slice(0, 64);
   const input =

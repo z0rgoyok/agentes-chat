@@ -19,6 +19,8 @@ export interface HeaderMenuItem {
   sf: SFSymbolName;
   onPress: () => void;
   destructive?: boolean;
+  /** The choice in effect: the system's checkmark beside it. */
+  checked?: boolean;
 }
 
 /**
@@ -36,6 +38,8 @@ export interface HeaderAction {
   /** While what it starts is under way. */
   disabled?: boolean;
   menu?: HeaderMenuItem[];
+  /** Over the menu's choices ("Ver as conversas"). */
+  menuTitle?: string;
 }
 
 const IOS = Platform.OS === "ios";
@@ -83,12 +87,19 @@ export function useHeaderActionOptions({
   const leadSlot = useHeaderSlot(lead ?? null);
   const hasLead = lead != null;
   const describe = (list: HeaderAction[] | undefined) =>
-    (list ?? []).map(({ icon, sf, label, disabled, menu }) => ({
+    (list ?? []).map(({ icon, sf, label, disabled, menu, menuTitle }) => ({
       icon,
       sf,
       label,
       disabled,
-      menu: menu?.map(({ label: l, icon: i, sf: s, destructive }) => ({ label: l, icon: i, sf: s, destructive })),
+      menuTitle,
+      menu: menu?.map(({ label: l, icon: i, sf: s, destructive, checked }) => ({
+        label: l,
+        icon: i,
+        sf: s,
+        destructive,
+        checked,
+      })),
     }));
   const signature = JSON.stringify([describe(right), describe(leftActions)]);
   return useMemo<NativeStackNavigationOptions>(() => {
@@ -119,11 +130,15 @@ export function useHeaderActionOptions({
                       accessibilityLabel: a.label,
                       icon: barIcon(a),
                       menu: {
+                        ...(a.menuTitle ? { title: a.menuTitle } : {}),
                         items: a.menu.map((m, j) => ({
                           type: "action" as const,
+                          // The menu's row reads its `title` (the item's type has no label of its own).
+                          title: m.label,
                           label: m.label,
                           icon: { type: "sfSymbol" as const, name: m.sf },
                           destructive: m.destructive,
+                          ...(m.checked !== undefined ? { state: m.checked ? ("on" as const) : ("off" as const) } : {}),
                           onPress: pick(i, j),
                         })),
                       },

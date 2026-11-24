@@ -101,7 +101,7 @@
     "chats": "Chats",
     "threads": "Hilos",
     "agents": "Agentes",
-    "activity": "Actividad",
+    "activity": "Bandeja",
     "search": "Buscar",
     "withCount": "{{label}}, {{count}}"
   },
@@ -165,6 +165,7 @@
     "forwards": "Reenvía “{{subject}}”",
     "forwardsFrom": "Reenvía “{{subject}}”, de {{from}}",
     "onlyOwner": "Solo {{name}} o un admin puede decidir.",
+    "onlyOwnerRole": "Solo quien tenga el rol {{role}} o un admin puede decidir.",
     "onlyAdmins": "Solo un admin puede decidir.",
     "notFound": "Esta solicitud ya no existe o no puedes verla.",
     "trait": {
@@ -194,7 +195,14 @@
     },
     "pinned": "Fijados",
     "recent": "Recientes",
+    "view": {
+      "title": "Ver las conversaciones",
+      "sectors": "Sectores",
+      "dms": "Mensajes directos",
+      "channels": "Canales"
+    },
     "seeAll": "Ver todos los chats",
+    "splitEmpty": "Tus chats se abren aquí.",
     "wait": {
       "verb": {
         "approval": "necesita tu aprobación",
@@ -285,8 +293,8 @@
     "to": "Para:",
     "people": "Personas",
     "search": "Persona o agente",
-    "create": "Crear",
     "agentHint": "Un nombre y lo que hace",
+    "create": "Crear",
     "chatShort": "Conversación",
     "chatHint": "Una persona o un agente",
     "taskHint": "Con responsable y fecha límite",
@@ -332,6 +340,9 @@
   },
   "chat": {
     "someone": "Alguien",
+    "handedTo": "Pasado a {{name}}",
+    "handedTo_female": "Pasado a {{name}}",
+    "pairAsked": "{{from}} preguntó",
     "messageTo": "Mensaje para {{name}}",
     "messageIn": "Mensaje en {{channel}}",
     "reply": "Responder",
@@ -412,10 +423,6 @@
       "working": "{{names}} escribiendo",
       "mentionsYou": "te mencionaron",
       "divider": "Nuevo"
-    },
-    "connection": {
-      "down": "Sin conexión. Lo que envíes sale solo cuando vuelva.",
-      "back": "Conectado de nuevo"
     },
     "longPressHint": "Mantén presionado para reaccionar y ver más acciones",
     "file": "Archivo",
@@ -576,6 +583,8 @@
     "camera": "Cámara",
     "photos": "Fotos",
     "file": "Archivo",
+    "paste": "Pegar",
+    "pasteGone": "No se pudo leer la imagen copiada. Cópiala de nuevo y toca Pegar.",
     "media": "GIFs",
     "noCamera": "Sin acceso a la cámara. Permítelo en la Configuración del teléfono.",
     "summary": "Resumir el chat",
@@ -782,10 +791,12 @@
     "section": {
       "missions": "Misiones",
       "threads": "Hilos"
-    }
+    },
+    "splitEmpty": "Tus hilos se abren aquí."
   },
   "agents": {
     "title": "Agentes",
+    "splitEmpty": "Las páginas de tus agentes se abren aquí.",
     "subtitle_one": "{{count}} en el equipo · {{working}} trabajando",
     "subtitle_many": "{{count}} en el equipo · {{working}} trabajando",
     "subtitle_other": "{{count}} en el equipo · {{working}} trabajando",
@@ -884,7 +895,7 @@
     }
   },
   "activity": {
-    "title": "Actividad",
+    "title": "Bandeja de entrada",
     "chooseModel": "Elegir otro modelo",
     "filter": {
       "all": "Todo",
@@ -906,6 +917,15 @@
       "proposal_waiting_one": "{{names}} propone una mejora",
       "proposal_waiting_many": "{{names}} proponen mejoras",
       "proposal_waiting_other": "{{names}} proponen mejoras",
+      "proposal_applied_one": "{{names}} aplicó una mejora",
+      "proposal_applied_many": "{{names}} aplicó {{count}} mejoras",
+      "proposal_applied_other": "{{names}} aplicó {{count}} mejoras",
+      "proposal_applied_agents_one": "{{names}} aplicaron una mejora",
+      "proposal_applied_agents_many": "{{names}} aplicaron {{count}} mejoras",
+      "proposal_applied_agents_other": "{{names}} aplicaron {{count}} mejoras",
+      "proposal_applied_auto_one": "Se aplicó una mejora automáticamente",
+      "proposal_applied_auto_many": "Se aplicaron {{count}} mejoras automáticamente",
+      "proposal_applied_auto_other": "Se aplicaron {{count}} mejoras automáticamente",
       "mention_one": "{{names}} te mencionó",
       "mention_many": "{{names}} te mencionaron",
       "mention_other": "{{names}} te mencionaron",
@@ -1107,6 +1127,46 @@
     "addA11y": "Agregar a {{name}} al canal",
     "added": "{{name}} se unió al canal"
   },
+  "settingsSearch": {
+    "open": "Buscar en los ajustes",
+    "title": "Buscar",
+    "placeholder": "Buscar en Tú y en los ajustes",
+    "workspace": "Ajustes del workspace",
+    "words": {
+      "status": "ausente, ocupado, presencia, en línea",
+      "account": "nombre, foto, correo, zona horaria, contraseña, usuario",
+      "deleteAccount": "eliminar, borrar, cerrar cuenta",
+      "workspaces": "cambiar, servidores, cuentas",
+      "notifications": "avisos, alertas, push",
+      "approvals": "aprobar, delegar",
+      "start": "abrir, inicio, primera pantalla",
+      "activity": "herramientas, lo que hicieron los agentes",
+      "chatLook": "burbujas, mensajes, conversación",
+      "wallpaper": "fondo, fondo de pantalla, foto",
+      "agentStyle": "técnico, sencillo, tono",
+      "sounds": "sonido, silencio, silencioso",
+      "appearance": "tema, oscuro, claro, modo",
+      "appIcon": "icono",
+      "language": "idioma, español, inglés",
+      "about": "versión, licencias",
+      "aiAccounts": "clave, API, proveedor, plan, modelo",
+      "general": "nombre, logo, zona horaria, contexto",
+      "media": "GIF, pegatinas, stickers",
+      "members": "personas, equipo",
+      "invites": "invitar, invitación, enlace",
+      "roles": "permisos, roles",
+      "usage": "costos, gastos, plan, tokens, presupuesto",
+      "connectors": "integraciones, MCP, servicios",
+      "skills": "habilidades",
+      "vault": "contraseñas, claves, inicios de sesión, secretos",
+      "access": "permisos, acceso de los agentes",
+      "apps": "apps de IA, MCP",
+      "computers": "dispositivos, máquinas, computadora, teléfono",
+      "storage": "archivos, S3, almacenamiento",
+      "import": "exportar, importar, migrar",
+      "audit": "registro, historial"
+    }
+  },
   "me": {
     "title": "Tú",
     "role": {
@@ -1153,9 +1213,6 @@
     "issuesWithMe_one": "{{count}} contigo",
     "issuesWithMe_many": "{{count}} contigo",
     "issuesWithMe_other": "{{count}} contigo",
-    "proposalsWaiting_one": "{{count}} en espera",
-    "proposalsWaiting_many": "{{count}} en espera",
-    "proposalsWaiting_other": "{{count}} en espera",
     "drive": "Drive",
     "connectors": "Conectores y MCP",
     "preferences": "Preferencias",
@@ -1172,6 +1229,8 @@
     "notificationsOnHint": "También llegan al navegador y a la app de escritorio, si están activadas ahí.",
     "notificationsOffHint": "Actívalas para recibir notificaciones aquí. Los tipos de abajo se aplican a todos tus dispositivos.",
     "notificationsKindsHint": "Actividad lo guarda todo. Esto se aplica a este espacio de trabajo, en todos tus dispositivos.",
+    "liveActivity": "Agentes en la Dynamic Island",
+    "liveActivityHint": "Cuando un agente trabaja en algo que pediste, aparece en la parte superior de la pantalla, en cualquier app, y en la pantalla de bloqueo. Con la app cerrada, necesita iOS 17.2 o posterior.",
     "version": "agentes.chat · versión {{version}}",
     "edit": "Editar",
     "status": "Estado",
@@ -1306,6 +1365,13 @@
       "fullscreen": "Pantalla completa",
       "open": "Abrir",
       "cantPlay": "Este video no se puede reproducir en este teléfono."
+    },
+    "talk": {
+      "hint": {
+        "pdf": "Mantén pulsada la página para marcar un punto"
+      },
+      "pdfPage": "Página {{page}} de {{count}}",
+      "pdfFailed": "No se pudo mostrar este PDF."
     }
   },
   "issues": {
@@ -1358,6 +1424,7 @@
     "criteriaOf": "{{done}} de {{total}}",
     "linkMessage": "Mensaje en #{{channel}}",
     "linkMessagePlain": "El mensaje original",
+    "removeFileText": "El archivo sigue en el Drive.",
     "subIssues": "Subtareas",
     "talk": "Chatear",
     "finish": "Marcar como lista",
@@ -1451,13 +1518,26 @@
     "uses_many": "Usado {{count}} veces",
     "uses_other": "Usado {{count}} veces",
     "confirmed": "Confirmado por una persona",
-    "confirm": "Confirmar",
-    "confirmedToast": "Confirmada",
     "details": "Detalles técnicos",
     "before": "Antes decía: {{text}}",
     "fix": "Corregir",
     "forgetTitle": "¿Olvidar este recuerdo?",
     "forgetText": "{{name}} deja de usarlo en las próximas conversaciones."
+  },
+  "proposals": {
+    "title": "Mejoras de los agentes",
+    "emptyTitle": "Todavía no cambió nada",
+    "empty": "Cuando un agente mejora sus instrucciones o las de un compañero, el cambio aparece aquí, con Deshacer.",
+    "more": "Mostrar más",
+    "reviewing": "Evaluando…",
+    "appliedBy": "Aplicado por {{name}}",
+    "appliedBy_female": "Aplicado por {{name}}",
+    "appliedAuto": "Aplicado automáticamente",
+    "leftOutBy": "Descartado por {{name}}",
+    "leftOutBy_female": "Descartado por {{name}}",
+    "leftOut": "Descartado",
+    "undoneBy": "Deshecho por {{name}}",
+    "undoneByYou": "Deshecho por ti"
   },
   "wiki": {
     "map": "Mapa de páginas",
@@ -1501,6 +1581,19 @@
       "day": "Día",
       "monthDay": "Día {{day}}",
       "lastDay": "Último día"
+    }
+  },
+  "coding": {
+    "pill": "{{who}}. Ver el código",
+    "seeChanges": "Ver los cambios",
+    "project": "Proyecto",
+    "whereSearch": "Busca o escribe un nombre",
+    "listed": "Del agente",
+    "commit": "Commit {{short}}",
+    "waiting": "Esperándote",
+    "next": {
+      "pr": "Rama enviada, aún sin pull request",
+      "mergeLocal": "Lista para hacer merge en {{base}}"
     }
   },
   "taskManager": {
@@ -1619,6 +1712,7 @@
       "ruleBody": "{{name}} deja de seguir esta regla. Quien la dio puede volver a darla.",
       "ruleRemove": "Quitar",
       "footOwner": "Solo {{name}} o un admin puede corregir esto.",
+      "footOwnerRole": "Solo quien tenga el rol {{role}} o un admin puede corregir esto.",
       "footAdmins": "Solo un admin puede corregir esto.",
       "emptyF": "{{name}} todavía no guardó nada sobre ti.",
       "emptyM": "{{name}} todavía no guardó nada sobre ti.",
@@ -1668,6 +1762,7 @@
       },
       "asksYou": "Hacer merge y publicar piden tu aprobación, salvo que el agente no pregunte nunca.",
       "asksOwner": "Hacer merge y publicar piden la aprobación de {{name}}, salvo que el agente no pregunte nunca.",
+      "asksOwnerRole": "Hacer merge y publicar piden la aprobación de quien tenga el rol {{role}}, salvo que el agente no pregunte nunca.",
       "asksAdmins": "Hacer merge y publicar piden la aprobación de un admin, salvo que el agente no pregunte nunca.",
       "empty": "Por ahora, solo conversación."
     }
@@ -2117,20 +2212,16 @@
     "mcps": "MCP",
     "mcpsNone": "Aquí aparecen los servidores MCP que conectes por su dirección.",
     "addMcp": "Agregar MCP",
-    "add": "Agregar",
-    "allServices": "Todos los servicios",
     "waitLine_one": "{{count}} herramienta te necesita",
     "waitLine_other": "{{count}} herramientas te necesitan",
     "toolsWait_one": "{{count}} te necesita",
     "toolsWait_other": "{{count}} te necesitan",
     "connectedState": "Conectada",
     "connected": "Conectados",
-    "suggested": "Sugeridos para {{org}}",
-    "all": "Todos",
+    "seeAll": "Ver todos",
     "noResults": "No hay ningún servicio con ese nombre. Prueba con su dirección.",
     "soon": "Pronto",
     "loadFailed": "No se pudieron cargar los conectores.",
-    "connectedCheck": "{{name}}, conectado",
     "adminsOnly": "Solo un admin de {{org}} conecta servicios. Pídeselo a alguno.",
     "adminsOnlyPersonal": "Solo quien gestiona este espacio de trabajo conecta apps. Pídeselo.",
     "canTitle": "Los agentes podrán",
@@ -2176,6 +2267,33 @@
     "usedBy_one": "{{names}} lo usa",
     "usedBy_many": "{{names}} lo usan",
     "usedBy_other": "{{names}} lo usan",
+    "page": {
+      "missing": "Este servicio ya no está en el catálogo.",
+      "connected": "Conectado",
+      "open": "Abrir la conexión",
+      "category": "Categoría",
+      "tools": "Herramientas",
+      "toolsAsk_one": "{{count}} pide aprobación",
+      "toolsAsk_many": "{{count}} piden aprobación",
+      "toolsAsk_other": "{{count}} piden aprobación",
+      "toolsAskNone": "ninguna pide aprobación",
+      "toolsLater": "después de conectar",
+      "who": "Quién conecta",
+      "whoAdmins": "Admins de {{org}}",
+      "whoRuns": "Quien gestiona el workspace",
+      "whoYou": "Tú, para ti",
+      "signIn": "Entra con",
+      "how": {
+        "signIn": "Tu cuenta",
+        "key": "Una clave",
+        "either": "Cuenta o clave"
+      },
+      "canTitle": "Lo que los agentes hacen con él",
+      "address": "Dirección",
+      "addressNote": "Los agentes usan esta dirección con la cuenta conectada. Cada uno recibe solo lo que tú permitas.",
+      "host": "Se conecta a",
+      "more": "Más en {{category}}"
+    },
     "fromAgent": "Conectar un servicio",
     "githubApp": {
       "useApp": "Usar la app agentes.chat",
@@ -2856,6 +2974,10 @@
       "textPersonal": "Crea una tarea para un agente y síguela hasta el final.",
       "viewerTitlePersonal": "Sigue el trabajo de tus agentes"
     },
+    "coding": {
+      "title": "Programa con tus agentes",
+      "text": "Cada sesión es una conversación con un agente que trabaja en su propia rama, en su computadora."
+    },
     "routines": {
       "title": "Deja el trabajo repetitivo a tus agentes",
       "text": "Una rutina se ejecuta sola, a una hora fijada o cuando pasa algo.",
@@ -3197,6 +3319,63 @@
       "editHint": "Edita esta parte",
       "notHere": "Esta parte se edita en la computadora"
     }
+  },
+  "aiHub": {
+    "accounts": "Cuentas",
+    "accountsHint": "Todos los planes y claves de API de este workspace, de quien los haya conectado. Toca una cuenta para ver sus límites y quién puede usarla.",
+    "order": "Orden de uso",
+    "orderSub": "En el límite, los agentes siguen con la siguiente cuenta.",
+    "skipped": "omitida",
+    "orderGroup": "{{plan}} · {{computer}}",
+    "noOrder": "Con dos cuentas de la misma IA en un ordenador, su orden aparece aquí.",
+    "keyFallback": "Seguir con la clave de API cuando todos los planes estén en el límite",
+    "keyFallbackHint": "Tras la última cuenta, los agentes siguen con la clave de API del workspace, que cobra por uso. Las misiones nunca pasan a la clave.",
+    "keyFallbackLocked": "Solo un admin cambia esto.",
+    "limits": "Límites",
+    "permissions": "Permisos",
+    "manage": "Gestionar",
+    "manageSub": "Renombrar, volver a iniciar sesión, quitar",
+    "manageHint": "Quién puede renombrar esta cuenta, volver a iniciar sesión en ella y quitarla. Solo quien la conectó cambia esto.",
+    "use": "Usar en agentes",
+    "useSub": "Elegirla en Quién piensa",
+    "useHint": "De quién son los agentes que pueden pensar con esta cuenta, y el Lodi de quién. Quien la gestiona cambia esto.",
+    "reply": "Atender a todos",
+    "replySub": "Con quién hablan los agentes",
+    "replyHint": "A quién responde un agente en esta cuenta además de su propio dueño. Los términos de Claude piden que un plan lo use quien paga por él: revísalos antes de abrirlo a todos.",
+    "audience": {
+      "owner": "Solo tú",
+      "ownerOf": "Solo {{name}}",
+      "admins": "Tú y los administradores",
+      "adminsOf": "{{name}} y los administradores",
+      "roles": "Roles…",
+      "people": "Personas…",
+      "everyone": "Todos",
+      "agentOwner": "Solo el dueño del agente",
+      "rolesCount_one": "{{count}} rol",
+      "rolesCount_many": "{{count}} roles",
+      "rolesCount_other": "{{count}} roles",
+      "peopleCount_one": "{{count}} persona",
+      "peopleCount_many": "{{count}} personas",
+      "peopleCount_other": "{{count}} personas"
+    },
+    "pickRoles": "Roles",
+    "pickPeople": "Personas",
+    "pickNone": "Elige al menos uno.",
+    "choice": {
+      "account": "Cuenta",
+      "model": "Modelo",
+      "effort": "Esfuerzo",
+      "yours": "Tuyas",
+      "others": "Del equipo",
+      "keys": "Claves de API",
+      "workspace": "La del workspace",
+      "workspaceSub": "Clave de API del workspace",
+      "key": "Clave de API",
+      "keyDefault": "predeterminada del workspace",
+      "api": "API"
+    },
+    "missionAi": "IA",
+    "missionLocked": "Quién hace el trabajo se elige antes de Iniciar. El modelo se puede cambiar en cualquier momento."
   },
   "surface": {
     "on": "Activado",

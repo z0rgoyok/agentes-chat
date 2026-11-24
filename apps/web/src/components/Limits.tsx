@@ -133,14 +133,15 @@ export function StorageMeter() {
 
 /**
  * Plano e cobrança: people and files against the plan's limits, in plain numbers. People count against the plan's
- * top when the billing service says one, with the seats paid for under it.
+ * top when the billing service says one, with the seats paid for under it. X's month, once the workspace used it, as
+ * a share alone: this server shows no price.
  */
 export function BillingMeters() {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const limits = useWorkspaceLimits(org.id).data;
   if (!limits) return null;
-  const { members, storage } = limits;
+  const { members, storage, connectors } = limits;
   const bytes = (n: number) => formatBytes(i18n.language, n);
   const people = members.max ?? members.limit;
   const rows = [
@@ -163,6 +164,21 @@ export function BillingMeters() {
           : t("billing.usedOf", { used: bytes(storage.usedBytes), limit: bytes(storage.limitBytes) }),
       note: null,
     },
+    ...(connectors && connectors.limitUsd !== null && connectors.limitUsd > 0 && connectors.usedUsd > 0
+      ? [
+          {
+            key: "connectors" as const,
+            used: Math.min(connectors.usedUsd, connectors.limitUsd),
+            limit: connectors.limitUsd,
+            value: t("billing.shareUsed", {
+              share: new Intl.NumberFormat(i18n.language, { style: "percent" }).format(
+                Math.min(1, connectors.usedUsd / connectors.limitUsd),
+              ),
+            }),
+            note: null,
+          },
+        ]
+      : []),
   ] as const;
   return (
     <div className="stack-4" style={{ gap: 12 }}>

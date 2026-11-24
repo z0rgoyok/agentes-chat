@@ -29,7 +29,7 @@ export interface AgentComputerFacts {
   /** The workspace's own computer (the Cloud's), else null. */
   setup: SetupView | null;
   /** The computer the agent works on, from the computers list; null: none. */
-  machine: Pick<Machine, "name" | "online" | "standby" | "lastSeenAt" | "paused" | "desktopUse"> | null;
+  machine: Pick<Machine, "name" | "online" | "standby" | "lastSeenAt" | "paused" | "desktopUse" | "mode"> | null;
   /** Its screen as `GET …/desktop` says it; null while unknown. */
   desktop:
     | (Pick<DesktopStatus, "available" | "reason"> & Partial<Pick<DesktopStatus, "canControl" | "handoff">>)

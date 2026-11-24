@@ -19,6 +19,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { isStill, landsOnRoot, STILL_PARAM } from "@/features/links/landing";
 import { needsHeaderBlur, pushOnce } from "@/lib/nav";
 import { IconButton } from "./IconButton";
@@ -128,6 +129,17 @@ function useScrollUnderBar(): NativeStackNavigationOptions {
 }
 
 /**
+ * The window's side insets as a screen's padding (ADR 0212): the controls the iPhone Duo's outer display keeps on its
+ * right, a notch in landscape. A screen's content stays clear of them while its color still fills behind them; on a
+ * portrait iPhone they are zero. A screen that places its own controls by these insets (an agent's computer, the
+ * image viewer, a presentation) takes none here.
+ */
+export function useSideInsets() {
+  const { left, right } = useSafeAreaInsets();
+  return useMemo(() => ({ paddingLeft: left, paddingRight: right }), [left, right]);
+}
+
+/**
  * A tab's stack root, for a large title the screen draws (`LargeTitleScreen`: on Android, and on iOS where art stands
  * behind the bar): a clear bar whose title fades in on scroll. A tab root under the system's large title (iOS) sets
  * the system's bar over these, as the pushed screens do: under this clear bar the system's large title stayed expanded
@@ -135,6 +147,7 @@ function useScrollUnderBar(): NativeStackNavigationOptions {
  */
 export function useLargeTitleOptions(): NativeStackNavigationOptions {
   const { colors } = useTheme();
+  const side = useSideInsets();
   return useMemo<NativeStackNavigationOptions>(
     () => ({
       headerShown: true,
@@ -144,9 +157,9 @@ export function useLargeTitleOptions(): NativeStackNavigationOptions {
       headerLargeTitleEnabled: false,
       headerTitleStyle: { color: colors.ink },
       headerTintColor: colors.ink,
-      contentStyle: { backgroundColor: colors.bg },
+      contentStyle: { backgroundColor: colors.bg, ...side },
     }),
-    [colors],
+    [colors, side],
   );
 }
 
@@ -170,6 +183,7 @@ export function TabStack({ title }: { title: string }) {
  */
 export function CoverTabStack({ title }: { title: string }) {
   const { colors } = useTheme();
+  const side = useSideInsets();
   const options = useMemo<NativeStackNavigationOptions>(
     () => ({
       headerShown: true,
@@ -179,9 +193,9 @@ export function CoverTabStack({ title }: { title: string }) {
       headerLargeTitleEnabled: false,
       headerTitleStyle: { color: colors.ink },
       headerTintColor: colors.ink,
-      contentStyle: { backgroundColor: colors.bg },
+      contentStyle: { backgroundColor: colors.bg, ...side },
     }),
-    [colors],
+    [colors, side],
   );
   return (
     <Stack screenOptions={options}>
@@ -199,6 +213,7 @@ export function CoverTabStack({ title }: { title: string }) {
 export function usePushedOptions(): NativeStackNavigationOptions {
   const { colors, reducedMotion } = useTheme();
   const { t } = useTranslation();
+  const side = useSideInsets();
   const backTitle = t("mobile.common.back");
   return useMemo<NativeStackNavigationOptions>(
     () => ({
@@ -216,10 +231,10 @@ export function usePushedOptions(): NativeStackNavigationOptions {
       gestureEnabled: true,
       // From the right on both platforms (Android's default rises from below); a cross-fade with less motion.
       animation: reducedMotion ? "fade" : "slide_from_right",
-      contentStyle: { backgroundColor: colors.bg },
+      contentStyle: { backgroundColor: colors.bg, ...side },
       ...plateBack(backTitle),
     }),
-    [colors, backTitle, reducedMotion],
+    [colors, backTitle, reducedMotion, side],
   );
 }
 

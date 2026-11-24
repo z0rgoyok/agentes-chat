@@ -106,7 +106,8 @@ bot an admin. Free ([bots](https://core.telegram.org/bots)).
 7. Then the Content Posting API audit, with usage estimates:
    https://developers.tiktok.com/application/content-posting-api. Until it passes, Direct Post is private and reaches
    at most 5 people a day; after it, set `CONNECTOR_TIKTOK_DIRECT_POST=on`.
-8. Variables: `CONNECTOR_TIKTOK_CLIENT_KEY` and `CONNECTOR_TIKTOK_CLIENT_SECRET`.
+8. Variables: `CONNECTOR_TIKTOK_CLIENT_KEY` and `CONNECTOR_TIKTOK_CLIENT_SECRET`. The server asks for every scope above
+   but `video.publish`: drafts are built, Direct Post (and `CONNECTOR_TIKTOK_DIRECT_POST`) comes after the audit.
 
 ## Snapchat
 

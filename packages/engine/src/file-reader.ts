@@ -153,7 +153,7 @@ export function readForModel(file: { name: string; contentType: string; bytes: U
   if (isAudioFile(name, contentType)) return { audio: true, note: "" };
   if (isVideoFile(name, contentType)) {
     return {
-      note: `It is a video (${size}): no AI here watches videos, so it can't be shown to you. Tell the person exactly that: its sound as an audio file, or a few screenshots of it, would go through. With a computer, import_file copies it there, where ffmpeg makes pictures and sound of it.`,
+      note: `It is a video (${size}), not shown to you as it is: review_media watches it on a computer, with frames across all of it and what is said, with times. Without a computer, tell the person exactly that: its sound as an audio file, or a few screenshots of it, would go through.`,
     };
   }
   if (OLD_OFFICE[ext]) {

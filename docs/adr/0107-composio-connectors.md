@@ -18,7 +18,7 @@
 
 ### 1. One way per service, in a fixed order
 
-Each service appears once in "Adicionar conector", through the first way that works on this server (`connectorListing`, `presetWay`):
+Each service appears once in the connectors store (Browse connectors), through the first way that works on this server (`connectorListing`, `presetWay`):
 
 1. Our own connector, when this server is set up for it (GitHub, and Sentry or Linear with their OAuth apps).
 2. The vendor's MCP server, when it connects today (a preset not marked `soon`).
@@ -56,6 +56,7 @@ Google Drive first, then Composio's own popularity order (composio.dev/toolkits,
 - **Google, one toolkit per app,** not Composio's Google Super: a smaller consent per service, and an admin can give an agent Calendar without Drive.
 - **Next, not now:** Zoom, Box, Trello, Excel, SharePoint, Google Slides and Tasks, and Outlook Calendar, each only if Composio's own app signs in to it. Pipedrive, Shopify and LinkedIn Ads need apps of our own, so they stay out.
 - **Social networks, added 2026-11-10** in a `social` category: Instagram, Facebook (Pages), LinkedIn, YouTube, Pinterest, Reddit and WhatsApp (Business), each on Composio's own app (its docs said "Composio-managed OAuth available" for each that day; WhatsApp also takes a key, never offered). Each lists only what that app can do: Instagram leaves out comments (the app lacks Meta's comment-management permission), LinkedIn posts as the signed-in member only (company pages need `r_organization_admin`, which LinkedIn refuses beside `w_member_social`), YouTube keeps to actions of 1 or 50 quota units on Composio's shared Google project, Reddit leaves out the inbox, wiki, moderation and votes (the app asks for none of them, and Reddit allows only votes a person casts), and WhatsApp sends but reads no incoming message (the Cloud API delivers those by webhook only). Uploads that take a file Composio holds stay out everywhere: the actions that fetch a public URL do it. Discord stays out: its actions are the app's own (commands, entitlements), and a person's sign-in can't post to channels.
+- **Canva, added 2026-11-22:** its preset connected on Canva's own MCP server until then, but that server registers any client and then refuses the sign-in of one whose redirect URI Canva hasn't listed ("Invalid redirect URI." at `/authorize`). The preset is `soon` with a Composio way on Composio's own Canva app (toolkit `canva`): designs, pages, folders and brand templates to read, new designs, exports, resizes, autofill from a brand template, images uploaded by their address, and comments. Deleting assets and folders stays out, as do uploads from a file.
 
 ### 3. A Composio way on a preset
 

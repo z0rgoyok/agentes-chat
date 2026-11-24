@@ -262,7 +262,7 @@ interface Context {
       archived: boolean;
       audience: Pick<
         typeof agents.$inferSelect,
-        "audienceMode" | "audienceUserIds" | "audienceRoleIds" | "ownerUserId" | "consultable" | "brain"
+        "audienceMode" | "audienceUserIds" | "audienceRoleIds" | "ownerUserId" | "ownerRoleId" | "consultable" | "brain"
       >;
     }
   >;
@@ -300,6 +300,7 @@ async function loadContext(db: Database, orgId: string): Promise<Context> {
           audienceUserIds: agents.audienceUserIds,
           audienceRoleIds: agents.audienceRoleIds,
           ownerUserId: agents.ownerUserId,
+          ownerRoleId: agents.ownerRoleId,
           consultable: agents.consultable,
           brain: agents.brain,
         },

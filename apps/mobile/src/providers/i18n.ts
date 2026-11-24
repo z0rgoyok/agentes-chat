@@ -10,7 +10,7 @@ import { readValueSync, writeValue } from "@/lib/storage";
 
 /**
  * The shared strings, required only when the language is used: Metro bundles every file but runs one only on its
- * first `require`, so the phone starts with English and its own language parsed.
+ * first `require`, so the phone starts with its own language parsed (and English only when a key needs it).
  */
 const SHARED: Record<AppLocale, () => LocaleStrings> = {
   en: () => require("@agenteschat/i18n/en").en,
@@ -65,12 +65,27 @@ function startLocale(): AppLocale {
   return stored && stored !== "auto" ? stored : deviceLocale();
 }
 
+/** `code`'s strings in i18next, parsed the first time they are needed. */
+function ensureStrings(code: AppLocale) {
+  if (i18n.hasResourceBundle(code, "translation")) return;
+  for (const [ns, strings] of Object.entries(bundle(code))) i18n.addResourceBundle(code, ns, strings);
+}
+
 /** Shows the app in `code`, parsing its strings the first time. */
 export function setLocale(code: AppLocale) {
-  if (!i18n.hasResourceBundle(code, "translation")) {
-    for (const [ns, strings] of Object.entries(bundle(code))) i18n.addResourceBundle(code, ns, strings);
-  }
+  ensureStrings(code);
   void i18n.changeLanguage(code);
+}
+
+/**
+ * A key the language shown lacks: English, the fallback, is parsed only then and the key asked again. Every other
+ * language is kept complete (ADR 0122), so a launch in one of them never parses English's megabyte. Missing in English
+ * too, the key itself, as i18next shows it.
+ */
+function missingKey(key: string, defaultValue: string | undefined, options: unknown) {
+  if (i18n.hasResourceBundle(DEFAULT_LOCALE, "translation")) return defaultValue ?? key;
+  ensureStrings(DEFAULT_LOCALE);
+  return (i18n.t as (key: string, options?: unknown) => string)(key, options);
 }
 
 /** i18next with the shared strings plus the app's `mobile.*` ones; initialized once, synchronously. */
@@ -78,13 +93,14 @@ export function setupI18n(): typeof i18n {
   if (i18n.isInitialized) return i18n;
   const lng = startLocale();
   void i18n.use(initReactI18next).init({
-    resources: Object.fromEntries([...new Set([lng, DEFAULT_LOCALE])].map((code) => [code, bundle(code)])),
+    resources: { [lng]: bundle(lng) },
     lng,
     fallbackLng: DEFAULT_LOCALE,
     supportedLngs: LOCALE_CODES,
     load: "currentOnly",
     interpolation: { escapeValue: false },
     initAsync: false,
+    parseMissingKeyHandler: missingKey,
   });
   // ponytail: a Hermes without Intl.ListFormat gets plain commas in `format.list`; drop once every supported Hermes has it.
   if (typeof Intl.ListFormat === "undefined") i18n.services.formatter?.add("list", (v: string[]) => v.join(", "));

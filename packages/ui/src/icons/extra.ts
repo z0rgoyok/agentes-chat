@@ -350,6 +350,11 @@ export const extraIcons = {
     ["path", { d: "M3.5 8v4h3l4 3.5v-11L6.5 8z" }],
     ["path", { d: "M13.5 7.5a3.5 3.5 0 0 1 0 5M15.75 5.25a6.75 6.75 0 0 1 0 9.5" }],
   ],
+  /** The inbox: a tray, what arrives resting in it. */
+  inbox: [
+    ["path", { d: "M3 11.5 5.2 4.5h9.6l2.2 7v3.5a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z" }],
+    ["path", { d: "M3 11.5h4a3 3 0 0 0 6 0h4" }],
+  ],
   /** "Lembrete" (a reminder routine). */
   bell: [["path", { d: "M5.5 13.5V9a4.5 4.5 0 0 1 9 0v4.5l1.2 1.5H4.3zM8.5 17h3" }]],
   /** Something is in progress (spins unless reduced motion). */

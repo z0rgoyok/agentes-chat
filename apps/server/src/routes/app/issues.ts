@@ -349,6 +349,11 @@ export function issueRoutes(deps: AppDeps) {
                 description:
                   "The whole list of acceptance criteria, in order: an `id` keeps that criterion (and its check), one without is new, one left out is removed.",
               }),
+            removeFiles: z
+              .array(z.uuid())
+              .max(50)
+              .optional()
+              .openapi({ description: "Files to take off the issue's attachments; they stay in the Drive." }),
           }),
         ),
       },

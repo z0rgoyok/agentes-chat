@@ -1,0 +1,151 @@
+/*
+ * A picture's, a video frame's or a PDF page's comments (ADR 0208): the canvas's pins (a face and a number, the tail
+ * on the spot), an area's outline and, in the viewer, a pin's words on hover. Small and on its own, so the chat and the
+ * viewer load these and not the page's or the canvas's styles.
+ */
+
+.mf-pins {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: visible;
+  pointer-events: none;
+}
+.mf-pin {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 6px 2px 2px;
+  border: 0;
+  border-radius: 8px 8px 8px 3px;
+  background: var(--raised);
+  box-shadow:
+    var(--e2),
+    0 0 0 1px var(--line);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  transform: translate(0, -100%);
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* A bigger target than it looks, for a finger. */
+.mf-pin::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+}
+.mf-pin:hover {
+  box-shadow:
+    var(--e2),
+    0 0 0 1.5px var(--ink);
+}
+html:not([data-pointer]) .mf-pin:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+/* The face keeps its own shape, so the pin's corners follow it (the face's radius plus the 2px around it), and the
+   face's corner at the tail is as sharp as the tail. */
+.mf-pin .ac-avatar {
+  border-bottom-left-radius: 1px;
+}
+.mf-pin[data-flip] .ac-avatar {
+  border-bottom-left-radius: 30%;
+  border-bottom-right-radius: 1px;
+}
+.mf-pin__n {
+  padding: 0 2px;
+}
+.mf-pin--on,
+.mf-pin--draft {
+  z-index: 2;
+  box-shadow:
+    var(--e2),
+    0 0 0 2px var(--ink);
+}
+.mf-pin--faded {
+  opacity: 0.5;
+}
+.mf-pin--draft {
+  pointer-events: none;
+}
+/* Near the right edge it turns inward: its tail on the spot from the other side, its face last. */
+.mf-pin[data-flip] {
+  flex-direction: row-reverse;
+  padding: 2px 2px 2px 6px;
+  border-radius: 8px 8px 3px 8px;
+  transform: translate(-100%, -100%);
+}
+
+/* An area: white with a dark edge, readable on any picture. */
+.mf-area {
+  position: absolute;
+  z-index: 1;
+  border: 2px solid #fff;
+  border-radius: 6px;
+  box-shadow:
+    0 0 0 1.5px rgb(0 0 0 / 0.45),
+    inset 0 0 0 1px rgb(0 0 0 / 0.12);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.mf-area--draft {
+  border-style: dashed;
+  background: rgb(255 255 255 / 0.08);
+}
+
+/* A pin's words on hover (the viewer). */
+.mf-peek {
+  position: absolute;
+  z-index: 5;
+  width: 280px;
+  max-width: 60vw;
+  padding: var(--space-2) var(--space-3);
+  box-sizing: border-box;
+  transform: translate(44px, calc(-100% - 6px));
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 20px;
+  pointer-events: none;
+}
+.mf-peek[data-flip] {
+  transform: translate(calc(-100% - 12px), calc(-100% - 6px));
+}
+.mf-peek__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.mf-peek__head b {
+  font-weight: 600;
+}
+.mf-peek__head time {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+.mf-peek__words {
+  margin: 4px 0 6px;
+  overflow-wrap: anywhere;
+}
+.mf-peek__go {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* The viewer's picture: its comments' pins in its box as it zooms and moves (ImageZoom's `overlay`). */
+.izoom__overlay {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+}
+
+/* A pin's words come on hover: a narrow screen (a finger, no hover) opens the conversation instead. */
+@media (max-width: 600px) {
+  .mf-peek {
+    display: none;
+  }
+}

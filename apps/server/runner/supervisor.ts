@@ -165,7 +165,15 @@ export interface WorkerState {
   commitHost?: string;
   access: RunnerAccess;
   paused: RunnerPause;
-  limits: { maxConcurrentTasks: number; taskMaxSeconds: number; brainIdleMinutes: number; brainMaxProcesses: number };
+  limits: {
+    maxConcurrentTasks: number;
+    taskMaxSeconds: number;
+    brainIdleMinutes: number;
+    brainMaxProcesses: number;
+    /** Codex app-servers' own (`CODEX_DEFAULT_LIMITS`); absent: the brains'. */
+    codexIdleMinutes?: number;
+    codexMaxProcesses?: number;
+  };
   /** People watching or controlling its agent's desktop (root's): its Chrome there isn't idle meanwhile. */
   desktopViewers?: number;
   /** Its agent holds its browser (`keep_running`, ADR 0176): it isn't closed as idle meanwhile. */
@@ -187,10 +195,10 @@ export type WorkerDesktopUse = "desktop" | "browser";
 /** Browser requests that may start the agent's Chrome, whose answers say what they waited on (protocol 27). */
 const BROWSER_SETUP_OPS: ReadonlySet<string> = new Set(["browser.act", "browser.batch", "browser.warm"]);
 
-/** The account a request's CLI signs in with: a turn's or route's, or a Claude Code or Codex task's (protocol 31). */
+/** The account a request's CLI signs in with: a turn's, route's or warm start's, or a Claude Code or Codex task's (protocol 31). */
 export function accountOf(req: MachineRequest): { kind: AccountKind; account: string } | null {
   const cli =
-    req.op === "brain.turn" || req.op === "brain.route"
+    req.op === "brain.turn" || req.op === "brain.route" || req.op === "brain.warm"
       ? req.kind
       : req.op === "task.start" && (req.executor === "claude" || req.executor === "codex")
         ? req.executor
