@@ -128,6 +128,7 @@ export function AppIconPicture({ icon, size = 32 }: { icon: PhoneIcon; size?: nu
 /** An icon's name: a ready one's, or "Your icon". */
 export function useAppIconName(icon: PhoneIcon) {
   const { t } = useTranslation();
+  if (Platform.OS === "ios" && icon === PHONE_APP_ICON) return "Tich Rooms";
   return typeof icon === "string" ? t(appIconNameKey(icon)) : t("appIcon.yours");
 }
 
