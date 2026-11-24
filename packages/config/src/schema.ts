@@ -1338,14 +1338,14 @@ export const envVars = {
   FEEDBACK_EMAIL: {
     schema: z.email().optional(),
     description:
-      "For agentes.chat Cloud. Unset by default. The address the agentes.chat team reads feedback at: what people write in the apps' feedback form there, and what other servers send to its inbox (`POST /api/feedback/inbox`, there only), one email per message, nothing kept. A self-hosted server leaves it unset: its feedback goes to that team (`FEEDBACK_RELAY`).",
+      "The operator's feedback mailbox. Messages and attachment links are delivered directly by this server's email sender.",
     section: "Operator",
     example: "feedback@example.com",
   },
   FEEDBACK_RELAY: {
-    schema: z.stringbool().default(true),
+    schema: z.stringbool().default(false),
     description:
-      "What a person writes in the feedback form goes to the agentes.chat team, who make the app (`FEEDBACK_URL`), and the form says so. Only when someone presses Send, and only that message: their text, their name and address to answer them, the workspace's name, the app's version and the pictures they added, never a conversation (https://agentes.chat/docs/install-on-a-server#data). `false`: the apps show no form.",
+      "Optional feedback relay. Disabled by default in Tich Rooms; configure FEEDBACK_EMAIL for direct delivery to the operator.",
     section: "Operator",
   },
   FEEDBACK_INBOX: {

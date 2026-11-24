@@ -31,6 +31,7 @@ describe("loadConfig", () => {
   test("applies defaults", () => {
     const config = loadConfig(valid);
     expect(config.PORT).toBe(3000);
+    expect(config.FEEDBACK_RELAY).toBe(false);
     expect(config.RUN_MIGRATIONS_ON_BOOT).toBe(true);
     expect(config.ALLOW_SIGNUP).toBe(false);
     expect(config.AGENT_DEFAULT_MODEL).toBe("claude-sonnet-5-5");

@@ -2569,13 +2569,15 @@ export const en = {
     phoneText: "Notifications in your pocket, to answer from anywhere.",
     /** The iPhone app's public beta, only on agentes.chat's own servers. */
     testFlight: "TestFlight",
+    androidText: "Tich Rooms chats on Android. Push notifications are not available yet.",
+    androidApk: "Download for Android (APK)",
     googlePlay: "Google Play",
   },
   openOnPhone: {
-    qr: "QR code to sign in to the agentes app",
+    qr: "QR code to sign in to the Tich Rooms app",
     making: "Making the code…",
     /** Followed by where to get the app (`usePhoneStores`); the App Store marked Soon where the iPhone app is not offered. */
-    stepApp: "Install the agentes app on your phone.",
+    stepApp: "Install the Tich Rooms app on your phone.",
     stepTailscale: "Install Tailscale on your phone and sign in with the same Tailscale account as this server.",
     /** The links to Tailscale in each store, after the step: the store's own name. */
     appStore: "App Store",
@@ -18076,7 +18078,7 @@ export const en = {
     section: {
       account: "Your account",
       notifications: "Notifications",
-      download: "agentes.chat apps",
+      download: "Tich Rooms apps",
       general: "General",
       right_hand: "Right hand",
       members: "Members",
@@ -22280,8 +22282,8 @@ export const en = {
     mark: "Beta",
     open: "Send feedback",
     ask: "What was missing, broke or got in your way?",
-    goesCloud: "What you write goes by email to the agentes.chat team, who may use an AI assistant to look into it.",
-    goesServer: "What you write goes by email to whoever runs this server.",
+    goesCloud: "What you write goes by email to the Tich Rooms team, who may use an AI assistant to look into it.",
+    goesServer: "What you write goes by email to the Tich Rooms team.",
     placeholder: "Write it your way",
     /** The last entry of a right-click menu: it opens this form about what was clicked. */
     report: "Report a problem here",
@@ -22315,7 +22317,7 @@ export const en = {
       /** The row's name for screen readers. */
       group: "Report about the app",
       ready: "<b>Report ready</b>: {{summary}}",
-      goesCloud: "Goes in your name to the agentes.chat team",
+      goesCloud: "Goes in your name to the Tich Rooms team",
       goesServer: "Goes in your name to whoever runs this server",
       see: "See the report",
       hide: "Close the report",
@@ -22323,7 +22325,7 @@ export const en = {
       notNow: "Not now",
       /** Under the opened report. */
       answer: "The answer comes to your email.",
-      sentCloud: "<b>Report sent</b> to the agentes.chat team",
+      sentCloud: "<b>Report sent</b> to the Tich Rooms team",
       sentServer: "<b>Report sent</b> to whoever runs this server",
       /** It went with the reply: the person chose Always send. */
       sentAuto: "<b>Report sent without asking</b>: {{summary}}",

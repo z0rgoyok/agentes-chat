@@ -16,6 +16,7 @@ import { requestId } from "hono/request-id";
 import composeFile from "../../../docker-compose.yml" with { type: "text" };
 import installScript from "../../../install.sh" with { type: "text" };
 import { registerAppLinks } from "./app-links";
+import { registerManagedDownloads } from "./managed-downloads";
 import { authHandler, signInPageUrl } from "./auth";
 import { apiBodyLimit } from "./http/body-limit";
 import { errorPages, isPageRequest } from "./http/error-page";
@@ -400,6 +401,7 @@ export function createApp(options: AppOptions) {
   if (options.services) {
     registerConnectScripts(app, { log, ...options.services });
     registerAppLinks(app, options.services.config);
+    registerManagedDownloads(app, options.services.config.FILES_DIR);
     registerAppsRoot(app, { log, ...options.services }, { version, fetchDocument: options.appsFetchDocument });
   }
   app.notFound((c) =>
