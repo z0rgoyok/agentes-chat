@@ -1,7 +1,7 @@
 import { ApiError, keys } from "@agenteschat/client";
 import { formatTimeLeft } from "@agenteschat/client/lib/actions";
 import { connectLink, isLoopback, isTailnet } from "@agenteschat/client/lib/server";
-import { Alert, Button, Chip, Dialog, DialogBody, PixelSpinner, ProviderLogo, QrCode } from "@agenteschat/ui";
+import { Alert, Button, Dialog, DialogBody, PixelSpinner, ProviderLogo, QrCode } from "@agenteschat/ui";
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
@@ -109,16 +109,9 @@ function PhoneCode() {
       )}
       <ol className="machine-pair__steps small">
         <li>
-          {/* Where this server offers no iPhone app yet, the App Store stays there, disabled, with "Soon". */}
           <span className="phone-code__step">
             <span>{t("openOnPhone.stepApp")}</span>
             <span className="row">
-              {!stores.some((s) => s.mark === "apple") && (
-                <Button size="sm" disabled>
-                  {t("openOnPhone.appStore")}
-                  <Chip icon="lock">{t("common.soon")}</Chip>
-                </Button>
-              )}
               {stores.map((s) => (
                 <Button key={s.id} asChild size="sm">
                   <a href={s.href} target="_blank" rel="noopener noreferrer">

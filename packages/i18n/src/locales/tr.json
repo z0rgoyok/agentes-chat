@@ -2261,7 +2261,7 @@
     "addAccount": "Hesap ekle",
     "addAccountHint": "Bu hesaptan çıkmadan başka bir hesapla giriş yapın",
     "yourServer": "Sunucunuz",
-    "serverHere": "Bu {{device}} üzerindeki agentes.chat",
+    "serverHere": "Bu {{device}} üzerindeki Tich Rooms.chat",
     "serverStopped": "durduruldu",
     "serverOffline": "{{time}} saatinden beri çevrim dışı",
     "serverSignedOut": "giriş yapılmadı",
@@ -2413,12 +2413,13 @@
     "phone": "Telefon",
     "phoneText": "Bildirimler cebinizde, her yerden yanıt vermek için.",
     "testFlight": "TestFlight",
+    "androidApk": "Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "agentes uygulamasına giriş yapmak için QR kodu",
+    "qr": "Tich Rooms uygulamasına giriş yapmak için QR kodu",
     "making": "Kod oluşturuluyor…",
-    "stepApp": "agentes uygulamasını telefonunuza yükleyin.",
+    "stepApp": "Tich Rooms uygulamasını telefonunuza yükleyin.",
     "stepTailscale": "Telefonunuza Tailscale'i kurun ve bu sunucuyla aynı Tailscale hesabıyla giriş yapın.",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -17489,7 +17490,7 @@
     "section": {
       "account": "Hesabınız",
       "notifications": "Bildirimler",
-      "download": "agentes.chat uygulamaları",
+      "download": "Tich Rooms uygulamaları",
       "general": "Genel",
       "right_hand": "Sağ kol",
       "members": "Üyeler",

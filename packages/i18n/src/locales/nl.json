@@ -2261,7 +2261,7 @@
     "addAccount": "Account toevoegen",
     "addAccountHint": "Log in bij een ander account zonder dit te verlaten",
     "yourServer": "Je server",
-    "serverHere": "agentes.chat op deze {{device}}",
+    "serverHere": "Tich Rooms.chat op deze {{device}}",
     "serverStopped": "gestopt",
     "serverOffline": "offline sinds {{time}}",
     "serverSignedOut": "niet aangemeld",
@@ -2413,12 +2413,13 @@
     "phone": "Telefoon",
     "phoneText": "Meldingen op zak, om overal te antwoorden.",
     "testFlight": "TestFlight",
+    "androidApk": "Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "QR-code om in te loggen in de agentes-app",
+    "qr": "QR-code om in te loggen in de Tich Rooms-app",
     "making": "Code maken…",
-    "stepApp": "Installeer de agentes-app op je telefoon.",
+    "stepApp": "Installeer de Tich Rooms-app op je telefoon.",
     "stepTailscale": "Installeer Tailscale op je telefoon en log in met hetzelfde Tailscale-account als deze server.",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -17627,7 +17628,7 @@
     "section": {
       "account": "Je account",
       "notifications": "Meldingen",
-      "download": "Apps van agentes.chat",
+      "download": "Apps van Tich Rooms",
       "general": "Algemeen",
       "right_hand": "Rechterhand",
       "members": "Leden",

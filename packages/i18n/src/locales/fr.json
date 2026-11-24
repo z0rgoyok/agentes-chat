@@ -2335,7 +2335,7 @@
     "addAccount": "Ajouter un compte",
     "addAccountHint": "Connectez-vous à un autre compte sans quitter celui-ci",
     "yourServer": "Votre serveur",
-    "serverHere": "L’agentes.chat de ce {{device}}",
+    "serverHere": "L’Tich Rooms.chat de ce {{device}}",
     "serverStopped": "arrêté",
     "serverOffline": "hors ligne depuis {{time}}",
     "serverSignedOut": "non connecté",
@@ -2498,12 +2498,13 @@
     "phone": "Téléphone",
     "phoneText": "Les notifications dans la poche, pour répondre de partout.",
     "testFlight": "TestFlight",
+    "androidApk": "Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "QR code pour vous connecter à l'app agentes",
+    "qr": "QR code pour vous connecter à l'app Tich Rooms",
     "making": "Création du code…",
-    "stepApp": "Installez l'app agentes sur votre téléphone.",
+    "stepApp": "Installez l'app Tich Rooms sur votre téléphone.",
     "stepTailscale": "Installez Tailscale sur votre téléphone et connectez-vous avec le même compte Tailscale que ce serveur.",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -18117,7 +18118,7 @@
     "section": {
       "account": "Votre compte",
       "notifications": "Notifications",
-      "download": "Apps agentes.chat",
+      "download": "Apps Tich Rooms",
       "general": "Général",
       "right_hand": "Bras droit",
       "members": "Membres",

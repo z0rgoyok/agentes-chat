@@ -9,6 +9,7 @@ import versions from "./versions.json";
  * - `APP_VARIANT`: "development" | "preview" | "production" (from eas.json or the workflow), so the three install
  *   side by side.
  * - `GOOGLE_SERVICES_JSON`: path to Firebase's google-services.json, for push on Android (FCM).
+ * - `ANDROID_PACKAGE`: overrides the managed Android application ID.
  * - `ANDROID_VERSION_CODE`: the build's version code, set by the Android workflow (EAS numbers its own builds).
  * - `APPLE_TEAM_ID`: the Apple team that signs the iOS app and its share extension (a build setting, never in the
  *   repo).
@@ -138,7 +139,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     config: { usesNonExemptEncryption: false },
   },
   android: {
-    package: `chat.agentes.app${suffix}`,
+    package: process.env.ANDROID_PACKAGE ?? `app.tich.rooms${suffix}`,
     // Firebase's config comes from the build's environment, so the public repo carries none and a self-built app
     // brings its own Firebase project.
     ...(process.env.GOOGLE_SERVICES_JSON ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON } : {}),

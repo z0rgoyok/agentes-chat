@@ -2189,7 +2189,7 @@
     "addAccount": "Tambah akun",
     "addAccountHint": "Masuk ke akun lain tanpa keluar dari akun ini",
     "yourServer": "Servermu",
-    "serverHere": "agentes.chat di {{device}} ini",
+    "serverHere": "Tich Rooms.chat di {{device}} ini",
     "serverStopped": "berhenti",
     "serverOffline": "offline sejak {{time}}",
     "serverSignedOut": "belum masuk",
@@ -2330,12 +2330,13 @@
     "phone": "Ponsel",
     "phoneText": "Notifikasi di saku, untuk membalas dari mana saja.",
     "testFlight": "TestFlight",
+    "androidApk": "Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "Kode QR untuk masuk ke aplikasi agentes",
+    "qr": "Kode QR untuk masuk ke aplikasi Tich Rooms",
     "making": "Membuat kode…",
-    "stepApp": "Pasang aplikasi agentes di ponselmu.",
+    "stepApp": "Pasang aplikasi Tich Rooms di ponselmu.",
     "stepTailscale": "Pasang Tailscale di ponselmu dan masuk dengan akun Tailscale yang sama dengan server ini.",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -17015,7 +17016,7 @@
     "section": {
       "account": "Akunmu",
       "notifications": "Notifikasi",
-      "download": "Aplikasi agentes.chat",
+      "download": "Aplikasi Tich Rooms",
       "general": "Umum",
       "right_hand": "Tangan kanan",
       "members": "Anggota",

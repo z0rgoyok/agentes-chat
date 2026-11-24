@@ -2189,7 +2189,7 @@
     "addAccount": "添加账号",
     "addAccountHint": "登录其他账号，无需退出当前账号",
     "yourServer": "你的服务器",
-    "serverHere": "这台 {{device}} 上的 agentes.chat",
+    "serverHere": "这台 {{device}} 上的 Tich Rooms.chat",
     "serverStopped": "已停止",
     "serverOffline": "自 {{time}} 起离线",
     "serverSignedOut": "未登录",
@@ -2330,12 +2330,13 @@
     "phone": "手机",
     "phoneText": "通知随身带，随时随地都能回复。",
     "testFlight": "TestFlight",
+    "androidApk": "Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "用于登录 agentes 应用的二维码",
+    "qr": "用于登录 Tich Rooms 应用的二维码",
     "making": "正在生成二维码…",
-    "stepApp": "在手机上安装 agentes 应用。",
+    "stepApp": "在手机上安装 Tich Rooms 应用。",
     "stepTailscale": "在手机上安装 Tailscale，并用与这台服务器相同的 Tailscale 账号登录。",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -17025,7 +17026,7 @@
     "section": {
       "account": "你的账号",
       "notifications": "通知",
-      "download": "agentes.chat 应用",
+      "download": "Tich Rooms 应用",
       "general": "常规",
       "right_hand": "得力助手",
       "members": "成员",

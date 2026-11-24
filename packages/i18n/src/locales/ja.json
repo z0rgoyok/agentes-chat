@@ -2189,7 +2189,7 @@
     "addAccount": "アカウントを追加",
     "addAccountHint": "このアカウントのまま、別のアカウントにログイン",
     "yourServer": "自分のサーバー",
-    "serverHere": "この{{device}}の agentes.chat",
+    "serverHere": "この{{device}}の Tich Rooms.chat",
     "serverStopped": "停止中",
     "serverOffline": "{{time}} からオフライン",
     "serverSignedOut": "未サインイン",
@@ -2330,12 +2330,13 @@
     "phone": "スマートフォン",
     "phoneText": "通知をポケットに。どこからでも返信できます。",
     "testFlight": "TestFlight",
+    "androidApk": "Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "agentesアプリにログインするためのQRコード",
+    "qr": "Tich RoomsアプリにログインするためのQRコード",
     "making": "コードを作成中…",
-    "stepApp": "スマートフォンにagentesアプリをインストールしてください。",
+    "stepApp": "スマートフォンにTich Roomsアプリをインストールしてください。",
     "stepTailscale": "スマートフォンにTailscaleをインストールし、このサーバーと同じTailscaleアカウントでサインインしてください。",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -16956,7 +16957,7 @@
     "section": {
       "account": "アカウント",
       "notifications": "通知",
-      "download": "agentes.chatのアプリ",
+      "download": "Tich Roomsのアプリ",
       "general": "一般",
       "right_hand": "右腕",
       "members": "メンバー",

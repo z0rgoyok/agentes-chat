@@ -2408,7 +2408,7 @@
     "addAccount": "Добавить аккаунт",
     "addAccountHint": "Войдите в другой аккаунт, не выходя из этого",
     "yourServer": "Ваш сервер",
-    "serverHere": "agentes.chat на этом {{device}}",
+    "serverHere": "Tich Rooms.chat на этом {{device}}",
     "serverStopped": "остановлен",
     "serverOffline": "не в сети с {{time}}",
     "serverSignedOut": "вход не выполнен",
@@ -2582,12 +2582,13 @@
     "phone": "Телефон",
     "phoneText": "Уведомления в кармане, чтобы отвечать откуда угодно.",
     "testFlight": "TestFlight",
+    "androidApk": "Скачать для Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "QR-код для входа в приложение agentes",
+    "qr": "QR-код для входа в приложение Tich Rooms",
     "making": "Создаём код…",
-    "stepApp": "Установите приложение agentes на телефон.",
+    "stepApp": "Установите приложение Tich Rooms на телефон.",
     "stepTailscale": "Установите Tailscale на телефон и войдите в тот же аккаунт Tailscale, что и у этого сервера.",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -18635,7 +18636,7 @@
     "section": {
       "account": "Ваш аккаунт",
       "notifications": "Уведомления",
-      "download": "Приложения agentes.chat",
+      "download": "Приложения Tich Rooms",
       "general": "Общие",
       "right_hand": "Правая рука",
       "members": "Участники",

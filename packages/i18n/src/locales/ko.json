@@ -2189,7 +2189,7 @@
     "addAccount": "계정 추가",
     "addAccountHint": "이 계정을 유지한 채 다른 계정으로 로그인",
     "yourServer": "내 서버",
-    "serverHere": "이 {{device}}의 agentes.chat",
+    "serverHere": "이 {{device}}의 Tich Rooms.chat",
     "serverStopped": "중지됨",
     "serverOffline": "{{time}}부터 오프라인",
     "serverSignedOut": "로그인 안 됨",
@@ -2330,12 +2330,13 @@
     "phone": "휴대폰",
     "phoneText": "주머니 속 알림으로 어디서든 답할 수 있어요.",
     "testFlight": "TestFlight",
+    "androidApk": "Android (APK)",
     "googlePlay": "Google Play"
   },
   "openOnPhone": {
-    "qr": "agentes 앱에 로그인하는 QR 코드",
+    "qr": "Tich Rooms 앱에 로그인하는 QR 코드",
     "making": "코드를 만드는 중…",
-    "stepApp": "휴대폰에 agentes 앱을 설치하세요.",
+    "stepApp": "휴대폰에 Tich Rooms 앱을 설치하세요.",
     "stepTailscale": "휴대폰에 Tailscale을 설치하고 이 서버와 같은 Tailscale 계정으로 로그인하세요.",
     "appStore": "App Store",
     "googlePlay": "Google Play",
@@ -16948,7 +16949,7 @@
     "section": {
       "account": "내 계정",
       "notifications": "알림",
-      "download": "agentes.chat 앱",
+      "download": "Tich Rooms 앱",
       "general": "일반",
       "right_hand": "오른팔",
       "members": "멤버",
