@@ -16,6 +16,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AgentAvatar } from "@/agent/AgentAvatar";
+import { MANAGED_SERVER } from "@/lib/managed-server";
 import { ALLOW_HTTP } from "@/lib/server";
 import { AuthScaffold } from "@/ui/auth/AuthScaffold";
 import { Button } from "@/ui/Button";
@@ -119,7 +120,7 @@ export default function Scan() {
         onBarcodeScanned={({ data }) => {
           if (done.current) return;
           const link = parseConnectLink(data, { allowHttp: ALLOW_HTTP });
-          if (!link) return setNotOurs(true);
+          if (!link || link.server !== MANAGED_SERVER) return setNotOurs(true);
           done.current = true;
           // The read is the moment: the corners lock on and take the server's color, with one success tap on that
           // frame; nothing more until the confirmation.

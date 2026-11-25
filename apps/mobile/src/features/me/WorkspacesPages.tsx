@@ -10,15 +10,7 @@ import { addAccount, openWorkspace, problemText } from "@/features/server";
 import { createApi } from "@/lib/api";
 import { askNewWorkspace, offersNewWorkspaceHere } from "@/lib/new-workspace";
 import { openOrgs } from "@/lib/org-choice";
-import {
-  ALLOW_HTTP,
-  serverUrl,
-  signedInServers,
-  usePlace,
-  usePlaceAccounts,
-  useServer,
-  useSignedInServers,
-} from "@/lib/server";
+import { ALLOW_HTTP, signedInServers, usePlace, usePlaceAccounts, useServer, useSignedInServers } from "@/lib/server";
 import { serverOf } from "@/lib/server-choice";
 import { useOrg, useOrgMaybe } from "@/providers/org";
 import {
@@ -39,7 +31,7 @@ import { router } from "@/ui/navigation";
 import { Text } from "@/ui/Text";
 import { SheetHeader } from "../new/parts";
 import { OrgAvatar } from "../shared/OrgAvatar";
-import { goBack, PushedHeader } from "../shared/parts";
+import { PushedHeader } from "../shared/parts";
 import { useMyFace } from "../shared/tabHeader";
 import { Page } from "./parts";
 import { orderedServers, type ServerWorkspaces, unreadElsewhere, workspacesOf } from "./workspaces-logic";
@@ -245,12 +237,6 @@ export function AddWorkspacePage() {
   const { t } = useTranslation();
   const server = useServer();
   const me = useMe().data;
-  const create = () => {
-    askNewWorkspace(CLOUD_SERVER);
-    // Signed in to agentes.chat already: its first run opens over the app; otherwise its sign-in comes first.
-    if (serverUrl() === CLOUD_SERVER) router.dismissTo("/");
-    else void openWorkspace(CLOUD_SERVER, null);
-  };
   return (
     <SheetScreen fit>
       {/* The sheets' bar: × closes it (over the list in Você, or with the workspaces' sheet already gone), the title
@@ -271,28 +257,11 @@ export function AddWorkspacePage() {
           />
         ) : null}
         <GroupedRow
-          icon="plus"
-          label={t("mobile.me.addWorkspaceCreate")}
-          sub={t("mobile.me.addWorkspaceCreateSub")}
-          chevron
-          onPress={create}
-        />
-        <GroupedRow
           icon="person"
           label={t("mobile.me.addAccount")}
           sub={t("mobile.me.addAccountSub", { host: server === CLOUD_SERVER ? "agentes.chat" : serverHost(server) })}
           chevron
           onPress={() => void addAccount(server)}
-        />
-        <GroupedRow
-          icon="server"
-          label={t("mobile.me.addWorkspaceTeamShort")}
-          sub={t("mobile.me.addWorkspaceTeamSubShort")}
-          chevron
-          onPress={() => {
-            goBack();
-            router.push("/me/team-server");
-          }}
         />
       </GroupedList>
       <GroupedFooter>{t("mobile.me.addWorkspaceFoot")}</GroupedFooter>

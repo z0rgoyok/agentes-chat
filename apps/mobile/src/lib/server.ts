@@ -1,6 +1,7 @@
 import { randomUUID } from "expo-crypto";
 import { useSyncExternalStore } from "react";
 import { API_URL, APP_VARIANT, STORAGE_PREFIX } from "@/config";
+import { isManagedPlace, requireManagedPlace } from "./managed-server";
 import {
   accountsFrom,
   claimedPrefixes,
@@ -35,7 +36,8 @@ export const ALLOW_HTTP = APP_VARIANT === "development";
  * The place the app is on: a server, or one of its accounts (`server-choice.ts`, ADR 0183). The session, the cache
  * and what the phone keeps are a place's; the address to talk to is its server's.
  */
-let place = currentServer(readValueSync(SERVER), API_URL);
+const restoredPlace = currentServer(readValueSync(SERVER), API_URL);
+let place = isManagedPlace(restoredPlace) ? restoredPlace : API_URL;
 const listeners = new Set<() => void>();
 
 /** The server the app talks to, read at call time: it changes while the app runs. */
@@ -69,6 +71,7 @@ let came: string | null = null;
  * its session waits under its own prefix.
  */
 export async function setServer(next: string) {
+  requireManagedPlace(next);
   if (next !== place) came = place;
   place = next;
   await writeValue(SERVER, savedServer(next, API_URL));
@@ -77,10 +80,10 @@ export async function setServer(next: string) {
 
 // ── Sessions per server (ADR 0154) ──────────────────────────────────────────────
 
-let signedIn = serverListFrom(readValueSync(SIGNED_IN));
+let signedIn = serverListFrom(readValueSync(SIGNED_IN)).filter(isManagedPlace);
 
 const rawPrefixes = readValueSync(PREFIXES);
-let prefixes = claimedPrefixes(prefixesFrom(rawPrefixes, place, STORAGE_PREFIX), signedIn, STORAGE_PREFIX);
+let prefixes = claimedPrefixes(prefixesFrom(rawPrefixes, restoredPlace, STORAGE_PREFIX), signedIn, STORAGE_PREFIX);
 if (JSON.stringify(prefixes) !== rawPrefixes) writeValueSync(PREFIXES, JSON.stringify(prefixes));
 
 /**
@@ -88,6 +91,7 @@ if (JSON.stringify(prefixes) !== rawPrefixes) writeValueSync(PREFIXES, JSON.stri
  * prefix (`withPrefix`), saved as its own before anything is stored under it.
  */
 export function prefixOf(target: string): string {
+  requireManagedPlace(target);
   const saved = prefixes[target];
   if (saved) return saved;
   prefixes = withPrefix(prefixes, target, STORAGE_PREFIX, randomUUID);
