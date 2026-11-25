@@ -167,7 +167,7 @@ describe("what a row chooses and saves", () => {
       model: "opus",
       effort: "high",
     });
-    expect(aiChoiceOf(def, current)).toEqual({ brain: "model", key: null, model: null, effort: null });
+    expect(aiChoiceOf(def, current)).toEqual({ brain: "model", key: null, model: "auto", effort: null });
     expect(aiChoiceOf(other, null)).toMatchObject({ brain: "model", key: "k2" });
     expect(aiChoiceBrainInput(aiChoiceOf(plan, current), "mine")).toEqual({
       scope: "mine",
@@ -176,8 +176,26 @@ describe("what a row chooses and saves", () => {
       model: "opus",
       effort: "high",
     });
-    expect(aiChoiceSetup(aiChoiceOf(other, null))).toEqual({ brain: "model", model: null, key: "k2", effort: null });
+    expect(aiChoiceSetup(aiChoiceOf(other, null))).toEqual({ brain: "model", model: "auto", key: "k2", effort: null });
     expect(aiChoiceSetup(aiChoiceOf(plan, current))).toMatchObject({ machineId: "m1", account: "w1" });
+  });
+
+  test("switching API accounts resets the previous provider or endpoint model", () => {
+    const rows = aiChoiceRows(
+      hub([], [key("default", { isDefault: true }), key("other", { provider: "openai" })]),
+      ctx(),
+    );
+    const def = rows[0];
+    const other = rows[1];
+    if (!def || !other) throw new Error("key rows");
+    for (const model of ["claude-a", "custom:11111111-1111-4111-8111-111111111111:endpoint-model"]) {
+      const current = { brain: "model" as const, key: "dedicated", model, effort: "high" as const };
+      expect(aiChoiceOf(other, current)).toEqual({ brain: "model", key: "other", model: "auto", effort: null });
+      expect(aiChoiceOf(def, current)).toEqual({ brain: "model", key: null, model: "auto", effort: null });
+    }
+    const current = { brain: "model" as const, key: null, model: "claude-a", effort: "high" as const };
+    expect(aiChoiceOf(def, current)).toEqual(current);
+    expect(aiChoiceOf(def, { ...current, key: "default" })).toEqual(current);
   });
 
   test("models: a key's from its provider's catalog with Automático first; efforts by brain", () => {
