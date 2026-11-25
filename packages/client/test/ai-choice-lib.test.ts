@@ -195,6 +195,43 @@ describe("what a row chooses and saves", () => {
     expect(aiChoiceEfforts(k)).toEqual(["low", "medium", "high"]);
   });
 
+  test("an API agent keeps its own account and model when its effort changes", () => {
+    const current = currentOf(
+      { kind: "agent", agentId: "a" },
+      {
+        brain: { brain: "model", account: null, model: null, effort: "medium", computer: null },
+        agent: { model: "claude-a", credentialId: "dedicated" },
+      },
+    );
+    expect(current).toMatchObject({ brain: "model", key: "dedicated", model: "claude-a", effort: "medium" });
+    const rows = aiChoiceRows(hub([], [key("default", { isDefault: true }), key("dedicated")]), ctx({ current }));
+    expect(rows.filter((r) => r.selected).map((r) => r.key)).toEqual(["key:dedicated"]);
+    const selected = rows.find((r) => r.selected);
+    if (!selected) throw new Error("selected account");
+    const choice = { ...aiChoiceOf(selected, current), effort: "high" as const };
+    expect(choice).toMatchObject({ key: "dedicated", model: "claude-a", effort: "high" });
+  });
+
+  test("API defaults, pinned endpoint models and loading keep their meanings", () => {
+    const target = { kind: "agent" as const, agentId: "a" };
+    const brain = { brain: "model" as const, account: null, model: null, effort: "medium" as const, computer: null };
+    expect(currentOf(target, { brain })).toBeNull();
+    expect(currentOf(target, { brain, agent: { model: "auto", credentialId: null } })).toMatchObject({
+      key: null,
+      model: "auto",
+    });
+    const id = "11111111-1111-4111-8111-111111111111";
+    const model = `custom:${id}:endpoint-model`;
+    expect(currentOf(target, { brain, agent: { model, credentialId: null } })).toMatchObject({ key: id, model });
+    expect(currentOf({ kind: "lodi", agentId: "l", scope: "mine" }, { brain })).toEqual({
+      brain: "model",
+      account: null,
+      machineId: null,
+      model: null,
+      effort: "medium",
+    });
+  });
+
   test("the current choice as each target's own view says it", () => {
     expect(
       currentOf(

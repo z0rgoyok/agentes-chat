@@ -114,6 +114,40 @@ describe("Quem pensa: the one picker", () => {
     expect(document.querySelector(".ac-tz__check")).toBeNull();
   });
 
+  test("an API agent opens with its dedicated account and model; effort changes only that agent", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    const originalDetail = api.agents.detail;
+    api.agents.detail = async (org, id) => ({
+      ...(await originalDetail(org, id)),
+      credentialId: "dedicated",
+      model: "claude-opus-5-5",
+    });
+    const credential = state.credentials[0];
+    if (!credential) throw new Error("fixture credential");
+    state.credentials.push({ ...credential, id: "dedicated", label: "Dedicated API" });
+    api.agents.brain = async (_org, id) =>
+      fakeAgentBrain(id, { brain: "model", account: null, model: null, effort: "medium", canEdit: true });
+    await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api });
+    await settle(8);
+    const d = await brainDialog();
+    expect(within(d).getByRole("combobox", { name: "Conta" }).textContent).toContain("Dedicated API");
+    expect(within(d).getByRole("combobox", { name: "Modelo" }).textContent).toContain("Opus");
+    const high = (await options(within(d).getByRole("combobox", { name: "Esforço" }))).find((o) =>
+      o.textContent?.startsWith("Alto"),
+    );
+    if (!high) throw new Error("high effort option");
+    await click(high);
+    await settle(6);
+    expect(state.calls.filter((c) => c.method === "agents.update").map((c) => c.args)).toEqual([
+      [ORG_ID, ADA_ID, { credentialId: "dedicated", model: "claude-opus-5-5" }],
+    ]);
+    expect(state.calls.filter((c) => c.method === "agents.setBrain").map((c) => c.args)).toEqual([
+      [ORG_ID, ADA_ID, { brain: "model", effort: "high" }],
+    ]);
+    expect(state.calls.some((c) => c.method === "agents.applySetup")).toBe(false);
+  });
+
   test("the search finds an account by its owner's name; no match says so", async () => {
     await agentPage([WORK, JOAO, MARINA]);
     const d = await brainDialog();

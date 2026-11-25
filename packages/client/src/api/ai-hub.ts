@@ -1,3 +1,4 @@
+import { parseCustomModel } from "@agenteschat/providers/catalog";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import {
@@ -18,6 +19,7 @@ import { keys } from "./keys";
 import { useMissionBrain, useSetMissionBrain } from "./missions";
 import {
   useAgentBrain,
+  useAgentDetail,
   useAiAccounts,
   useBrainMachines,
   useMe,
@@ -136,6 +138,8 @@ export function useAiChoice(orgId: string, target: AiChoiceTarget): AiChoiceStat
     false,
     target.kind === "lodi" ? target.scope : undefined,
   );
+  const apiAgent = target.kind === "agent" && brain.data?.brain === "model";
+  const detail = useAgentDetail(orgId, agentId(target), apiAgent);
   const machines = useBrainMachines(orgId);
   const newSetup = useNewAgentSetup(orgId, target.kind === "newAgent");
   const mission = useMissionBrain(orgId, missionId(target), target.kind === "mission");
@@ -146,6 +150,7 @@ export function useAiChoice(orgId: string, target: AiChoiceTarget): AiChoiceStat
 
   const current = currentOf(target, {
     brain: brain.data,
+    agent: detail.data,
     newSetup: newSetup.data,
     mission: mission.data,
     autoModels: settings.data?.autoModels,
@@ -239,6 +244,7 @@ export function useAiChoice(orgId: string, target: AiChoiceTarget): AiChoiceStat
     loading:
       loading ||
       (brainTarget && brain.isLoading) ||
+      (apiAgent && detail.isLoading) ||
       (target.kind === "mission" && mission.isLoading) ||
       (target.kind === "newAgent" && newSetup.isLoading),
     canEdit:
@@ -257,6 +263,7 @@ export function currentOf(
       effort: AiChoice["effort"];
       computer: { machineId: string } | null;
     };
+    agent?: { model: string; credentialId: string | null };
     newSetup?: {
       brain: AiChoice["brain"];
       model: string | null;
@@ -274,6 +281,19 @@ export function currentOf(
     case "lodi": {
       const b = from.brain;
       if (!b) return null;
+      // The brain view's model belongs to a plan; the API model and key live on the agent itself.
+      if (target.kind === "agent" && b.brain === "model") {
+        const a = from.agent;
+        if (!a) return null;
+        return {
+          brain: b.brain,
+          key: parseCustomModel(a.model)?.credentialId ?? a.credentialId,
+          account: null,
+          machineId: b.computer?.machineId ?? null,
+          model: a.model,
+          effort: b.effort,
+        };
+      }
       return {
         brain: b.brain,
         account: b.brain === "model" ? null : b.account,
