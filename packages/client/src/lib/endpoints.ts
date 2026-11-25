@@ -14,6 +14,8 @@ export interface EndpointModelDraft {
   on: boolean;
   input: string;
   output: string;
+  cacheRead?: number;
+  cacheWrite?: number;
 }
 
 export interface EndpointDraft {
@@ -39,10 +41,23 @@ export const endpointBaseExample = (style: EndpointStyle) =>
 const MODEL_ID = /^[\w.:/@+-]{1,200}$/;
 export const MAX_ENDPOINT_MODELS = 100;
 
+const cacheRates = ({ prices }: EndpointModel) => ({
+  ...(prices?.cacheRead === undefined ? {} : { cacheRead: prices.cacheRead }),
+  ...(prices?.cacheWrite === undefined ? {} : { cacheWrite: prices.cacheWrite }),
+});
+
 /** The models an endpoint listed, merged in: the ones already there keep their choice and prices, new ones start off. */
-export function withListedModels(draft: EndpointDraft, listed: readonly { id: string }[]): EndpointDraft {
+export function withListedModels(draft: EndpointDraft, listed: readonly EndpointModel[]): EndpointDraft {
   const have = new Set(draft.models.map((m) => m.id));
-  const fresh = listed.filter((m) => !have.has(m.id)).map((m) => ({ id: m.id, on: false, input: "", output: "" }));
+  const fresh = listed
+    .filter((m) => !have.has(m.id))
+    .map((m) => ({
+      id: m.id,
+      on: false,
+      input: m.prices ? String(m.prices.input) : "",
+      output: m.prices ? String(m.prices.output) : "",
+      ...cacheRates(m),
+    }));
   return { ...draft, models: [...draft.models, ...fresh] };
 }
 
@@ -83,7 +98,19 @@ export function endpointModelsOf(draft: Pick<EndpointDraft, "models">): Endpoint
   return on.map((m) => {
     const input = parsePrice(m.input);
     const output = parsePrice(m.output);
-    return { id: m.id, ...(input != null && output != null ? { prices: { input, output } } : {}) };
+    return {
+      id: m.id,
+      ...(input != null && output != null
+        ? {
+            prices: {
+              input,
+              output,
+              ...(m.cacheRead === undefined ? {} : { cacheRead: m.cacheRead }),
+              ...(m.cacheWrite === undefined ? {} : { cacheWrite: m.cacheWrite }),
+            },
+          }
+        : {}),
+    };
   });
 }
 
@@ -114,6 +141,7 @@ export function draftOfEndpoint(
     models: endpoint.models.map((m) => ({
       id: m.id,
       on: true,
+      ...cacheRates(m),
       input: m.prices ? String(m.prices.input) : "",
       output: m.prices ? String(m.prices.output) : "",
     })),

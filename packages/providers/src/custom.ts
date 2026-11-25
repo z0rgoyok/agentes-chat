@@ -17,23 +17,49 @@ const MODEL_ID = /^[\w.:/@+-]{1,200}$/;
 type Raw = Record<string, unknown>;
 const obj = (v: unknown): Raw | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : null);
 
+interface ListedModel {
+  id: string;
+  label?: string;
+  prices?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
+}
+
+function listedPrices(row: Raw): ListedModel["prices"] {
+  const p = obj(row.pricing);
+  if (row.pricing_unit !== "USD_per_million_tokens" || !p) return;
+  const rate = (n: unknown): n is number => typeof n === "number" && Number.isFinite(n) && n >= 0 && n <= 10_000;
+  if (!rate(p.input) || !rate(p.output)) return;
+  if (p.cached_input !== undefined && !rate(p.cached_input)) return;
+  if (p.cache_write !== undefined && !rate(p.cache_write)) return;
+  return {
+    input: p.input,
+    output: p.output,
+    ...(rate(p.cached_input) ? { cacheRead: p.cached_input } : {}),
+    ...(rate(p.cache_write) ? { cacheWrite: p.cache_write } : {}),
+  };
+}
+
 /**
  * The model ids an endpoint lists: `{ data: [{ id }] }` (OpenAI's and Anthropic's `GET /v1/models`, LiteLLM, vLLM,
  * LM Studio, Ollama's `/v1`), or Ollama's own `{ models: [{ model | name }] }`. Outside data: ids that don't look
  * like one are dropped, repeats too, at most 500.
  */
-export function parseEndpointModels(body: unknown): { id: string; label?: string }[] {
+export function parseEndpointModels(body: unknown): ListedModel[] {
   const root = obj(body);
   const rows = Array.isArray(root?.data) ? root.data : Array.isArray(root?.models) ? root.models : [];
   const seen = new Set<string>();
-  const out: { id: string; label?: string }[] = [];
+  const out: ListedModel[] = [];
   for (const row of rows) {
     const r = obj(row);
     const id = r && [r.id, r.model, r.name].find((v): v is string => typeof v === "string");
     if (!id || !MODEL_ID.test(id) || seen.has(id)) continue;
     seen.add(id);
     const name = r.display_name;
-    out.push({ id, ...(typeof name === "string" && name.trim() && name.length <= 120 ? { label: name.trim() } : {}) });
+    const prices = listedPrices(r);
+    out.push({
+      id,
+      ...(prices ? { prices } : {}),
+      ...(typeof name === "string" && name.trim() && name.length <= 120 ? { label: name.trim() } : {}),
+    });
     if (out.length >= MAX_LISTED) break;
   }
   return out;
@@ -67,7 +93,7 @@ export async function listEndpointModels(
   endpoint: Endpoint,
   apiKey: string,
   http: typeof fetch,
-): Promise<{ id: string; label?: string }[]> {
+): Promise<ListedModel[]> {
   const url = endpoint.style === "anthropic" ? `${endpoint.baseURL}/v1/models` : `${endpoint.baseURL}/models`;
   const headers: Record<string, string> =
     endpoint.style === "anthropic"
@@ -152,6 +178,54 @@ export function endpointHeaders(baseURL: string, session: string, version = "dev
  */
 const readsImages = (model: string) => /claude/i.test(model);
 
+/** A receipt lookup may be retried safely, even if the model call cannot. */
+function meteredHttp(http: typeof fetch, endpoint: Endpoint, apiKey: string) {
+  let token: string | null = null;
+  const capture: typeof fetch = (async (input, init) => {
+    const response = await http(input, init);
+    if (init?.method?.toUpperCase() === "POST" && response.ok) {
+      token = response.headers.get("x-respan-usage-receipt");
+    }
+    return response;
+  }) as typeof fetch;
+  return {
+    http: endpoint.respanReceipts ? capture : http,
+    async cost(): Promise<{ costNanoUsd: number; pricingReceipt: Raw } | undefined> {
+      if (!endpoint.respanReceipts || !token || !/^r_\d+~[0-9:.TZ-]{20,32}$/.test(token)) return;
+      const url = endpoint.baseURL.replace(/\/$/, "") + "/usage/receipts/" + encodeURIComponent(token);
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const response = await http(url, {
+            signal: AbortSignal.timeout(2000),
+            redirect: "error",
+            headers: { authorization: "Bearer " + apiKey },
+          });
+          if (response.status === 200) {
+            const receipt = obj(await cappedJson(response, 32_768));
+            const n = receipt?.cost_nano_usd;
+            return receipt?.receipt === token && typeof n === "number" && Number.isSafeInteger(n) && n >= 0
+              ? {
+                  costNanoUsd: n,
+                  pricingReceipt: {
+                    receipt: token,
+                    rateCards: receipt.rate_cards,
+                    provider: receipt.provider,
+                    model: receipt.model,
+                  },
+                }
+              : undefined;
+          }
+          await response.body?.cancel();
+          if (response.status !== 202) return;
+        } catch {
+          /* Only retry the metering read. */
+        }
+        if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    },
+  };
+}
+
 /**
  * The adapter for every workspace endpoint, registered once as `custom`: each call names its endpoint
  * (`StreamOptions.endpoint`) and goes through the catalog's own adapters with that address, Anthropic's in its
@@ -171,7 +245,8 @@ export function createCustomProvider(
       const parsed = parseCustomModel(request.model);
       if (!endpoint || !parsed) throw new ProviderError("this model has no endpoint", false);
       const extra = endpointHeaders(endpoint.baseURL, streamOptions.session ?? crypto.randomUUID(), options.version);
-      const http = extra ? withHeaders(bounded, extra) : bounded;
+      const meter = meteredHttp(extra ? withHeaders(bounded, extra) : bounded, endpoint, streamOptions.apiKey);
+      const http = meter.http;
       const inner =
         endpoint.style === "anthropic"
           ? createAnthropicProvider({
@@ -190,7 +265,8 @@ export function createCustomProvider(
         { ...request, model: parsed.model },
         streamOptions,
       );
-      return { ...result, model: request.model };
+      const cost = await meter.cost();
+      return { ...result, model: request.model, ...cost };
     },
     /**
      * Pictures from an endpoint that speaks OpenAI's Images API (`/images/generations`, `/images/edits`, ADR 0197):
@@ -200,10 +276,11 @@ export function createCustomProvider(
     async generateImage(request, { apiKey, endpoint }) {
       if (endpoint?.style !== "openai") throw new ProviderError("this endpoint makes no pictures", false);
       const model = parseCustomModel(request.model)?.model ?? request.model;
+      const meter = meteredHttp(bounded, endpoint, apiKey);
       const client = new OpenAI({
         apiKey,
         baseURL: endpoint.baseURL,
-        fetch: bounded,
+        fetch: meter.http,
         maxRetries: options.maxRetries ?? 2,
       });
       const fetchUrl = async (url: string) => {
@@ -222,7 +299,8 @@ export function createCustomProvider(
         { ...request, model },
         { compatible: true, fetchUrl },
       );
-      return result;
+      const cost = await meter.cost();
+      return { ...result, ...cost };
     },
   };
 }

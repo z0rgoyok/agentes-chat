@@ -282,6 +282,7 @@ export interface MadeImage {
 }
 
 export interface ImageResult {
+  pricingReceipt?: Record<string, unknown>;
   /** The pictures made, in order: fewer than asked when `error` says why the rest weren't. */
   images: MadeImage[];
   /** The model that answered, when the provider says. */

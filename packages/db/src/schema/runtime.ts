@@ -441,6 +441,8 @@ export const usageRecords = pgTable(
     outputTokens: integer().notNull(),
     cacheReadTokens: integer().notNull().default(0),
     cacheWriteTokens: integer().notNull().default(0),
+    /** Gateway receipt or rate snapshot at settlement; historical rows may predate metering. */
+    pricingReceipt: jsonb().$type<Record<string, unknown>>(),
     /** Cost in nano-USD (1e-9 USD), computed from `MODEL_CATALOG` at call time. */
     costNanoUsd: bigint({ mode: "number" }).notNull(),
     /**
