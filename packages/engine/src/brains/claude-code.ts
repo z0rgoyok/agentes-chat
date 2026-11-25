@@ -18,7 +18,8 @@ import {
   STEER_PROTOCOL,
   type WireBrainEvent,
 } from "@agenteschat/adapters";
-import { type Database, schema } from "@agenteschat/db";
+import { type Database, schema, sql } from "@agenteschat/db";
+import { catalogModelOf, costAtRates, costNanoUsd } from "@agenteschat/providers";
 import { autoContextFor } from "@agenteschat/providers/context-limits";
 import { getAgentCached } from "../agents";
 import type { CodeSetup } from "../git/machine";
@@ -26,7 +27,9 @@ import { type MachineCaller, MachineRequestError, type MachineStatus } from "../
 import { MachineDroppedError, MachineOfflineError, MachinePausedError, pausedMessage } from "../machines";
 import { addPersonSpend } from "../person-usage";
 import { apiNano } from "../plan-usage";
+import { respanPrimary, respanRates, usesRespanPricing } from "../respan-pricing";
 import { runnerUpdateWay } from "../runner-update";
+import { budgetPeriodOf } from "../usage";
 import { computerPrompt, systemWithConversation } from "./prompt";
 import {
   askingPermissions,
@@ -583,37 +586,70 @@ export async function recordPlanUsage(
 ): Promise<string | null> {
   const cacheRead = Math.max(0, Math.round(input.cacheReadTokens ?? 0));
   const cacheWrite = Math.max(0, Math.round(input.cacheWriteTokens ?? 0));
-  const [row] = await db
-    .insert(schema.usageRecords)
-    .values({
-      orgId: input.orgId,
-      agentId: input.agentId,
-      kind: input.kind ?? "agent",
-      runId: input.runId ?? null,
-      credentialId: null,
-      provider: input.provider,
-      model: input.model ?? input.provider,
-      requestedModel: input.model ?? input.provider,
-      // Stored like API usage: uncached input apart from cache reads and writes (the totals are the same).
-      inputTokens: Math.max(0, Math.round(input.inputTokens) - cacheRead - cacheWrite),
-      outputTokens: Math.max(0, Math.round(input.outputTokens)),
-      cacheReadTokens: cacheRead,
-      cacheWriteTokens: cacheWrite,
-      costNanoUsd: 0,
-      billedTo: "plan",
-      machineId: input.machineId ?? null,
-      brainAccountId: input.machineId ? (input.accountId ?? null) : null,
-      personId: input.personId ?? null,
-    })
-    .returning({ id: schema.usageRecords.id, inputTokens: schema.usageRecords.inputTokens });
+  const now = new Date();
+  const usage = {
+    inputTokens: Math.max(0, Math.round(input.inputTokens) - cacheRead - cacheWrite),
+    outputTokens: Math.max(0, Math.round(input.outputTokens)),
+    cacheReadTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
+  };
+  const model = input.model ?? input.provider;
+  const rates = respanRates(model, now);
+  const known = catalogModelOf(model);
+  const cost = usesRespanPricing()
+    ? rates
+      ? costAtRates(rates, usage, now)
+      : known
+        ? costNanoUsd(known, usage, now)
+        : 0
+    : 0;
+  const row = await db.transaction(async (tx) => {
+    const [record] = await tx
+      .insert(schema.usageRecords)
+      .values({
+        orgId: input.orgId,
+        agentId: input.agentId,
+        kind: input.kind ?? "agent",
+        runId: input.runId ?? null,
+        credentialId: null,
+        provider: input.provider,
+        model: input.model ?? input.provider,
+        requestedModel: input.model ?? input.provider,
+        // Stored like API usage: uncached input apart from cache reads and writes (the totals are the same).
+        ...usage,
+        createdAt: now,
+        costNanoUsd: cost,
+        pricingReceipt: usesRespanPricing()
+          ? { basis: "api_equivalent", model, card: respanPrimary(model) ?? null }
+          : undefined,
+        billedTo: "plan",
+        machineId: input.machineId ?? null,
+        brainAccountId: input.machineId ? (input.accountId ?? null) : null,
+        personId: input.personId ?? null,
+      })
+      .returning({ id: schema.usageRecords.id, inputTokens: schema.usageRecords.inputTokens });
+    if (record && cost && (input.kind ?? "agent") === "agent") {
+      const periods = schema.agentBudgetPeriods;
+      await tx
+        .insert(periods)
+        .values({ orgId: input.orgId, agentId: input.agentId, periodStart: budgetPeriodOf(now), spentNanoUsd: cost })
+        .onConflictDoUpdate({
+          target: [periods.agentId, periods.periodStart],
+          set: { spentNanoUsd: sql`${periods.spentNanoUsd} + ${cost}`, updatedAt: now },
+        });
+    }
+    return record;
+  });
   if (row && input.personId) {
     // One unit for everything: a plan's tokens count at what they would cost through the API.
-    const equivalent = apiNano(input.model ?? null, {
-      input: row.inputTokens,
-      output: Math.max(0, Math.round(input.outputTokens)),
-      cacheRead,
-      cacheWrite,
-    });
+    const equivalent = usesRespanPricing()
+      ? cost
+      : apiNano(input.model ?? null, {
+          input: row.inputTokens,
+          output: Math.max(0, Math.round(input.outputTokens)),
+          cacheRead,
+          cacheWrite,
+        });
     if (equivalent)
       await addPersonSpend(db, { orgId: input.orgId, personId: input.personId, amountNanoUsd: equivalent });
   }

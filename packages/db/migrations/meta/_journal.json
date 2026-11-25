@@ -2332,6 +2332,13 @@
       "when": 1795521607122,
       "tag": "0337_proposal_review",
       "breakpoints": true
+    },
+    {
+      "idx": 335,
+      "version": "7",
+      "when": 1795594451485,
+      "tag": "0338_usage_price_receipt",
+      "breakpoints": true
     }
   ]
 }

@@ -1,4 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { PlanUsage } from "@agenteschat/adapters";
 import { eq, schema, sql } from "@agenteschat/db";
 import { catalogModelOf } from "@agenteschat/providers";
@@ -466,4 +469,53 @@ test("no hint when only a window other than the week has parts: its words speak 
   const pessoal = (await orgPlanUsage(f.db, f.owner.id, f.org.id)).accounts.find((a) => a.accountId === PESSOAL);
   expect(pessoal?.kinds).toEqual([{ kind: "handoffs", tokens: 50_000, percent: 80 }]);
   expect(pessoal?.hint).toBeNull();
+});
+
+test("Respan prices subscription usage and debits the agent at its API equivalent", async () => {
+  f = await setup();
+  const dir = mkdtempSync(join(tmpdir(), "rooms-plan-price-"));
+  const prev = process.env.RESPAN_PRICE_CATALOG;
+  try {
+    const file = join(dir, "prices.json");
+    const model = "test-priced";
+    const target = "provider/test-priced";
+    const card = {
+      pricing: { input: 2, output: 10, cached_input: 0.1 },
+      rate_card: { source: "https://example.com/rates", verified_on: "2026-11-25" },
+    };
+    writeFileSync(
+      file,
+      JSON.stringify({
+        endpoints: {},
+        data: [{ id: model, route: { to: [target], pricing_by_target: { [target]: card } } }],
+      }),
+    );
+    process.env.RESPAN_PRICE_CATALOG = file;
+    const id = await recordPlanUsage(f.db, {
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      provider: "codex",
+      model,
+      inputTokens: 1000,
+      cacheReadTokens: 900,
+      outputTokens: 50,
+    });
+    if (!id) throw new Error("missing usage record");
+    const [row] = await f.db.select().from(schema.usageRecords).where(eq(schema.usageRecords.id, id));
+    expect(row).toMatchObject({
+      billedTo: "plan",
+      costNanoUsd: 790000,
+      inputTokens: 100,
+      pricingReceipt: { basis: "api_equivalent", model, card },
+    });
+    const [period] = await f.db
+      .select()
+      .from(schema.agentBudgetPeriods)
+      .where(eq(schema.agentBudgetPeriods.agentId, f.agent.id));
+    expect(period?.spentNanoUsd).toBe(790000);
+  } finally {
+    if (prev === undefined) delete process.env.RESPAN_PRICE_CATALOG;
+    else process.env.RESPAN_PRICE_CATALOG = prev;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

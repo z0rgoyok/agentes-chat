@@ -174,6 +174,7 @@ export interface ModelUsage {
 export type StopReason = "end_turn" | "max_tokens" | "refusal" | "tool_use" | "other";
 
 export interface ModelResult {
+  pricingReceipt?: Record<string, unknown>;
   /** Concatenated text blocks. */
   text: string;
   /** Every block of the reply, in order (text, tool calls, opaque provider blocks). */
@@ -216,6 +217,8 @@ export interface StreamOptions {
  * Completions (`openai`), `https://host/anthropic` (no `/v1`) for Anthropic Messages.
  */
 export interface Endpoint {
+  /** Operator-pinned gateway that issues per-request metering receipts. */
+  respanReceipts?: boolean;
   style: "openai" | "anthropic";
   baseURL: string;
 }

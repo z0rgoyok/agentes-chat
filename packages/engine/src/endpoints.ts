@@ -16,6 +16,7 @@ import { NotFoundError, ValidationError } from "./errors";
 import type { ModelGateway } from "./gateway";
 import { assertPublicHttpsUrl, internalAddress, publicHttpsFetch, type ResolveHost } from "./net-guard";
 import { requirePermission } from "./organizations";
+import { respanEndpoint, respanRates } from "./respan-pricing";
 import { isAgentesCloud } from "./telemetry";
 import { redactCredentials } from "./tool-detail";
 
@@ -137,9 +138,16 @@ export async function loadEndpointModels(db: Executor, orgId: string) {
   setCustomModels(
     orgId,
     Object.fromEntries(
-      rows.flatMap((r) =>
-        (r.options.endpoint?.models ?? []).map((m) => [customModelId(r.id, m.id), infoOf(r.label, m)] as const),
-      ),
+      rows.flatMap(({ id, label, options }) => {
+        const endpoint = options.endpoint;
+        if (!endpoint) return [];
+        const managed = respanEndpoint(id, endpoint.baseURL);
+        return endpoint.models.map((model) => {
+          const info = infoOf(label, model);
+          const rates = managed && respanRates(model.id);
+          return [customModelId(id, model.id), rates ? { ...info, ...rates, unpriced: undefined } : info] as const;
+        });
+      }),
     ),
   );
 }
@@ -154,7 +162,7 @@ export async function listEndpoint(
   orgId: string,
   input: { style: EndpointStyle; baseURL: string; apiKey?: string },
   net: EndpointNet,
-): Promise<{ baseURL: string; models: { id: string; label?: string }[]; error?: string }> {
+): Promise<{ baseURL: string; models: Awaited<ReturnType<typeof listEndpointModels>>; error?: string }> {
   await requirePermission(db, actorId, orgId, "manage_credentials");
   const baseURL = await endpointAddress(input.baseURL, input.style, net);
   try {

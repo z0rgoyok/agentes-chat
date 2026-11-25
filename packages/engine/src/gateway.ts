@@ -58,6 +58,7 @@ import { BudgetExceededError, MissingCredentialError, NotFoundError, ValidationE
 import { publishUserEvent } from "./events";
 import { maySql, type RolePermission } from "./permissions";
 import { addPersonSpend, assertPersonUnderLimit, personSpendAdded } from "./person-usage";
+import { respanEndpoint } from "./respan-pricing";
 import { assertCanWork, standingRefusal } from "./standing";
 import { maskValues, redactCredentials } from "./tool-detail";
 import { budgetPercent, monthStartUtc, budgetPeriodOf as periodOf, withEffectiveBudget } from "./usage";
@@ -295,7 +296,13 @@ export function createModelGateway(deps: ModelGatewayDeps) {
           organization: c.options?.organization,
           project: c.options?.project,
           ...(c.options?.endpoint
-            ? { endpoint: { style: c.options.endpoint.style, baseURL: c.options.endpoint.baseURL } }
+            ? {
+                endpoint: {
+                  style: c.options.endpoint.style,
+                  baseURL: c.options.endpoint.baseURL,
+                  respanReceipts: !!credentialId && respanEndpoint(credentialId, c.options.endpoint.baseURL),
+                },
+              }
             : {}),
           credentialId,
         }
@@ -444,6 +451,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
       usage: ModelUsage;
       /** What the provider says the call cost; absent: priced from the catalog. */
       reportedCost?: number;
+      pricingReceipt?: Record<string, unknown>;
       partial: boolean;
     },
   ) {
@@ -467,6 +475,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
         cacheReadTokens: input.usage.cacheReadTokens,
         cacheWriteTokens: input.usage.cacheWriteTokens,
         costNanoUsd: cost,
+        pricingReceipt: input.pricingReceipt,
         partial: input.partial,
         createdAt: now(),
       })
@@ -655,6 +664,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
     model: string;
     usage: ModelUsage;
     reportedCost?: number;
+    pricingReceipt?: Record<string, unknown>;
     /** `image`: pictures (ADR 0197), recorded at the image model asked for; absent: a model call (`agent`). */
     kind?: "agent" | "image";
     requestedModel?: string;
@@ -673,12 +683,12 @@ export function createModelGateway(deps: ModelGatewayDeps) {
           delete from ${budgetReservations} where id = ${input.reservation?.id ?? null}::uuid returning amount_nano_usd
         ), u as (
           insert into ${usageRecords} (id, org_id, agent_id, kind, run_id, credential_id, provider, model, requested_model,
-            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_nano_usd, partial, person_id, created_at)
+            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, cost_nano_usd, partial, person_id, created_at, pricing_receipt)
           values (${id}::uuid, ${agent.orgId}::uuid, ${agent.id}::uuid, ${kind}::usage_kind,
             ${input.runId ?? null}::uuid, ${input.credentialId}::uuid, ${input.provider}, ${input.model},
             ${input.requestedModel ?? agent.model}, ${usage.inputTokens}, ${usage.outputTokens},
             ${usage.cacheReadTokens}, ${usage.cacheWriteTokens}, ${cost}, false, ${input.personId ?? null},
-            ${at}::timestamptz)
+            ${at}::timestamptz, ${input.pricingReceipt ? JSON.stringify(input.pricingReceipt) : null}::jsonb)
           returning id
         ), p as (
           insert into ${agentBudgetPeriods} (org_id, agent_id, period_start, spent_nano_usd, reserved_nano_usd, updated_at)
@@ -924,6 +934,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
         model: result.model,
         usage: result.usage,
         reportedCost: result.costNanoUsd,
+        pricingReceipt: result.pricingReceipt,
       });
       await checkThresholds(agent, spent, record.cost);
       if (personId && personSpent !== null)
@@ -1018,7 +1029,9 @@ export function createModelGateway(deps: ModelGatewayDeps) {
         throw masked(error, label(info.provider), key);
       }
 
-      const cost = imageCostNanoUsd(model, request, result, endpointPrices);
+      const cost =
+        (key.endpoint?.respanReceipts ? result.costNanoUsd : undefined) ??
+        imageCostNanoUsd(model, request, result, endpointPrices);
       const usage: ModelUsage = {
         inputTokens: (result.usage?.textInputTokens ?? 0) + (result.usage?.imageInputTokens ?? 0),
         outputTokens: result.usage?.outputTokens ?? 0,
@@ -1038,6 +1051,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
           requestedModel: model,
           usage,
           reportedCost: cost,
+          pricingReceipt: result.pricingReceipt,
           kind: "image",
         });
         usageRecordId = record.id;
@@ -1061,6 +1075,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
           requestedModel: model,
           usage,
           reportedCost: cost,
+          pricingReceipt: result.pricingReceipt,
           partial: false,
         });
         usageRecordId = record.id;
@@ -1236,6 +1251,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
               requestedModel: request.model,
               usage: result.usage,
               reportedCost: result.costNanoUsd,
+              pricingReceipt: result.pricingReceipt,
               partial: false,
             });
           },
@@ -1314,6 +1330,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
         model: result.model,
         usage: result.usage,
         reportedCost: result.costNanoUsd,
+        pricingReceipt: result.pricingReceipt,
         partial: false,
       });
       return { ...result, usageRecordId: record.id, costNanoUsd: record.cost, maxTokens: request.maxTokens };

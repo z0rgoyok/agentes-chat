@@ -326,6 +326,7 @@ import {
   stripSentinel,
 } from "./reply-policy";
 import { routineCreatorOf, wikiPersonOf } from "./requester";
+import { usesRespanPricing } from "./respan-pricing";
 import {
   isRightHand,
   RIGHT_HAND_AUTO,
@@ -448,6 +449,7 @@ import {
 import { type Approval, type InvokeResult, isSensitive, type ToolGateway } from "./tools/gateway";
 import { grantedScopeKeys, grantKey } from "./tools/scopes";
 import type { ToolContext, ToolDefinition, ToolOutput } from "./tools/types";
+import { agentBudgetState, effectiveAgentBudget } from "./usage";
 import {
   budgetUsedPercent,
   continuesPastPlan,
@@ -5498,7 +5500,13 @@ async function executeRunInner(
               await runAuthority(db, { ...run, transcript: transcript as unknown as Record<string, unknown> }),
             );
       try {
-        // A plan brain's turn costs nothing through the gateway: its person's limit is checked here.
+        if (turnPlan.kind !== "model" && usesRespanPricing()) {
+          await deferred;
+          const limit = await effectiveAgentBudget(db, agent);
+          const used = await agentBudgetState(db, run.orgId, run.agentId);
+          if (used.spentNanoUsd + used.reservedNanoUsd >= limit)
+            throw new BudgetExceededError(agent.id, used.spentNanoUsd, limit, used.spentNanoUsd < limit);
+        }
         if (personId && turnPlan.kind !== "model") await assertPersonUnderLimit(db, run.orgId, personId);
         result = await thinkOnce(
           brain,
@@ -5535,7 +5543,7 @@ async function executeRunInner(
                   ...(turnPlan.session?.machineId
                     ? { machineId: turnPlan.session.machineId, accountId: turnPlan.account?.id ?? null }
                     : {}),
-                  ...(u.model ? { model: u.model } : {}),
+                  model: u.model ?? turnPlan.model ?? undefined,
                   inputTokens: u.input,
                   outputTokens: u.output,
                   cacheReadTokens: u.cacheRead ?? 0,

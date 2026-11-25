@@ -88,7 +88,7 @@ export interface ModelInfo {
    * Lower prices outside the provider's peak hours (UTC, `[from, to)`, Monday to Friday; weekends are off-peak all
    * day): `prices` are the peak ones.
    */
-  offPeak?: { prices: TokenPrices; peakHoursUtc: readonly (readonly [number, number])[] };
+  offPeak?: { holidays?: readonly string[]; prices: TokenPrices; peakHoursUtc: readonly (readonly [number, number])[] };
   /** Prices for the whole request when its prompt exceeds `aboveInputTokens`. */
   longContext?: { aboveInputTokens: number; prices: TokenPrices };
   /** Ask the API to retry a refused request on a fallback model (Anthropic `fallbacks: "default"`). */
@@ -875,9 +875,12 @@ const tokensCost = (p: TokenPrices, u: ModelUsage) =>
  * (`maxCostNanoUsd`, `outputTokensWithin`) keep the list prices on purpose, so they err high while a lower price
  * lasts; give them `at` too if that ever stops agents early.
  */
-export const pricesAt = (info: ModelInfo, at = new Date()) => {
+export const pricesAt = (info: Pick<ModelInfo, "prices" | "offPeak" | "intro">, at = new Date()) => {
   if (info.intro && at.getTime() < Date.parse(info.intro.until)) return info.intro.prices;
-  return info.offPeak && !atPeak(info.offPeak.peakHoursUtc, at) ? info.offPeak.prices : info.prices;
+  return info.offPeak &&
+    (info.offPeak.holidays?.includes(at.toISOString().slice(0, 10)) || !atPeak(info.offPeak.peakHoursUtc, at))
+    ? info.offPeak.prices
+    : info.prices;
 };
 
 const atPeak = (hours: readonly (readonly [number, number])[], at: Date) => {
@@ -891,7 +894,14 @@ const atPeak = (hours: readonly (readonly [number, number])[], at: Date) => {
  * can't price).
  */
 export function costNanoUsd(model: string, usage: ModelUsage, at = new Date()): number {
-  const info = infoOf(model);
+  return costAtRates(infoOf(model), usage, at);
+}
+
+export function costAtRates(
+  info: Pick<ModelInfo, "prices" | "offPeak" | "intro" | "longContext">,
+  usage: ModelUsage,
+  at: Date,
+): number {
   const prompt = usage.inputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
   return tokensCost(
     info.longContext && prompt > info.longContext.aboveInputTokens ? info.longContext.prices : pricesAt(info, at),
