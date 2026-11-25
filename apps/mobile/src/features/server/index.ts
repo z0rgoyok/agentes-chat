@@ -1,4 +1,5 @@
 import { isTailnet, type ServerProblem } from "@agenteschat/client/lib/server";
+import { TrueSheet } from "@lodev09/react-native-true-sheet";
 import { signOutOf } from "@/features/account";
 import { signInOneTime } from "@/lib/auth";
 import { isManagedPlace, requireManagedPlace } from "@/lib/managed-server";
@@ -47,6 +48,9 @@ export async function openWorkspace(server: string, orgId: string | null) {
   requireManagedPlace(server);
   if (orgId) await writeValue(orgValueName(server), orgId);
   if (server === placeKey()) return;
+  // Expo canDismiss only recognizes stack navigators. Route sheets use true-sheet;
+  // wait for their native dismissal before changing the account and remounting providers.
+  await TrueSheet.dismissAll();
   let closing = false;
   try {
     if (router.canDismiss()) {
