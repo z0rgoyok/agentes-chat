@@ -1,10 +1,11 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
+import managedService from "./managed-service.json";
 import versions from "./versions.json";
 
 /**
  * The app's Expo config. Builds: the "Android build" and "iOS build" workflows on GitHub Actions, or EAS (see
  * README.md). The native projects are made from this file by `expo prebuild` and never committed.
- * - `EXPO_PUBLIC_API_URL`: the server the app talks to by default (production); people can pick their own.
+ * - `EXPO_PUBLIC_API_URL`: legacy build input; this managed app always uses rooms.tich.app.
  * - `EAS_PROJECT_ID`: overrides the EAS project, for those who build with EAS; defaults to ours on expo.dev.
  * - `APP_VARIANT`: "development" | "preview" | "production" (from eas.json or the workflow), so the three install
  *   side by side.
@@ -30,7 +31,7 @@ const platform = process.env.APP_PLATFORM ?? process.env.EAS_BUILD_PLATFORM;
 const version = platform === "android" ? versions.android : versions.ios;
 const suffix = variant === "production" ? "" : `.${variant}`;
 const iosBundleIdentifier = process.env.IOS_BUNDLE_ID ?? `chat.agentes.app${suffix}`;
-const apiUrl = process.env.EXPO_PUBLIC_API_URL ?? "https://app.agentes.chat";
+const apiUrl = managedService.server;
 // Links to this host open the app (universal links / App Links); the server publishes the matching /.well-known
 // files (apps/server/src/app-links.ts).
 const linkHost = new URL(apiUrl).host;

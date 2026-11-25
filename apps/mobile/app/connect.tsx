@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Quiet } from "@/features/auth/AuthFlow";
 import { connectToServer, problemText } from "@/features/server";
+import { MANAGED_SERVER } from "@/lib/managed-server";
 import { ALLOW_HTTP, serverUrl, signedInServers } from "@/lib/server";
 import { connectPlan } from "@/lib/server-choice";
 import { useSession } from "@/providers/session";
@@ -27,7 +28,8 @@ export default function Connect() {
   const { t } = useTranslation();
   const session = useSession();
   const params = useLocalSearchParams<{ server?: string; token?: string }>();
-  const server = normalizeServer(typeof params.server === "string" ? params.server : "", { allowHttp: ALLOW_HTTP });
+  const candidate = normalizeServer(typeof params.server === "string" ? params.server : "", { allowHttp: ALLOW_HTTP });
+  const server = candidate === MANAGED_SERVER ? candidate : null;
   const token = typeof params.token === "string" && params.token ? params.token : undefined;
   const [attempt, setAttempt] = useState(0);
   const [check, setCheck] = useState<ServerCheck | null>(null);

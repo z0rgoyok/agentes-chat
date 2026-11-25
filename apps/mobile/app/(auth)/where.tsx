@@ -1,6 +1,5 @@
-import { WhereSheet } from "@/features/auth/WhereSheet";
+import { Redirect } from "expo-router";
 
-/** "Onde fica o seu workspace?", from the sign-in's Trocar, as a native form sheet. */
-export default function Where() {
-  return <WhereSheet />;
+export default function ManagedServerOnly() {
+  return <Redirect href="/sign-in" />;
 }

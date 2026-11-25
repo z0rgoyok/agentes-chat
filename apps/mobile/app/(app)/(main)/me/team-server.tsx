@@ -1,6 +1,5 @@
-import { TeamServerPage } from "@/features/me/WorkspacesPages";
+import { Redirect } from "expo-router";
 
-/** Servidor da equipe, pushed from Adicionar workspace (ADR 0154). */
-export default function TeamServerRoute() {
-  return <TeamServerPage />;
+export default function ManagedServerOnly() {
+  return <Redirect href="/me/workspaces" />;
 }

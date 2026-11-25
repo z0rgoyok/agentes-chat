@@ -172,3 +172,15 @@ React Native's renderer needs the exact React it was built with (SDK 58: `react@
 resolve a newer patch at the root. `metro.config.js` resolves `react` and `react-native` from this folder for
 every package, so the app bundle has a single React. Hierarchical lookup stays on (Bun's hoisted layout nests
 conflicting versions under the packages that need them).
+
+## Managed Tich Rooms builds
+
+`managed-service.json` pins the service for native entitlements and the runtime.
+The hosting picker and server address routes are disabled. Connect/QR links only
+accept this service; local account suffixes remain supported. Saved sessions from
+other hosts are excluded without reassigning their secure-storage prefixes.
+Keep this fork-specific policy when updating upstream; never include it in an
+upstream PR. Run `bun test apps/mobile/test/managed-server.test.ts
+apps/mobile/test/workspaces.test.ts apps/mobile/test/features/server-switch.test.ts`
+and the mobile typecheck before release. Verify sign-in, additional accounts,
+workspace switching and same-service invitation links in the Release app.

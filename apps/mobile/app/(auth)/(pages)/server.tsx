@@ -1,7 +1,5 @@
-import { ServerAddress } from "@/features/server/ServerAddress";
-import { router } from "@/ui/navigation";
+import { Redirect } from "expo-router";
 
-/** "Onde fica o seu agentes.chat?", from the sign-in's line: back to the sign-in when done. */
-export default function Server() {
-  return <ServerAddress onDone={() => router.back()} />;
+export default function ManagedServerOnly() {
+  return <Redirect href="/sign-in" />;
 }

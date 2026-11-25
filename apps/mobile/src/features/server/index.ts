@@ -1,6 +1,7 @@
 import { isTailnet, type ServerProblem } from "@agenteschat/client/lib/server";
 import { signOutOf } from "@/features/account";
 import { signInOneTime } from "@/lib/auth";
+import { isManagedPlace, requireManagedPlace } from "@/lib/managed-server";
 import { newAccountPlace, orgValueName, placeKey, serverUrl, setServer, signedInServers } from "@/lib/server";
 import { connectPlan, serverOf } from "@/lib/server-choice";
 import { writeValue } from "@/lib/storage";
@@ -28,6 +29,7 @@ export const problemText = (problem: ServerProblem, server: string): string =>
  * is signed in to replaces them there (`connectPlan`). False when the token was refused (expired or already used).
  */
 export async function connectToServer(target: { server: string; token?: string }) {
+  if (!isManagedPlace(target.server)) return false;
   // On that server already, as any of its accounts (ADR 0183): the link is for the account the app is on.
   const place = serverOf(placeKey()) === target.server ? placeKey() : target.server;
   const plan = connectPlan(serverUrl(), target, signedInServers().includes(place));
@@ -42,6 +44,7 @@ export async function connectToServer(target: { server: string; token?: string }
  * signs out.
  */
 export async function openWorkspace(server: string, orgId: string | null) {
+  requireManagedPlace(server);
   if (orgId) await writeValue(orgValueName(server), orgId);
   if (server === placeKey()) return;
   let closing = false;
