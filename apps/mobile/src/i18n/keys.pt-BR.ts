@@ -88,6 +88,7 @@ export const mobilePtBR = {
       notNow: "Agora não",
       checking: "Conferindo o servidor…",
       notALink: "Este link não é de um servidor agentes.chat.",
+      managedServerOnly: "Este app se conecta apenas ao Tich Rooms.",
       tokenFailed: "O código expirou ou já foi usado. Entre com seu e-mail, ou mostre um código novo no computador.",
       signInSlow:
         "Entrar está demorando mais que o normal. Entre com seu e-mail, ou mostre um código novo no computador.",

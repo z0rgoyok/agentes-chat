@@ -68,7 +68,7 @@ export default function Connect() {
 
   if (!server)
     return (
-      <AuthScaffold title={t("mobile.auth.connect.notALink")}>
+      <AuthScaffold title={t("mobile.auth.connect.managedServerOnly")}>
         <Button variant="primary" wide label={t("mobile.common.close")} onPress={leave} />
       </AuthScaffold>
     );
