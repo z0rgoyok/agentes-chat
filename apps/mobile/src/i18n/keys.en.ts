@@ -83,6 +83,7 @@ export const mobileEn = {
       notNow: "Not now",
       checking: "Checking the server…",
       notALink: "This link isn't from an agentes.chat server.",
+      managedServerOnly: "This app only connects to Tich Rooms.",
       tokenFailed: "The code expired or was already used. Sign in with your email, or show a new code on the computer.",
       signInSlow:
         "Signing in is taking longer than it should. Sign in with your email, or show a new code on the computer.",
