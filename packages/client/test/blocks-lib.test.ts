@@ -48,6 +48,13 @@ describe("a block's page", () => {
     expect(BLOCK_KIT_CSS).toContain("ac-table{overflow-x:auto");
   });
 
+  test("an auto-height frame hides its viewport scrollbar without clipping its content", () => {
+    const page = blockPage("<p>a</p>", { ...HOST, fitHeight: true });
+    expect(page).toContain(":root{scrollbar-width:none}:root::-webkit-scrollbar{display:none}");
+    expect(page).toContain("html{overflow:hidden auto;");
+    expect(blockPage("<p>a</p>", HOST)).not.toContain("scrollbar-width:none");
+  });
+
   test("what the person set can't close the script it travels in", () => {
     const page = blockPage("<p>a</p>", { ...HOST, state: { name: "</script><script>x()</script>" } });
     expect(page).not.toContain("</script><script>x()");
