@@ -88,6 +88,13 @@ test("an endpoint: its list, saved with a test per model, its models in the pick
   expect(disabled.status).toBe(200);
   expect(await disabled.json()).toMatchObject({ models: [{ id: "qwen-3", imageInput: false }] });
 
+  const automatic = await api(`/credentials/${key.id}/models`, {
+    method: "PUT",
+    json: { models: [{ id: "qwen-3", imageInput: null }] },
+  });
+  expect(automatic.status).toBe(200);
+  expect(await automatic.json()).toMatchObject({ models: [{ id: "qwen-3", imageInput: null }] });
+
   // A member neither lists, adds nor changes one.
   const member = await joinByInvitation(t, owner, orgId, "bia@example.com");
   const asMember = (path: string, init?: Parameters<typeof member>[1]) =>

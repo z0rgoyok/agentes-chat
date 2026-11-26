@@ -11,6 +11,10 @@ import {
   endpointBaseExample,
   endpointModelsOf,
   endpointReady,
+  IMAGE_INPUT_MODES,
+  type ImageInputMode,
+  imageInputMode,
+  imageInputOverride,
   modelsShown,
   pricesProblem,
   withChecks,
@@ -309,14 +313,20 @@ export function EndpointForm({
                 return (
                   <View key={m.id} style={styles.gap}>
                     <GroupedHeader>{`${m.id} · ${t("endpoint.priceUnit")}`}</GroupedHeader>
-                    <GroupedList>
-                      {draft.style === "openai" ? (
-                        <GroupedRow
-                          label={t("endpoint.imageInput")}
-                          checked={m.imageInput === true}
-                          onPress={() => setModel(m.id, { imageInput: !m.imageInput })}
+                    {draft.style === "openai" ? (
+                      <View>
+                        <GroupedHeader>{t("endpoint.imageInput")}</GroupedHeader>
+                        <Segmented
+                          wide="fit"
+                          items={IMAGE_INPUT_MODES.map((key) => ({ key, label: t(`endpoint.imageInputModes.${key}`) }))}
+                          value={imageInputMode(m.imageInput)}
+                          onChange={(mode) =>
+                            setModel(m.id, { imageInput: imageInputOverride(mode as ImageInputMode) })
+                          }
                         />
-                      ) : null}
+                      </View>
+                    ) : null}
+                    <GroupedList>
                       <GroupedField label={t("endpoint.priceInShort")}>
                         <TextInput
                           value={m.input}

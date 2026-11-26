@@ -13,6 +13,10 @@ import {
   endpointBaseExample,
   endpointModelsOf,
   endpointReady,
+  IMAGE_INPUT_MODES,
+  type ImageInputMode,
+  imageInputMode,
+  imageInputOverride,
   modelsShown,
   pricesProblem,
   withChecks,
@@ -34,6 +38,7 @@ import {
   Locked,
   SearchField,
   Segmented,
+  Select,
   SettingNote,
   Spinner,
 } from "@agenteschat/ui";
@@ -344,14 +349,18 @@ export function EndpointForm({
                       </span>
                     )}
                     {m.on && draft.style === "openai" && (
-                      <span className="endpoint-model__image-input">
-                        <Checkbox
-                          id={`${ids}-image-${m.id}`}
-                          checked={m.imageInput === true}
-                          onCheckedChange={(imageInput) => setModel(m.id, { imageInput })}
-                        />
-                        <label htmlFor={`${ids}-image-${m.id}`}>{t("endpoint.imageInput")}</label>
-                      </span>
+                      <div className="endpoint-model__image-input">
+                        <Field label={t("endpoint.imageInput")} id={`${ids}-image-${m.id}`}>
+                          <Select<ImageInputMode>
+                            value={imageInputMode(m.imageInput)}
+                            options={IMAGE_INPUT_MODES.map((value) => ({
+                              value,
+                              label: t(`endpoint.imageInputModes.${value}`),
+                            }))}
+                            onValueChange={(mode) => setModel(m.id, { imageInput: imageInputOverride(mode) })}
+                          />
+                        </Field>
+                      </div>
                     )}
                     {problem && (
                       <div className="ac-field__error endpoint-model__error" role="alert">

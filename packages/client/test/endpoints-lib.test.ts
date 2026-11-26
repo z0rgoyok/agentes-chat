@@ -7,6 +7,8 @@ import {
   endpointAddressLooksValid,
   endpointModelsOf,
   endpointReady,
+  imageInputMode,
+  imageInputOverride,
   modelsShown,
   modelUnpriced,
   parsePrice,
@@ -119,6 +121,12 @@ describe("the endpoint form", () => {
     expect(saved.models[0]?.imageInput).toBe(true);
     const disabled = saved.models.map((model) => ({ ...model, imageInput: false }));
     expect(endpointModelsOf({ models: disabled })).toEqual([{ id: "vision", imageInput: false }]);
+    expect(imageInputMode(undefined)).toBe("auto");
+    expect(imageInputMode(null)).toBe("auto");
+    expect(imageInputMode(true)).toBe("on");
+    expect(imageInputMode(false)).toBe("off");
+    const automatic = disabled.map((model) => ({ ...model, imageInput: imageInputOverride("auto") }));
+    expect(endpointModelsOf({ models: automatic })).toEqual([{ id: "vision", imageInput: null }]);
   });
 });
 
