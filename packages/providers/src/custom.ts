@@ -3,7 +3,14 @@ import { createAnthropicProvider } from "./anthropic";
 import { parseCustomModel } from "./catalog";
 import { openAIImages } from "./openai";
 import { createOpenRouterProvider } from "./openrouter";
-import { type Endpoint, type ModelProvider, type ModelResult, ProviderError } from "./types";
+import {
+  type Endpoint,
+  hasToolImages,
+  type ModelProvider,
+  type ModelResult,
+  PDF_MEDIA_TYPE,
+  ProviderError,
+} from "./types";
 
 /** The APIs a workspace's own endpoint may speak (a gateway, Ollama, vLLM, LM Studio, LiteLLM…). */
 export type EndpointStyle = Endpoint["style"];
@@ -13,6 +20,8 @@ const LIST_TIMEOUT_MS = 10_000;
 const LIST_MAX_BYTES = 2_000_000;
 const MAX_LISTED = 500;
 const MODEL_ID = /^[\w.:/@+-]{1,200}$/;
+const CATALOG_TTL_MS = 5 * 60_000;
+const MAX_CATALOGS = 256;
 
 type Raw = Record<string, unknown>;
 const obj = (v: unknown): Raw | null => (v && typeof v === "object" && !Array.isArray(v) ? (v as Raw) : null);
@@ -241,6 +250,21 @@ export function createCustomProvider(
   options: { fetch?: typeof fetch; maxRetries?: number; version?: string } = {},
 ): ModelProvider {
   const bounded = boundedFetch(options.fetch);
+  const catalogs = new Map<string, { expires: number; models: Promise<ListedModel[]> }>();
+  function imageCatalog(credentialId: string, endpoint: Endpoint, apiKey: string, http: typeof fetch) {
+    // A shared endpoint may list different models for different workspace keys.
+    const scope = `${credentialId}|${endpoint.baseURL}`;
+    const cached = catalogs.get(scope);
+    if (cached && cached.expires > Date.now()) return cached.models;
+    catalogs.delete(scope);
+    if (catalogs.size >= MAX_CATALOGS) {
+      const oldest = catalogs.keys().next().value;
+      if (oldest !== undefined) catalogs.delete(oldest);
+    }
+    const models = listEndpointModels(endpoint, apiKey, http).catch(() => []);
+    catalogs.set(scope, { expires: Date.now() + CATALOG_TTL_MS, models });
+    return models;
+  }
   return {
     id: "custom",
     async stream(request, streamOptions): Promise<ModelResult> {
@@ -263,7 +287,13 @@ export function createCustomProvider(
               compatible: {
                 id: "custom",
                 baseURL: endpoint.baseURL,
-                pictures: endpoint.imageInputModels?.includes(parsed.model),
+                pictures:
+                  endpoint.modelInputs?.find((model) => model.id === parsed.model)?.imageInput ??
+                  (hasToolImages(request.messages, (image) => image.mediaType !== PDF_MEDIA_TYPE) &&
+                    !request.signal?.aborted &&
+                    (await imageCatalog(parsed.credentialId, endpoint, streamOptions.apiKey, http)).some(
+                      (model) => model.id === parsed.model && model.imageInput,
+                    )),
               },
               fetch: http,
               maxRetries: options.maxRetries,

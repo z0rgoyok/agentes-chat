@@ -148,11 +148,19 @@ const chat = (chunks: Record<string, unknown>[]) =>
 describe("calls", () => {
   test("a workspace model configured for image input receives pictures after its tool responses", async () => {
     const completion = scripted(chat([{ choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] }]));
-    const provider = createCustomProvider({ fetch: completion.fetcher, maxRetries: 0 });
-    const send = (model: string) =>
+    let catalogs = 0;
+    const fetcher = (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url).endsWith("/models")) {
+        catalogs++;
+        return Response.json({ data: [{ id: "vision", input_modalities: ["text", "image"] }, { id: "text" }] });
+      }
+      return completion.fetcher(url, init);
+    }) as typeof fetch;
+    const provider = createCustomProvider({ fetch: fetcher, maxRetries: 0 });
+    const send = (model: string, imageInput?: boolean, credential = CRED) =>
       provider.stream(
         {
-          model: customModelId(CRED, model),
+          model: customModelId(credential, model),
           system: "",
           maxTokens: 100,
           messages: [
@@ -180,12 +188,17 @@ describe("calls", () => {
         },
         {
           apiKey: "test-key",
-          endpoint: { style: "openai", baseURL: "https://gw.example/v1", imageInputModels: ["vision"] },
+          endpoint: {
+            style: "openai",
+            baseURL: "https://gw.example/v1",
+            ...(imageInput === undefined ? {} : { modelInputs: [{ id: model, imageInput }] }),
+          },
           onDelta() {},
         },
       );
 
-    expect((await send("vision")).imagesLeftOut).toBeUndefined();
+    expect((await send("vision", true)).imagesLeftOut).toBeUndefined();
+    expect(catalogs).toBe(0);
     expect(completion.requests[0]?.body.messages).toEqual([
       { role: "user", content: "Describe this picture" },
       expect.objectContaining({ role: "assistant" }),
@@ -202,7 +215,12 @@ describe("calls", () => {
     expect((await send("text")).imagesLeftOut).toBe(true);
     expect(JSON.stringify(completion.requests[1]?.body.messages)).toContain("reads text only through this connection");
     expect(JSON.stringify(completion.requests[1]?.body.messages)).not.toContain("image_url");
-    expect(completion.requests).toHaveLength(2);
+    expect((await send("vision")).imagesLeftOut).toBeUndefined();
+    expect(JSON.stringify(completion.requests[2]?.body.messages)).toContain("image_url");
+    expect((await send("vision", false)).imagesLeftOut).toBe(true);
+    expect(catalogs).toBe(1);
+    await send("vision", undefined, "a0f34150-dc6b-4f93-b65d-7fb87674102b");
+    expect(catalogs).toBe(2);
   });
 
   test("Chat Completions: the endpoint's address and model id, no OpenRouter extras, usage asked, its cost ignored", async () => {
