@@ -65,7 +65,7 @@ Code decides the rest:
   or is refused leaves the lesson in memory.
 - Without a review (no model, or a call that fails other than by a rate limit, which retries): what an agent proposed
   itself or a person asked for in their own words applies as it was; a lesson, and anything after outside content or
-  from someone who can't make it, is left out.
+  from someone who can't make it, is left out. *Amended 2026-11-25, below:* the workspace's judge weighs those first.
 
 ### 2. What people see
 
@@ -103,3 +103,13 @@ instructions.
 - A change after outside content is applied when the review judges it the person's wish. The review sees the change
   and the current text, not the outside content, and is told to leave out new destinations and weakened safety;
   sensitive actions still ask a person at the moment they happen (ADR 0015).
+
+*Addendum 2026-11-25 (no model for the review):* a workspace whose agents run only on plans has no key for the
+summary model, and the Cloud has no platform key for one, so the review's call failed (`MissingCredentialError`) and
+every change after outside content, from someone who can't make it, or of an agent's own settings was left out, each
+time it was asked again. The review now falls back to the workspace's judge (`judgeVerdicts`: Jev where the
+installation has its key, ADR 0073, else the small model, as every judgment does): one yes/no per such change, on the
+same rules the model reads, applied at 0.5 or more, with no `why`. A lesson still needs a model to write its rule, so
+without one it stays in memory. When the judge can't answer either, the
+change is left out with a line that names the cause and the way out (`NO_REVIEW`: an AI account with an API key, or the
+change made by hand).
