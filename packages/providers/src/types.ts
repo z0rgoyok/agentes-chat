@@ -54,13 +54,9 @@ export const toolImageChars = (i: ToolImage) =>
   i.mediaType === PDF_MEDIA_TYPE ? Math.max(1, i.pages ?? 1) * PDF_PAGE_CHARS : IMAGE_CHARS;
 
 /** Whether a tool result carries a picture or a PDF. */
-export const hasToolImages = (messages: ModelMessage[], pictures = false) =>
+export const hasToolImages = (messages: ModelMessage[], which: (image: ToolImage) => boolean = () => true) =>
   messages.some(
-    (m) =>
-      typeof m.content !== "string" &&
-      m.content.some(
-        (b) => b.type === "tool_result" && b.images?.some((i) => !pictures || i.mediaType === PDF_MEDIA_TYPE),
-      ),
+    (m) => typeof m.content !== "string" && m.content.some((b) => b.type === "tool_result" && b.images?.some(which)),
   );
 
 /**
@@ -231,8 +227,8 @@ export interface Endpoint {
   respanReceipts?: boolean;
   style: "openai" | "anthropic";
   baseURL: string;
-  /** Models configured to receive pictures over this endpoint's Chat Completions API. */
-  imageInputModels?: readonly string[];
+  /** Image-input overrides for this endpoint's Chat Completions models. */
+  modelInputs?: readonly { id: string; imageInput: boolean }[];
 }
 
 export interface ModelProvider {

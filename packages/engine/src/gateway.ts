@@ -291,7 +291,9 @@ export function createModelGateway(deps: ModelGatewayDeps) {
   function keyOf(c: Awaited<ReturnType<typeof decryptCredential>>, credentialId: string | null): Key | null {
     if (!c) return null;
     const endpoint = c.options?.endpoint;
-    const imageInputModels = endpoint?.models.filter((model) => model.imageInput).map((model) => model.id);
+    const modelInputs = endpoint?.models.flatMap(({ id, imageInput }) =>
+      imageInput === undefined ? [] : [{ id, imageInput }],
+    );
     return {
       apiKey: c.apiKey,
       workspaceId: c.workspaceId,
@@ -303,7 +305,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
               style: endpoint.style,
               baseURL: endpoint.baseURL,
               respanReceipts: !!credentialId && respanEndpoint(credentialId, endpoint.baseURL),
-              ...(imageInputModels?.length ? { imageInputModels } : {}),
+              ...(modelInputs?.length ? { modelInputs } : {}),
             },
           }
         : {}),

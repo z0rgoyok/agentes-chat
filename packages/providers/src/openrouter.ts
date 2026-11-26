@@ -30,6 +30,7 @@ import {
   type ModelResult,
   type ModelUsage,
   type PartialUsage,
+  PDF_MEDIA_TYPE,
   ProviderError,
   promptChars,
   type StopReason,
@@ -668,7 +669,9 @@ export function createOpenRouterProvider(
                 cacheWriteTokens: 0,
               },
           ...(cost !== undefined ? { costNanoUsd: cost } : {}),
-          ...(hasToolImages(request.messages, pictures) ? { imagesLeftOut: true as const } : {}),
+          ...(hasToolImages(request.messages, (image) => !pictures || image.mediaType === PDF_MEDIA_TYPE)
+            ? { imagesLeftOut: true as const }
+            : {}),
         };
       } catch (error) {
         const mapped = request.signal?.aborted

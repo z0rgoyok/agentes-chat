@@ -262,7 +262,7 @@ describe("calls", () => {
     expect(sent?.endpoint).toEqual({
       style: "openai",
       baseURL: "https://gw.example/v1",
-      imageInputModels: ["llama-4"],
+      modelInputs: [{ id: "llama-4", imageInput: true }],
       respanReceipts: false,
     });
     expect(result.costNanoUsd).toBe(1000 * 1000 + 100 * 2000);
