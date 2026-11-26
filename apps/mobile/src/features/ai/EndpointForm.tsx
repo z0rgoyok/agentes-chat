@@ -310,6 +310,13 @@ export function EndpointForm({
                   <View key={m.id} style={styles.gap}>
                     <GroupedHeader>{`${m.id} · ${t("endpoint.priceUnit")}`}</GroupedHeader>
                     <GroupedList>
+                      {draft.style === "openai" ? (
+                        <GroupedRow
+                          label={t("endpoint.imageInput")}
+                          checked={m.imageInput === true}
+                          onPress={() => setModel(m.id, { imageInput: !m.imageInput })}
+                        />
+                      ) : null}
                       <GroupedField label={t("endpoint.priceInShort")}>
                         <TextInput
                           value={m.input}

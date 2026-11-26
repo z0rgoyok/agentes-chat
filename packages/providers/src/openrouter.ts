@@ -342,9 +342,11 @@ interface Chunk {
   }[];
 }
 
+type UserPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
+
 type Message =
   | { role: "system"; content: { type: "text"; text: string; cache_control?: { type: "ephemeral"; ttl?: "1h" } }[] }
-  | { role: "user"; content: string }
+  | { role: "user"; content: string | UserPart[] }
   | { role: "tool"; tool_call_id: string; content: string }
   | {
       role: "assistant";
@@ -372,7 +374,7 @@ export function reasoningFor(
   return best ? { effort: best } : undefined;
 }
 
-function toMessages(request: ModelRequest, claude: boolean): Message[] {
+function toMessages(request: ModelRequest, claude: boolean, pictures: boolean): Message[] {
   const blocks = typeof request.system === "string" ? [{ text: request.system, cache: true }] : request.system;
   const system = blocks
     .filter((b) => b.text.length > 0)
@@ -387,8 +389,7 @@ function toMessages(request: ModelRequest, claude: boolean): Message[] {
         : {}),
     }));
   const out: Message[] = system.length > 0 ? [{ role: "system", content: system }] : [];
-  // ponytail: images left out for every model; send them once the catalog knows which OpenRouter models read images.
-  for (const m of withoutImages(request.messages, request.model)) {
+  for (const m of withoutImages(request.messages, request.model, pictures)) {
     const parts: ContentBlock[] = typeof m.content === "string" ? [{ type: "text", text: m.content }] : m.content;
     const text = parts.flatMap((b) => (b.type === "text" && b.text ? [b.text] : [])).join("\n\n");
     if (m.role === "assistant") {
@@ -409,16 +410,26 @@ function toMessages(request: ModelRequest, claude: boolean): Message[] {
       });
       continue;
     }
+    const visual: UserPart[] = [];
     for (const b of parts) {
-      if (b.type === "tool_result")
-        out.push({ role: "tool", tool_call_id: b.toolUseId, content: b.isError ? `ERROR: ${b.content}` : b.content });
+      if (b.type !== "tool_result") continue;
+      out.push({ role: "tool", tool_call_id: b.toolUseId, content: b.isError ? `ERROR: ${b.content}` : b.content });
+      if (!b.images?.length) continue;
+      visual.push({ type: "text", text: `Image from tool call ${b.toolUseId}` });
+      for (const image of b.images) {
+        visual.push({ type: "image_url", image_url: { url: `data:${image.mediaType};base64,${image.data}` } });
+      }
     }
-    if (text) out.push({ role: "user", content: text });
+    // Keep the complete tool-response batch contiguous. Chat Completions takes images in a user message.
+    if (visual.length > 0) {
+      if (text) visual.unshift({ type: "text", text });
+      out.push({ role: "user", content: visual });
+    } else if (text) out.push({ role: "user", content: text });
   }
   return out;
 }
 
-function toBody(request: ModelRequest, compatible: boolean) {
+function toBody(request: ModelRequest, compatible: boolean, pictures: boolean) {
   const claude = !compatible && isClaude(request.model);
   const reasoning = compatible ? undefined : reasoningFor(request.effort, modelInfo(request.model));
   // A workspace endpoint (#432): Chat Completions' own `reasoning_effort`, which OpenAI, vLLM, LiteLLM and most gateways
@@ -427,7 +438,7 @@ function toBody(request: ModelRequest, compatible: boolean) {
     compatible && request.effort && request.effort !== "none" ? effortWithin(request.effort) : undefined;
   return {
     model: request.model,
-    messages: toMessages(request, claude),
+    messages: toMessages(request, claude, pictures),
     max_tokens: request.maxTokens,
     stream: true as const,
     ...(request.tools && request.tools.length > 0
@@ -547,10 +558,11 @@ export function createOpenRouterProvider(
      * Another server's Chat Completions (a workspace's own endpoint, ADR 0146): sent to `baseURL` with no
      * OpenRouter attribution, routing, reasoning or cache markers, usage asked for, and its reported cost ignored.
      */
-    compatible?: { id: string; baseURL: string };
+    compatible?: { id: string; baseURL: string; pictures?: boolean };
   } = {},
 ): ModelProvider {
   const compatible = options.compatible;
+  const pictures = compatible?.pictures === true;
   return {
     id: compatible?.id ?? "openrouter",
     async stream(input, { apiKey, onDelta }): Promise<ModelResult> {
@@ -577,7 +589,7 @@ export function createOpenRouterProvider(
           fetch: options.fetch,
         });
         const stream = await client.chat.completions.create(
-          toBody(request, compatible !== undefined) as unknown as ChatCompletionCreateParamsStreaming,
+          toBody(request, compatible !== undefined, pictures) as unknown as ChatCompletionCreateParamsStreaming,
           { signal: request.signal },
         );
         for await (const raw of stream) {
@@ -656,7 +668,7 @@ export function createOpenRouterProvider(
                 cacheWriteTokens: 0,
               },
           ...(cost !== undefined ? { costNanoUsd: cost } : {}),
-          ...(hasToolImages(request.messages) ? { imagesLeftOut: true as const } : {}),
+          ...(hasToolImages(request.messages, pictures) ? { imagesLeftOut: true as const } : {}),
         };
       } catch (error) {
         const mapped = request.signal?.aborted

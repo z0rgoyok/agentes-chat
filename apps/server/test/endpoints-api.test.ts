@@ -8,7 +8,7 @@ afterEach(() => t.close());
 /** A gateway's model list, as `GET /v1/models` answers. */
 const gatewayList = (async (url: string | URL | Request) =>
   String(url) === "https://gw.example/v1/models"
-    ? new Response(JSON.stringify({ data: [{ id: "llama-4" }, { id: "qwen-3" }] }))
+    ? Response.json({ data: [{ id: "llama-4" }, { id: "qwen-3", input_modalities: ["text", "image"] }] })
     : new Response("not found", { status: 404 })) as unknown as typeof fetch;
 
 const resolveHost = async (host: string) => (host === "inside.example" ? ["10.0.0.7"] : ["93.184.216.34"]);
@@ -16,7 +16,10 @@ const resolveHost = async (host: string) => (host === "inside.example" ? ["10.0.
 const endpoint = {
   style: "openai",
   baseURL: "https://gw.example/v1",
-  models: [{ id: "llama-4", prices: { input: 1, output: 2 } }, { id: "qwen-3" }],
+  models: [
+    { id: "llama-4", prices: { input: 1, output: 2 } },
+    { id: "qwen-3", imageInput: true },
+  ],
 };
 
 test("an endpoint: its list, saved with a test per model, its models in the pickers, admins only", async () => {
@@ -32,7 +35,7 @@ test("an endpoint: its list, saved with a test per model, its models in the pick
   });
   expect(await listed.json()).toEqual({
     baseURL: "https://gw.example/v1",
-    models: [{ id: "llama-4" }, { id: "qwen-3" }],
+    models: [{ id: "llama-4" }, { id: "qwen-3", imageInput: true }],
   });
 
   const created = await api("/credentials", {
@@ -52,6 +55,7 @@ test("an endpoint: its list, saved with a test per model, its models in the pick
     { model: "qwen-3", check: "no_tools" },
   ]);
   expect(key.endpoint.models[0]?.prices?.input).toBe(1);
+  expect(key.endpoint.models[1]).toMatchObject({ imageInput: true });
 
   const models = (await (await owner("/api/app/models")).json()) as {
     models: { id: string; provider: string; endpoint?: { credentialId: string; name: string }; unpriced?: boolean }[];
@@ -69,8 +73,20 @@ test("an endpoint: its list, saved with a test per model, its models in the pick
   });
   expect(changed.status).toBe(200);
   expect(((await changed.json()) as { models: unknown[] }).models).toEqual([
-    { id: "qwen-3", prices: { input: 0.5, output: 1, cacheRead: 0.5, cacheWrite: 0.5 }, check: "no_tools" },
+    {
+      id: "qwen-3",
+      prices: { input: 0.5, output: 1, cacheRead: 0.5, cacheWrite: 0.5 },
+      check: "no_tools",
+      imageInput: true,
+    },
   ]);
+
+  const disabled = await api(`/credentials/${key.id}/models`, {
+    method: "PUT",
+    json: { models: [{ id: "qwen-3", imageInput: false }] },
+  });
+  expect(disabled.status).toBe(200);
+  expect(await disabled.json()).toMatchObject({ models: [{ id: "qwen-3", imageInput: false }] });
 
   // A member neither lists, adds nor changes one.
   const member = await joinByInvitation(t, owner, orgId, "bia@example.com");

@@ -914,6 +914,7 @@ export type EndpointCheckResult = "ok" | "no_tools" | "failed";
 export interface EndpointModel {
   id: string;
   label?: string;
+  imageInput?: boolean;
   /** Absent: unpriced (its calls cost 0, so no budget limits them). */
   prices?: EndpointPrices;
   check?: EndpointCheckResult;

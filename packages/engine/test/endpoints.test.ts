@@ -231,12 +231,22 @@ describe("calls", () => {
       onDelta() {},
     });
     expect(f.provider.calls.at(-1)?.request.model).toBe(agent.model);
-    expect(f.provider.calls.at(-1)?.endpoint).toEqual({ style: "openai", baseURL: "https://gw.example/v1" });
+    expect(f.provider.calls.at(-1)?.endpoint).toEqual({
+      style: "openai",
+      baseURL: "https://gw.example/v1",
+      respanReceipts: false,
+    });
   });
 
   test("an agent on an endpoint model: its key and address, the admin's prices, tokens and cost recorded", async () => {
     f = await setup({ reply: () => ({ chunks: ["ok"], usage: { inputTokens: 1000, outputTokens: 100 } }) });
-    const cred = await addEndpoint(f);
+    const cred = await addEndpoint(f, [
+      {
+        id: "llama-4",
+        imageInput: true,
+        prices: endpointPricesFromUsd({ input: 1, output: 2 }),
+      },
+    ]);
     const model = customModelId(cred.id, "llama-4");
     await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { model, credentialId: cred.id });
     const result = await f.gateway.stream({
@@ -249,7 +259,12 @@ describe("calls", () => {
     });
     const sent = f.provider.calls.at(-1);
     expect(sent?.apiKey).toBe("gw-key-1234567");
-    expect(sent?.endpoint).toEqual({ style: "openai", baseURL: "https://gw.example/v1" });
+    expect(sent?.endpoint).toEqual({
+      style: "openai",
+      baseURL: "https://gw.example/v1",
+      imageInputModels: ["llama-4"],
+      respanReceipts: false,
+    });
     expect(result.costNanoUsd).toBe(1000 * 1000 + 100 * 2000);
     const [record] = await f.db.select().from(schema.usageRecords).where(eq(schema.usageRecords.agentId, f.agent.id));
     expect(record).toMatchObject({ provider: "custom", model, credentialId: cred.id, orgId: f.org.id });
@@ -384,5 +399,34 @@ describe("the test call", () => {
     expect(saved?.endpoint).toMatchObject({ baseURL: "https://gw.example/v1", models: [{ id: "tools" }] });
     expect(saved?.endpoint?.models[0]?.check).toBeUndefined();
     expect(await checkCredential(f.db, f.gateway, f.owner.id, f.org.id, cred.id)).toBe("unchecked");
+  });
+
+  test("a model test finishing late keeps a newer image input setting", async () => {
+    f = await setup();
+    const cred = await addEndpoint(f, [{ id: "vision", imageInput: false }]);
+    const started = Promise.withResolvers<void>();
+    const finish = Promise.withResolvers<void>();
+    const checking = checkEndpoint(
+      f.db,
+      {
+        complete: async (call) => {
+          started.resolve();
+          await finish.promise;
+          return f.gateway.complete(call);
+        },
+      },
+      f.owner.id,
+      f.org.id,
+      cred.id,
+    );
+    await started.promise;
+    try {
+      await updateEndpointModels(f.db, f.owner.id, f.org.id, cred.id, [{ id: "vision", imageInput: true }]);
+    } finally {
+      finish.resolve();
+      await checking;
+    }
+    const saved = (await listCredentials(f.db, f.owner.id, f.org.id)).find((key) => key.id === cred.id);
+    expect(saved?.endpoint?.models).toEqual([{ id: "vision", imageInput: true }]);
   });
 });

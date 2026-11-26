@@ -16,6 +16,7 @@ export interface EndpointModelDraft {
   output: string;
   cacheRead?: number;
   cacheWrite?: number;
+  imageInput?: boolean;
 }
 
 export interface EndpointDraft {
@@ -57,6 +58,7 @@ export function withListedModels(draft: EndpointDraft, listed: readonly Endpoint
       input: m.prices ? String(m.prices.input) : "",
       output: m.prices ? String(m.prices.output) : "",
       ...cacheRates(m),
+      ...(draft.style === "openai" && m.imageInput ? { imageInput: true } : {}),
     }));
   return { ...draft, models: [...draft.models, ...fresh] };
 }
@@ -110,6 +112,7 @@ export function endpointModelsOf(draft: Pick<EndpointDraft, "models">): Endpoint
             },
           }
         : {}),
+      ...(m.imageInput === undefined ? {} : { imageInput: m.imageInput }),
     };
   });
 }
@@ -144,6 +147,7 @@ export function draftOfEndpoint(
       ...cacheRates(m),
       input: m.prices ? String(m.prices.input) : "",
       output: m.prices ? String(m.prices.output) : "",
+      ...(m.imageInput === undefined ? {} : { imageInput: m.imageInput }),
     })),
   };
 }
