@@ -16,8 +16,14 @@ export interface EndpointModelDraft {
   output: string;
   cacheRead?: number;
   cacheWrite?: number;
-  imageInput?: boolean;
+  imageInput?: boolean | null;
 }
+
+export const IMAGE_INPUT_MODES = ["auto", "on", "off"] as const;
+export type ImageInputMode = (typeof IMAGE_INPUT_MODES)[number];
+export const imageInputMode = (value: EndpointModel["imageInput"]): ImageInputMode =>
+  value == null ? "auto" : value ? "on" : "off";
+export const imageInputOverride = (mode: ImageInputMode): boolean | null => (mode === "auto" ? null : mode === "on");
 
 export interface EndpointDraft {
   name: string;

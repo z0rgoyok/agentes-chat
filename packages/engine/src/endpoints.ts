@@ -99,7 +99,7 @@ export function cleanEndpointModels(models: EndpointModel[], previous: EndpointM
     if (p && Object.values(p).some((v) => !Number.isSafeInteger(v) || v < 0))
       throw new ValidationError("Prices can't be negative", "endpoint.prices");
     const before = previous.find((o) => o.id === id);
-    const imageInput = m.imageInput ?? before?.imageInput;
+    const imageInput = m.imageInput === undefined ? before?.imageInput : m.imageInput;
     return {
       id,
       ...(label ? { label } : {}),

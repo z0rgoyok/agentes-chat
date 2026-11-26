@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import OpenAI from "openai";
 import { createAnthropicProvider } from "./anthropic";
 import { parseCustomModel } from "./catalog";
@@ -252,8 +253,9 @@ export function createCustomProvider(
   const bounded = boundedFetch(options.fetch);
   const catalogs = new Map<string, { expires: number; models: Promise<ListedModel[]> }>();
   function imageCatalog(credentialId: string, endpoint: Endpoint, apiKey: string, http: typeof fetch) {
-    // A shared endpoint may list different models for different workspace keys.
-    const scope = `${credentialId}|${endpoint.baseURL}`;
+    // Rotating a credential keeps its ID but may change the models this key sees.
+    const keyDigest = createHash("sha256").update(apiKey).digest("hex");
+    const scope = `${credentialId}|${endpoint.baseURL}|${keyDigest}`;
     const cached = catalogs.get(scope);
     if (cached && cached.expires > Date.now()) return cached.models;
     catalogs.delete(scope);

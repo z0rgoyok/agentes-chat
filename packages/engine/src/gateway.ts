@@ -292,7 +292,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
     if (!c) return null;
     const endpoint = c.options?.endpoint;
     const modelInputs = endpoint?.models.flatMap(({ id, imageInput }) =>
-      imageInput === undefined ? [] : [{ id, imageInput }],
+      imageInput == null ? [] : [{ id, imageInput }],
     );
     return {
       apiKey: c.apiKey,
