@@ -10570,6 +10570,7 @@ export const ptBR = {
     add: "Adicionar",
     modelPlaceholder: "Id do modelo, como llama-4",
     modelInvalid: "Isso não parece um id de modelo.",
+    imageInput: "Aceita imagens",
     priceIn: "{{model}}: preço de entrada",
     priceOut: "{{model}}: preço de saída",
     priceInShort: "Entrada",

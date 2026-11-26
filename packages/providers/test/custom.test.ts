@@ -122,12 +122,89 @@ describe("model lists", () => {
       "too large",
     );
   });
+
+  test("a model list can advertise image input next to the model or in its architecture", () => {
+    expect(
+      parseEndpointModels({
+        data: [
+          { id: "direct", input_modalities: ["text", "image"] },
+          { id: "gateway", architecture: { input_modalities: ["text", "image"] } },
+          { id: "text", input_modalities: ["text"] },
+          { id: "unknown" },
+        ],
+      }),
+    ).toEqual([
+      { id: "direct", imageInput: true },
+      { id: "gateway", imageInput: true },
+      { id: "text" },
+      { id: "unknown" },
+    ]);
+  });
 });
 
 const chat = (chunks: Record<string, unknown>[]) =>
   `${chunks.map((c) => `data: ${JSON.stringify({ id: "c1", object: "chat.completion.chunk", created: 1, ...c })}\n\n`).join("")}data: [DONE]\n\n`;
 
 describe("calls", () => {
+  test("a workspace model configured for image input receives pictures after its tool responses", async () => {
+    const completion = scripted(chat([{ choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] }]));
+    const provider = createCustomProvider({ fetch: completion.fetcher, maxRetries: 0 });
+    const send = (model: string) =>
+      provider.stream(
+        {
+          model: customModelId(CRED, model),
+          system: "",
+          maxTokens: 100,
+          messages: [
+            { role: "user", content: "Describe this picture" },
+            {
+              role: "assistant",
+              content: [
+                { type: "tool_use", id: "photo", name: "read_artifact", input: {} },
+                { type: "tool_use", id: "notes", name: "read_artifact", input: {} },
+              ],
+            },
+            {
+              role: "user",
+              content: [
+                {
+                  type: "tool_result",
+                  toolUseId: "photo",
+                  content: "photo.png",
+                  images: [{ mediaType: "image/png", data: "UE5H" }],
+                },
+                { type: "tool_result", toolUseId: "notes", content: "notes.txt" },
+              ],
+            },
+          ],
+        },
+        {
+          apiKey: "test-key",
+          endpoint: { style: "openai", baseURL: "https://gw.example/v1", imageInputModels: ["vision"] },
+          onDelta() {},
+        },
+      );
+
+    expect((await send("vision")).imagesLeftOut).toBeUndefined();
+    expect(completion.requests[0]?.body.messages).toEqual([
+      { role: "user", content: "Describe this picture" },
+      expect.objectContaining({ role: "assistant" }),
+      { role: "tool", tool_call_id: "photo", content: "photo.png" },
+      { role: "tool", tool_call_id: "notes", content: "notes.txt" },
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "Image from tool call photo" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,UE5H" } },
+        ],
+      },
+    ]);
+    expect((await send("text")).imagesLeftOut).toBe(true);
+    expect(JSON.stringify(completion.requests[1]?.body.messages)).toContain("reads text only through this connection");
+    expect(JSON.stringify(completion.requests[1]?.body.messages)).not.toContain("image_url");
+    expect(completion.requests).toHaveLength(2);
+  });
+
   test("Chat Completions: the endpoint's address and model id, no OpenRouter extras, usage asked, its cost ignored", async () => {
     const { fetcher, requests } = scripted(
       chat([

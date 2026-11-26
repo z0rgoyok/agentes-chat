@@ -20,6 +20,7 @@ const obj = (v: unknown): Raw | null => (v && typeof v === "object" && !Array.is
 interface ListedModel {
   id: string;
   label?: string;
+  imageInput?: true;
   prices?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
 }
 
@@ -54,11 +55,13 @@ export function parseEndpointModels(body: unknown): ListedModel[] {
     if (!id || !MODEL_ID.test(id) || seen.has(id)) continue;
     seen.add(id);
     const name = r.display_name;
+    const modalities = r.input_modalities ?? obj(r.architecture)?.input_modalities;
     const prices = listedPrices(r);
     out.push({
       id,
       ...(prices ? { prices } : {}),
       ...(typeof name === "string" && name.trim() && name.length <= 120 ? { label: name.trim() } : {}),
+      ...(Array.isArray(modalities) && modalities.includes("image") ? { imageInput: true } : {}),
     });
     if (out.length >= MAX_LISTED) break;
   }
@@ -257,7 +260,11 @@ export function createCustomProvider(
               maxRetries: options.maxRetries,
             })
           : createOpenRouterProvider({
-              compatible: { id: "custom", baseURL: endpoint.baseURL },
+              compatible: {
+                id: "custom",
+                baseURL: endpoint.baseURL,
+                pictures: endpoint.imageInputModels?.includes(parsed.model),
+              },
               fetch: http,
               maxRetries: options.maxRetries,
             });

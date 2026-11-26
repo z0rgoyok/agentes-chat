@@ -352,6 +352,7 @@ export const EndpointModel = z
   .object({
     id: z.string().min(1).max(200).openapi({ description: "The id the endpoint takes." }),
     label: z.string().max(120).optional(),
+    imageInput: z.boolean().optional(),
     prices: EndpointPrices.optional().openapi({
       description: "Absent: unpriced. Its calls are recorded with their tokens and cost 0, so no budget limits them.",
     }),

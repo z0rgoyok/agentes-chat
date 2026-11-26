@@ -556,7 +556,7 @@ export function agentRoutes(deps: AppDeps) {
         200: json(
           z.object({
             baseURL: z.string().openapi({ description: "The address as it will be stored." }),
-            models: z.array(z.object({ id: z.string(), label: z.string().optional() })),
+            models: z.array(EndpointModel.pick({ id: true, label: true, imageInput: true, prices: true })),
             error: z.string().optional(),
           }),
         ),

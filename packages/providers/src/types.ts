@@ -54,9 +54,13 @@ export const toolImageChars = (i: ToolImage) =>
   i.mediaType === PDF_MEDIA_TYPE ? Math.max(1, i.pages ?? 1) * PDF_PAGE_CHARS : IMAGE_CHARS;
 
 /** Whether a tool result carries a picture or a PDF. */
-export const hasToolImages = (messages: ModelMessage[]) =>
+export const hasToolImages = (messages: ModelMessage[], pictures = false) =>
   messages.some(
-    (m) => typeof m.content !== "string" && m.content.some((b) => b.type === "tool_result" && b.images?.length),
+    (m) =>
+      typeof m.content !== "string" &&
+      m.content.some(
+        (b) => b.type === "tool_result" && b.images?.some((i) => !pictures || i.mediaType === PDF_MEDIA_TYPE),
+      ),
   );
 
 /**
@@ -64,7 +68,7 @@ export const hasToolImages = (messages: ModelMessage[]) =>
  * only (another company's Anthropic-compatible API, OpenRouter), where one would fail the whole request. The note
  * names the AI (`model`) and the way out, so the agent tells the person the real cause.
  */
-export const withoutImages = (messages: ModelMessage[], model?: string): ModelMessage[] =>
+export const withoutImages = (messages: ModelMessage[], model?: string, pictures = false): ModelMessage[] =>
   messages.map((m) =>
     typeof m.content === "string"
       ? m
@@ -73,13 +77,19 @@ export const withoutImages = (messages: ModelMessage[], model?: string): ModelMe
           content: m.content.map((b) => {
             if (b.type !== "tool_result" || !b.images?.length) return b;
             const { images, ...rest } = b;
+            const kept = pictures ? images.filter((i) => i.mediaType !== PDF_MEDIA_TYPE) : [];
+            if (kept.length === images.length) return b;
             const pdf = images.some((i) => i.mediaType === PDF_MEDIA_TYPE);
-            const picture = images.some((i) => i.mediaType !== PDF_MEDIA_TYPE);
+            const picture = !pictures && images.some((i) => i.mediaType !== PDF_MEDIA_TYPE);
             const what = pdf && picture ? "picture and the PDF" : pdf ? "PDF" : "picture";
             const ai = model ? `this agent's AI (${model})` : "this agent's AI";
+            const reads = pictures
+              ? "reads pictures through this connection, not PDFs"
+              : "reads text only through this connection";
             return {
               ...rest,
-              content: `${b.content}\n[The ${what} is not shown to you: ${ai} reads text only through this connection. Tell the person exactly that, and that an AI that reads ${pdf ? "pictures and PDFs" : "pictures"} (Claude, GPT or Gemini), picked in this agent's settings, would see it. Never say the file came empty.]`,
+              ...(kept.length > 0 ? { images: kept } : {}),
+              content: `${b.content}\n[The ${what} is not shown to you: ${ai} ${reads}. Tell the person exactly that, and that an AI that reads ${pdf ? "pictures and PDFs" : "pictures"} (Claude, GPT or Gemini), picked in this agent's settings, would see it. Never say the file came empty.]`,
             };
           }),
         },
@@ -221,6 +231,8 @@ export interface Endpoint {
   respanReceipts?: boolean;
   style: "openai" | "anthropic";
   baseURL: string;
+  /** Models configured to receive pictures over this endpoint's Chat Completions API. */
+  imageInputModels?: readonly string[];
 }
 
 export interface ModelProvider {

@@ -98,8 +98,15 @@ export function cleanEndpointModels(models: EndpointModel[], previous: EndpointM
     const p = m.prices;
     if (p && Object.values(p).some((v) => !Number.isSafeInteger(v) || v < 0))
       throw new ValidationError("Prices can't be negative", "endpoint.prices");
-    const check = previous.find((o) => o.id === id)?.check;
-    return { id, ...(label ? { label } : {}), ...(p ? { prices: p } : {}), ...(check ? { check } : {}) };
+    const before = previous.find((o) => o.id === id);
+    const imageInput = m.imageInput ?? before?.imageInput;
+    return {
+      id,
+      ...(label ? { label } : {}),
+      ...(p ? { prices: p } : {}),
+      ...(before?.check ? { check: before.check } : {}),
+      ...(imageInput === undefined ? {} : { imageInput }),
+    };
   });
 }
 
@@ -231,7 +238,14 @@ export async function checkEndpoint(
   await db
     .update(schema.providerCredentials)
     .set({ options: { ...row.options, endpoint: { ...endpoint, models } } })
-    .where(where);
+    // The model check can be slow. A concurrent edit or key rotation owns the new configuration.
+    .where(
+      and(
+        where,
+        eq(schema.providerCredentials.options, row.options),
+        eq(schema.providerCredentials.secretCiphertext, row.secretCiphertext),
+      ),
+    );
   caches.credentials.delete(`${orgId}:${credentialId}`);
   caches.credentials.delete(`${orgId}:endpoints`);
   return results;

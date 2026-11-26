@@ -10604,6 +10604,7 @@ export const en = {
     add: "Add",
     modelPlaceholder: "Model id, like llama-4",
     modelInvalid: "That doesn't look like a model id.",
+    imageInput: "Accepts images",
     priceIn: "{{model}}: input price",
     priceOut: "{{model}}: output price",
     priceInShort: "Input",

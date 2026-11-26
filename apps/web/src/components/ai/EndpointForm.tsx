@@ -343,6 +343,16 @@ export function EndpointForm({
                         />
                       </span>
                     )}
+                    {m.on && draft.style === "openai" && (
+                      <span className="endpoint-model__image-input">
+                        <Checkbox
+                          id={`${ids}-image-${m.id}`}
+                          checked={m.imageInput === true}
+                          onCheckedChange={(imageInput) => setModel(m.id, { imageInput })}
+                        />
+                        <label htmlFor={`${ids}-image-${m.id}`}>{t("endpoint.imageInput")}</label>
+                      </span>
+                    )}
                     {problem && (
                       <div className="ac-field__error endpoint-model__error" role="alert">
                         {t(problem === "both" ? "endpoint.priceBoth" : "endpoint.priceInvalid")}
