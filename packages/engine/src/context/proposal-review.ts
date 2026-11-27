@@ -13,6 +13,8 @@ import {
   decideProposal,
   declineByAgent,
   lineDiff,
+  NO_REVIEW,
+  NO_REVIEW_VERDICT,
   type Proposal,
   type SettleOrigin,
   withLearnedBullet,
@@ -132,10 +134,6 @@ const JUDGE_TIMEOUT_MS = 20_000;
 /** A verdict's words when nobody wrote any: a judge can't write a `why` or a `rule`. */
 const NO_WORDS = { why: "", rule: "", replaces: "" };
 
-/** Why a change was left out when neither a model nor the judge could review it: the cause, and the way out. */
-export const NO_REVIEW =
-  "Not applied: no AI account here could review it. Add one with an API key in Settings › AI and usage, or make the change yourself.";
-
 /**
  * The review on the workspace's judge (Jev where the installation has its key, ADR 0073), when the summary model can't
  * be called: a workspace whose agents run on plans has no key for one, and the Cloud has no platform key for it. One
@@ -170,7 +168,14 @@ async function judgeVerdicts(
       ),
       timeoutMs: JUDGE_TIMEOUT_MS,
     });
-    return new Map(input.blocks.map(([key]) => [key, { ...NO_WORDS, apply: (answers[key]?.noul ?? 0) >= 0.5 }]));
+    const verdicts = new Map<string, Verdict>();
+    for (const [key] of input.blocks) {
+      const score = answers[key]?.noul;
+      if (typeof score === "number" && Number.isFinite(score)) {
+        verdicts.set(key, { ...NO_WORDS, apply: score >= 0.5 });
+      }
+    }
+    return verdicts;
   } catch {
     return null;
   }
@@ -348,14 +353,16 @@ export async function settleProposals(
 
   for (const [i, row] of rows.entries()) {
     const p: Proposal = row;
-    const by = reviewer(p);
     const memory = p.itemIds.length > 0;
-    // No review to be had: what an agent proposed itself or a person asked for in their own words was already
-    // judged; the rest is left out, saying why and what gives it a review.
-    const verdict: Verdict = verdicts
-      ? (verdicts.get(keys[i] as string) ?? { ...NO_WORDS, apply: false, why: "The review gave no answer." })
-      : (judged?.get(keys[i] as string) ??
-        (unreviewed(p) ? { ...NO_WORDS, apply: false, why: NO_REVIEW } : { ...NO_WORDS, apply: true }));
+    const decision = (verdicts ?? judged)?.get(keys[i] as string);
+    // Without this verdict, only a change that can already apply on its own may go ahead.
+    const unavailable = !decision && (verdicts !== null || unreviewed(p));
+    const by = unavailable ? null : reviewer(p);
+    const verdict: Verdict = decision ?? {
+      ...NO_WORDS,
+      apply: !unavailable,
+      why: unavailable ? (verdicts ? NO_REVIEW_VERDICT : NO_REVIEW) : "",
+    };
     try {
       if (!verdict.apply) {
         await declineByAgent(deps.context, p, by, verdict.why || "Left out after review.");

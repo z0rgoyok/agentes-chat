@@ -2734,6 +2734,8 @@ export interface Proposal {
    * decided.
    */
   review: string | null;
+  /** The system could not get a review verdict and left the change unapplied. */
+  reviewUnavailable?: boolean;
   /** Decided by the review, not a person (`decidedByAgent` is null for a workspace-wide lesson). */
   reviewed: boolean;
   /** Applied, and the viewer may put it back (`proposals.undo`). */

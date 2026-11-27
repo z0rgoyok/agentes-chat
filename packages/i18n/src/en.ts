@@ -7122,6 +7122,7 @@ export const en = {
     accessOff: "Turn off: {{app}}",
     /** The agent's review hasn't weighed it yet (ADR 0219): applied or left out in a few seconds. */
     reviewing: "Reviewing…",
+    reviewUnavailable: "Couldn’t review. Change not applied.",
     /** Applied by the agent whose review weighed it. */
     appliedByAgent: "Applied by {{name}}",
     /** A lesson for the whole workspace, applied with no agent behind it. */

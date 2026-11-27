@@ -102,6 +102,21 @@ const {
 
 export type Proposal = typeof contextProposals.$inferSelect;
 
+/** Stored system reasons, kept distinct from a reviewer's verdict. Older rows use the original wording. */
+export const NO_REVIEW =
+  "Not applied: no AI account here could review it. Add one with an API key in Settings › AI and usage, or make the change yourself.";
+export const NO_REVIEW_VERDICT = "The review gave no answer.";
+
+export function proposalReviewUnavailable(p: Pick<Proposal, "status" | "review" | "decidedByUserId">): boolean {
+  return (
+    p.status === "rejected" &&
+    !p.decidedByUserId &&
+    (p.review === NO_REVIEW ||
+      p.review === NO_REVIEW_VERDICT ||
+      p.review === "It couldn't be reviewed now, so it wasn't applied.")
+  );
+}
+
 export const SETTLE_JOB = "proposals.settle";
 
 /** Why a change reached the review and wasn't applied when it was made: the review weighs it by this. */

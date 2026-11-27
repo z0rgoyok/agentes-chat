@@ -14,7 +14,8 @@ import {
   SETTLE_JOB,
   undoProposal,
 } from "../src";
-import { NO_REVIEW, settleProposals } from "../src/context/proposal-review";
+import { settleProposals } from "../src/context/proposal-review";
+import { NO_REVIEW } from "../src/context/proposals";
 import { addMember, setup as baseSetup, type Fixture } from "./fixtures";
 
 let f: Fixture;
@@ -347,5 +348,6 @@ describe("with no model for the review (a workspace on plans, a server with no p
     const left = await row(second.p.id);
     expect(left?.status).toBe("rejected");
     expect(left?.review).toBe(NO_REVIEW);
+    expect(left?.decidedByAgentId).toBeNull();
   });
 });
