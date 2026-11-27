@@ -583,9 +583,7 @@ function highlightMessage(scroller: HTMLElement | null, messageId: string) {
   const el = scroller?.querySelector<HTMLElement>(`[data-message-id="${messageId}"]`);
   if (!el) return false;
   el.scrollIntoView?.({ block: "center" });
-  // Rows off screen are laid out at an estimated height until drawn (`content-visibility`): once the
-  // ones around it are drawn, center it again. They are drawn by the next frame's rendering, which runs
-  // after its animation callbacks, so the second centering waits for a task after that frame.
+  // Center again after the next frame. Content around the message can change height as the page renders.
   requestAnimationFrame(() => setTimeout(() => el.scrollIntoView?.({ block: "center" }), 0));
   // A soft plate that fades (CSS; static with reduced motion).
   el.classList.add("ac-msg--focus");
@@ -1794,7 +1792,7 @@ function ChannelView({
         ownGlide = autoScrollUntil.current;
       } else followRef.current();
     };
-    // Reading further up in a browser with no scroll anchoring: rows drawn late above the top edge would push what
+    // Reading further up in a browser with no scroll anchoring: rows growing above the top edge would push what
     // is on screen down, so the list moves by as much (`anchorShift`). Pinned to the end, `pin` already follows.
     const heights = anchorsScroll() ? null : new WeakMap<Element, number>();
     const hold = (entries: ResizeObserverEntry[]) => {
@@ -2494,7 +2492,7 @@ function ChannelView({
       const top = line.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop;
       if (dividerIsFar(top, el.scrollHeight, el.clientHeight)) {
         if (!glide) {
-          // Rows off screen have an estimated height until drawn (`content-visibility`): as `highlightMessage`.
+          // Settle again after rendering, as in `highlightMessage`.
           const land = () => line.scrollIntoView?.({ block: "start" });
           land();
           requestAnimationFrame(() => setTimeout(land, 0));

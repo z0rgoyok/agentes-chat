@@ -485,7 +485,7 @@ export function Message({
       </div>
       {menu &&
         menuAt &&
-        // On the page itself: the row's containment (a list's `content-visibility`) would place a fixed box in it.
+        // Anchor the menu to the viewport, outside the conversation's scrolling container.
         createPortal(
           <MenuAt at={menuAt} onClose={() => setMenuAt(null)} follows label={menu.label} align="end">
             {menu.items}

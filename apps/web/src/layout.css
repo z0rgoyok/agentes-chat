@@ -6388,33 +6388,13 @@ html:not([data-pointer]) .tr-ok:focus-visible {
     transition: none;
   }
 }
-/*
- * Long conversations: the browser skips laying out and painting rows far off screen. That implies
- * paint containment, which would clip the floating action bar (it sits above the row), so a row
- * being hovered, focused, tapped open or with a menu open renders normally; so does a reply still
- * streaming. Room at the top so the first row's bar isn't cut by the scroll container.
- * Nothing in the list shrinks. It is a column flexbox taller than its box, and a skipped row has no
- * content to stop it shrinking (nor has a box that clips its overflow, like a range thread's context):
- * it would be laid out at its padding, not at the size it remembers. A row that hover or focus just
- * left stays skipped until the next frame finds it on screen, so the rows below it would move between
- * a finger going down and lifting, and the tap would miss.
- */
+/* A conversation scrolls as a column whose rows and thread context keep their own heights. */
 .channel__messages > * {
   flex-shrink: 0;
 }
+/* Keep changing message text laid out off screen. Deferred layout can crash Chromium's
+ * accessibility tree (https://crbug.com/590790196). */
 .channel__messages .ac-msg {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 56px;
-}
-/*
- * The newest rows are never skipped either (the last three): a row that just came in starts skipped, at the 56px
- * placeholder, until the next frame finds it on screen. The glide down to a message I sent reads the list's end in
- * that state, stops short of the row's real height (a bubble and its time: ~72px), and the end is caught up with a
- * jump once the glide is over: the whole list moved up a few pixels after every send.
- */
-.channel__messages .ac-msg:is(:hover, :focus-within, .ac-msg--streaming),
-.channel__messages .ac-msg:has(.ac-msg__actions[data-open="true"], [aria-expanded="true"]),
-.channel__messages > .ac-msg:nth-last-of-type(-n + 3) {
   content-visibility: visible;
 }
 .channel__messages {

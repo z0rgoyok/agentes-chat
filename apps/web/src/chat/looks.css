@@ -660,9 +660,6 @@
   overflow: hidden;
   zoom: 0.58;
 }
-.chat-look__mini .ac-msg {
-  content-visibility: visible;
-}
 .chat-look__mini .ac-msg__text {
   white-space: nowrap;
 }
