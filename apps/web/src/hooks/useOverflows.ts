@@ -18,9 +18,8 @@ export function useOverflows(box: RefObject<HTMLElement | null>, active = true, 
       const height = el.scrollHeight;
       setCut((was) => height > ((was ? under : over) ?? el.clientHeight) + 1);
     };
-    // A conversation's rows are skipped while off screen (`content-visibility: auto` in layout.css): measuring one
-    // lays it out anyway, about 10 ms each, a second for a conversation that opens with a hundred. A skipped one is
-    // measured by the observer once it comes on screen, before that frame is painted (hence at once, not later).
+    // In a subtree with deferred layout, let the observer measure once it is drawn. Reading scrollHeight
+    // here would force it to lay out early.
     if (el.checkVisibility?.({ contentVisibilityAuto: true }) !== false) measure();
     if (typeof ResizeObserver === "undefined") return;
     const resized = new ResizeObserver(() => flushSync(measure));

@@ -156,8 +156,7 @@ describe("conversations load fast", () => {
   test("?m= (a copied link): pages back to the message, scrolls to it, centres it again once the rows around it are drawn, and highlights it", async () => {
     const state = seedState();
     state.messages = [...history(130), ...state.messages];
-    // A browser frame: its animation callbacks run, then it is drawn (only then do rows near the screen get their
-    // real height, `content-visibility`).
+    // A browser frame: its animation callbacks run, then it is drawn. Message content can settle during rendering.
     let drawn = 0;
     let ids = 0;
     const frame = new Map<number, FrameRequestCallback>();

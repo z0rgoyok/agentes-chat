@@ -1,9 +1,8 @@
 /**
  * The list holds its place where the browser doesn't.
  *
- * Rows off screen are drawn late (`content-visibility: auto`), so one above what the person reads can change height
- * after they scrolled past where it will be. Browsers with scroll anchoring move the list by as much, so nothing on
- * screen shifts. Safari has none: there the list is moved by hand, by what `anchorShift` says.
+ * A row above what the person reads can change height after they scroll past it. Browsers with scroll anchoring
+ * move the list by as much, so nothing on screen shifts. In Safari `anchorShift` supplies the adjustment.
  */
 
 /** A row whose height changed: its top now, in the list's content (0 = the content's top), and its height before and now. */

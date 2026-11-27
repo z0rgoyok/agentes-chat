@@ -3,16 +3,20 @@ import { builtCss, declarations, rules } from "./built-css";
 
 test("what ships never lets the chat list shrink what it holds", async () => {
   const css = await builtCss("src/styles.css", "src/components/threads/threads.css");
-  // The list is a column flexbox taller than its box. A row the browser skips has no content to stop it shrinking, nor
-  // has a box that clips its overflow (a range thread's context): either would be laid out at its padding, and a row
-  // that hover or focus just left would move the rows under a tap until the next frame.
+  // The conversation scrolls a column taller than its box. Its rows and the thread context keep their own heights.
   expect(declarations(css, ".channel__messages > *")).toContainEqual(["flex-shrink", "0"]);
-  const row = declarations(css, ".channel__messages .ac-msg");
-  expect(row).toContainEqual(["content-visibility", "auto"]);
-  expect(row.findLast(([p]) => p === "contain-intrinsic-size")?.[1]).toStartWith("auto ");
   // No rule gives a row or the context block a flex of its own (`flex` sets flex-shrink too).
   const flexed = rules(css)
     .filter((r) => r.declarations.some(([p]) => p === "flex" || p === "flex-shrink"))
     .flatMap((r) => r.selectors.filter((s) => /\.(ac-msg(--[\w-]+)?|thread-context)(?![\w-])[^ >+~]*$/.test(s)));
   expect(flexed).toEqual([]);
+});
+
+test("the shipped conversation CSS keeps offscreen message rows laid out", async () => {
+  const css = await builtCss("src/styles.css");
+  // A change to an offscreen row with deferred layout can crash Chromium's accessibility tree.
+  const deferred = rules(css)
+    .filter((r) => r.declarations.some(([p, v]) => p === "content-visibility" && v === "auto"))
+    .flatMap((r) => r.selectors.filter((s) => /\.channel__messages\b|\.ac-msg\b/.test(s)));
+  expect(deferred).toEqual([]);
 });

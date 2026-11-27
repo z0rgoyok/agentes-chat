@@ -70,11 +70,3 @@ test("two tiles to a row on a small phone: a document's cover is drawn smaller, 
   const narrow = atRule(css, "@container tile-cover (max-width: 150px)");
   expect(last(narrow, ":is(.artifact-tile__doc, .artifact-tile__text)", "zoom")).toBe("0.75");
 });
-
-test("the newest rows are never skipped: a message I send is its own height when the glide down reads the end", () => {
-  // A row that just came in would start skipped, at the 56px placeholder: the glide would stop short of its real
-  // height, and the list jump up the rest once it ends.
-  const newest = ".channel__messages > .ac-msg:nth-last-of-type(-n + 3)";
-  expect(last(topLevel(css), newest, "content-visibility")).toBe("visible");
-  expect(last(topLevel(css), ".channel__messages .ac-msg", "content-visibility")).toBe("auto");
-});
