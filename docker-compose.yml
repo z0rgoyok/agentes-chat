@@ -290,6 +290,11 @@ configs:
       		}
       	}
       }
+
+      # Forgejo runs on the host behind the same public Caddy instance as Rooms.
+      flow.tich.app {
+        reverse_proxy 172.18.0.1:3001
+      }
   # apps/web/public/unavailable.html, byte for byte (this file is downloaded alone): `bun run sync:unavailable`
   # writes it here after every change to the page. It has no $, which Compose would read as a variable.
   unavailable-page:
