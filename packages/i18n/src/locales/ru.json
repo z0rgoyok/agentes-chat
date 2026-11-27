@@ -7073,6 +7073,7 @@
     "accessOn": "Включить: {{app}}",
     "accessOff": "Выключить: {{app}}",
     "reviewing": "На проверке…",
+    "reviewUnavailable": "Не удалось проверить. Изменение не применено.",
     "appliedByAgent": "Применил {{name}}",
     "appliedByAgent_female": "Применила {{name}}",
     "appliedAuto": "Применено автоматически",

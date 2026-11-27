@@ -8,12 +8,14 @@ import {
   getAgent,
   listNotifications,
   listProposals,
+  MissingCredentialError,
   proposeChange,
   proposeFromItem,
   SETTLE_JOB,
   undoProposal,
 } from "../src";
 import { settleProposals } from "../src/context/proposal-review";
+import { NO_REVIEW } from "../src/context/proposals";
 import { addMember, setup as baseSetup, type Fixture } from "./fixtures";
 
 let f: Fixture;
@@ -237,5 +239,115 @@ describe("agents apply their improvements (ADR 0219)", () => {
       left: [p.id],
     });
     expect(await instructions()).toBe("Answer briefly.");
+  });
+
+  test("the review reads what the person wrote, never the run's outside content, to tell their wish", async () => {
+    f = await setup();
+    const words = "Duda, a partir de agora comece cada revisão de PR dizendo o nível de risco, em uma linha.";
+    const { proposals } = await proposeChange(
+      { db: f.db, pubsub: f.pubsub, judge: f.context.judge },
+      {
+        orgId: f.org.id,
+        agentId: f.agent.id,
+        target: "agent_instructions",
+        change: "Comece cada revisão de PR dizendo o nível de risco, em uma linha.",
+        rationale: "",
+        requesterId: f.owner.id,
+        words,
+      },
+    );
+    const [p] = proposals;
+    if (!p) throw new Error("not proposed");
+    const [job] = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, SETTLE_JOB));
+    expect(job?.payload).toEqual({ ids: [p.id], origin: "outside", words });
+    verdicts = [{ apply: true, why: "É o que a pessoa pediu." }];
+    await settleProposals(
+      { context: f.context },
+      { orgId: f.org.id, ids: [p.id], origin: "outside", words: String(job?.payload.words) },
+    );
+    const review = f.provider.calls.find((c) => isReview(systemText(c.request.system)));
+    const asked = (review?.request.messages ?? [])
+      .map((m) => (typeof m.content === "string" ? m.content : JSON.stringify(m.content)))
+      .join("\n");
+    expect(asked).toContain(`What the person wrote: """${words}`);
+    expect((await row(p.id))?.status).toBe("accepted");
+  });
+});
+
+describe("with no model for the review (a workspace on plans, a server with no platform key)", () => {
+  /** The gateway as it is with no key for the summary model: it refuses the call, and retrying can't add one. */
+  const noKey = (fx: Fixture) => ({
+    ...fx.context,
+    gateway: {
+      ...fx.context.gateway,
+      complete: async () => {
+        throw new MissingCredentialError();
+      },
+    },
+  });
+  const ask = async (fx: Fixture) => {
+    const words = "A partir de agora, comece cada resposta com um resumo de uma linha.";
+    const { proposals } = await proposeChange(
+      { db: fx.db, pubsub: fx.pubsub, judge: fx.context.judge },
+      {
+        orgId: fx.org.id,
+        agentId: fx.agent.id,
+        target: "agent_instructions",
+        change: "Comece cada resposta com um resumo de uma linha.",
+        rationale: "",
+        requesterId: fx.owner.id,
+        words,
+      },
+    );
+    const [p] = proposals;
+    if (!p) throw new Error("not proposed");
+    return { p, words };
+  };
+
+  test("what a person asked after outside content is weighed by the judge, and applied when it holds", async () => {
+    f = await baseSetup({ judge: (kind) => (kind === "proposal_review" ? 0.9 : undefined) });
+    const { p, words } = await ask(f);
+    expect(
+      await settleProposals({ context: noKey(f) }, { orgId: f.org.id, ids: [p.id], origin: "outside", words }),
+    ).toEqual({ applied: [p.id], left: [] });
+    expect(await instructions()).toContain("Comece cada resposta com um resumo de uma linha.");
+    expect((await row(p.id))?.status).toBe("accepted");
+    // The judge read the change and what the person wrote.
+    const judged = (f.context.judge as unknown as { calls: { kind: string; state: Record<string, unknown> }[] }).calls;
+    const call = judged.find((c) => c.kind === "proposal_review");
+    expect(Object.keys(call?.state ?? {})).toEqual(["c1"]);
+    expect(String(call?.state.c1)).toContain(`What the person wrote: """${words}`);
+  });
+
+  test("what the judge leaves out stays out; with no judge either, why names the cause and the way out", async () => {
+    f = await baseSetup({ judge: (kind) => (kind === "proposal_review" ? 0.1 : undefined) });
+    const first = await ask(f);
+    await settleProposals(
+      { context: noKey(f) },
+      { orgId: f.org.id, ids: [first.p.id], origin: "outside", words: first.words },
+    );
+    expect((await row(first.p.id))?.status).toBe("rejected");
+    expect(await instructions()).toBe("Answer briefly.");
+
+    f.close();
+    f = await setup();
+    const second = await ask(f);
+    const neither = {
+      ...noKey(f),
+      judge: {
+        name: "off",
+        ask: async () => {
+          throw new Error("judge: no Jev key");
+        },
+      },
+    };
+    await settleProposals(
+      { context: neither },
+      { orgId: f.org.id, ids: [second.p.id], origin: "outside", words: second.words },
+    );
+    const left = await row(second.p.id);
+    expect(left?.status).toBe("rejected");
+    expect(left?.review).toBe(NO_REVIEW);
+    expect(left?.decidedByAgentId).toBeNull();
   });
 });

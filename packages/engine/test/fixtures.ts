@@ -513,20 +513,25 @@ export function withReview(verdict: ReviewVerdict | (() => ReviewVerdict), reply
   };
 }
 
-/** The reviews queued for new proposals (job `proposals.settle`): each one's ids and origin, oldest first. */
-export async function queuedReviews(f: Pick<Fixture, "db" | "org">) {
+/** The reviews queued for new proposals (job `proposals.settle`), oldest first: their ids, origin and the words. */
+export async function queuedJobs(f: Pick<Fixture, "db" | "org">) {
   const jobs = await f.db
     .select()
     .from(schema.outbox)
     .where(and(eq(schema.outbox.orgId, f.org.id), eq(schema.outbox.kind, SETTLE_JOB)))
     .orderBy(schema.outbox.createdAt);
-  return jobs.map((j) => j.payload as { ids: string[]; origin: SettleOrigin });
+  return jobs.map((j) => j.payload as { ids: string[]; origin: SettleOrigin; words?: string });
+}
+
+/** The reviews queued for new proposals: each one's ids and origin, oldest first (the words: `queuedJobs`). */
+export async function queuedReviews(f: Pick<Fixture, "db" | "org">) {
+  return (await queuedJobs(f)).map(({ ids, origin }) => ({ ids, origin }));
 }
 
 /** Runs the reviews queued for new proposals, as the worker would (with the fixture's model and skill files). */
 export async function settleQueued(f: Fixture) {
   const out = { applied: [] as string[], left: [] as string[] };
-  for (const job of await queuedReviews(f)) {
+  for (const job of await queuedJobs(f)) {
     const res = await settleProposals(
       { context: f.context, blobs: f.artifactDeps.blobs, deletion: { hub: f.machineHub } },
       { orgId: f.org.id, ...job },

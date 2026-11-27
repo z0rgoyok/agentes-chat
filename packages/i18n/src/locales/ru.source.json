@@ -16311,6 +16311,9 @@
   "proposals.reviewing": {
     "value": "Reviewing…"
   },
+  "proposals.reviewUnavailable": {
+    "value": "Couldn’t review. Change not applied."
+  },
   "proposals.appliedByAgent": {
     "value": "Applied by {{name}}"
   },

@@ -102,6 +102,21 @@ const {
 
 export type Proposal = typeof contextProposals.$inferSelect;
 
+/** Stored system reasons, kept distinct from a reviewer's verdict. Older rows use the original wording. */
+export const NO_REVIEW =
+  "Not applied: no AI account here could review it. Add one with an API key in Settings › AI and usage, or make the change yourself.";
+export const NO_REVIEW_VERDICT = "The review gave no answer.";
+
+export function proposalReviewUnavailable(p: Pick<Proposal, "status" | "review" | "decidedByUserId">): boolean {
+  return (
+    p.status === "rejected" &&
+    !p.decidedByUserId &&
+    (p.review === NO_REVIEW ||
+      p.review === NO_REVIEW_VERDICT ||
+      p.review === "It couldn't be reviewed now, so it wasn't applied.")
+  );
+}
+
 export const SETTLE_JOB = "proposals.settle";
 
 /** Why a change reached the review and wasn't applied when it was made: the review weighs it by this. */
@@ -117,10 +132,52 @@ export type SettleOrigin =
   /** A person asked for it (a settings card that wasn't applied at once). */
   | "asked";
 
-/** Queues the review of new proposals (after the caller's commit, through the outbox; retried on a rate limit). */
-export async function queueSettle(db: Executor, orgId: string, ids: string[], origin: SettleOrigin) {
+/** What of the person's message the review reads, at most. */
+const WORDS_CHARS = 2000;
+
+/**
+ * Queues the review of new proposals (after the caller's commit, through the outbox; retried on a rate limit).
+ * `words`: what the person who asked wrote (`askedWords`), so the review can tell their wish from what a run read.
+ */
+export async function queueSettle(
+  db: Executor,
+  orgId: string,
+  ids: string[],
+  origin: SettleOrigin,
+  words?: string | null,
+) {
   if (ids.length === 0) return;
-  await enqueue(db, { orgId, kind: SETTLE_JOB, payload: { ids, origin }, dedupeKey: `${SETTLE_JOB}:${ids[0]}` });
+  const said = words?.trim() ? { words: cutText(words.trim(), WORDS_CHARS) } : {};
+  await enqueue(db, {
+    orgId,
+    kind: SETTLE_JOB,
+    payload: { ids, origin, ...said },
+    dedupeKey: `${SETTLE_JOB}:${ids[0]}`,
+  });
+}
+
+/**
+ * The message that started the run, when `userId` wrote it: the person's own words for a change they asked for. Null
+ * for a notice, a colleague's message or anything an agent wrote.
+ */
+export async function askedWords(
+  db: Database,
+  ctx: { orgId: string; triggerMessageId?: string | null },
+  userId: string | null | undefined,
+): Promise<string | null> {
+  if (!userId || !ctx.triggerMessageId) return null;
+  const [m] = await db
+    .select({ body: messages.body })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.orgId, ctx.orgId),
+        eq(messages.id, ctx.triggerMessageId),
+        eq(messages.authorType, "person"),
+        eq(messages.authorUserId, userId),
+      ),
+    );
+  return m?.body ?? null;
 }
 
 /** The reason of a proposal whose agent gave none. */
@@ -893,6 +950,8 @@ export async function proposeSkillChange(
     requesterId?: string | null;
     /** Why it wasn't applied when made, for the review (ADR 0219); the agent on its own by default. */
     origin?: SettleOrigin;
+    /** What the person who asked wrote (`askedWords`). */
+    words?: string | null;
   },
 ): Promise<Proposal | null> {
   checkContent(input.body);
@@ -928,7 +987,7 @@ export async function proposeSkillChange(
     })
     .returning();
   if (!proposal) return null;
-  await queueSettle(deps.db, input.orgId, [proposal.id], input.origin ?? "agent");
+  await queueSettle(deps.db, input.orgId, [proposal.id], input.origin ?? "agent", input.words);
   return proposal;
 }
 
@@ -1332,6 +1391,8 @@ export async function proposeChange(
     requesterId: string;
     /** The run, when the person who asked may have what they decide applied now (`ownWords`). */
     atOnce?: ToolContext;
+    /** What the person who asked wrote (`askedWords`), for the review of what isn't applied at once. */
+    words?: string | null;
   },
 ): Promise<{ proposals: (Proposal & { canDecide: boolean })[]; applied: Proposal[]; skipped: string[] }> {
   const { db } = deps;
@@ -1446,12 +1507,14 @@ export async function proposeChange(
     orgId,
     out.filter((p) => p.canDecide).map((p) => p.id),
     "outside",
+    input.words,
   );
   await queueSettle(
     db,
     orgId,
     out.filter((p) => !p.canDecide).map((p) => p.id),
     "asked_other",
+    input.words,
   );
   return { proposals: out, applied, skipped };
 }

@@ -364,3 +364,42 @@ test("the team week's reasons reach people as codes, and the list ends an inbox 
   await list();
   expect(await open()).toEqual([]);
 });
+
+test("proposals API separates an old unavailable review from a negative verdict", async () => {
+  t = await createTestServer();
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId, agentId } = await seedOrg(owner);
+  const [failed, refused] = await t.db
+    .insert(schema.contextProposals)
+    .values(
+      ["It couldn't be reviewed now, so it wasn't applied.", "The instruction is already present."].map((review) => ({
+        orgId,
+        agentId,
+        target: "agent_instructions" as const,
+        proposedByAgentId: agentId,
+        decidedByAgentId: agentId,
+        decidedAt: new Date(),
+        status: "rejected" as const,
+        baseHash: "",
+        proposedText: "",
+        diff: "",
+        rationale: "",
+        review,
+      })),
+    )
+    .returning({ id: schema.contextProposals.id });
+  const response = await owner(`/api/app/organizations/${orgId}/proposals?ids=${failed?.id},${refused?.id}`);
+  expect(response.status).toBe(200);
+  const { proposals } = (await response.json()) as { proposals: { id: string }[] };
+  expect(proposals.find((p) => p.id === failed?.id)).toMatchObject({
+    status: "refused",
+    reviewUnavailable: true,
+    decidedByAgent: null,
+  });
+  expect(proposals.find((p) => p.id === refused?.id)).toMatchObject({
+    status: "refused",
+    reviewUnavailable: false,
+    decidedByAgent: { agentId, name: "Dev" },
+  });
+});

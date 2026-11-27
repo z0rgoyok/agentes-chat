@@ -7032,6 +7032,7 @@ export const ptBR = {
     appliedByAgent_female: "Aplicado pela {{name}}",
     /** A lesson for the whole workspace, applied with no agent behind it. */
     appliedAuto: "Aplicado automaticamente",
+    reviewUnavailable: "Não foi possível revisar. Alteração não aplicada.",
     leftOutBy: "Não aplicado pelo {{name}}",
     leftOutBy_female: "Não aplicado pela {{name}}",
     leftOut: "Não aplicado",

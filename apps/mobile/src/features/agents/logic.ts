@@ -528,7 +528,16 @@ export function proposalOutcome(
   t: TFunction,
   p: Pick<
     Proposal,
-    "status" | "stale" | "decidedBy" | "decidedByAgent" | "reviewed" | "review" | "undoneBy" | "undoneAt" | "decidedAt"
+    | "status"
+    | "stale"
+    | "decidedBy"
+    | "decidedByAgent"
+    | "reviewed"
+    | "review"
+    | "reviewUnavailable"
+    | "undoneBy"
+    | "undoneAt"
+    | "decidedAt"
   >,
   meId: string | null,
 ): ProposalOutcome {
@@ -552,6 +561,7 @@ export function proposalOutcome(
         : t("mobile.proposals.undoneBy", { name: by.name });
     return ended(words, false, p.undoneAt ?? p.decidedAt);
   }
+  if (p.reviewUnavailable) return ended(t("proposals.reviewUnavailable"));
   const accepted = p.status === "accepted";
   const person = p.decidedBy;
   if (person) {

@@ -182,6 +182,7 @@ export function proposalOutcome(t: TFunction, p: Proposal, meId: string): string
     if (!p.undoneBy) return t("rightHand.card.undone");
     return p.undoneBy.userId === meId ? t("proposals.undoneByYou") : t("proposals.undoneBy", { name: p.undoneBy.name });
   }
+  if (p.reviewUnavailable) return t("proposals.reviewUnavailable");
   const agent = p.decidedByAgent ? p.decidedByAgent.name || t("channel.unknownAgent") : null;
   if (p.reviewed) {
     if (p.status === "accepted")

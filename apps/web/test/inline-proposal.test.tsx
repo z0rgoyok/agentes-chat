@@ -178,6 +178,12 @@ describe("a change proposed in the chat, one row", () => {
     noDecision(card);
   });
 
+  test("a failed review explains the outcome without blaming the author", async () => {
+    await openCard([adaRole("p-role", { ...leftOut(), reviewUnavailable: true })]);
+    expect(ending(one())).toBe("Não foi possível revisar. Alteração não aplicada.");
+    noDecision(one());
+  });
+
   test("a workspace-wide lesson no agent holds reads as applied automatically", async () => {
     await openCard([
       row("p-context", { agentId: ATLAS_ID, target: { type: "org_context" }, ...reviewed({ decidedByAgent: null }) }),

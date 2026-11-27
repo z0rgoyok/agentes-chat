@@ -25,6 +25,7 @@ import {
   ownerDecides,
   ownsAgent,
   type Proposal as ProposalRow,
+  proposalReviewUnavailable,
   requirePermission,
   resolveNotifications,
   revertMemoryChange,
@@ -221,6 +222,9 @@ const Proposal = z
     review: z.string().nullable().openapi({
       description:
         "The review's line, in the language of the text it changes: why it was applied or left out. Null when a person decided it.",
+    }),
+    reviewUnavailable: z.boolean().optional().openapi({
+      description: "The system could not get a review verdict and left the change unapplied.",
     }),
     reviewed: z.boolean().openapi({
       description:
@@ -464,6 +468,7 @@ async function proposalViews(db: Database, rows: (ProposalRow & { canDecide: boo
   return rows.map((r) => {
     const agent = r.agentId ? agentById.get(r.agentId) : undefined;
     const owner = agent?.ownerUserId;
+    const reviewUnavailable = proposalReviewUnavailable(r);
     const sourceItems = r.itemIds.flatMap((id) => (itemById.get(id) ? [itemById.get(id) as ContextItem] : []));
     const name = agent?.name ?? "the agent";
     return {
@@ -520,10 +525,12 @@ async function proposalViews(db: Database, rows: (ProposalRow & { canDecide: boo
       canDecide: r.canDecide,
       createdAt: r.createdAt.toISOString(),
       decidedBy: r.decidedByUserId ? { userId: r.decidedByUserId, name: users.get(r.decidedByUserId) ?? "" } : null,
-      decidedByAgent: r.decidedByAgentId
-        ? { agentId: r.decidedByAgentId, name: agentById.get(r.decidedByAgentId)?.name ?? "" }
-        : null,
+      decidedByAgent:
+        !reviewUnavailable && r.decidedByAgentId
+          ? { agentId: r.decidedByAgentId, name: agentById.get(r.decidedByAgentId)?.name ?? "" }
+          : null,
       review: r.review,
+      reviewUnavailable,
       reviewed: !r.decidedByUserId && !!r.decidedAt,
       undoable: r.undoable,
       undoneBy: r.undoneByUserId ? { userId: r.undoneByUserId, name: users.get(r.undoneByUserId) ?? "" } : null,

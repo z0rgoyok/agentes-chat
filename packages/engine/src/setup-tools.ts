@@ -26,7 +26,13 @@ import { MCP_PRESETS, presetForServer } from "./connectors/presets";
 import { CONNECTOR_NAMES } from "./connectors/sites";
 import { cardPlace, NO_PERSON_READS } from "./consultations";
 import { ownWords } from "./context/learn";
-import { decideProposal, proposeSettings, queueSettle, type SettingsProposalCard } from "./context/proposals";
+import {
+  askedWords,
+  decideProposal,
+  proposeSettings,
+  queueSettle,
+  type SettingsProposalCard,
+} from "./context/proposals";
 import type { ContextDeps } from "./context/summaries";
 import { publishMessageCreated } from "./events";
 import { firstOf } from "./format";
@@ -824,6 +830,7 @@ export function createSetupToolSource(deps: {
             ctx.orgId,
             proposals.map((p) => p.id),
             origin,
+            await askedWords(ctx.db, ctx, forUserId),
           );
           return {
             content: `Posted the card to ${field} ${who}; a quick review applies it in a moment if it makes sense; its card shows the outcome.${[...left, ...skipped].length ? ` Left off: ${[...left, ...skipped].join("; ")}.` : ""} To ${(await isPersonalWorkspace(ctx.db, ctx.orgId)) ? "set up new agents" : "rebuild the team"}, propose the new agents now with propose_agent.`,
@@ -1957,6 +1964,7 @@ function settingsTool(deps: { pubsub?: PubSub }, own = false): ToolDefinition {
           ctx.orgId,
           open.map((p) => p.id),
           origin,
+          own ? null : await askedWords(ctx.db, ctx, forUserId),
         );
         const applied = open.length < proposals.length;
         const rest = applied ? "the rest goes" : "it goes";
