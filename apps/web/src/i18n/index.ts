@@ -164,6 +164,8 @@ const options = (lng: LocaleCode): InitOptions => ({
   interpolation: { escapeValue: false, defaultVariables: { device: "Mac" } },
   initAsync: false,
   returnNull: false,
+  // Words added later (a connector tool's, `useToolLabelSource`) redraw what reads them.
+  react: { bindI18nStore: "added" },
 });
 
 /**

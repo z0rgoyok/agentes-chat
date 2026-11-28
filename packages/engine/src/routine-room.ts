@@ -75,6 +75,7 @@ export async function startRoutineRun(
         threadId: null,
         author: { type: "person", userId: creator },
         body: input.body,
+        origin: "system",
         meta: {
           routineBrief: brief,
           routine: { id: brief.routineId, name: brief.name, runId: brief.routineRunId },

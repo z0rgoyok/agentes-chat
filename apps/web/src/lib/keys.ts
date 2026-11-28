@@ -61,3 +61,17 @@ export const holdsText = (target: EventTarget | null) => {
   if (!field) return false;
   return Boolean(("value" in field ? String(field.value) : (field.textContent ?? "")).trim());
 };
+
+/** Alt+Shift+↑/↓, a list's "move this one": -1 up, 1 down, null for any other key. */
+export const moveStep = (e: { altKey: boolean; shiftKey: boolean; key: string }): -1 | 1 | null =>
+  e.altKey && e.shiftKey && (e.key === "ArrowUp" || e.key === "ArrowDown") ? (e.key === "ArrowUp" ? -1 : 1) : null;
+
+/** One `onKeyDown` from several: each runs in turn until one takes the key (`defaultPrevented`). */
+export const keysInTurn =
+  <E extends { defaultPrevented: boolean }>(...handlers: (((e: E) => void) | undefined)[]) =>
+  (e: E) => {
+    for (const handle of handlers) {
+      if (e.defaultPrevented) return;
+      handle?.(e);
+    }
+  };

@@ -65,6 +65,8 @@ export const strings: Partial<PushStrings> = {
   deviceJoinRequestBody: "タップして参加を許可または却下",
   waitingTitle: "あなたの対応待ちがあります",
   openBody: "タップして開く",
+  cutBody: "完了前に停止しました。続けるにはもう一度依頼してください。",
+  movedBody: "時間がかかりそうなので、バックグラウンドで続けます。",
   sentGif: "GIF を送信しました",
   sentSticker: "スタンプを送信しました",
   sentVoice: "ボイスメッセージを送信しました",
@@ -91,11 +93,13 @@ export const strings: Partial<PushStrings> = {
     f ? `${a} があなたの ${d} で ${f} を求めています` : `${a} があなたの ${d} でフォルダを求めています`,
   deviceFolderBody: "そのコンピューターのアプリで許可してください。",
   adminAskTitle: (a, what, l) =>
-    what === "channel_agent"
-      ? `${a} が #${l} にエージェントを追加するよう求めています`
-      : what === "create_agents"
-        ? `${a} がエージェントを作成できるよう求めています`
-        : `${a} がルーティン用の ${l} Webhook の設定を求めています`,
+    what === "voice"
+      ? `${a} がボイスメッセージをオンにするよう求めています`
+      : what === "channel_agent"
+        ? `${a} が #${l} にエージェントを追加するよう求めています`
+        : what === "create_agents"
+          ? `${a} がエージェントを作成できるよう求めています`
+          : `${a} がルーティン用の ${l} Webhook の設定を求めています`,
   deviceWaitingTitle: (p, d) => `${p} のエージェントがあなたの ${d} を待っています`,
   deviceWaitingBody: "戻ったら始まります。",
   teamWeekReady: "チームの1週間のまとめができました",

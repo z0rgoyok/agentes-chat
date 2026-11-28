@@ -186,6 +186,28 @@ const link = (over: Partial<InviteLink> & Pick<InviteLink, "id">): InviteLink =>
 });
 
 describe("the invite dialog, one screen", () => {
+  test("a server only its own computer opens: Membros, Convites and the dialog say its invitations open for nobody else, and the way out", async () => {
+    const NOTE =
+      "Este servidor só abre no computador onde ele roda, então quem você convidar não consegue abrir o convite.";
+    const state = withSupport();
+    state.authConfig = { ...state.authConfig, localOnly: true };
+    await members(state);
+    expect(screen().getByRole("alert").textContent).toBe(NOTE);
+    const invite = await openInvite();
+    expect(within(invite).getByRole("alert").textContent).toBe(NOTE);
+    expect(invite.textContent).toContain(
+      "ligue Acessar pelo celular e pela equipe em Preferências\u00a0›\u00a0Servidores",
+    );
+    cleanup();
+    await members(state, "invites");
+    expect(screen().getByRole("alert").textContent).toBe(NOTE);
+    cleanup();
+    // Any other server: not a word of it.
+    await members(withSupport());
+    expect(document.body.textContent).not.toContain(NOTE);
+    expect((await openInvite()).textContent).not.toContain(NOTE);
+  });
+
   test("E-mail or Link on top, then Para, Cargo, Canais and Agentes: each label and its ⓘ over its field", async () => {
     await members(withSupport());
     const invite = await openInvite();
@@ -733,6 +755,35 @@ describe("People › Convites", () => {
     await wait(120);
     await settle(4);
     expect(state.calls.filter((c) => c.method === "orgs.revokeInvitation").at(-1)?.args).toEqual([ORG_ID, "inv-old"]);
+  });
+
+  test("an email that never arrived: the row says why, with Copiar link and Reenviar, even after a resend", async () => {
+    const state = withSupport();
+    state.invitations.push(
+      invitation({ id: "inv-ana", email: "ana@acme.com", undelivered: "suppressed" }),
+      invitation({ id: "inv-bia", email: "bia@acme.com", undelivered: "rejected" }),
+    );
+    await members(state, "invites");
+    const row = (email: string) =>
+      within(screen().getByRole("region", { name: "Convites por e-mail" })).getByRole("group", {
+        name: `Convite para ${email}`,
+      });
+    const said = (email: string) => row(email).querySelector(".members-row__state") as HTMLElement;
+    expect(said("ana@acme.com").textContent).toBe(
+      "Não chegou: o provedor de e-mail bloqueou este endereço depois de uma devolução. Confira se está certo e reenvie, ou copie o link.",
+    );
+    expect(said("ana@acme.com").getAttribute("data-tone")).toBe("soon");
+    expect(said("bia@acme.com").textContent).toBe(
+      "Não chegou: o endereço foi recusado. Confira se está certo, ou copie o link e mande de outro jeito.",
+    );
+    expect(within(row("ana@acme.com")).getByRole("button", { name: "Copiar link" })).toBeTruthy();
+    await click(within(row("ana@acme.com")).getByRole("button", { name: "Reenviar" }));
+    await settle(4);
+    // Still refused by the time the list comes back: it can be sent again.
+    expect(said("ana@acme.com").textContent).toStartWith("Não chegou:");
+    expect((within(row("ana@acme.com")).getByRole("button", { name: "Reenviar" }) as HTMLButtonElement).disabled).toBe(
+      false,
+    );
   });
 
   test("pending: while a row's call runs its other actions wait; Desativar's dialog holds until the link is off", async () => {

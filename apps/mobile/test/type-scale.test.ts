@@ -112,6 +112,32 @@ test("a line's lead, an icon or a maker's mark in its place, centers on the firs
   expect(leadBox(line, 28)).toEqual({ paddingTop: 0, height: 28 });
 });
 
+test("a row's switch beside words that may wrap sits level with the label's line, the row no taller for it", () => {
+  // From the line's top (`leadBox`) the 28 pt switch hung 3 pt under a one-line label and made the row 58 tall.
+  const src = (f: string) => readFileSync(join(import.meta.dir, "../src", f), "utf8");
+  expect(src("ui/Grouped.tsx")).toContain(
+    "{ marginTop: line.middle - SWITCH_H / 2, marginBottom: line.height - line.middle - SWITCH_H / 2 }",
+  );
+  expect(src("ui/Grouped.tsx")).toContain("<View style={switchOnLine}>");
+  expect(src("features/shared/parts.tsx")).not.toContain("<View style={onLine(28)}>");
+});
+
+test("an icon's tile beside words that may wrap sits on the label's first line in every row, the row no taller for it", () => {
+  // Only tree rows did: elsewhere the 30 pt tile stood at the row's top, its middle 4 pt under a one-line label's, and
+  // the row was 60 tall instead of 52 (an agent's "Who can talk" row).
+  const grouped = readFileSync(join(import.meta.dir, "../src/ui/Grouped.tsx"), "utf8");
+  expect(grouped).toContain(
+    "const tileOnLine = line\n    ? { marginTop: line.middle - TILE / 2, marginBottom: line.height - line.middle - TILE / 2 }",
+  );
+  expect(grouped).not.toContain("depth > 0 && line");
+  // The tile's box takes the line's height: 15 above, the 22 pt line, 15 under, as a one-line row's 52.
+  const line = { height: 22, middle: readingMiddle(17, 22) };
+  const tile = 30;
+  const box = tile + (line.middle - tile / 2) + (line.height - line.middle - tile / 2);
+  expect(box).toBeCloseTo(line.height, 6);
+  expect(15 + box + 15).toBeCloseTo(52, 6);
+});
+
 test("a mark beside words (an orbit, the waiting mark) centres on the capitals, the line's middle, not lower", () => {
   // The work line (small: 15/20) with its 12 pt orbit: on the capitals it starts 4 pt down; where the eye reads the
   // small letters it sat 1.2 pt lower, and the words read higher than it.

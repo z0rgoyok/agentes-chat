@@ -34,7 +34,7 @@ const pages = () =>
 
 describe("help pages", () => {
   test("every page in both languages, with the same sections in the same order and blocks of the same shape", () => {
-    expect(SLUGS.length).toBe(11);
+    expect(SLUGS.length).toBe(12);
     // Jev's key is a self-hosted server's own; who answers a message, every edition's.
     expect([HELP_PAGES.jev, HELP_PAGES["who-answers"]]).toEqual(["selfhost", "both"]);
     for (const slug of SLUGS) {

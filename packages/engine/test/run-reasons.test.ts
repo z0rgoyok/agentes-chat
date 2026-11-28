@@ -197,8 +197,25 @@ test("a CLI's failure says who failed it: the provider as a key's failure reads,
     errorCode: "run.cli_closed",
     errorParams: { brain: "Grok Build" },
   });
-  expect(other("OpenCode ended without finishing the turn", "opencode_failed")).toBe("cli_failed: OpenCode");
+  // Ended its turn with nothing in it: said as that, so the line says what to do.
+  expect(other("OpenCode ended without finishing the turn", "opencode_failed")).toBe("cli_empty: OpenCode");
+  expect(other("OpenCode ended without an answer.", "opencode_failed")).toBe("cli_empty: OpenCode");
+  expect(runErrorDetail("cli_empty: OpenCode")).toEqual({
+    errorCode: "run.cli_empty",
+    errorParams: { brain: "OpenCode" },
+  });
+  expect(cliFailureText(cli("Codex stopped", { cause: "empty_answer" }, "codex_failed"))).toBe("cli_empty: Codex");
   expect(other("Claude Code ended with an error", "claude_failed")).toBe("cli_failed: Claude Code");
+  // A model the sign-in or its endpoint doesn't serve reads as a key's would: that model isn't available there.
+  const noModel = cliFailureText(
+    cli("There's an issue with the selected model (claude-x). It may not exist or you may not have access to it.", {
+      cause: "model_unavailable",
+    }),
+  );
+  expect(runErrorDetail(noModel)).toMatchObject({
+    errorCode: "run.provider_model_unavailable",
+    errorParams: { provider: "Claude" },
+  });
   // A Codex turn that failed in its own words, even ones that sound like the runner's.
   expect(other("stream disconnected before completion: idle timeout", "codex_failed")).toBe(
     "cli_failed: Codex: stream disconnected before completion: idle timeout",

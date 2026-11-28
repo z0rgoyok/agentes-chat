@@ -62,6 +62,17 @@ export function desktopOAuthRedirect(input: { org: string; state?: string; code?
 }
 
 /**
+ * The browser's page the desktop app's link goes through (apps/web DesktopBackPage), so the tab says the person went
+ * back to the app instead of standing on the provider's last page. The link rides in the fragment, which reaches no
+ * server.
+ */
+export const desktopBackPage = (base: string, link: string) =>
+  `${base.replace(/\/$/, "")}/desktop/back#${encodeURIComponent(link)}`;
+
+/** The desktop app's link inside `desktopBackPage`'s address. */
+export const desktopBackLink = (page: string) => decodeURIComponent(new URL(page).hash.slice(1));
+
+/**
  * A mailbox's return from Composio (mail accounts.ts) rides the same link. The callback has read the account
  * already, so the link only says how it went: `state=mail` and `code=connected|failed`, in the fields the apps
  * pass on (deep_link.rs). apps/web DesktopConnectorPage.tsx reads it.

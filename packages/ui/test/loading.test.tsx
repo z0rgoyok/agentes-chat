@@ -6,6 +6,8 @@ setupDom();
 import { act, cleanup, render, within } from "@testing-library/react";
 import {
   Button,
+  PageHeader,
+  Refreshing,
   SKELETON_DELAY_MS,
   Skeleton,
   SkeletonConversation,
@@ -180,8 +182,67 @@ describe("reduced motion", () => {
     const start = css.indexOf("Loading: skeletons");
     expect(start).toBeGreaterThan(-1);
     const section = css.slice(start);
-    // Strip the allowed blocks; no `animation:` may remain outside them.
-    const outside = section.replace(/@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/g, "");
+    // Strip the allowed blocks; no `animation:` may remain outside them. Under reduced motion only a 120ms fade.
+    const calm = /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g;
+    for (const [block] of section.matchAll(calm))
+      for (const a of block.matchAll(/\banimation:\s*([^;]+);/g))
+        expect(a[1]?.trim()).toBe("ac-fade-in 120ms ease-out");
+    const outside = section
+      .replace(/@media \(prefers-reduced-motion: no-preference\) \{[\s\S]*?\n\}/g, "")
+      .replace(calm, "");
     expect(outside).not.toMatch(/\banimation:/);
+  });
+});
+
+describe("Refreshing", () => {
+  test("a kept list dims and shows a running bar only past the delay, and is itself again when its rows land", async () => {
+    const { rerender } = render(
+      <Refreshing busy label="Carregando…">
+        <ul>
+          <li>Kept</li>
+        </ul>
+      </Refreshing>,
+    );
+    const box = document.querySelector(".ac-refreshing") as HTMLElement;
+    expect(box.getAttribute("aria-busy")).toBe("true");
+    // A quick switch never blinks: nothing shows yet.
+    expect(box.hasAttribute("data-busy")).toBe(false);
+    expect(body().queryByRole("progressbar")).toBeNull();
+    await wait(SKELETON_DELAY_MS + 30);
+    expect(box.hasAttribute("data-busy")).toBe(true);
+    // The bar comes before the list, so the list's own box doesn't move.
+    expect(box.firstElementChild).toBe(body().getByRole("progressbar", { name: "Carregando…" }));
+    expect(body().getByText("Kept")).toBeTruthy();
+    rerender(
+      <Refreshing busy={false} label="Carregando…">
+        <ul>
+          <li>New</li>
+        </ul>
+      </Refreshing>,
+    );
+    expect(box.hasAttribute("aria-busy")).toBe(false);
+    expect(box.hasAttribute("data-busy")).toBe(false);
+    expect(body().queryByRole("progressbar")).toBeNull();
+  });
+});
+
+describe("PageHeader metaActions", () => {
+  test("the line under the title ends with the controls, the title's row keeps its own actions", () => {
+    render(
+      <PageHeader
+        title="Caixa de entrada"
+        meta="3 não lidas"
+        actions={<Button aria-label="Marcar tudo como lido" />}
+        metaActions={<Button>Tudo</Button>}
+      />,
+    );
+    const head = document.querySelector(".ac-pagehead") as HTMLElement;
+    expect([...head.children].map((c) => c.className)).toEqual(["ac-pagehead__row", "ac-pagehead__metaline"]);
+    const line = head.querySelector(".ac-pagehead__metaline") as HTMLElement;
+    expect(line.firstElementChild?.className).toBe("ac-pagehead__meta");
+    expect(line.firstElementChild?.textContent).toBe("3 não lidas");
+    expect(line.querySelector(".ac-pagehead__metaacts")?.textContent).toBe("Tudo");
+    // Not twice: the line moved out of the title's block.
+    expect(head.querySelectorAll(".ac-pagehead__meta")).toHaveLength(1);
   });
 });

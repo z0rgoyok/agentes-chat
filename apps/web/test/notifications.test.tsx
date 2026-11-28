@@ -83,8 +83,8 @@ const onNarrowScreen = async (run: () => Promise<void>) => {
   }
 };
 /** The inbox's own entry in the sidebar. */
-const sidebarEntry = () =>
-  document.querySelector(`#app-nav a[href="/org/${ORG_ID}/notifications"]`) as HTMLAnchorElement;
+/** The sidebar's way to what waits (ADR 0260): Não lidas, the list's first row. */
+const sidebarEntry = () => document.querySelector(`#app-nav a[href="/org/${ORG_ID}/unreads"]`) as HTMLAnchorElement;
 /** The fake backend with these notifications and no proposals: these cases are about the notifications. */
 const seed = (notifications: AppNotification[], over: Partial<FakeState> = {}) =>
   seedState({ notifications, proposals: [], ...over });
@@ -197,27 +197,62 @@ describe("Notificações", () => {
     await renderApp(`/org/${ORG_ID}/notifications`, { api });
     await settle(4);
     const title = screen().getByRole("heading", { level: 1, name: "Caixa de entrada" });
-    expect(title.nextElementSibling?.className).toBe("ac-pagehead__meta");
-    expect(title.nextElementSibling?.textContent).toBe("2 não lidas");
+    // The count's line, under the title, with the filter at its end.
+    const meta = title.closest(".ib-head")?.querySelector(".ac-pagehead__metaline > .ac-pagehead__meta");
+    expect(meta?.textContent).toBe("2 não lidas");
   });
 
-  test("the title never wraps to keep the filter beside it: the filter goes under it, on a phone too, at its own width", async () => {
+  test("a compact header: the title and Marcar tudo como lido on one row, the count and the filter on the next", async () => {
+    await go();
+    const head = document.querySelector(".ib-head") as HTMLElement;
+    // Two rows, no third one for the filter alone.
+    expect([...head.children].map((c) => c.className)).toEqual(["ac-pagehead__row", "ac-pagehead__metaline"]);
+    expect(head.querySelector(".ac-pagehead__bar")).toBeNull();
+    const titleRow = head.querySelector(".ac-pagehead__row") as HTMLElement;
+    expect(titleRow.querySelector("h1")?.textContent).toBe("Caixa de entrada");
+    expect(titleRow.querySelector(".ac-pagehead__actions .ib-readall")).not.toBeNull();
+    const line = head.querySelector(".ac-pagehead__metaline") as HTMLElement;
+    expect(line.firstElementChild?.textContent).toBe("1 coisa esperando você\u00a0· 3 não lidas");
+    expect(line.querySelector(".ac-pagehead__metaacts .ib-filter")?.textContent).toBe("Tudo");
     const css = (await Bun.file(new URL("../src/pages/notifications.css", import.meta.url).pathname).text()).replace(
       /\/\*[\s\S]*?\*\//g,
       "",
     );
-    // The header's row wraps as every page's does (the kit's rule), with nothing here holding it on one line.
-    expect(css).not.toMatch(/\.ib-head \.ac-pagehead__(row|text) \{/);
-    expect(css).not.toMatch(/\.nt \.ac-pagehead__actions \{/);
+    // The title row wraps as every page's does (the kit's rule); Marcar tudo como lido stays beside it on a phone.
+    expect(css).not.toMatch(/\.ib-head \.ac-pagehead__(row|text|bar) \{/);
     expect(css).toMatch(/\.ib-head \.ac-pagehead__actions \{[^}]*flex-basis: auto;/);
+  });
+
+  test("another filter keeps the list on screen, dimmed under a running bar, until its notifications land", async () => {
+    const { api } = await go();
+    const load = api.notifications.list;
+    let land = () => {};
+    api.notifications.list = (...args) =>
+      new Promise((done) => {
+        land = () => done(load(...args));
+      });
+    const menu = await filterMenu();
+    await click(menu.getByRole("menuitemradio", { name: /Reações/ }));
+    await act(() => new Promise((r) => setTimeout(r, 200)));
+    const kept = document.querySelector(".ib-list .ac-refreshing") as HTMLElement;
+    expect(kept.getAttribute("aria-busy")).toBe("true");
+    expect(kept.querySelector('[role="progressbar"]')?.getAttribute("aria-label")).toBe("Carregando…");
+    // The filter already says the new one; the rows are the last one's until the new ones come.
+    expect(document.querySelector(".ib-filter")?.textContent).toBe("Reações");
+    expect(rowIds()).toContain("n-q");
+    await act(async () => land());
+    await settle(4);
+    expect(rowIds()).toEqual(["n-rx"]);
+    expect(kept.hasAttribute("aria-busy")).toBe(false);
+    expect(kept.querySelector('[role="progressbar"]')).toBeNull();
   });
 
   test("what waits on top with the first of it open beside the list, the rest by day, the sidebar's entry and the tab title", async () => {
     const { state, router } = await go();
     const title = screen().getByRole("heading", { level: 1, name: "Caixa de entrada" });
     // What waits and how many are unread: one line under the title.
-    expect(title.nextElementSibling?.className).toBe("ac-pagehead__meta");
-    expect(title.nextElementSibling?.textContent).toBe("1 coisa esperando você · 3 não lidas");
+    const meta = title.closest(".ib-head")?.querySelector(".ac-pagehead__metaline > .ac-pagehead__meta");
+    expect(meta?.textContent).toBe("1 coisa esperando você\u00a0· 3 não lidas");
     const waiting = screen().getByRole("region", { name: "Esperando você" });
     // The groups' head: the title and how many, nothing else.
     expect(waiting.querySelector(".ac-grouphead")?.textContent).toBe("Esperando você1");
@@ -255,7 +290,9 @@ describe("Notificações", () => {
     expect(screen().getByRole("region", { name: "Ontem" }).contains(routine)).toBe(true);
     expect(routine.querySelector(".ib-row__sub")?.textContent).toContain("O orçamento do mês acabou");
     // The list ends with its last day: no note under it.
-    expect(document.querySelector(".ib-list")?.lastElementChild?.getAttribute("aria-label")).toBe("Ontem");
+    expect(document.querySelector(".ib-list .ac-refreshing")?.lastElementChild?.getAttribute("aria-label")).toBe(
+      "Ontem",
+    );
     // The sidebar's one entry (no bell): marked while something is unread, counting what waits. The tab counts the
     // unread.
     expect(sidebarEntry().getAttribute("data-unread")).toBe("true");
@@ -267,10 +304,13 @@ describe("Notificações", () => {
     expect((await open("n-routine")).textContent).toContain("Parou na etapa 4 de 5");
   });
 
-  test("the filters are a menu beside the title, each with its count; picking one changes the list", async () => {
+  test("the filters are a menu under the title, each with its count; picking one changes the list", async () => {
     await go();
-    const filter = () => document.querySelector(".ac-pagehead__actions .ib-filter") as HTMLElement;
+    // At the end of the count's line: beside the title, a long filter's name would squeeze it in the narrow column.
+    const filter = () => document.querySelector(".ib-head .ac-pagehead__metaline .ib-filter") as HTMLElement;
     expect(filter().textContent).toBe("Tudo");
+    expect(document.querySelector(".ac-pagehead__actions .ib-filter")).toBeNull();
+    expect(document.querySelector(".ac-pagehead__actions .ib-readall")).not.toBeNull();
     const menu = await filterMenu();
     const names = [/Tudo/, /Menções/, /Esperando você/, /Não lidas/, /Reações/, /Pedidos decididos/, /Concluídas/];
     const radios = names.map((name) => menu.getByRole("menuitemradio", { name }));
@@ -336,6 +376,38 @@ describe("Notificações", () => {
     // A finished run says nothing extra: no step strip, open either.
     expect((await open("n-done")).querySelector(".ib-read__say")?.textContent).toContain("Revisar o PR");
     expect(read().querySelector(".nt-steprow")).toBeNull();
+  });
+
+  test("a computer that isn't answering, then back: its name leads, since when or how long, what waited (ADR 0241)", async () => {
+    const since = new Date(Date.now() - 50 * 60_000).toISOString();
+    const items = [
+      notification({
+        id: "n-down",
+        kind: "computer_down",
+        actors: [],
+        source: { machineId: "m-ws", label: "Computador do workspace" },
+        latest: { since, runs: 3, calls: 7 },
+        updatedAt: ago(40),
+      }),
+      notification({
+        id: "n-back",
+        kind: "computer_back",
+        actors: [],
+        source: { machineId: "m-ws", label: "Computador do workspace" },
+        latest: { since, runs: 3, calls: 0 },
+        createdAt: new Date(Date.parse(since) + 42 * 60_000).toISOString(),
+        updatedAt: ago(8),
+      }),
+    ];
+    await go(seed(items));
+    expect(row("n-down").textContent).toContain("Computador do workspace não está respondendo");
+    expect(row("n-down").querySelector(".ib-row__sub")?.textContent).toMatch(
+      /^Computador · Desde \d{1,2}:\d{2} · Esperando: 3 pedidos a agentes e 7 chamadas de webhook/,
+    );
+    expect(row("n-back").textContent).toContain("Computador do workspace voltou");
+    expect(row("n-back").querySelector(".ib-row__sub")?.textContent).toContain(
+      "Voltou depois de 42 min · Esperaram: 3 pedidos a agentes",
+    );
   });
 
   test("an approval is the conversation's card: the agent's why, the action in its well, who asked behind Ver detalhes", async () => {
@@ -544,7 +616,7 @@ describe("Notificações", () => {
     await key(window, "j");
     await key(document.body, "Enter");
     await settle(4);
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/threads/m-1`);
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
     cleanup();
 
     // J and a click both leave the focus on the row, a button: Enter there opens it too.
@@ -553,7 +625,7 @@ describe("Notificações", () => {
     expect((document.activeElement as HTMLElement).dataset.n).toBe("n-thread");
     await key(document.activeElement as Element, "Enter");
     await settle(4);
-    expect(again.router.state.location.pathname).toBe(`/org/${ORG_ID}/threads/m-1`);
+    expect(again.router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
   });
 
   test("a body the server wrote reads in the person's language, in the row, open and in the snooze toast", async () => {
@@ -738,21 +810,21 @@ describe("Notificações", () => {
     const item = await open("n-thread");
     await click(within(item).getByRole("button", { name: "Abrir" }));
     await settle(4);
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/threads/m-1`);
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
     expect(state.calls.find((c) => c.method === "notifications.read")?.args).toEqual([ORG_ID, "n-thread", true]);
     cleanup();
 
     const twice = await go();
     await act(async () => fireEvent.doubleClick(row("n-thread")));
     await settle(4);
-    expect(twice.router.state.location.pathname).toBe(`/org/${ORG_ID}/threads/m-1`);
+    expect(twice.router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
     expect(twice.state.calls.find((c) => c.method === "notifications.read")?.args).toEqual([ORG_ID, "n-thread", true]);
     cleanup();
 
     const menu = await go();
     await open("n-thread");
     await fromMoreMenu(/^Abrir/);
-    expect(menu.router.state.location.pathname).toBe(`/org/${ORG_ID}/threads/m-1`);
+    expect(menu.router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
   });
 
   test("live: a new notification lands from the WebSocket; a resolved one leaves; the sidebar's entry follows", async () => {
@@ -1332,7 +1404,7 @@ describe("a click on a browser notification (ADR 0071)", () => {
     const state = seed(inbox());
     const { router } = await renderApp(`/org/${ORG_ID}/notifications?open=n-thread`, { api: createFakeApi(state) });
     await settle(8);
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/threads/m-1`);
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
     expect(state.calls.filter((c) => c.method === "notifications.read").map((c) => c.args)).toEqual([
       [ORG_ID, "n-thread", true],
     ]);

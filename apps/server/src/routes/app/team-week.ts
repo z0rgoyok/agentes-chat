@@ -35,6 +35,10 @@ const TeamWeekSaved = z.object({
   dayHour: hour.openapi({ description: "The daily card's hour, in `dayTimezone`." }),
   digestOff: z.boolean().openapi({ description: "The summary of approvals waiting on me, stopped." }),
   remindOff: z.boolean().openapi({ description: "Reminders of what the right hand and I agreed on, stopped." }),
+  learnOff: z.boolean().openapi({
+    description:
+      "The right hand learns nothing from my conversations on its own (what I ask it to remember it still keeps).",
+  }),
   off: z.boolean().openapi({
     description: `${legacy} Read: nothing comes. Written true: stops both cards. Written false: starts the one card that build draws (the weekly for an administrator, the daily for anyone else).`,
   }),

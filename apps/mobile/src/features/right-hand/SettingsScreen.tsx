@@ -16,7 +16,7 @@ import { selfHosted } from "@agenteschat/client/lib/about";
 import { accountTitle, ownSignInTitle } from "@agenteschat/client/lib/ai-accounts";
 import { agentsReach, audienceOf, audiencePatch, managesAgent } from "@agenteschat/client/lib/audience";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { readBudget } from "@agenteschat/client/lib/new-agent";
+import { readBudget, workspaceBudgetText } from "@agenteschat/client/lib/new-agent";
 import { rightHandUnusable } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
@@ -295,8 +295,9 @@ function WorkspaceAi({ agent, dir }: { agent: Agent; dir: Directory }) {
 }
 
 function Form({ agent }: { agent: Agent }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { orgId } = useOrg();
+  const defaultBudget = useSettings(orgId).data?.defaultAgentBudgetUsd;
   const toast = useToast();
   const failed = useFailed();
   const usesApi = useWorkspaceUsesApi(orgId);
@@ -381,7 +382,7 @@ function Form({ agent }: { agent: Agent }) {
             onChangeText={setBudget}
             onEndEditing={saveBudget}
             label={t("rightHand.settings.budget")}
-            placeholder={t("rightHand.value.budgetDefault")}
+            placeholder={workspaceBudgetText(t, i18n.language, defaultBudget)}
           />
         </>
       ) : null}

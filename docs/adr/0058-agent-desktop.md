@@ -4,7 +4,7 @@
 - Date: 2026-10-24
 - Builds on: ADR 0025 (connected computers), ADR 0030 (isolation), ADR 0031 (computer use), ADR 0036 (switches on the machine), ADR 0040 (the agent browser and its handoffs), ADR 0054 (the screen layer computer use reuses), ADR 0057 (system mode: each agent its own OS user)
 - Changes: ADR 0031 §6 (on a connected Linux computer the virtual display is an Xtigervnc desktop per agent, §1) and §8 (a person drives a desktop over RFB, not frames and injected input, §5); ADR 0031 §10 and ADR 0030 level 3 (system mode gives each agent its own OS user, §10)
-- Protocol: 18 (`DESKTOP_PROTOCOL` in `packages/adapters/src/machine-protocol.ts`); 30 for §17 (`DESKTOP_SWITCH_PROTOCOL`)
+- Protocol: 18 (`DESKTOP_PROTOCOL` in `packages/adapters/src/machine-protocol.ts`); 30 for §17 (`DESKTOP_SWITCH_PROTOCOL`); 83 for §18 (`DESKTOP_STARTING_PROTOCOL`)
 
 ## Context
 
@@ -227,6 +227,16 @@ A first click came later than a first key: the cover over the screen took clicks
   - An older app, server or computer: as before, the stream closes and opens again.
 - **Unchanged:** each mode is its own Xvnc login, and Xvnc still enforces view-only; the server still never parses RFB (it passes text frames on by their type and drops binary ones by when they come).
 - **Left as it is:** TigerVNC's congestion control starts each login at a 16 KiB window and goes back to it after any pause longer than twice its round trip, growing it only as its fences come back, so a new session's first second gets about one screen update per round trip; a switch is still a new login. Between the server and Cloudflare, a Linux server's TCP also starts slow again after a pause (`net.ipv4.tcp_slow_start_after_idle`, on by default).
+
+### 18. A screen that starts while its person waits (added 2026-11-25)
+
+Opening a desktop that wasn't running (the first time, or after it was parked) starts it inside `stream.open`: room, its user, the prepare (up to 10 s), the screen server (up to 5 s) beside the look (up to 10 s), the session, and it may queue behind another start of that agent's (its browser). The server gave every open 20 s (`openTimeoutMs`): a start past that closed the viewer with 4408, the viewer tried again, and each try waited behind the start before it, so a slow start could look like an endless "Abrindo…".
+
+- **Protocol 83 (`DESKTOP_STARTING_PROTOCOL`).** Before it starts the desktop for a stream, the runner says `{"type":"stream.starting","streamId"}`; the server then waits `STREAM_LIMITS.startTimeoutMs` (90 s from the open) for that stream's data socket instead of 20 s. A running desktop's open keeps 20 s. An older runner can't say it, so each of its opens that may start the desktop gets the 90 s.
+- **One start at a time.** A second `ensure` while a start is under way (a retry, another viewer) gets that start's outcome instead of starting again after it.
+- **What the operator sees.** Each start, or its failure, goes to the server as `{"type":"desktop.started","agentId","ms","steps"|"error"}` (the runner's start line in numbers: `room`, `prepared`, `screen`, `look`, `session`, in ms) and into the events feed as `desktop.started` (ADR 0056 §5). An older server drops it.
+- **What the person sees.** Opening says only that it opens. Once a try failed, or 30 s passed (`DESKTOP_SLOW_MS`), the cover says why under it (the computer took too long, the connection dropped, the computer isn't answering, it couldn't open the screen, or only that it takes longer than usual) with Tentar de novo. A try that fails 2 minutes after the opening began (`DESKTOP_GIVE_UP_MS`) is the last: "Não deu para abrir a tela da Ada.", the cause and Tentar de novo, no spinner. The phone says the same: its screen page sends the cause to the app (`{"type":"why"}`). Nothing says the computer slept or wakes: a computer in standby opens like one that is on.
+- **Kept warm.** Unchanged: a desktop with a viewer is never parked, and a viewer's leaving counts as a use, so it stays at least `PARK_AFTER_MS` (an hour) after the dialog closes.
 
 ## Order
 

@@ -102,6 +102,25 @@ export function applyConsultEvent(
     case "agent.consulted": {
       const ev = event as Extract<ChannelEvent, { type: "agent.consulted" }>;
       const before = state[ev.runId];
+      // Work handed off whose result is already on screen and woke nobody (ADR 0095): the agent that handed it isn't
+      // writing. The line says who is still at work on that turn's other parts, or goes.
+      if (ev.kind === "note" && ev.goesOn === false) {
+        if (!ev.stillOutAgentId) return drop(state, ev.runId);
+        return {
+          ...state,
+          [ev.runId]: {
+            runId: ev.runId,
+            agentId: ev.agentId,
+            consultedAgentId: ev.stillOutAgentId,
+            channelId: ev.channelId,
+            threadId: ev.threadId,
+            kind: "note",
+            status: "asking",
+            since: before?.since ?? now,
+            at: now,
+          },
+        };
+      }
       return {
         ...state,
         [ev.runId]: {

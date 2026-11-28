@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { zip } from "@agenteschat/engine";
 import { SYSTEM } from "@agenteschat/live";
 import * as Y from "yjs";
@@ -31,6 +32,11 @@ const PNG = new Uint8Array(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==",
     "base64",
   ),
+);
+
+/** A font file the engine ships for its own tests (OFL). */
+const FONT = new Uint8Array(
+  readFileSync(new URL("../../../packages/engine/assets/fonts/Onest-Regular.ttf", import.meta.url)),
 );
 
 const meOf = async (b: Browser) => ((await (await b("/api/app/me")).json()) as { user: { id: string } }).user.id;
@@ -87,6 +93,7 @@ describe("the API's description", () => {
       `${file}/live/ask`,
       `${file}/assets`,
       `${file}/assets/copy`,
+      `${file}/fonts`,
       `${file}/preview`,
       `${file}/open-as`,
     ]) {
@@ -261,6 +268,41 @@ describe("pictures", () => {
     expect(
       (await api(`/artifacts/${canvas.id}/assets/copy`, { json: { artifactId: crypto.randomUUID() } })).status,
     ).toBe(404);
+  });
+
+  test("a font from the Drive is brought in, listed among the file's fonts and served as a font (ADR 0220 §2)", async () => {
+    const { api, owner, org, as } = await seeded();
+    const deck = await make(api, { kind: "slides", title: "Plan" });
+    expect(await (await api(`/artifacts/${deck.id}/fonts`)).json()).toEqual({ fonts: [] });
+    const file = await api("/artifacts/files", { method: "POST", body: upload(FONT, "Brand-Regular.ttf", "font/ttf") });
+    expect(file.status).toBe(201);
+    const { id: fileId } = (await file.json()) as { id: string };
+    const copied = await api(`/artifacts/${deck.id}/assets/copy`, { json: { artifactId: fileId } });
+    expect(copied.status).toBe(201);
+    const asset = (await copied.json()) as { id: string; contentType: string; font: unknown };
+    // The family is the one its own file names, whatever the file was called.
+    expect(asset).toMatchObject({
+      contentType: "font/ttf",
+      font: { family: "Onest", style: "Regular", weight: 400, italic: false },
+    });
+
+    const listed = (await (await api(`/artifacts/${deck.id}/fonts`)).json()) as { fonts: unknown[] };
+    expect(listed.fonts).toEqual([{ id: asset.id, family: "Onest", style: "Regular", weight: 400, italic: false }]);
+
+    const got = await api(`/artifacts/${deck.id}/assets/${asset.id}`);
+    expect(got.status).toBe(200);
+    expect(got.headers.get("content-type")).toBe("font/ttf");
+    expect(got.headers.get("content-security-policy")).toBe("sandbox");
+    expect(new Uint8Array(await got.arrayBuffer())).toEqual(FONT);
+
+    // Who doesn't read the file doesn't see its fonts.
+    const channel = (await (await api("/channels", { json: { name: "brand", visibility: "private" } })).json()) as {
+      id: string;
+    };
+    const hidden = await make(api, { kind: "document", title: "Guide", channelId: channel.id });
+    const ana = await joinByInvitation(t, owner, org.orgId, "ana@example.com");
+    expect((await as(ana, `/artifacts/${hidden.id}/fonts`)).status).toBe(404);
+    expect((await as(ana, `/artifacts/${deck.id}/fonts`)).status).toBe(200);
   });
 });
 

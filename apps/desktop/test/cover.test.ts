@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { readInstance } from "@agenteschat/client/lib/server";
 import { coverTailnet } from "../src/control/local-server";
+import { versionProblem } from "../src/control/server";
 import { STUCK_STEPS_MS, stuckAction } from "../src/cover/stuck";
 import { desktopEn } from "../src/i18n/keys.en";
 import { desktopPtBR } from "../src/i18n/keys.pt-BR";
@@ -64,4 +66,22 @@ test("the cover never steps aside on its own while the page hasn't painted", () 
   // Only the person's "Show it anyway" hides it; the old 15 s give-up left a blank window.
   expect(main.match(/invoke\("cover_hide"\)/g)).toHaveLength(1);
   expect(main).toContain('words.showAnyway, () => void invoke("cover_hide")');
+});
+
+test("each time a saved server opens, the cover asks its app API again and stays over one this app can't use", () => {
+  const instance = (api: number, minApi: number) =>
+    readInstance("https://chat.example.com", { name: "agentes.chat", version: "1.0.0", api, minApi });
+  expect(versionProblem(instance(2, 2))).toBe("app-too-old");
+  expect(versionProblem(instance(0, 0))).toBe("server-too-old");
+  expect(versionProblem(instance(1, 1))).toBeNull();
+  // Out of reach is the cover's own line, not this one.
+  expect(versionProblem({ ok: false, server: "https://chat.example.com", problem: "unreachable" })).toBeNull();
+  expect(versionProblem(null)).toBeNull();
+  const main = read(join(COVER, "main.ts"));
+  const shown = /function shown\(\) \{[\s\S]*?\n\}/.exec(main)?.[0] ?? "";
+  expect(shown).toContain("checkVersion()");
+  expect(main).toContain('invoke("cover_hold")');
+  const rust = read(join(import.meta.dir, "../src-tauri/src/cover.rs"));
+  // The site's paint doesn't lift a held cover.
+  expect(rust).toContain("if !shown.covering || shown.held {");
 });

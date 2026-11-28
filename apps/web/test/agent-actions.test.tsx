@@ -551,7 +551,10 @@ describe("receipts this build doesn't expect", () => {
     try {
       const { services } = await open(
         withActions([action()], (s) => {
-          // An object where the row draws text: React refuses it while drawing Atlas's row.
+          // An object where the row draws text: React refuses it while drawing Atlas's row (a personal workspace's
+          // row draws the role under the name; a team's one line has the role in its title).
+          const org = s.me?.organizations[0];
+          if (org) org.mode = "personal";
           for (const a of s.agents) if (a.id === ATLAS_ID) a.role = { unexpected: true } as never;
           seedDm(s, { type: "agent", id: ATLAS_ID });
           seedDm(s, { type: "agent", id: ADA_ID });
@@ -561,7 +564,7 @@ describe("receipts this build doesn't expect", () => {
       expect(within(nav).getAllByText("Não pôde ser exibido")).toHaveLength(1);
       expect(within(nav).getAllByText("Ada").length).toBeGreaterThan(0);
       expect(within(nav).getAllByText("general").length).toBeGreaterThan(0);
-      expect(screen().getByRole("heading", { name: "eng" })).toBeTruthy();
+      expect(screen().getAllByRole("heading", { name: "eng" }).length).toBeGreaterThan(0);
       expect(article().textContent).toContain("Criei a tarefa #23");
       // Atlas comes back fixed: its row is back.
       await act(async () =>

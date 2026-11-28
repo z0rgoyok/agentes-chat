@@ -414,7 +414,7 @@ test("AI accounts see Codex become available after an executor update on the sam
       },
     ],
   });
-  await hub.message(conn, JSON.stringify({ type: "executors.changed", executors: report("0.100.0") }));
+  await hub.message(conn, JSON.stringify({ type: "executors.changed", executors: report("0.170.0") }));
   const updated = await read();
   expect(updated).toMatchObject({
     accounts: [{ id: OLD_ACCOUNT, machineId }],

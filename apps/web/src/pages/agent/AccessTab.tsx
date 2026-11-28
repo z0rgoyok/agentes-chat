@@ -22,7 +22,6 @@ import { PersonalOf } from "@/components/OwnerScope";
 import { useOrg } from "@/components/org-context";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useFocusHome } from "@/hooks/useFocusHome";
-import { SKILLS_AREA } from "@/lib/agent-edit";
 import { lookOf } from "@/lib/look";
 import { useToast } from "@/lib/toast";
 import { ApprovalRulesCard } from "./ApprovalRulesCard";
@@ -32,15 +31,14 @@ import { DatabaseAccessCard } from "./DatabaseAccess";
 import { MailAccessCard } from "./MailAccess";
 import { ReadOnlyNote } from "./pieces";
 import { MergeReposBlock, ReposBlock } from "./Repos";
-import { SkillsCard } from "./SkillsTab";
 
 type AccessFilter = "all" | "on" | "ask";
 
 /**
- * Ferramentas e acesso: one level per connector and built-in area. Saved with the save bar. The skills, and the
- * level of their built-in area, have a tab of their own (`SkillsTab`). In a personal workspace (ADR 0159 §3) it comes
- * in two parts: `basic` (its apps and mailboxes, the "Can use" tab) and `advanced` (built-in areas, databases, rules
- * and skills, in the Advanced tab). Connections: the team's, then the
+ * Ferramentas e acesso: one level per connector and built-in area (the skills' own too). Saved with the save bar. What
+ * the agent knows has a tab of its own (`SkillsTab`). In a personal workspace (ADR 0159 §3) it comes
+ * in two parts: `basic` (its apps and mailboxes, the "Can use" tab) and `advanced` (built-in areas, databases and
+ * rules, in the Advanced tab); what it knows is its Skills tab there too. Connections: the team's, then the
  * viewer's own personal ones; another person's personal one the agent holds shows, for who may take it off, with
  * only Desligar (ADR 0099 addendum).
  */
@@ -48,8 +46,8 @@ export function AccessTab({ part = "all" }: { part?: "all" | "basic" | "advanced
   const { t } = useTranslation();
   const { org, me } = useOrg();
   const { agent, g, viewer, draft, setLevel, can, changeOf, resources: every, accessState } = useAgentEdit();
-  // The skills' own level is on the Skills tab; Advanced, which holds the skills too, keeps it with the other areas.
-  const resources = part === "advanced" ? every : every.filter((r) => r.id !== SKILLS_AREA);
+  // Every built-in area, the skills' own with them: the Skills tab has what the agent knows, not its access.
+  const resources = every;
   // Other people's personal connections this agent holds, for who may take them off (`seesOthersOnAgent`).
   const seesOthers = viewer !== "member" || orgCan(org, "manage_connectors");
   const othersTree = useAgentAccess(org.id, agent.id, seesOthers, { others: true });
@@ -262,7 +260,6 @@ export function AccessTab({ part = "all" }: { part?: "all" | "basic" | "advanced
         <div className="agp-col">
           {basic && <ApprovalsLevelCard />}
           {advanced && <ApprovalRulesCard />}
-          {part === "advanced" && <SkillsCard />}
         </div>
       </div>
     </>

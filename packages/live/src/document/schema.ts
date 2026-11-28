@@ -19,7 +19,21 @@ export const DOC_BODY = "body";
 /** Headings go from 1 to 3 (a Word or Markdown heading past 3 reads as a 3). */
 export const DOC_MAX_HEADING = 3;
 
-export const DOC_MARKS = ["bold", "italic", "underline", "strike", "code", "color", "link"] as const;
+export const DOC_MARKS = [
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "code",
+  "color",
+  "link",
+  "font",
+  "size",
+  "weight",
+  "highlight",
+  "tracking",
+  "caps",
+] as const;
 export type DocMarkName = (typeof DOC_MARKS)[number];
 
 /** The block nodes a document's body may hold at its top level (each with an `id`). */
@@ -142,6 +156,12 @@ export const DOC_SCHEMA_SPEC: DocSchemaSpec = {
     code: {},
     color: { attrs: { color: {} } },
     link: { attrs: { href: {} }, inclusive: false },
+    font: { attrs: { font: {} } },
+    size: { attrs: { size: {} } },
+    weight: { attrs: { weight: {} } },
+    highlight: { attrs: { color: {} } },
+    tracking: { attrs: { tracking: {} } },
+    caps: {},
   },
 };
 

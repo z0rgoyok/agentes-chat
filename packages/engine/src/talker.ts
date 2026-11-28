@@ -104,7 +104,7 @@ export function talkerPolicy(input: {
   if (input.waited?.outcome === "woke") return "reads_soon";
   if (input.ownLine) return "own_line";
   const waiting = run.status === "waiting_input" || run.status === "waiting_approval" || input.waited !== null;
-  // A computer brain that only just started takes it with its first turn (the rest of a burst, `waitForBurst`) or
+  // A computer brain that only just started takes it with its first turn (the rest of a burst, ADR 0112) or
   // live in it: "noted, after this step" would answer a request it is about to read.
   const start = run.startedAt ?? run.createdAt;
   const busy =

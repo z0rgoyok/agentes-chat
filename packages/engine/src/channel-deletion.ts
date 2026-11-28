@@ -5,6 +5,7 @@ import { ARTIFACT_TRASH_DAYS } from "./artifacts";
 import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import { stopRun } from "./cancel";
+import { namesChannel } from "./channels";
 import { NotFoundError, ValidationError } from "./errors";
 import { publishChannelsChanged, publishListChanged, publishOrgEvent } from "./events";
 import { concludeMission, OPEN_MISSION_STATUSES } from "./missions";
@@ -70,7 +71,7 @@ export async function deleteChannel(
     .where(and(eq(channels.id, channelId), eq(channels.orgId, orgId), isNull(channels.deletedAt)));
   if (channel?.kind !== "channel") throw new NotFoundError("Channel not found");
   if (channel.name === "general") throw new ValidationError("#general can't be deleted", "channel.general");
-  if (typed.trim().replace(/^#/, "").toLowerCase() !== channel.name) {
+  if (!namesChannel(channel.name, typed)) {
     throw new ValidationError("Type the channel's name to delete it", "channel.delete_name");
   }
   await db.transaction(async (tx) => {
@@ -94,7 +95,7 @@ export async function markChannelDeleted(tx: Executor, orgId: string, channelId:
       archivedAt: sql`coalesce(${channels.archivedAt}, now())`,
       deletedAt: new Date(),
       name: deletedChannelName(channelId),
-      categoryId: null,
+      groupId: null,
     })
     .where(and(eq(channels.id, channelId), isNull(channels.deletedAt)))
     .returning({ id: channels.id });

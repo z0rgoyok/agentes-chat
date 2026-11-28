@@ -31,7 +31,7 @@ import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand, leadsWithPlan, rightHandOf } from "@agenteschat/client/lib/right-hand";
 import type { FirstRunPowers } from "@agenteschat/client/lib/setup-checklist";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
-import { Button, cx, Icon, InfoHint, Spinner } from "@agenteschat/ui";
+import { Button, cx, HintLine, Icon, InfoHint, Spinner } from "@agenteschat/ui";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useMatchRoute, useNavigate } from "@tanstack/react-router";
 import type { ReactNode } from "react";
@@ -106,7 +106,8 @@ export function useFirstRunPowers(): FirstRunPowers {
 export function HoldBanner() {
   const { t } = useTranslation();
   const { org } = useOrg();
-  const billingUrl = useAuthConfig().data?.billingUrl;
+  const authConfig = useAuthConfig().data;
+  const billingUrl = authConfig?.billingUrl;
   const dir = useDirectory(org.id);
   const powers = useFirstRunPowers();
   const matchRoute = useMatchRoute();
@@ -147,7 +148,14 @@ export function HoldBanner() {
       <section className="outages" aria-label={t("standing.label")}>
         <div className="outage hold-banner" role="status">
           <span className="outage__text">
-            <b>{t("standing.billing.teamReady")}</b>
+            {/* Why the Cloud costs, and that a computer connected to it isn't the free way: behind the ⓘ, as on the plan step. */}
+            {authConfig?.cloud ? (
+              <HintLine name={t("hosting.whyPaid")} hint={t("hosting.whyPaidText")}>
+                <b>{t("standing.billing.teamReady")}</b>
+              </HintLine>
+            ) : (
+              <b>{t("standing.billing.teamReady")}</b>
+            )}
             {!admin && <span>{t("standing.billing.askAdmin")}</span>}
           </span>
           {fix && (

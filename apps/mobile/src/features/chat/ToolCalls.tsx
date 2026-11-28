@@ -1,6 +1,9 @@
-import { isScreenTool, type ScreenKind, useCatalog, useRun, useTaskSteps } from "@agenteschat/client";
+import { type Approval, isScreenTool, type ScreenKind, useCatalog, useRun, useTaskSteps } from "@agenteschat/client";
 import type { Activity, ActivityKind } from "@agenteschat/client/lib/activity";
+import { approvalPhase, PHASE_STATUS } from "@agenteschat/client/lib/approval-card";
+import { stepsAround } from "@agenteschat/client/lib/approval-review";
 import { formatBytes } from "@agenteschat/client/lib/files";
+import { formatTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
   appKey,
@@ -140,6 +143,8 @@ const KIND_ICON: Partial<Record<ActivityKind, IconName>> = {
   usingScreen: "laptop",
   waitingForDevice: "wait",
   cloningRepo: "code",
+  listingRepos: "code",
+  updatingCode: "code",
   openingPullRequest: "code",
   handingOff: "clock",
   recordingFindings: "flag",
@@ -899,6 +904,65 @@ export function RunSteps({
         ),
       )}
     </View>
+  );
+}
+
+/**
+ * "Como chegou aqui" on a request's screen, as the web's review: what the agent did before it asked, the ask, the
+ * decision and what ran after it, in one block that opens on a tap. Nothing until the run's steps are in.
+ */
+export function ApprovalTrail({ approval: a, color }: { approval: Approval; color: AgentColorName }) {
+  const { t, i18n } = useTranslation();
+  const orgId = useOrgId();
+  const logo = useCallLogo();
+  const run = useRun(orgId, a.runId);
+  if (!run.data) return null;
+  const around = stepsAround(run.data.steps, a);
+  const before = toolItemsSaved(workFromSteps(around.before, run.data.run));
+  const after = toolItemsSaved(workFromSteps(around.after, run.data.run));
+  const calls = (items: ToolItem[]) => items.filter((i) => i.kind === "call");
+  const beforeCalls = calls(before);
+  // The asked call itself, still waiting on its answer, is the ask below: not a step of its own.
+  const last = beforeCalls.at(-1);
+  const shownBefore = last?.kind === "call" && last.line.state === "stop" ? beforeCalls.slice(0, -1) : beforeCalls;
+  const phase = approvalPhase(a);
+  const tile = (name: IconName) => <IconTile name={name} size={20} />;
+  const milestone = (key: string, label: string, iso: string, state: ToolState, icon: IconName): BlockItem => ({
+    kind: "line",
+    line: { key, state, logo: tile(icon), label, hint: null, time: formatTime(i18n.language, iso) },
+  });
+  const items: BlockItem[] = [
+    ...blockItemsOf(shownBefore, t, i18n.language, logo),
+    milestone("asked", t("approvals.review.asked"), a.createdAt, phase === "waiting" ? "run" : "done", "clock"),
+    ...(a.decidedAt && phase !== "waiting"
+      ? [
+          milestone(
+            "decided",
+            t(`approvals.status.${PHASE_STATUS[phase]}`),
+            a.decidedAt,
+            a.status === "approved" ? "done" : "stop",
+            a.status === "approved" ? "check" : a.status === "refused" ? "x" : "clock",
+          ),
+        ]
+      : []),
+    ...blockItemsOf(calls(after), t, i18n.language, logo).map((item) =>
+      item.kind === "line" ? { ...item, line: { ...item.line, key: `after-${item.line.key}` } } : item,
+    ),
+  ];
+  const steps = items.filter((i) => i.kind === "line").length;
+  const durationMs = workFromSteps(around.before, run.data.run).durationMs;
+  const apps = toolApps([...shownBefore, ...calls(after)]);
+  return (
+    <ToolBlock
+      logos={apps.map((app) => ({ key: appKey(app), node: logo(app, 18) }))}
+      head={{
+        text: [t("approvals.review.trail"), t("chat.work.steps", { count: steps })].join(" · "),
+        time: durationMs ? formatDuration(t, durationMs) : undefined,
+      }}
+      items={items}
+      color={color}
+      label={t("approvals.review.trail")}
+    />
   );
 }
 

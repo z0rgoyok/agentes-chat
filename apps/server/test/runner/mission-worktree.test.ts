@@ -418,7 +418,7 @@ test.skipIf(!posix || !hasGit)(
     await tasks.init();
     const frames: RunnerFrame[] = [];
     tasks.attach((f) => frames.push(f));
-    const line = "Co-authored-by: Dev <noreply@agentes.chat>";
+    const line = "Co-Authored-By: Dev <noreply@agentes.chat>";
     await tasks.start(
       { ...AGENT, coAuthors: [line] },
       {

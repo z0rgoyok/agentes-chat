@@ -3,6 +3,7 @@
 - Status: Proposed
 - Date: 2026-11-13
 - Amends: ADR 0015 (a run resumed by its decisions may first wait for the requests asked before its own on their card)
+- Amended: 2026-11-24 (below: a card holds one conversation, the order holds only behind what a run was told)
 
 ## Context
 
@@ -61,3 +62,54 @@ what waits on the person by deadline too.
 - Two runs whose requests interleave on one card keep only the order between runs: the first one's actions all go
   before the second's.
 - Not covered: order between cards (another conversation, another agent), and an action approved ahead.
+
+## Addendum of 2026-11-24: the order only where it is real
+
+### Context
+
+A card held more than one conversation. `openApprovalCard` joined any pending card of the agent in the channel's main
+timeline, whatever message started its run, so in a channel where every customer writes a top-level message, every
+request of the day landed on one card, and point 1 made that card a line: an approved action for one customer waited
+for an unrelated request asked hours earlier for another, until a person refused that one or it expired (24 h). The
+card said only "Runs after …", with nothing to do about it. Changing the agent to "Nunca perguntar" left the waiting
+requests in place.
+
+The guarantee point 1 was written for still stands: a message sent while the agent waits starts a run of its own, and
+its actions should not overtake the ones asked before it that its run was told about (`heldHere`, point 5).
+
+### Decision
+
+1. **A card holds one conversation.** A request joins an open card only of the same conversation (`thread_root_id`)
+   or of the same run. Two top-level messages are two conversations, even in one channel's main timeline.
+2. **A run waits only for what it was told.** When a run posts its requests, each records the other runs' requests
+   `heldHere` told it were already waiting in its conversation when it started (`approvals.after_ids`). An approved
+   action waits only for those (`blockersOf`), and is kept from running (point 4) only by those or by its own run's.
+   Since `after_ids` names only requests asked before its run started, two runs still never wait on each other.
+   Waking (`wakeLine`, `wakeLineOfRun`) and the safety net (`resumeHeldRuns`) follow `after_ids`.
+3. **Stale requests hold nothing.** A request waiting for a person for more than 30 minutes (`STALE_HOLD_MS`) holds no
+   other run's action. The safety net resumes a run once what held it went stale.
+4. **"Rodar este agora".** Whoever may decide an approved action waiting for others may run it at once
+   (`POST /organizations/{orgId}/approvals/{id}/run-now`): its run's approved actions still to do forget `after_ids`,
+   the run resumes, and the audit records `approval.run_now` with what it no longer waited for.
+5. **A level that no longer asks frees what waits.** When an agent is set to "Nunca perguntar" (on its own or by the
+   workspace's level), or a connector's tool moves off "Pede sua aprovação" while its agent asks only for what is
+   risky, the requests still waiting that would no longer ask are canceled, never approved on the person's behalf:
+   their runs read that nobody needs to approve them any more and call them again, now without a card
+   (`releaseUnasked`).
+6. **The apps.** An approved action that waits says what for, by name, linking to that request, with "Aprovar" and
+   "Recusar" for it where the person may decide it and "Rodar este agora" where it is another run's ("Esperando …").
+   The inbox and the phone's list of what waits decide every request of one agent at once ("Aprovar todos",
+   "Recusar todos"), through the same endpoint as a card's "Aprovar tudo". The apps work the line out from
+   `afterIds` over the requests they hold (`approvalLine`).
+
+### Consequences
+
+- Requests never share a card across conversations, and a run waits only for what `heldHere` told it. In a channel's
+  main timeline every run answering there is told about the others (a new message there is a follow-up, ADR 0029), so
+  two top-level messages still wait for each other's earlier requests, for at most 30 minutes of nobody deciding, with
+  "Rodar este agora" to skip it. A thread never waits for another thread.
+- Point 1's "a card is a line" now means a run's own requests in the order asked, plus what each was told. A card of
+  one conversation is that, nearly always.
+- Changing a level cancels requests, which the agent redoes. A request the new level would still ask for stays.
+- Not covered: an agent moved from "Sempre perguntar" to "Só o arriscado" (whether each waiting call still asks would
+  take the tool's own definition): those requests wait for a person as before.

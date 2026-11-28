@@ -15,6 +15,7 @@ import {
   connectorGrantValidator,
   connectorListing,
   createApiKeyConnection,
+  desktopBackPage,
   desktopOAuthRedirect,
   desktopReturnPath,
   GITHUB_APP_AUTH,
@@ -137,6 +138,9 @@ const CatalogEntry = z
       description:
         "A connector of ours that signs in only through a developer app this self-hosted server hasn't registered (its `CONNECTOR_*` variables).",
     }),
+    address: z.enum(["optional", "required"]).optional().openapi({
+      description: "A git host at an address of one's own: the connect form asks for it or offers it",
+    }),
     via: z.literal("composio").optional().openapi({
       description:
         "Connects through Composio (ADR 0107): its page signs in. Unavailable when this server has no `COMPOSIO_API_KEY`.",
@@ -258,6 +262,11 @@ export function connectorRoutes(deps: AppDeps) {
             apiKey: z.string().min(8).max(2000).optional(),
             label: z.string().max(80).optional(),
             personal: Personal,
+            serverUrl: z
+              .string()
+              .max(300)
+              .optional()
+              .openapi({ description: "A git host of one's own (GitLab, a git server): its address" }),
           }),
         ),
       },
@@ -387,7 +396,7 @@ export function connectorRoutes(deps: AppDeps) {
       security,
       summary: "OAuth redirect target (browser navigation)",
       description:
-        "Validates state and PKCE, stores the tokens encrypted, then redirects to the web app with `connected` and `outcome` (`connected`, `reconnected`, `same_account`). It lands back on the page that started it; a Reconectar that signed in to another account comes back with `connector_error=connector.other_account`, one whose account couldn't be checked with `connector.account_unknown` (try again), one for an account disconnected meanwhile with `connector.gone`. When the provider refuses this server's own OAuth app (its client id or secret is wrong, which is logged as an error), it comes back with `connector_error=misconfigured` and `connector`, the connector's id. Composio's return (ADR 0107) adds `status` and `connected_account_id`, which stands for the code: it must be the account the link made, and `status=failed` comes back as `connector.unfinished`.",
+        "Validates state and PKCE, stores the tokens encrypted, then redirects to the web app with `connected` and `outcome` (`connected`, `reconnected`, `same_account`). It lands back on the page that started it; a Reconectar that signed in to another account comes back with `connector_error=connector.other_account`, one whose account couldn't be checked with `connector.account_unknown` (try again), one for an account disconnected meanwhile with `connector.gone`. When the provider refuses this server's own OAuth app (its client id or secret is wrong, which is logged as an error), it comes back with `connector_error=misconfigured` and `connector`, the connector's id. Composio's return (ADR 0107) adds `status` and `connected_account_id`, which stands for the code: it must be the account the link made, and `status=failed` comes back as `connector.unfinished`. Started in the desktop app's window: to the browser page `/desktop/back`, whose fragment carries the app's link `agenteschat://desktop/connectors/oauth` with `org` and `state` and `code` (or `error`).",
       request: {
         query: z.object({
           state: z.string().optional(),
@@ -422,8 +431,11 @@ export function connectorRoutes(deps: AppDeps) {
       // opens what the provider sent back in its window, which finishes with the window's session.
       if (started && isDesktopReturn(started.returnTo)) {
         const org = started.orgId;
-        if (q.error || !q.code) return c.redirect(desktopOAuthRedirect({ org, error: q.error ?? "missing_code" }), 302);
-        return c.redirect(desktopOAuthRedirect({ org, state: q.state, code: q.code }), 302);
+        const link =
+          q.error || !q.code
+            ? desktopOAuthRedirect({ org, error: q.error ?? "missing_code" })
+            : desktopOAuthRedirect({ org, state: q.state, code: q.code });
+        return c.redirect(desktopBackPage(base, link), 302);
       }
       // The web app's: back where it started (its state's page) while the state can still be read, else the start.
       // A misconfigured one names which connector's app it is, for the app to say.

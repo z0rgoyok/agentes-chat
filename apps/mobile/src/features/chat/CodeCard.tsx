@@ -73,17 +73,7 @@ export const CodeCard = memo(function CodeCard({ lang, text }: { lang: string; t
           <RawToggle on={raw} onPress={() => setRaw((r) => !r)} />
         ) : null}
         <CopyButton text={code} />
-        <PressScale
-          to={0.88}
-          onPress={() => openFull(lang, code)}
-          accessibilityRole="button"
-          accessibilityLabel={t("mobile.code.fullScreen")}
-          hitSlop={6}
-          style={styles.tool}
-          contentStyle={styles.toolIn}
-        >
-          <Icon name="expand" size={18} color={c.muted} />
-        </PressScale>
+        <FullScreenButton onPress={() => openFull(lang, code)} />
       </View>
       {pretty ? (
         <View style={styles.body}>
@@ -102,20 +92,47 @@ export const CodeCard = memo(function CodeCard({ lang, text }: { lang: string; t
         </ScrollView>
       )}
       {shown.length < lines.length ? (
-        <PressScale
-          onPress={() => openFull(lang, code)}
-          accessibilityRole="button"
-          style={[styles.more, { borderTopColor: c.line }]}
-          contentStyle={[styles.center, styles.moreIn]}
-        >
-          <Text variant="footnote" tone="muted">
-            {t("mobile.code.more", { count: lines.length })}
-          </Text>
-        </PressScale>
+        <CardMore label={t("mobile.code.more", { count: lines.length })} onPress={() => openFull(lang, code)} />
       ) : null}
     </View>
   );
 });
+
+/** Full screen, in a card's head (a code card's, a table's). */
+export function FullScreenButton({ onPress }: { onPress: () => void }) {
+  const { t } = useTranslation();
+  const c = useColors();
+  return (
+    <PressScale
+      to={0.88}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={t("mobile.code.fullScreen")}
+      hitSlop={6}
+      style={styles.tool}
+      contentStyle={styles.toolIn}
+    >
+      <Icon name="expand" size={18} color={c.muted} />
+    </PressScale>
+  );
+}
+
+/** A card's last row ("See all N lines", "See all N rows"): what it leaves out, opened in full screen. */
+export function CardMore({ label, onPress }: { label: string; onPress: () => void }) {
+  const c = useColors();
+  return (
+    <PressScale
+      onPress={onPress}
+      accessibilityRole="button"
+      style={[styles.more, { borderTopColor: c.line }]}
+      contentStyle={[styles.center, styles.moreIn]}
+    >
+      <Text variant="footnote" tone="muted">
+        {label}
+      </Text>
+    </PressScale>
+  );
+}
 
 /** "Original": a formatted block (JSON) shown as it was written while on. */
 export function RawToggle({ on, onPress }: { on: boolean; onPress: () => void }) {
@@ -196,9 +213,9 @@ export function CodeText({
 
 /**
  * Copy; then the icon turns into a check and "Copiado" shows beside it for a moment. When the system refuses, a toast
- * says so (the button itself stays as it was).
+ * says so (the button itself stays as it was). `label`: what it copies, to a screen reader (the code by default).
  */
-function CopyButton({ text, plate = false }: { text: string; plate?: boolean }) {
+export function CopyButton({ text, plate = false, label }: { text: string; plate?: boolean; label?: string }) {
   const { t } = useTranslation();
   const c = useColors();
   const toast = useToast();
@@ -222,7 +239,7 @@ function CopyButton({ text, plate = false }: { text: string; plate?: boolean }) 
       to={0.88}
       onPress={copy}
       accessibilityRole="button"
-      accessibilityLabel={done ? t("mobile.code.copied") : t("mobile.code.copy")}
+      accessibilityLabel={done ? t("mobile.code.copied") : (label ?? t("mobile.code.copy"))}
       hitSlop={6}
       style={[styles.tool, done ? styles.toolDone : null, plate ? { backgroundColor: c.plate } : null]}
       contentStyle={styles.toolIn}

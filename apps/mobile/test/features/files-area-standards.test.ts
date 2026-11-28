@@ -59,7 +59,7 @@ describe("the Vault's screens", () => {
   test("New item is the bar's +, so the tabs never move when another tab shows", () => {
     const vault = src("features/vault/VaultScreen.tsx");
     expect(vault).toContain(
-      'actions: [{ icon: "plus", sf: "plus", label: t("mobile.vault.newItem"), onPress: create }]',
+      '[{ icon: "plus" as const, sf: "plus" as const, label: t("mobile.vault.newItem"), onPress: create }]',
     );
     expect(vault).not.toContain("tabEmpty");
     expect(vault.indexOf("<Segmented")).toBeLessThan(vault.indexOf("<Items"));

@@ -88,12 +88,16 @@ describe("a personal workspace's settings list", () => {
     }
     expect(all.filter((name) => name === "Conectores e MCPs")).toHaveLength(1);
     expect(all.indexOf("Conectores e MCPs")).toBeLessThan(all.indexOf("Avançado"));
-    // Notifications are a tab of Your account, Skills of Connectors: not listed again.
+    // Notifications are a tab of Your account, and Skills a page of its own in the sidebar: not listed here.
     for (const name of ["Notificações", "Skills"]) expect(all).not.toContain(name);
     cleanup();
-    await go(alone(), "settings/skills");
+    // Skills' old settings address opens its page (ADR 0020, amendment of 2026-11-25).
+    const { router } = await renderApp(`/org/${ORG_ID}/settings/skills`, { api: createFakeApi(alone()) });
+    await settle(6);
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/skills`);
+    cleanup();
+    await go(alone(), "settings/connectors");
     expect(marked()).toBe("Conectores e MCPs");
-    expect(screen().getByRole("tab", { name: "Skills" }).getAttribute("aria-selected")).toBe("true");
     // The Vault has its own line in a personal workspace's list, so it is no tab here.
     expect(screen().queryByRole("tab", { name: "Cofre" })).toBeNull();
   });
@@ -112,7 +116,7 @@ describe("a personal workspace's settings list", () => {
     await go(personal(), "settings/keys");
     expect(marked()).toBe("IA e uso");
     expect(screen().getByRole("region", { name: "Contas" })).toBeTruthy();
-    expect(screen().getByRole("region", { name: "Chaves de provedor" })).toBeTruthy();
+    expect(screen().getByRole("region", { name: "Chaves de API" })).toBeTruthy();
     // Connectors and Skills are sections of their own: not on this page.
     expect(screen().queryByRole("heading", { level: 2, name: "Conectores e MCPs" })).toBeNull();
     expect(screen().queryByRole("heading", { level: 2, name: "Skills" })).toBeNull();

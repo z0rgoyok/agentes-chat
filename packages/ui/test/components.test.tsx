@@ -232,13 +232,21 @@ describe("Chip", () => {
     expect(chip?.textContent).toBe("Issue: ACME-177");
   });
 
-  test("22 high with 12px words; an icon's side pads 6, its ink 2 into its box, so the ink reads 8 on both sides", async () => {
+  test("22 high with 12px words, 8 on both sides, an icon's too, the words' capitals where the icon centres", async () => {
+    const { container } = render(<Chip icon="check">Done</Chip>);
+    const chip = container.querySelector(".ac-chip");
+    expect([...(chip?.children ?? [])].map((c) => c.getAttribute("class"))).toEqual(["ac-icon", "ac-chip__text"]);
     const css = await Bun.file(new URL("../src/styles/components.css", import.meta.url).pathname).text();
     const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
     expect(rule(".ac-chip")).toContain("height: 22px;");
     expect(rule(".ac-chip")).toContain("padding: 0 var(--space-2);");
     expect(rule(".ac-chip")).toContain("font-size: 12px;");
-    expect(rule(".ac-chip:has(> .ac-icon:first-child)")).toContain("padding-inline-start: 6px;");
+    // No side of its own for an icon.
+    expect(css).not.toMatch(/\.ac-chip:has\(> \.ac-icon[^{]*\{[^}]*padding/);
+    // Trimmed to the capitals and padded back to the line, only where text-box is known: elsewhere nothing changes.
+    expect(css).toMatch(
+      /@supports \(text-box: trim-both cap alphabetic\) \{\s*@supports \(top: 1lh\) \{\s*\.ac-chip__text \{\s*text-box: trim-both cap alphabetic;\s*padding-block: calc\(\(1lh - 1cap\) \/ 2\);/,
+    );
   });
 });
 
@@ -934,6 +942,29 @@ describe("Logo, Icon, Meter", () => {
     expect(body().getByRole("img", { name: "agentes" })).toBeTruthy();
     expect(body().getByRole("img", { name: "agentes.chat" }).textContent).toBe("agentes.chat");
     expect(container.querySelector(".ac-logo__body")).not.toBeNull();
+  });
+
+  test("the logo's mark centres on the wordmark's capitals: its words trimmed to them, not their line", async () => {
+    const { container } = render(
+      <>
+        <Logo />
+        <Logo variant="expanded" />
+      </>,
+    );
+    const [main, expanded] = [...container.querySelectorAll(".ac-logo")];
+    expect(main?.querySelector(":scope > span")?.textContent).toBe("agentes");
+    expect([...(expanded?.querySelectorAll(".ac-logo__word > span") ?? [])].map((s) => s.textContent)).toEqual([
+      "agentes",
+      ".chat",
+    ]);
+    const css = await Bun.file(new URL("../src/styles/components.css", import.meta.url).pathname).text();
+    expect(css).toMatch(/\n\.ac-logo > span,\n\.ac-logo__word > span \{\n {2}text-box: trim-both cap alphabetic;\n\}/);
+    // Funnel Display's cap height stands 0.027em above its capitals: the mark moves down half that.
+    expect(css).toContain("\n.ac-logo > .ac-logo__mark {\n  translate: 0 0.0135em;\n}");
+    // Where text-box is unknown, from the line box's middle to the capitals'.
+    expect(css).toMatch(
+      /@supports not \(text-box: trim-both cap alphabetic\) \{\s*\.ac-logo > \.ac-logo__mark \{\s*translate: 0 0\.0525em;/,
+    );
   });
 
   test("every icon renders a stroke-only 20px glyph, decorative unless labelled", () => {

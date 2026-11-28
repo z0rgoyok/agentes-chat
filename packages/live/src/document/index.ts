@@ -30,6 +30,7 @@ export {
   deleteBlocks,
   documentBody,
   documentChars,
+  documentFonts,
   documentSource,
   ensureBlockIds,
   initDocument,
@@ -39,6 +40,7 @@ export {
   replaceBlocks,
   replaceText,
   rewriteDocument,
+  setDocumentFonts,
   setDocumentSource,
   writeDocument,
 } from "./ops";

@@ -285,6 +285,36 @@ describe("@todos judged once: one answer for the room, one each, or none", () =>
     expect((await runsOf(m.id)).map((r) => r.agentId)).toEqual([f.agent.id]);
   });
 
+  test("two agents named and everyone: both judgments are asked together, not one after the other", async () => {
+    const { deps } = await room("one");
+    const theo = await createAgent(
+      f.db,
+      f.owner.id,
+      f.org.id,
+      { name: "Theo", handle: "theo" },
+      { model: "claude-sonnet-5-5" },
+    );
+    await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { agentId: theo.id });
+    const kinds: string[] = [];
+    let open = 0;
+    let most = 0;
+    const slow: Judge = {
+      name: "slow",
+      ask: async (req) => {
+        kinds.push(req.kind);
+        most = Math.max(most, ++open);
+        await Bun.sleep(100);
+        open--;
+        throw new Error("judge down");
+      },
+    };
+    await postPersonMessage({ ...deps, judge: slow }, f.owner.id, f.org.id, f.general.id, {
+      body: "@todos @dev @ana vejam isso",
+    });
+    expect(kinds).toHaveLength(2);
+    expect(most).toBe(2);
+  });
+
   test("the judge is asked once, with every agent it would wake", async () => {
     const { deps } = await room("one");
     const judge = deps.judge as ReturnType<typeof createFakeJudge>;

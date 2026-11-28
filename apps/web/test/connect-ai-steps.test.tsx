@@ -105,7 +105,7 @@ async function withPopup(run: () => Promise<void>) {
 
 /**
  * Settings › AI accounts with Ada (Walter's) on the MacBook, a computer someone else connected for the workspace
- * (`brain`: Ada's view; `machine`: over its row), and "Conectar uma IA" opened. `setup`: the workspace gets its own
+ * (`brain`: Ada's view; `machine`: over its row), and "Add account" opened (Connect). `setup`: the workspace gets its own
  * computer, this far.
  */
 async function connect({
@@ -169,7 +169,7 @@ async function connect({
   api.agents.brain = async (orgId, agentId) => ({ ...(await viewOf(orgId, agentId)), ownSignIn: false, ...brain });
   const { router, services } = await renderApp(path, { api });
   await settle(6);
-  if (!path.includes("connect=ai")) await click(screen().getByRole("button", { name: "Conectar uma IA" }));
+  if (!path.includes("connect=ai")) await click(screen().getByRole("button", { name: "Adicionar conta" }));
   await settle(4);
   // For one agent the picker; for the team (`crew`) the narrow dialog under the sky, whose title follows its screen.
   const dialog = screen().getByRole("dialog");
@@ -257,6 +257,72 @@ describe("Conectar uma IA: one picker, plans first", () => {
     }
   });
 
+  test("a plan that doesn't run on the computer's system says so in its row, before it is picked", async () => {
+    const opt = (kind: AgentBrain["options"][number]["kind"], off = false) => ({
+      kind,
+      available: !off,
+      models: [],
+      defaultModel: null,
+      ...(off ? { reason: "system" as const } : {}),
+    });
+    const { dialog } = await connect({
+      computers: [{ ...MAC, name: "Desktop", os: "windows" }],
+      brain: {
+        computer: { machineId: "machine_1", name: "Desktop", online: true, os: "windows" },
+        options: [
+          opt("claude_code"),
+          opt("codex"),
+          opt("cursor", true),
+          opt("opencode"),
+          opt("grok", true),
+          opt("antigravity", true),
+        ],
+      },
+    });
+    const rows = await openAiSelect(dialog);
+    // The ones that run there first; the others last, under a heading that names the system. Every row one line.
+    expect(rows.map((o) => o.textContent).slice(-3)).toEqual(["Gemini", "Grok", "Cursor"]);
+    const off = screen().getByRole("group", { name: "Ainda não rodam no Windows" });
+    expect(
+      within(off)
+        .getAllByRole("option")
+        .map((o) => o.textContent),
+    ).toEqual(["Gemini", "Grok", "Cursor"]);
+    expect(rows.some((o) => o.querySelector(".ac-menu__desc"))).toBe(false);
+    await closeAiSelect();
+  });
+
+  test("the team's plan cards say which plans don't run on the computer's system, folded or not", async () => {
+    const opt = (kind: AgentBrain["options"][number]["kind"], off = false) => ({
+      kind,
+      available: !off,
+      models: [],
+      defaultModel: null,
+      ...(off ? { reason: "system" as const } : {}),
+    });
+    const { dialog } = await connect({
+      crew: true,
+      computers: [{ ...MAC, name: "Desktop", os: "windows" }],
+      brain: {
+        computer: { machineId: "machine_1", name: "Desktop", online: true, os: "windows" },
+        options: [
+          opt("claude_code"),
+          opt("codex"),
+          opt("cursor", true),
+          opt("opencode"),
+          opt("grok", true),
+          opt("antigravity", true),
+        ],
+      },
+    });
+    const row = (name: RegExp) => within(dialog).getByRole("button", { name }).closest(".ac-optrow") as HTMLElement;
+    expect(shownText(row(/^Outro plano/))).toContain("Gemini, Grok e Cursor ainda não rodam no Windows");
+    await click(within(dialog).getByRole("button", { name: /^Outro plano/ }));
+    for (const name of ["Gemini", "Grok", "Cursor"])
+      expect(shownText(row(new RegExp(`^${name}`)))).toBe(`${name}Ainda não roda no Windows`);
+    expect(shownText(row(/^Claude/))).not.toContain("Windows");
+  });
+
   test("Settings › AI accounts opens the same picker: a plan or a key, then one select with Claude chosen and its sign-in", async () => {
     const { dialog } = await connect();
     const group = within(dialog).getByRole("group", { name: "Qual IA eles vão usar?" });
@@ -276,6 +342,7 @@ describe("Conectar uma IA: one picker, plans first", () => {
       "Gemini",
       "Grok",
       "Cursor",
+      "Devin",
       "OpenCode",
       "GLM Coding",
       "Kimi Code",
@@ -288,6 +355,7 @@ describe("Conectar uma IA: one picker, plans first", () => {
       "gemini",
       "grok",
       "cursor",
+      "devin",
       "opencode",
       "zai",
       "kimi",
@@ -719,13 +787,17 @@ describe("Conectar uma IA: one picker, plans first", () => {
     // No empty column on the body's left: nothing pushes its lines or the option cards in to the head's text column.
     expect(layout).not.toContain("--text-edge");
     expect(layout).not.toContain(".ai-panel--plan > .grid-options {");
-    // 14px icons and 20px numbers, centred in the numbers' 20px, 12px before the words. Only the panel's own lines: a
-    // note inside a step's words ("Isso não parece uma chave…") keeps its icon on the step's text.
+    // 14px icons and 20px numbers, centred in the numbers' 20px. A note's words keep the kit's 8px after its icon, as
+    // every icon line's: nothing here widens it. Only the panel's own lines: a note inside a step's words ("Isso não
+    // parece uma chave…") keeps its icon on the step's text.
     const own = ".ai-panel--plan > :is(.ac-setnote, .setup-line, .ac-card__foot).ac-iconline";
     const row = ".ai-panel--plan .ai-panel__row > .ac-setnote";
-    expect(layout).toContain(`\n${own},\n${row} {\n  gap: 12px;`);
     expect(layout).toContain(
-      `\n${own} > :first-child,\n${row} > :first-child {\n  margin-inline: calc((var(--lead) - 14px) / 2);`,
+      `\n${own} > :first-child,\n${row} > :first-child {\n  margin-inline-start: calc((var(--lead) - 14px) / 2);\n}`,
+    );
+    expect(layout).not.toMatch(/\.ac-setnote[^{}]*\{[^}]*\bgap: 12px/);
+    expect(ruleOf(await stylesheet("../../../packages/ui/src/styles/components.css"), ".ac-iconline")).toContain(
+      "gap: 8px",
     );
     expect(layout).not.toContain(".ai-panel--plan :is(.ac-setnote");
     expect(ruleOf(layout, ".ai-panel--plan .agp-addacct__step > i")).toContain(
@@ -795,7 +867,7 @@ describe("Conectar uma IA: one picker, plans first", () => {
     // In a plan's panel what went wrong is the sign-in's state: its buttons under the note's words, as a step's.
     expect(layout).toContain("\n.ai-panel--plan .ai-panel__row > .ac-setnote {\n  flex-basis: 100%;\n}");
     expect(ruleOf(layout, ".ai-panel--plan .ai-panel__row > :not(.ac-setnote)")).toContain(
-      "margin-left: calc(var(--lead) + 12px)",
+      "margin-left: calc((var(--lead) + 14px) / 2 + 8px)",
     );
     // A key's field takes its line: "Enviar ao Computador da Costa Atelier" goes under it, whatever the name.
     expect(ruleOf(layout, ".agp-addacct__paste .ac-input-affix")).toContain("flex: 1 1 100%");
@@ -909,6 +981,27 @@ describe("Conectar uma IA: one picker, plans first", () => {
     expect(payWith(dialog, "Com chave de API").getAttribute("aria-checked")).toBe("true");
   });
 
+  test("a Windows computer where nothing holds Codex: ChatGPT dims, its panel says what Windows lacks and the way out", async () => {
+    const { dialog, choose } = await connect({
+      // The computer still takes a ChatGPT sign-in (the team's right hand thinks with it there): the agent's own view
+      // says it can't.
+      computers: [MAC],
+      brain: {
+        options: fakeAgentBrain(ADA_ID).options.map((o) =>
+          o.kind === "codex" ? { ...o, available: false, reason: "windows_sandbox" as const } : o,
+        ),
+      },
+    });
+    const rows = await openAiSelect(dialog);
+    expect(rows.find((o) => o.textContent === "ChatGPT")?.querySelector(".ac-brand--off")).not.toBeNull();
+    await closeAiSelect();
+    await choose("ChatGPT");
+    expect(dialog.textContent).toContain(
+      "O Windows do MacBook não consegue isolar os comandos do Codex. Escolha o Claude ou uma chave de API, ou atualize esse computador para o Windows\u00a011\u00a024H2 ou mais novo, com as atualizações em dia.",
+    );
+    expect(within(dialog).getByRole("button", { name: "Usar uma chave de API agora" })).toBeTruthy();
+  });
+
   test("OpenCode not installed on its computer: said so, with no API key offered, since the key row can't take OpenCode's", async () => {
     const { dialog, choose } = await connect({
       computers: [{ ...MAC, keys: false, brains: { claude_code: true, codex: true, opencode: false } }],
@@ -1020,6 +1113,70 @@ describe("Conectar uma IA: one picker, plans first", () => {
     expect(calls(state, "machines.checkClis")).toHaveLength(1);
   });
 
+  test("Codex only for root on a computer whose agents are users of their own: why, and the install for all of them", async () => {
+    const options = fakeAgentBrain(ADA_ID).options.map((o) =>
+      o.kind === "codex" ? { ...o, available: false, reason: "cant_start" as const } : o,
+    );
+    const name = "srv-1";
+    const { dialog, choose, state } = await connect({
+      machine: {
+        os: "linux",
+        name,
+        mode: "system",
+        cliInstall: true,
+        cliErrors: { codex: "home_only" },
+        cliFetchable: ["claude", "codex"],
+      },
+      brain: { computer: { machineId: "machine_1", name, online: true }, options },
+    });
+    await choose("ChatGPT");
+    const panel = within(dialog).getByRole("region", { name: "Seu plano do ChatGPT" });
+    expect(panel.textContent).toContain("O Codex está instalado só para o root no srv-1, onde os agentes não chegam.");
+    expect(panel.textContent).not.toContain("home_only");
+    await click(within(panel).getByRole("button", { name: "Instalar o Codex para mim" }));
+    await settle(4);
+    expect(calls(state, "machines.cliInstall").map((c) => c.args.at(-1))).toContain("start");
+  });
+
+  test("on a Windows PC: OpenCode that won't start says what it printed", async () => {
+    const said = "Error: Cannot find module 'opencode-windows-x64/package.json'";
+    const name = "Estudio-PC";
+    const { dialog, choose, state } = await connect({
+      machine: { os: "windows", name, cliInstall: true, cliErrors: { opencode: said } },
+      brain: {
+        computer: { machineId: "machine_1", name, online: true },
+        options: [
+          ...fakeAgentBrain(ADA_ID).options,
+          { kind: "opencode", available: false, reason: "cant_start", models: [], defaultModel: null },
+        ],
+      },
+    });
+    await choose("OpenCode");
+    expect(dialog.textContent).toContain(`O OpenCode está no Estudio-PC, mas não abre: ${said}`);
+    // Fixed there by hand: looked for again from here.
+    await click(within(dialog).getByRole("button", { name: "Já instalei, verificar de novo" }));
+    await settle(4);
+    expect(calls(state, "machines.checkClis")).toHaveLength(1);
+  });
+
+  test("Gemini on a Windows PC (ADR 0143): its sign-in says plainly that the computer uses one Gemini account at a time", async () => {
+    const one = "No Windows, um computador usa uma conta do Gemini por vez.";
+    const geminiOption = { kind: "antigravity" as const, available: true, models: [], defaultModel: null };
+    const open = async (os: string) => {
+      cleanup();
+      const { dialog, choose } = await connect({
+        computers: [{ ...MAC, brains: { claude_code: true, codex: true, antigravity: true } }],
+        machine: { os },
+        brain: { options: [...fakeAgentBrain(ADA_ID).options, geminiOption] },
+      });
+      await choose("Gemini");
+      await settle(4);
+      return shownText(within(dialog).getByRole("region", { name: "Seu plano do Gemini" }));
+    };
+    expect(await open("windows")).toContain(one);
+    expect(await open("darwin")).not.toContain(one);
+  });
+
   test("a plan whose program is off on its computer: the cause alone, then one way out by whose computer it is", async () => {
     const panel = async (machine: Partial<Machine>, name = "MacBook") => {
       cleanup();
@@ -1080,7 +1237,7 @@ describe("Conectar uma IA: one picker, plans first", () => {
     api.machines.computerSetup = () => new Promise(() => {});
     await renderApp(`/org/${ORG_ID}/settings/keys`, { api });
     await settle(6);
-    await click(screen().getByRole("button", { name: "Conectar uma IA" }));
+    await click(screen().getByRole("button", { name: "Adicionar conta" }));
     const dialog = screen().getByRole("dialog", { name: "Conectar uma IA" });
     expect(within(dialog).queryByRole("button", { name: "Conectar um computador" })).toBeNull();
     expect(dialog.textContent).not.toMatch(/Conecte um seu|computador conectado/);
@@ -1626,7 +1783,8 @@ describe("All agents: one plan for the team, a login per agent", () => {
     expect(shownText(line)).toBe("3 agentes sem IAEscolher");
     // No tabs and no select: the AIs are the list. On the MacBook each agent signs in to Claude on its own.
     expect(dialog.querySelector(".ai-picker")).toBeNull();
-    const tag = (name: RegExp) => within(dialog).getByRole("button", { name }).querySelector(".arrival-opts__tag");
+    const tag = (name: RegExp) =>
+      within(dialog).getByRole("button", { name }).closest(".ac-optrow")?.querySelector(".ac-optrow__side");
     expect(tag(/^Claude/)?.textContent).toBe("Um login por agente");
     expect(tag(/^ChatGPT/)?.textContent).toBe("Um login por agente");
     // The footer: the quiet note at its start, "Not now" at its end.
@@ -1640,7 +1798,8 @@ describe("All agents: one plan for the team, a login per agent", () => {
     expect(
       within(shared.dialog)
         .getByRole("button", { name: /^Claude/ })
-        .querySelector(".arrival-opts__tag"),
+        .closest(".ac-optrow")
+        ?.querySelector(".ac-optrow__side"),
     ).toBeNull();
   });
 

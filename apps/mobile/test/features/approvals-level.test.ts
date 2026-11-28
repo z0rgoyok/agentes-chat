@@ -7,7 +7,7 @@ const read = (path: string) => readFileSync(join(import.meta.dir, "..", "..", "s
 test("Aprovações on the agent's profile: one row with the level, a sheet only for who manages it, off while saving", () => {
   const row = read("features/agents/ApprovalsLevelRow.tsx");
   // The row says the level, or that it follows the workspace; the three choices and their lines are the web's.
-  expect(row).toMatch(/followsWorkspace\(agent\) && !update\.isPending\s*\? t\("approvalsLevel\.follows"\)/);
+  expect(row).toContain("value={approvalsLevelLine(t, agent, update)}");
   expect(row).toContain("APPROVALS_LEVELS.map(");
   expect(row).toContain("sub: t(`approvalsLevel.${value}.text`)");
   // Each line is a sentence: never cut to one line by a long language or large text.

@@ -1,4 +1,4 @@
-import { type Channel, keys, type OrgRole, useChannels, useRoles } from "@agenteschat/client";
+import { type Channel, keys, type OrgRole, useAgentGroups, useChannels, useRoles } from "@agenteschat/client";
 import {
   accessInput,
   accessValid,
@@ -6,7 +6,6 @@ import {
   type ChannelAccessMode,
 } from "@agenteschat/client/lib/channel-access";
 import { useHeldWhile } from "@agenteschat/client/lib/hold";
-import { can } from "@agenteschat/client/lib/permissions";
 import { rolePicksInSight } from "@agenteschat/client/lib/personal-view";
 import { isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
@@ -29,10 +28,11 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { usePersonalView } from "@/hooks/usePersonalView";
-import { CategorySelect } from "./ChannelCategoryDialogs";
+import { GroupFace } from "./GroupFace";
 import { memberOf, PeoplePicker, type PickKey } from "./MemberPicker";
 import { useOrg } from "./org-context";
 import { RoleChecklist } from "./roles/RoleChecklist";
+import { SectorSelect } from "./SectorSelect";
 
 const ACCESS_MODES: ChannelAccessMode[] = ["public", "roles", "private"];
 
@@ -86,7 +86,7 @@ export function ChannelAccessChoice({
         : modeKey(org, `newChannel.${mode}Desc` as const);
   return (
     <div className="channel-access">
-      {/* A dropdown, as "Categoria" above it: three cards side by side broke their words in a narrow dialog. */}
+      {/* A dropdown, as "Setor" above it: three cards side by side broke their words in a narrow dialog. */}
       <Field
         label={t("newChannel.visibility")}
         id={`${idPrefix}-vis`}
@@ -228,14 +228,31 @@ export const toChannelName = (value: string) =>
     .replace(/[^a-z0-9_-]/g, "")
     .slice(0, 80);
 
-export function channelNameError(name: string, taken: Set<string>): "invalid" | "taken" | null {
-  if (!CHANNEL_NAME.test(name)) return "invalid";
-  if (taken.has(name)) return "taken";
+/**
+ * What people type → a personal workspace's group conversation name (ADR 0159): as written, its runs of spaces folded
+ * to one, at most 80. A trailing space stays while typing; `trim` when it is sent.
+ */
+export const toGroupName = (value: string) => value.replace(/\s+/g, " ").replace(/^ /, "").slice(0, 80);
+
+/** Same rule as the backend (`personalChannelName`): something written, never `dm-`. */
+const groupNameOk = (name: string) => {
+  const clean = name.trim().replace(/^#+\s*/, "");
+  return clean.length > 0 && clean.length <= 80 && !clean.toLowerCase().startsWith("dm-");
+};
+
+/**
+ * Why a channel can't take `name`: a team's must be lower case, digits, - or _; a personal workspace's group
+ * conversation (`personal`) any name on one line. Taken in any case, as the backend checks (`requireChannelNameFree`).
+ */
+export function channelNameError(name: string, taken: Set<string>, personal = false): "invalid" | "taken" | null {
+  if (!(personal ? groupNameOk(name) : CHANNEL_NAME.test(name))) return "invalid";
+  const wanted = name.trim().toLowerCase();
+  if ([...taken].some((n) => n.toLowerCase() === wanted)) return "taken";
   return null;
 }
 
 /**
- * "Criar canal", in one column: name, topic, sidebar category, who can join, then the initial members (people and
+ * "Criar canal", in one column: name, topic, its sector (once the workspace has one), who can join, then the initial members (people and
  * agents: search and a list that scrolls in its own box). The footer, with the count and Criar, stays in view. A
  * personal workspace calls it a group conversation, and alone leaves out who can join while it is the default, open to
  * everyone here (ADR 0159): the same channel either way.
@@ -243,13 +260,10 @@ export function channelNameError(name: string, taken: Set<string>): "invalid" | 
 export function NewChannelDialog({
   open,
   onOpenChange,
-  category = null,
   roleIds,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  /** Opened from a category's +: it starts chosen. */
-  category?: string | null;
   /** Opened from a cargo's Canais: it starts limited to these cargos. */
   roleIds?: string[];
 }) {
@@ -265,19 +279,20 @@ export function NewChannelDialog({
   const [access, setAccess] = useState<ChannelAccess>(
     roleIds?.length ? { mode: "roles", roleIds } : { mode: "public", roleIds: [] },
   );
-  const [categoryId, setCategoryId] = useState<string | null>(category);
+  const sectors = useAgentGroups(org.id).data ?? [];
+  const [groupId, setGroupId] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<PickKey>>(new Set());
   const [touched, setTouched] = useState(false);
   const create = useMutation({
     mutationFn: async () => {
-      const channel = await api.chat.createChannel(org.id, {
-        name,
+      // Who it starts with goes along: the server decides from them whether its agents answer in threads.
+      return api.chat.createChannel(org.id, {
+        name: name.trim(),
         topic: topic.trim() || undefined,
         ...accessInput(access),
-        ...(categoryId ? { categoryId } : {}),
+        ...(groupId ? { groupId } : {}),
+        ...(selected.size > 0 ? { members: [...selected].map(memberOf) } : {}),
       });
-      for (const key of selected) await api.chat.addMember(org.id, channel.id, memberOf(key));
-      return channel;
     },
     onSuccess: async (channel) => {
       // In the list at once, so its page opens on it without waiting for the list to be read again.
@@ -285,7 +300,7 @@ export function NewChannelDialog({
         list && !list.some((c) => c.id === channel.id) ? [...list, channel] : list,
       );
       void qc.invalidateQueries({ queryKey: keys.channels(org.id) });
-      void qc.invalidateQueries({ queryKey: keys.channelCategories(org.id) });
+      if (groupId) void qc.invalidateQueries({ queryKey: keys.agentGroups(org.id) });
       onOpenChange(false);
       await navigate({ to: "/org/$orgId/c/$channelId", params: { orgId: org.id, channelId: channel.id } });
     },
@@ -296,13 +311,41 @@ export function NewChannelDialog({
     setName("");
     setTopic("");
     setAccess(roleIds?.length ? { mode: "roles", roleIds } : { mode: "public", roleIds: [] });
-    setCategoryId(category);
+    setGroupId(null);
     setSelected(new Set());
     setTouched(false);
     create.reset();
-  }, [open, category, create.reset]);
+  }, [open, create.reset]);
   const taken = useHeldWhile(new Set((channels.data ?? []).map((c) => c.name)), create.isPending || create.isSuccess);
-  const error = channelNameError(name, taken);
+  // A personal workspace's group conversation takes its name as written and shows its agents as its face (ADR 0159).
+  const personal = isPersonal(org);
+  const error = channelNameError(name, taken, personal);
+  const pickedAgents = [...selected].filter((k) => k.startsWith("agent:")).map((k) => k.slice(6));
+
+  const nameField = (
+    <Field
+      label={t("newChannel.name")}
+      id="ch-name"
+      example={personal ? undefined : t("newChannel.nameHelp", { name: name || "canal" })}
+      error={
+        touched || (name && error === "taken")
+          ? error === "invalid"
+            ? t(modeKey(org, "newChannel.nameInvalid"))
+            : error === "taken"
+              ? t(modeKey(org, "newChannel.nameTaken"), { name: name.trim() })
+              : undefined
+          : undefined
+      }
+    >
+      <Input
+        value={name}
+        onChange={(e) => setName(personal ? toGroupName(e.target.value) : toChannelName(e.target.value))}
+        placeholder={t(modeKey(org, "newChannel.namePlaceholder"))}
+        maxLength={personal ? 80 : undefined}
+        autoFocus
+      />
+    </Field>
+  );
 
   return (
     <Dialog
@@ -321,27 +364,14 @@ export function NewChannelDialog({
       >
         <Locked when={create.isPending}>
           <DialogBody>
-            <Field
-              label={t("newChannel.name")}
-              id="ch-name"
-              example={t("newChannel.nameHelp", { name: name || "canal" })}
-              error={
-                touched || (name && error === "taken")
-                  ? error === "invalid"
-                    ? t("newChannel.nameInvalid")
-                    : error === "taken"
-                      ? t(modeKey(org, "newChannel.nameTaken"), { name })
-                      : undefined
-                  : undefined
-              }
-            >
-              <Input
-                value={name}
-                onChange={(e) => setName(toChannelName(e.target.value))}
-                placeholder={t(modeKey(org, "newChannel.namePlaceholder"))}
-                autoFocus
-              />
-            </Field>
+            {personal ? (
+              <div className="group-namerow">
+                <GroupFace agentIds={pickedAgents} size={62} />
+                {nameField}
+              </div>
+            ) : (
+              nameField
+            )}
             <Field label={t("newChannel.topic")} id="ch-topic">
               <Input
                 value={topic}
@@ -349,16 +379,18 @@ export function NewChannelDialog({
                 placeholder={t("newChannel.topicPlaceholder")}
               />
             </Field>
-            <Field
-              label={t("channelCategories.category")}
-              id="ch-category"
-              hint={{
-                name: t("common.about", { label: t("channelCategories.category") }),
-                text: t("channelCategories.categoryHelp"),
-              }}
-            >
-              <CategorySelect value={categoryId} onChange={setCategoryId} canCreate={can(org, "manage_channels")} />
-            </Field>
+            {sectors.length > 0 && (
+              <Field
+                label={t("agentGroups.group")}
+                id="ch-sector"
+                hint={{
+                  name: t("common.about", { label: t("agentGroups.group") }),
+                  text: t("channelCategories.categoryHelp"),
+                }}
+              >
+                <SectorSelect value={groupId} onChange={setGroupId} />
+              </Field>
+            )}
             {!(solo && access.mode === "public") && (
               <ChannelAccessChoice value={access} onChange={setAccess} idPrefix="ch" showError={touched} />
             )}
@@ -375,7 +407,7 @@ export function NewChannelDialog({
         <DialogFooter bar note={t("newChannel.selected", { count: selected.size })}>
           <Button onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>
           <Button type="submit" variant="primary" disabled={create.isPending} loading={create.isPending}>
-            {t("newChannel.create", { name: name || "canal" })}
+            {personal ? t("newChannel.createPersonal") : t("newChannel.create", { name: name || "canal" })}
           </Button>
         </DialogFooter>
       </form>

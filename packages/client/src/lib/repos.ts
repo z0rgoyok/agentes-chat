@@ -1,12 +1,13 @@
 import type { TFunction } from "i18next";
-import type { GitHubRepositories } from "../api/types";
+import type { GitHostAccount, GitHubRepositories } from "../api/types";
 import { joinNames } from "./format";
 
 /*
- * An agent's GitHub repositories:
+ * An agent's repositories:
  * "Todos" (no list) or "Só alguns" (an ordered list of `owner/name` and
  * `owner/*`, a whole account). The first is where the agent starts when
- * nobody names a repository.
+ * nobody names a repository. A repository on another git host carries the
+ * host first (`gitlab:group/project`, `gitlab:group/*`).
  */
 
 export interface RepoChoice {
@@ -27,7 +28,19 @@ export const sameRepoChoice = (a: RepoChoice, b: RepoChoice) =>
   a.mode === b.mode && (a.mode === "all" || a.list.join("\n") === b.list.join("\n"));
 
 export const isAccount = (entry: string) => entry.endsWith("/*");
-export const ownerOf = (entry: string) => entry.split("/")[0] ?? "";
+/** The git host an entry is on: the one before its colon, GitHub with none. */
+export const hostOf = (entry: string) => /^([a-z]+):/.exec(entry)?.[1] ?? "github";
+/** What an entry sits under: its account on GitHub (`acme`), its group with the host on another (`gitlab:acme/web`). */
+export const ownerOf = (entry: string) => entry.slice(0, Math.max(entry.lastIndexOf("/"), 0));
+
+/** Every account the listing has, GitHub's first and then the other git hosts'. */
+export const hostAccounts = (listing: GitHubRepositories | undefined): GitHostAccount[] => [
+  ...(listing?.accounts ?? []),
+  ...(listing?.elsewhere ?? []),
+];
+
+/** What an account's repositories' names start with. */
+export const accountPrefix = (account: GitHostAccount) => account.prefix ?? account.login;
 
 /** "acme/loja", or "Toda a conta acme". */
 export const repoName = (t: TFunction, entry: string) =>
@@ -48,9 +61,11 @@ export function reposText(t: TFunction, c: RepoChoice) {
  * Unknown (listing not loaded, or GitHub not connected): true.
  */
 export function repoExists(listing: GitHubRepositories | undefined, entry: string) {
-  if (!listing?.connected) return true;
+  if (!listing?.connected && !listing?.elsewhere?.length) return true;
+  // A host that isn't connected says nothing about its entries.
+  if (!hostAccounts(listing).some((a) => (a.host ?? "github") === hostOf(entry))) return true;
   const owner = ownerOf(entry).toLowerCase();
-  const account = listing.accounts.find((a) => a.login.toLowerCase() === owner);
+  const account = hostAccounts(listing).find((a) => accountPrefix(a).toLowerCase() === owner);
   if (!account) return false;
   return isAccount(entry) || account.repositories.some((r) => r.fullName.toLowerCase() === entry.toLowerCase());
 }
@@ -64,7 +79,8 @@ export const mergeChoices = (listing: GitHubRepositories | undefined, reach: str
 /** Whether the list covers a repository (itself, or its whole account). */
 export const covers = (list: string[], fullName: string) => {
   const f = fullName.toLowerCase();
-  return list.some((e) => e.toLowerCase() === f || e.toLowerCase() === `${ownerOf(f)}/*`);
+  // Itself, or anything it sits under (`acme/*`; on GitLab a group covers its subgroups too).
+  return list.some((e) => e.toLowerCase() === f || (isAccount(e) && f.startsWith(e.toLowerCase().slice(0, -1))));
 };
 
 /** The picker's list after checking or unchecking one entry (a whole account takes its repositories' place). */

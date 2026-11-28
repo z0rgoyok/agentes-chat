@@ -12,9 +12,11 @@
     ".": "./src/index.ts",
     "./accent": "./src/accent.ts",
     "./channel-refs": "./src/channel-refs.ts",
+    "./data": "./src/data.ts",
     "./look": "./src/look.ts",
     "./message-links": "./src/message-links.ts",
     "./names": "./src/names.ts",
+    "./routines": "./src/routines.ts",
     "./skills": "./src/skills.ts"
   },
   "scripts": {

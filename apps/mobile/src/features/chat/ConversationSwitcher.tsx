@@ -8,6 +8,7 @@ import { Button, Count, EmptyState, GroupedHeader, GroupedList, GroupedRow, Sear
 import { type ConversationRow, rowName } from "../chats/logic";
 import { matches } from "../search/logic";
 import { AgentFace, Face } from "../shared/Face";
+import { GroupFace } from "../shared/GroupFace";
 import { useDirectory } from "../shared/hooks";
 import { SheetTitle } from "../shared/PromptForm";
 import { Tile } from "../shared/parts";
@@ -51,7 +52,11 @@ export function ConversationSwitcher({
   // The sheets' rows (a face or a tile in the 32 column), as Novo's and the actions' sheets.
   const leading = (r: Conversation) =>
     r.kind === "channel" ? (
-      <Tile icon="hash" size={30} />
+      r.face ? (
+        <GroupFace agentIds={r.face.agentIds} count={r.face.count} size={30} />
+      ) : (
+        <Tile icon="hash" size={30} />
+      )
     ) : r.with.type === "agent" ? (
       <AgentFace agentId={r.with.id} size={30} mode={r.working ? "run" : "idle"} live={false} />
     ) : (

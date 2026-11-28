@@ -1,9 +1,11 @@
+import { DATA_OTHER, DATA_SERIES } from "@agenteschat/tokens/data";
 import type { TFunction } from "i18next";
 import type {
   AccountLoginFailure,
   AccountLoginStatus,
   CliInstall,
   DeviceLocation,
+  DiskParts,
   InstallableCli,
   Machine,
   MachineAccess,
@@ -120,51 +122,82 @@ export const CLI_GIT_MISSING = "git_missing";
 /** `Machine.cliErrors`' word for a CLI only in root's own `~/.local/bin` in system mode (mirror of `CLI_HOME_ONLY`). */
 export const CLI_HOME_ONLY = "home_only";
 
-/** Each vendor's own installer, for the CLIs the apps don't install; each puts its command in `~/.local/bin`. */
-const CLI_INSTALLERS = {
+/**
+ * Each vendor's own installer, for the CLIs the apps don't install; each puts its command in `~/.local/bin`. `windows`:
+ * its PowerShell installer, started through `powershell` so the line runs in cmd too (xAI's puts `grok.exe` in
+ * `%USERPROFILE%\.grok\bin`).
+ */
+const CLI_INSTALLERS: Record<string, { script: string; bin: string; opt: string; flags: string; windows?: string }> = {
   antigravity: {
     script: "curl -fsSL https://antigravity.google/cli/install.sh | bash",
     bin: "agy",
     opt: "/opt/agy",
     flags: " -s -- --skip-path",
   },
-  grok: { script: "curl -fsSL https://x.ai/cli/install.sh | bash", bin: "grok", opt: "/opt/grok", flags: "" },
+  grok: {
+    script: "curl -fsSL https://x.ai/cli/install.sh | bash",
+    bin: "grok",
+    opt: "/opt/grok",
+    flags: "",
+    windows: 'powershell -ExecutionPolicy Bypass -Command "irm https://x.ai/cli/install.ps1 | iex"',
+  },
   cursor: { script: "curl https://cursor.com/install -fsS | bash", bin: "agent", opt: "/opt/cursor", flags: "" },
-} as const;
+  devin: { script: "curl -fsSL https://cli.devin.ai/install.sh | bash", bin: "devin", opt: "/opt/devin", flags: "" },
+};
 
 /**
  * The terminal line that installs `kind`'s CLI on a computer someone connected, where the apps don't install it. In
  * system mode every agent's user must run it, so it goes under `/opt` with a link in `/usr/local/bin`
- * (SELF_HOSTING.md). Null: no such line (Windows, the workspace's own computer, Claude Code and Codex, OpenCode).
+ * (SELF_HOSTING.md). Null: no such line (Windows but Grok Build, the workspace's own computer, Claude Code and Codex,
+ * OpenCode).
  */
 export function cliInstallCommand(kind: string, m: Pick<Machine, "kind" | "os" | "mode">): string | null {
-  const it = CLI_INSTALLERS[kind as keyof typeof CLI_INSTALLERS];
-  if (!it || m.kind === "managed" || (m.os !== "linux" && m.os !== "darwin")) return null;
+  const it = CLI_INSTALLERS[kind];
+  if (!it || m.kind === "managed") return null;
+  if (m.os === "windows") return it.windows ?? null;
+  if (m.os !== "linux" && m.os !== "darwin") return null;
   if (m.mode !== "system") return it.script;
   return `sudo env HOME=${it.opt} sh -c '${it.script}${it.flags}' && sudo chmod -R a+rX ${it.opt} && sudo ln -sf ${it.opt}/.local/bin/${it.bin} /usr/local/bin/${it.bin}`;
 }
 
 /**
  * What a card says where `kind`'s CLI is missing on `m` and the apps can't install it: the cause and the line to run
- * there (`cliInstallCommand`). Null where there is no such line, or the CLI is there and fails on its own.
+ * there (`cliInstallCommand`). Too old for agentes.chat (`cli_outdated`): the same line, which installs the newest.
+ * Null where there is no such line, or the CLI is there and fails on its own.
  */
 export function cliCommandWayOut(
   t: TFunction,
   kind: MachineAccountKind,
   m: Pick<Machine, "kind" | "os" | "mode" | "cliErrors">,
-  reason: "not_installed" | "cant_start",
+  reason: "not_installed" | "cant_start" | "cli_outdated",
   computer: string,
 ): { text: string; command: string } | null {
   const command = cliInstallCommand(kind, m);
   const homeOnly = m.cliErrors?.[kind] === CLI_HOME_ONLY;
   if (!command || (reason === "cant_start" && !homeOnly)) return null;
   const words = { program: t(`brain.card.${kind}`), computer };
+  if (reason === "cli_outdated") {
+    const outdated = t("brain.reasons.cli_outdated", words);
+    return { text: t("common.joinSentences", { a: outdated, b: t("connectAi.cli.runThis") }), command };
+  }
   const text = homeOnly
     ? t("connectAi.cli.homeOnly", words)
     : m.mode === "system"
       ? t("connectAi.cli.missingSystem", words)
       : t("common.joinSentences", { a: t("connectAi.cli.missing", words), b: t("connectAi.cli.runThis") });
   return { text, command };
+}
+
+/**
+ * What holds Codex's commands on a Windows computer, when that says something (`Machine.codexSandbox`): Codex's own
+ * sandbox where MXC is missing (writes held, the internet only partly blocked), or nothing at all. Null with MXC, on
+ * another system, or while unknown.
+ */
+export function codexSandboxNote(t: TFunction, m: Pick<Machine, "name" | "codexSandbox">): string | null {
+  if (m.codexSandbox === "unelevated") return t("brain.sandboxPartial");
+  if (m.codexSandbox === "none")
+    return t("brain.reasons.windows_sandbox", { computer: m.name, program: t("brain.card.codex") });
+  return null;
 }
 
 /** Where Git for Windows is downloaded, which Claude Code needs on Windows. */
@@ -191,15 +224,15 @@ export function cliInstallFailure(
  * installs it there (they paired it), `ask` sends whoever paired it the same button, `outdated` means its app must
  * update first. Null where nobody installs from here (the workspace's own computer installs its own, or nobody is
  * behind it), and `allow` only where an installer exists there: never Codex on Windows, nor a computer whose agents
- * are users of their own (its setup installs for them).
+ * are users of their own unless its runner installs its own copy for all of them (`cliFetchable`).
  */
 export function cliOneClick(
-  m: Pick<Machine, "kind" | "pairedBy" | "cliInstall" | "os" | "mode"> | null | undefined,
+  m: Pick<Machine, "kind" | "pairedBy" | "cliInstall" | "os" | "mode" | "cliFetchable"> | null | undefined,
   meId: string | null | undefined,
   cli: InstallableCli,
 ): ToolOneClick | null {
   if (!m || m.kind === "managed" || !m.pairedBy) return null;
-  if (m.mode === "system" || (cli === "codex" && m.os === "windows")) return null;
+  if (m.mode === "system" ? !m.cliFetchable?.includes(cli) : cli === "codex" && m.os === "windows") return null;
   if (m.pairedBy.id !== meId) return { kind: "ask", ownerId: m.pairedBy.id, ownerName: m.pairedBy.name };
   return m.cliInstall ? { kind: "allow" } : { kind: "outdated" };
 }
@@ -294,6 +327,7 @@ export const MACHINE_TOOLS: MachineToolName[] = [
   "opencode",
   "grok",
   "antigravity",
+  "devin",
   "commands",
 ];
 
@@ -319,6 +353,41 @@ export function sharedFolderFacts(t: TFunction, locale: string, disk: Machine["d
     disk?.sharedGb != null ? t("machines.shared.size", { size: gb(disk.sharedGb) }) : t("machines.shared.measuring"),
     ...(disk ? [t("machines.shared.free", { free: gb(disk.freeGb) })] : []),
   ].join(" · ");
+}
+
+/** The kinds a computer's disk splits into, in the bar's order; `other` is the rest of what is in use. */
+export const COMPUTER_PARTS = ["projects", "apps", "agents", "caches", "system", "other"] as const;
+export type ComputerPart = (typeof COMPUTER_PARTS)[number];
+
+/** A disk this full is filling up: the server's own line for telling admins (`DISK_WARN_USE` in notification-producers.ts). */
+export const COMPUTER_DISK_FULL = 0.85;
+
+export interface ComputerStorage {
+  sizeGb: number;
+  usedGb: number;
+  freeGb: number;
+  full: boolean;
+  /** What takes it, in the bar's order, each kind with its colors; none before the computer first measured it. */
+  parts: { key: ComputerPart; gb: number; light: string; dark: string }[];
+}
+
+/** A computer's disk as Armazenamento shows it; null when its runner doesn't say how big the disk is. */
+export function computerStorage(disk: Machine["disk"]): ComputerStorage | null {
+  if (!disk) return null;
+  const sizeGb = disk.sizeGb ?? (disk.use != null && disk.use < 1 ? disk.freeGb / (1 - disk.use) : null);
+  if (!sizeGb) return null;
+  const usedGb = Math.max(0, sizeGb - disk.freeGb);
+  const known = disk.parts ?? null;
+  const kinds = COMPUTER_PARTS.filter((k): k is keyof DiskParts => k !== "other");
+  const otherGb = known ? usedGb - kinds.reduce((n, k) => n + known[k], 0) : 0;
+  const parts = known
+    ? COMPUTER_PARTS.map((key, i) => ({
+        key,
+        gb: key === "other" ? Math.max(0, otherGb) : known[key],
+        ...(DATA_SERIES[i] ?? DATA_OTHER),
+      })).filter((p) => p.gb >= 0.05)
+    : [];
+  return { sizeGb, usedGb, freeGb: disk.freeGb, full: usedGb / sizeGb >= COMPUTER_DISK_FULL, parts };
 }
 
 /** Paused now: `until` absent or still ahead. */
@@ -617,4 +686,32 @@ export function loginRead(status: { isError: boolean; error: unknown; errorUpdat
   if (!status.isError) return null;
   if (!(status.error instanceof LoginReadError)) return "failed";
   return status.errorUpdatedAt - status.error.since < LOGIN_RECONNECT_MS ? "reconnecting" : "noAnswer";
+}
+
+const OS_CODES = new Set(["linux", "darwin", "windows", "other"]);
+
+/** "macOS", "Windows", or the server's own words when it sends a full name with a version ("Ubuntu 24.04"). */
+export const osName = (t: TFunction, os: string) =>
+  OS_CODES.has(os) ? (t as unknown as (key: string) => string)(`machines.os.${os}`) : os;
+
+/** ADR 0237: "Agents use the internet of Ana's laptop" while a person's computer lends its internet; else null. */
+export function egressViaText(t: TFunction, m: Pick<Machine, "kind" | "online" | "egressVia">): string | null {
+  const via = m.online ? m.egressVia : null;
+  return via ? t("machines.egress.via", { name: via.name }) : null;
+}
+
+/** The workspace's own computer's agents have no internet: the computer they use only the internet of is offline. */
+export function egressOfflineText(t: TFunction, m: Pick<Machine, "kind" | "egressOffline">): string | null {
+  return m.kind === "managed" && m.egressOffline ? t("machines.egress.offline", { name: m.egressOffline.name }) : null;
+}
+
+/**
+ * `egressViaText` as the words around the lending computer's name, in the language's order, so a screen can give the
+ * name alone a tip: who connected it ("Connected by Ana"), or null when nobody is named.
+ */
+export function egressViaParts(t: TFunction, m: Pick<Machine, "kind" | "online" | "egressVia">) {
+  const via = m.online ? m.egressVia : null;
+  if (!via) return null;
+  const [before = "", after = ""] = t("machines.egress.via", { name: "\u0000" }).split("\u0000");
+  return { before, name: via.name, after, by: via.userName ? t("machines.pairedBy", { name: via.userName }) : null };
 }

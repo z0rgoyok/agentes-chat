@@ -1,5 +1,5 @@
 import type { SearchHit } from "@agenteschat/client";
-import { useChannelCategories, useChannels } from "@agenteschat/client";
+import { useAgentGroups, useChannels } from "@agenteschat/client";
 import { clockAt } from "@agenteschat/client/lib/format";
 import { hitText } from "@agenteschat/client/lib/media";
 import {
@@ -18,6 +18,7 @@ import {
   MenuRadioGroup,
   Message,
   MessageText,
+  Refreshing,
   Select,
 } from "@agenteschat/ui";
 import { useNavigate } from "@tanstack/react-router";
@@ -62,7 +63,7 @@ export function SearchResultsPanel({
   const actions = useChannelActions();
   const navigate = useNavigate();
   const channels = useChannels(org.id);
-  const categories = useChannelCategories(org.id);
+  const sectors = useAgentGroups(org.id);
   const phone = useMatchMedia(COMPACT_QUERY);
   const jumpedFrom = useRef<HTMLElement | null>(null);
   useEscClose(onClose);
@@ -80,9 +81,9 @@ export function SearchResultsPanel({
   const { hits, search, chips } = ws;
   const sorts = SEARCH_SORTS.map((s) => ({ value: s, label: t(`searchPage.sort.${s}`) }));
   const terms = searchTerms(ws.q);
-  const categoryOf = (id: string) => {
-    const category = channels.data?.find((c) => c.id === id)?.categoryId;
-    return categories.data?.find((c) => c.id === category)?.name;
+  const sectorOf = (id: string) => {
+    const sector = channels.data?.find((c) => c.id === id)?.groupId;
+    return sectors.data?.find((g) => g.id === sector)?.name;
   };
   const placeName = (id: string) => {
     const place = ws.placeOf(id);
@@ -219,46 +220,55 @@ export function SearchResultsPanel({
         />
       </header>
       <div className="search-panel__list">
-        {!ws.active && (
-          <EmptyState size="panel" icon="search">
-            {t("searchPage.hint")}
-          </EmptyState>
-        )}
-        {ws.active && search.isLoading && <LoadingList count={4} avatar={false} />}
-        {ws.active && search.isError && !search.data && (
-          <ErrorState error={search.error} onRetry={() => void search.refetch()} />
-        )}
-        {ws.active && search.isSuccess && hits.length === 0 && (
-          <EmptyState size="panel" actions={<Button onClick={ws.clear}>{t("filters.clearSearch")}</Button>}>
-            {t("searchPage.empty", { q: what })}
-          </EmptyState>
-        )}
-        {groupHits(hits).map(([kind, list]) =>
-          kind === "message" ? (
-            groupHitsByPlace(list).map((g) => {
-              const where = g.thread ? g.thread.title : placeName(g.channelId);
-              return (
-                <section key={g.key} className="search-panel__group" aria-label={where}>
-                  <h2 className="search-panel__where">
-                    <Icon name={g.thread ? "thread" : ws.placeOf(g.channelId)?.dm ? "message" : "channel"} size={16} />
-                    <span className="search-panel__name">{where}</span>
-                    <span className="search-panel__cat">
-                      {g.thread
-                        ? t("searchPage.panel.threadIn", { channel: placeName(g.channelId) })
-                        : categoryOf(g.channelId)}
-                    </span>
-                  </h2>
-                  {g.hits.map(card)}
-                </section>
-              );
-            })
-          ) : (
-            <section key={kind} className="search-panel__group" aria-label={t(`searchPage.kinds.${kind as "message"}`)}>
-              <h2 className="search-panel__where">{t(`searchPage.kinds.${kind as "message"}`)}</h2>
-              {list.map(card)}
-            </section>
-          ),
-        )}
+        <Refreshing busy={ws.active && search.isPlaceholderData} label={t("common.loading")}>
+          {!ws.active && (
+            <EmptyState size="panel" icon="search">
+              {t("searchPage.hint")}
+            </EmptyState>
+          )}
+          {ws.active && search.isLoading && <LoadingList count={4} avatar={false} />}
+          {ws.active && search.isError && !search.data && (
+            <ErrorState error={search.error} onRetry={() => void search.refetch()} />
+          )}
+          {ws.active && search.isSuccess && hits.length === 0 && (
+            <EmptyState size="panel" actions={<Button onClick={ws.clear}>{t("filters.clearSearch")}</Button>}>
+              {t("searchPage.empty", { q: what })}
+            </EmptyState>
+          )}
+          {groupHits(hits).map(([kind, list]) =>
+            kind === "message" ? (
+              groupHitsByPlace(list).map((g) => {
+                const where = g.thread ? g.thread.title : placeName(g.channelId);
+                return (
+                  <section key={g.key} className="search-panel__group" aria-label={where}>
+                    <h2 className="search-panel__where">
+                      <Icon
+                        name={g.thread ? "thread" : ws.placeOf(g.channelId)?.dm ? "message" : "channel"}
+                        size={16}
+                      />
+                      <span className="search-panel__name">{where}</span>
+                      <span className="search-panel__cat">
+                        {g.thread
+                          ? t("searchPage.panel.threadIn", { channel: placeName(g.channelId) })
+                          : sectorOf(g.channelId)}
+                      </span>
+                    </h2>
+                    {g.hits.map(card)}
+                  </section>
+                );
+              })
+            ) : (
+              <section
+                key={kind}
+                className="search-panel__group"
+                aria-label={t(`searchPage.kinds.${kind as "message"}`)}
+              >
+                <h2 className="search-panel__where">{t(`searchPage.kinds.${kind as "message"}`)}</h2>
+                {list.map(card)}
+              </section>
+            ),
+          )}
+        </Refreshing>
       </div>
     </section>
   );

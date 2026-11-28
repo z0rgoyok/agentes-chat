@@ -635,6 +635,39 @@ describe("the connect flow: conectar → conectado; Ajustar → o que faz → qu
     });
   });
 
+  test("by address, an admin sees 'Usar seu próprio app OAuth' before typing the address; it asks for an https one, then reads that one", async () => {
+    const state = seedState({ connections: [] });
+    const api = createFakeApi(state);
+    const read = api.customConnectors.ownClient;
+    const reads: string[] = [];
+    api.customConnectors.ownClient = async (orgId, serverUrl) => {
+      reads.push(serverUrl);
+      return read(orgId, serverUrl);
+    };
+    await open(state, api);
+    await byAddress();
+    const flow = screen().getByRole("dialog", { name: "Conectar servidor MCP" });
+    const address = within(flow).getByLabelText("Endereço do servidor MCP");
+    const ownMore = [...flow.querySelectorAll("details.cflow__more")].find(
+      (d) => d.querySelector("summary")?.textContent === "Usar seu próprio app OAuth",
+    );
+    expect(ownMore).toBeTruthy();
+    await click(ownMore?.querySelector("summary") as Element);
+    await settle(2);
+    expect(ownMore?.textContent).toContain("Primeiro, informe o endereço https do servidor.");
+    expect(document.activeElement).toBe(address);
+    await type(address, "http://inseguro");
+    await settle(2);
+    expect(reads).toEqual([]);
+    await type(address, "https://oauth.suporte.example.com");
+    await settle(4);
+    expect(ownMore?.textContent).not.toContain("Primeiro, informe o endereço https do servidor.");
+    expect(within(flow).getByLabelText("ID do cliente")).toBeTruthy();
+    await type(address, "https://mcp.outro.example.com/mcp");
+    await settle(4);
+    expect(reads).toEqual(["https://oauth.suporte.example.com", "https://mcp.outro.example.com/mcp"]);
+  });
+
   test("a one-click server the catalog lists without a key (Intercom on the Cloud) offers no API key", async () => {
     const state = seedState({ connections: [] });
     const api = createFakeApi(state);

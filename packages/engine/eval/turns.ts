@@ -42,7 +42,7 @@ export const AUTONOMY_PHRASES: string[] = [
   ASK_APPROVALS_TOGETHER,
   ASK_CHOICES_LINE,
   "- Something to use rather than read (a what-if, options to see side by side, a view to filter, a short form): show it yourself with show_block, inside your reply; what the person picks comes back to you. A group deciding together: start_poll.",
-  '- When the message only acknowledges or thanks and needs no answer ("thanks", "perfect", "ok, go ahead", "I\'ll wait"; in Portuguese "valeu", "perfeito", "ok, pode seguir", "aguardo"), don\'t reply: react with one fitting emoji using `react` and end your turn with an empty reply',
+  '- When the message only acknowledges or thanks and needs no answer ("thanks", "perfect", "I\'ll wait"; in Portuguese "valeu", "perfeito", "aguardo"), don\'t reply: react with one fitting emoji using `react` and end your turn with an empty reply',
   "- When a request is still ambiguous after you have looked with your tools, or when the decision is really the person's (a product choice, a priority), ask one short clarifying question with `ask_user`",
   "- Actions marked sensitive (merge, deploy, rollback and similar) wait for a person's approval; you will be told the outcome.",
   "When you need another agent's answer for the task, ask it with `ask_agent`; to hand one work, use `tell_agent`, giving the whole job to the agent that owns it with everything it needs. Do this instead of saying you can't or sending the person to it.",

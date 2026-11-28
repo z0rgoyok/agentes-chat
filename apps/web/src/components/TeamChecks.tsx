@@ -2,8 +2,9 @@ import type { Message, TeamCheck } from "@agenteschat/client";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { targetKind, teamChecksOf } from "@agenteschat/client/lib/team-checks";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
-import { Icon, type IconName } from "@agenteschat/ui";
+import { Icon, type IconName, useMorph } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
+import { useRef } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useOrg } from "./org-context";
 import "./agent-actions.css";
@@ -24,11 +25,13 @@ const ICONS: Record<ReturnType<typeof targetKind>, IconName> = {
  */
 export function TeamChecks({ message }: { message: Message }) {
   const { t } = useTranslation();
+  const box = useRef<HTMLDivElement>(null);
+  useMorph(box);
   const list = teamChecksOf(message.meta);
   if (message.author.type !== "agent" || list.length === 0) return null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a labelled group inside a message, not a fieldset
-    <div className="ag-rcs ag-rcs--stack" role="group" aria-label={t("teamChecks.group")}>
+    <div ref={box} className="ag-rcs ag-rcs--stack" role="group" aria-label={t("teamChecks.group")}>
       {list.map((c) => (
         <TeamCheckRow key={c.id} check={c} selfId={message.author.id} />
       ))}

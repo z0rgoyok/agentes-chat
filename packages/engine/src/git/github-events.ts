@@ -663,7 +663,7 @@ export async function answerGitHubNotice(
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
   if ((await eligibleChannelAgents(db, orgId, original.channelId, [agent.id])).length === 0)
     throw new ConflictError("The agent isn't in this conversation anymore", "github_event.agent_not_here");
-  if (!canTalkTo(agent, userId, speakerOf(membership))) throw await audienceError(db, agent);
+  if (!canTalkTo(agent, userId, speakerOf(membership))) throw await audienceError(db, agent, userId);
   const [person] = await db.select({ name: users.name }).from(users).where(eq(users.id, userId));
   const answered = JSON.stringify({ answeredBy: userId });
   const done = await db.transaction(async (tx) => {

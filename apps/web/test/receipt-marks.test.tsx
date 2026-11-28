@@ -335,7 +335,7 @@ describe("an agent whose AI provider is down", () => {
     ];
     await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(state) });
     await settle(8);
-    expect(row("o1").textContent).toContain("Ada: o provedor de IA está fora do ar · tenta de novo sozinho");
+    expect(row("o1").textContent).toContain("Ada: a IA não está respondendo · tenta de novo sozinho");
     expect(row("o1").textContent).not.toContain("esperando uma resposta");
   });
 });

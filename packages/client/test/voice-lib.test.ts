@@ -2,17 +2,21 @@ import { describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
 import type { Message } from "../src/api/types";
 import { createHttpApi } from "../src/index";
+import { previewKind } from "../src/lib/files";
 import { quoteText, textOrMedia } from "../src/lib/media";
 import { previewBody } from "../src/lib/message-body";
 import { localMeta } from "../src/lib/reply";
 import {
   listedText,
+  micShown,
   voiceAudioGone,
   voiceClock,
   voiceExpired,
   voiceOf,
   voiceParts,
+  voiceSetupAsk,
   voiceSpeedOf,
+  wavePeaks,
 } from "../src/lib/voice";
 
 const t = ((key: string, params?: { time?: string }) =>
@@ -120,5 +124,43 @@ describe("voice messages' helpers (ADR 0100)", () => {
       throw new TypeError("offline");
     }) as unknown as typeof fetch;
     expect(await voiceAudioGone("/a", offline)).toBe(false);
+  });
+});
+
+describe("audio files", () => {
+  test("a file's wave: each slice's loudness, the loudest at 1; silence is flat", () => {
+    const samples = [0, 0, 0.5, -0.5, 0.25, -0.25, 0, 0];
+    expect(wavePeaks(samples, 4)).toEqual([0, 1, 0.5, 0]);
+    expect(wavePeaks(new Float32Array(10), 5)).toEqual([0, 0, 0, 0, 0]);
+    expect(wavePeaks([], 4)).toEqual([]);
+    expect(wavePeaks([0.1, 0.2], 48)).toHaveLength(2);
+  });
+
+  test("audio stored untyped plays by its name, as the server reads it", () => {
+    expect(previewKind("application/octet-stream", "entrevista.m4a")).toBe("audio");
+    expect(previewKind("application/octet-stream", "nota.opus")).toBe("audio");
+    expect(previewKind("application/octet-stream", "faixa.flac")).toBe("audio");
+    expect(previewKind("audio/mpeg")).toBe("audio");
+    expect(previewKind("application/octet-stream", "video.mp4")).toBeNull();
+  });
+});
+
+describe("the microphone where voice doesn't become text yet", () => {
+  const base = { voiceMessages: true, voiceAvailable: false, speechOwner: { userId: "u-w", name: "Walter" } };
+  test("it shows with the workspace's switch alone; an older server still needs an engine", () => {
+    expect(micShown({ ...base, speechState: "none" })).toBe(true);
+    expect(micShown({ ...base, speechState: "none", voiceMessages: false })).toBe(false);
+    expect(micShown(base)).toBe(false);
+    expect(micShown({ ...base, voiceAvailable: true })).toBe(true);
+  });
+  test("the first press asks once, the owner to choose, anyone else to ask them", () => {
+    expect(voiceSetupAsk({ ...base, speechState: "none" }, "u-a", true)).toEqual({
+      isOwner: false,
+      owner: base.speechOwner,
+    });
+    expect(voiceSetupAsk({ ...base, speechState: "failed" }, "u-w", true)?.isOwner).toBe(true);
+    expect(voiceSetupAsk({ ...base, speechState: "none" }, "u-a", false)).toBeNull();
+    expect(voiceSetupAsk({ ...base, speechState: "ready" }, "u-a", true)).toBeNull();
+    expect(voiceSetupAsk(base, "u-a", true)).toBeNull();
   });
 });

@@ -41,11 +41,16 @@ test("an agent's repositories: read, replace in order, refuse what isn't a repos
     connected: true,
     accounts: [
       {
+        host: "github",
+        hostLabel: "GitHub",
+        prefix: "acme",
         login: "acme",
         type: "Organization",
         repositories: [{ fullName: "acme/app", owner: "acme", name: "app", private: true, updatedAt: null }],
       },
     ],
+    // What the workspace's other git hosts reach (ADR 0227): none connected here.
+    elsewhere: [],
     truncated: false,
   });
   expect(JSON.stringify(listing)).not.toContain("ghp_");

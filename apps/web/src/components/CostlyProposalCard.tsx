@@ -53,6 +53,7 @@ export function CostlyProposalCardView({ card }: { message: Message; card: Costl
   if (decided)
     return (
       <RequestDone
+        morphKey={`costly:${card.signalId}`}
         done={card.state === "go" || card.state === "always"}
         label={sentence}
         more={what ? { label: t("approval.seeDetails"), content: what } : undefined}
@@ -62,6 +63,7 @@ export function CostlyProposalCardView({ card }: { message: Message; card: Costl
     );
   return (
     <RequestOpen
+      morphKey={`costly:${card.signalId}`}
       mine={may}
       icon="shield"
       label={sentence}

@@ -91,8 +91,12 @@ function play(name: SoundName) {
       return;
     }
     const player = playerFor(choice, name);
-    void player.seekTo(0).catch(() => {});
-    player.play();
+    // Back at the start before it plays, never both at once: `seekTo` lands later (it is async) and, landing after the
+    // sound began, played its start a second time, heard as the sound twice. A player that never played is there.
+    if (player.currentTime > 0) {
+      const start = () => player.play();
+      void player.seekTo(0).then(start, start);
+    } else player.play();
   } catch {
     // No file or no audio: silence, never an error.
   }

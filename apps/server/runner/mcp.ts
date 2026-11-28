@@ -11,6 +11,7 @@ import {
   ASK_IN_CHAT,
   type CommandProfile,
   type CommandScope,
+  commandCall,
   INLINE_CODE_DENY_RULES,
   localVerdict,
   MISSION_DENY_RULES,
@@ -225,6 +226,24 @@ const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 /** The pseudo tool name of a list request (in pending and resend bookkeeping). */
 const LIST = "tools/list";
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** The arguments a listed tool's schema requires (none for an unknown tool or a schema without `required`). */
+function requiredArgs(tool: { inputSchema: unknown } | undefined): string[] {
+  const schema = tool?.inputSchema;
+  const required = isRecord(schema) ? schema.required : undefined;
+  return Array.isArray(required) ? required.filter((r): r is string => typeof r === "string") : [];
+}
+
+/**
+ * A call that arrives with no arguments, most often a very long input (a big file write) cut off on the way: passing
+ * `{}` on would answer with a confusing "missing field" from deep inside the tool, and the agent can't tell why.
+ */
+export function noArgumentsError(tool: string, required: readonly string[]) {
+  const needs = required.length > 0 ? ` with ${required.join(", ")}` : " with its arguments";
+  return `${tool} arrived with no arguments: the input was probably cut off on the way. Nothing was done. Call it again${needs}.`;
+}
+
 /** A listed tool as the server sent it (anything else is dropped). */
 function isToolInfo(v: unknown): v is McpToolInfo {
   if (typeof v !== "object" || v === null) return false;
@@ -308,6 +327,8 @@ export class McpBridge {
   private readonly lists = new Map<string, { run: string; at: number; reply: IpcReply }>();
   /** The list each agent's brain run got last (`McpTaskInfo.agentId`), most recent last. */
   private readonly agentLists = new Map<string, IpcReply>();
+  /** Each MCP process's list on its way from the server, for the run it was asked for (`runList`). */
+  private readonly listing = new Map<string, { run: string; reply: Promise<IpcReply> }>();
 
   constructor(
     private readonly opts: {
@@ -319,8 +340,12 @@ export class McpBridge {
        * meanwhile, so its turn's silence isn't its own (`BrainManager.bridgeCall`).
        */
       onCall?: (taskId: string, delta: 1 | -1) => void;
+      /** A list ask of `taskId`'s, made at `at`, was answered in `ms` (`BrainManager.bridgeList`). */
+      onList?: (taskId: string, at: number, ms: number) => void;
       log?: (line: string) => void;
       callTimeoutMs?: number;
+      /** Tests: `LAST_LIST_AFTER_MS`. */
+      lastListAfterMs?: number;
     },
   ) {}
 
@@ -477,35 +502,24 @@ export class McpBridge {
     if (req.kind === "list") {
       // An older server gave no token: the fixed mission tools.
       if (!info.serverToken) return { ok: true, text: "", tools: [...MISSION_MCP_TOOLS] };
-      // Each MCP process asks every second: the same run's list is answered here, the server asked for a new run
-      // (a brain process's next turn) or once the last answer is `LIST_MEMO_MS` old.
-      const run = `${info.runId ?? taskId}:${info.serverToken}`;
-      const now = Date.now();
-      const last = this.lists.get(taskId);
-      if (last && last.run === run && now - last.at < LIST_MEMO_MS) return last.reply;
-      const callId = randomBytes(12).toString("hex");
-      const reply = await this.relayAndWait(
-        callId,
-        LIST,
-        { type: "mcp.list", callId, taskId: info.runId ?? taskId, token: info.serverToken },
-        true,
-      );
-      if (!reply.ok) return reply;
-      for (const [id, l] of this.lists) if (now - l.at >= LIST_MEMO_MS) this.lists.delete(id);
-      const kept: IpcReply = { ...reply, memo: true };
-      this.lists.set(taskId, { run, at: now, reply: kept });
-      if (info.agentId) {
-        this.agentLists.delete(info.agentId);
-        this.agentLists.set(info.agentId, kept);
-        if (this.agentLists.size > AGENT_LISTS_KEPT) this.agentLists.delete(this.agentLists.keys().next().value ?? "");
-      }
-      return kept;
+      const at = Date.now();
+      const fresh = this.runList(taskId, info, info.serverToken);
+      // A starting Claude Code says it is ready only once it has our list: past a short wait it starts with the agent's
+      // last one, and the run's own is announced when it lands (the server checks every call anyway).
+      const last = info.agentId ? this.agentLists.get(info.agentId) : undefined;
+      const waitMs = this.opts.lastListAfterMs ?? LAST_LIST_AFTER_MS;
+      const reply = await (last
+        ? Promise.race([fresh, new Promise<IpcReply>((resolve) => setTimeout(() => resolve(last), waitMs).unref?.())])
+        : fresh);
+      this.opts.onList?.(taskId, at, Date.now() - at);
+      return reply;
     }
     const tool = typeof req.tool === "string" ? req.tool.slice(0, 64) : "";
     // A bridge (server token): any tool the server lists; the server decides. Else the fixed mission tools.
     const known = info.serverToken ? TOOL_NAME.test(tool) : MISSION_MCP_TOOLS.some((t) => t.name === tool);
     if (!known) return { ok: false, error: `Unknown tool ${tool}` };
-    const given = req.args && typeof req.args === "object" && !Array.isArray(req.args) ? req.args : {};
+    if (!isRecord(req.args)) return { ok: false, error: noArgumentsError(tool, []) };
+    const given = req.args;
     if (JSON.stringify(given).length > MCP_ARGS_MAX_CHARS) {
       return {
         ok: false,
@@ -547,6 +561,49 @@ export class McpBridge {
     } finally {
       this.opts.onCall?.(taskId, -1);
     }
+  }
+
+  /**
+   * A brain process's run started (`BrainManager`): its list is asked now, while its CLI starts, so the CLI's own ask
+   * finds it here or on its way instead of waiting for the server from then on.
+   */
+  prefetch(taskId: string) {
+    const info = this.opts.task(taskId);
+    if (info?.running && info.serverToken) void this.runList(taskId, info, info.serverToken);
+  }
+
+  /**
+   * The run's list: answered here for the same run (each MCP process asks every second) until `LIST_MEMO_MS` old, one
+   * ask on its way shared, else asked from the server.
+   */
+  private runList(taskId: string, info: McpTaskInfo, token: string): Promise<IpcReply> {
+    const run = `${info.runId ?? taskId}:${token}`;
+    const now = Date.now();
+    const last = this.lists.get(taskId);
+    if (last && last.run === run && now - last.at < LIST_MEMO_MS) return Promise.resolve(last.reply);
+    const asked = this.listing.get(taskId);
+    if (asked?.run === run) return asked.reply;
+    const callId = randomBytes(12).toString("hex");
+    const reply = this.relayAndWait(
+      callId,
+      LIST,
+      { type: "mcp.list", callId, taskId: info.runId ?? taskId, token },
+      true,
+    ).then((r) => {
+      if (this.listing.get(taskId)?.reply === reply) this.listing.delete(taskId);
+      if (!r.ok) return r;
+      for (const [id, l] of this.lists) if (now - l.at >= LIST_MEMO_MS) this.lists.delete(id);
+      const kept: IpcReply = { ...r, memo: true };
+      this.lists.set(taskId, { run, at: now, reply: kept });
+      if (info.agentId) {
+        this.agentLists.delete(info.agentId);
+        this.agentLists.set(info.agentId, kept);
+        if (this.agentLists.size > AGENT_LISTS_KEPT) this.agentLists.delete(this.agentLists.keys().next().value ?? "");
+      }
+      return kept;
+    });
+    this.listing.set(taskId, { run, reply });
+    return reply;
   }
 
   private relayAndWait(callId: string, tool: string, frame: RunnerFrame, resend: boolean) {
@@ -751,6 +808,12 @@ export type ToolLister = () => Promise<readonly McpToolInfo[]>;
 /** Agents whose last list the daemon keeps for their brain processes between turns (`McpBridge.agentLists`). */
 const AGENT_LISTS_KEPT = 200;
 
+/**
+ * How long a list ask waits for the server before the agent's last list answers it (`McpBridge.handle`). Claude Code
+ * holds its ready line (`system/init`) until our list comes, so a slow server would add its whole time to the start.
+ */
+export const LAST_LIST_AFTER_MS = 500;
+
 /** How long the MCP process trusts its list before asking again (a `tools/list` within this is answered locally). */
 export const TOOLS_CACHE_MS = 30_000;
 /** How long the daemon answers an MCP process's list for the same run by itself (`McpBridge`). */
@@ -918,10 +981,7 @@ export async function handleMcpMessage(
       // kept-alive one), and the server runs any tool the agent may use, or says why not and what to call instead.
       const served = Boolean(list) && !context.local;
       if (!served && !tools.some((t) => t.name === name)) return rpcError(id, -32602, `Unknown tool: ${name}`);
-      const args =
-        typeof params.arguments === "object" && params.arguments !== null && !Array.isArray(params.arguments)
-          ? (params.arguments as Record<string, unknown>)
-          : {};
+      const args = isRecord(params.arguments) ? params.arguments : {};
       // Claude Code's permission prompt: always an answer it understands (allow or deny JSON), never an error.
       if (name === PERMISSION_TOOL) {
         const answer = await permissionPrompt(args, call, { ...(scope ? { scope } : {}), profile, ...context }).catch(
@@ -931,6 +991,14 @@ export async function handleMcpMessage(
           }),
         );
         return { jsonrpc: "2.0", id, result: { content: [{ type: "text", text: JSON.stringify(answer) }] } };
+      }
+      const required = requiredArgs(tools.find((t) => t.name === name));
+      if (required.length > 0 && Object.keys(args).length === 0) {
+        return {
+          jsonrpc: "2.0",
+          id,
+          result: { content: [{ type: "text", text: noArgumentsError(name, required) }], isError: true },
+        };
       }
       const reply = await call(name, args);
       return {
@@ -1028,14 +1096,16 @@ export async function permissionPrompt(
     return { behavior: "deny", message };
   }
   if (verdict?.behavior === "allow") return { behavior: "allow", updatedInput: input };
-  if (toolName === "Bash" && typeof input.command === "string") {
+  // Pushes, by any tool that runs a command (PowerShell's too).
+  const command = commandCall(toolName, input)?.command;
+  if (command !== undefined) {
     const own = opts.branches ?? [];
     const cwd = opts.scope?.cwd ?? null;
-    const held = await commandApproval(input.command, { cwd, own, how, script: true });
+    const held = await commandApproval(command, { cwd, own, how, script: true });
     if (held) return { behavior: "deny", message: held.never ? held.message : said(held.message) };
     // A push alone to its own branches, or through our git proxy (which decides someone else's branch with a
     // person's grant, so no card here asks first). An agent that always asks is asked for these too.
-    const push = lonePush(input.command);
+    const push = lonePush(command);
     const alone = opts.local || opts.asks !== "always";
     if (push && alone && (opts.local || pushesOwnBranches(push, own) || (await pushThroughProxy(push, cwd)))) {
       return { behavior: "allow", updatedInput: input };

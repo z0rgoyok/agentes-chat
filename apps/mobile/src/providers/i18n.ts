@@ -1,4 +1,5 @@
 import type { LocaleState } from "@agenteschat/client/lib/locale-sync";
+import { formatList } from "@agenteschat/i18n/format";
 import { type AppLocale, isAppLocale, LOCALE_CODES } from "@agenteschat/i18n/locale";
 import { fillPluralGaps, type LocaleStrings } from "@agenteschat/i18n/plurals";
 import { getLocales } from "expo-localization";
@@ -101,9 +102,12 @@ export function setupI18n(): typeof i18n {
     interpolation: { escapeValue: false },
     initAsync: false,
     parseMissingKeyHandler: missingKey,
+    // Words added later (a connector tool's, `useToolLabelSource`) redraw what reads them.
+    react: { bindI18nStore: "added" },
   });
-  // ponytail: a Hermes without Intl.ListFormat gets plain commas in `format.list`; drop once every supported Hermes has it.
-  if (typeof Intl.ListFormat === "undefined") i18n.services.formatter?.add("list", (v: string[]) => v.join(", "));
+  // i18next's own `list` format is Intl.ListFormat, which Hermes lacks.
+  if (typeof Intl.ListFormat === "undefined")
+    i18n.services.formatter?.add("list", (v: string[], lng?: string) => formatList(lng ?? i18n.language, v));
   return i18n;
 }
 

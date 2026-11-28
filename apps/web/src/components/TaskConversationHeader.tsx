@@ -24,7 +24,7 @@ export function TaskConversationHeader({
 }) {
   const { t, i18n } = useTranslation();
   const actors = useActors();
-  const people = thread.participants.flatMap((p) => (p.id ? [{ type: p.type, id: p.id }] : []));
+  const people = thread.participants.flatMap((p) => (p.id && p.type !== "app" ? [{ type: p.type, id: p.id }] : []));
   const names = joinNames(
     people.slice(0, 4).map((p) => actors.name(p)),
     t,

@@ -23,6 +23,7 @@ export type SettingsSection =
   | "audit"
   | "access"
   | "connectors"
+  | "integrations"
   | "skills"
   | "storage"
   | "devices"
@@ -72,8 +73,8 @@ export const SETTINGS_SECTIONS: {
   // Only where a billing service runs (ADR 0079), for who may open it.
   { id: "billing", icon: "coin", allowed: (o, server) => !!server?.billingUrl && can(o, "manage_billing") },
   { id: "connectors", icon: "plug", allowed: () => true },
-  // Every member keeps skills of their own there; the team's library is changed by who manages agents.
-  { id: "skills", icon: "bulb", allowed: () => true },
+  // Integration apps (ADR 0251): a tab of Connectors, for who manages connectors.
+  { id: "integrations", icon: "bolt", allowed: (o) => can(o, "manage_connectors") },
   // Every member keeps their own logins, keys and contacts there; team items show to who they're shared with (ADR 0144).
   { id: "vault", icon: "lock", allowed: () => true },
   { id: "access", icon: "agent", allowed: (o) => can(o, "manage_agents") },

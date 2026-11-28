@@ -398,23 +398,92 @@ async function productDays(db: Database, r: Range) {
   return { days, activeWorkspaces: all?.activeWorkspaces ?? 0, keptDays: OPERATOR_EVENTS_KEEP_DAYS };
 }
 
+const monthStart = sql`date_trunc('month', now() at time zone 'utc')::date`;
+
 /** Composio's month (UTC) so far: what was counted since the 1st, connected accounts made included. */
 async function composioMonth(db: Database) {
-  const [month] = await db
-    .select({
-      month: sql<string>`to_char(now() at time zone 'utc', 'YYYY-MM')`,
-      ...composio,
-      connections: total(comp.connections),
-    })
-    .from(comp)
-    .where(gte(comp.day, sql`date_trunc('month', now() at time zone 'utc')::date`));
+  const [[month], orgs] = await Promise.all([
+    db
+      .select({
+        month: sql<string>`to_char(now() at time zone 'utc', 'YYYY-MM')`,
+        ...composio,
+        connections: total(comp.connections),
+      })
+      .from(comp)
+      .where(gte(comp.day, monthStart)),
+    composioMonthOrgs(db),
+  ]);
   return {
     month: month?.month ?? new Date().toISOString().slice(0, 7),
     executions: month?.executions ?? 0,
     failures: month?.failures ?? 0,
     events: month?.events ?? 0,
     connections: month?.connections ?? 0,
+    ...orgs,
   };
+}
+
+/**
+ * Composio's month so far per workspace: its calls of Composio's tools, what Composio billed for it (executions,
+ * trigger events, connected accounts made) and the connectors of either. Most executions first, then events, calls
+ * and connections.
+ */
+async function composioMonthOrgs(db: Database) {
+  const keys = (column: unknown, filter: SQL) =>
+    sql<string[]>`coalesce(array_agg(distinct ${column}) filter (where ${filter}), '{}')`;
+  const [calls, billed] = await Promise.all([
+    db
+      .select({
+        orgId: used.orgId,
+        calls: usage.calls,
+        errors: usage.errors,
+        keys: keys(used.connector, sql`${used.calls} > 0`),
+      })
+      .from(used)
+      .where(and(gte(used.day, monthStart), eq(used.via, "composio")))
+      .groupBy(used.orgId),
+    db
+      .select({
+        orgId: comp.orgId,
+        ...composio,
+        connections: total(comp.connections),
+        keys: keys(comp.toolkit, sql`true`),
+      })
+      .from(comp)
+      .where(gte(comp.day, monthStart))
+      .groupBy(comp.orgId),
+  ]);
+  const rows = new Map<string, ReturnType<typeof newRow>>();
+  const newRow = (orgId: string) => ({
+    orgId,
+    keys: new Set<string>(),
+    calls: 0,
+    errors: 0,
+    executions: 0,
+    failures: 0,
+    events: 0,
+    connections: 0,
+  });
+  const row = (orgId: string) => getOrMake(rows, orgId, () => newRow(orgId));
+  for (const { keys, ...c } of [...calls, ...billed]) {
+    const found = Object.assign(row(c.orgId), c);
+    for (const key of keys) found.keys.add(key);
+  }
+  const ranked = [...rows.values()]
+    .filter((o) => o.calls + o.executions + o.events + o.connections > 0)
+    .map(({ keys, ...o }) => ({
+      ...o,
+      connectors: [...keys].sort().map((connector) => ({ connector, label: connectorLabelOf(connector) })),
+    }))
+    .sort(
+      (a, b) =>
+        b.executions - a.executions ||
+        b.events - a.events ||
+        b.calls - a.calls ||
+        b.connections - a.connections ||
+        a.orgId.localeCompare(b.orgId),
+    );
+  return { orgs: ranked.slice(0, ANALYTICS_ROWS_MAX), orgsMore: ranked.length > ANALYTICS_ROWS_MAX };
 }
 
 /**

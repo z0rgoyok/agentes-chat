@@ -289,6 +289,27 @@ beforeAll(async () => {
     .from(schema.agentRuns)
     .where(eq(schema.agentRuns.triggerMessageId, look));
   if (!run) throw new Error("no run for the first message");
+  // What the time per task reads beside the runs: the ask's kind as Jev read it, and the long work it stepped into.
+  await db.insert(schema.askKinds).values({ messageId: look, orgId, kind: "canary-kind words", p: 0.9 });
+  const [work] = await db
+    .insert(schema.agentWorks)
+    .values({
+      orgId,
+      agentId,
+      channelId,
+      anchorMessageId: look,
+      ownThread: true,
+      title: "canary-work title",
+      status: "live",
+      how: "agent",
+      lastUpdateAt: new Date(),
+      lastUpdateText: "canary-work update",
+    })
+    .returning({ id: schema.agentWorks.id });
+  await db
+    .update(schema.agentRuns)
+    .set({ workId: work?.id ?? null })
+    .where(eq(schema.agentRuns.id, run.id));
   // Content, read the one way the API gives it: its `content.viewed` is in the feed the reads return.
   expect((await as(TOKEN)(`/review/run/${run.id}?reason=a%20report&operator=someone`)).status).toBe(200);
 
@@ -945,6 +966,7 @@ beforeAll(async () => {
     "/openapi.json",
     "/health",
     "/vitals",
+    "/storage",
     "/orgs?limit=200",
     "/orgs?q=acme",
     "/events",
@@ -960,6 +982,10 @@ beforeAll(async () => {
     ...["brain", "model"].map((by) => `/analytics/run-timings?${hours}&by=${by}`),
     `/analytics/run-timings?${hours}&orgId=${orgId}&agentId=${agentId}`,
     ...["hour", "day"].map((bucket) => `/analytics/reply-times?${hours}&bucket=${bucket}`),
+    `/analytics/asks?${hours}&bucket=hour`,
+    `/analytics/asks?${hours}&orgId=${orgId}`,
+    `/analytics/stage-breakdown?${hours}`,
+    `/analytics/stage-breakdown?${hours}&orgId=${orgId}`,
     `/cli-runs?${hours}`,
     `/analytics/ai-accounts?${days}`,
     "/ai-accounts?limit=200",

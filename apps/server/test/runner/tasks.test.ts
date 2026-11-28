@@ -12,14 +12,19 @@ import {
   TASKS_PROTOCOL,
 } from "@agenteschat/adapters/machine-protocol";
 import { ACCOUNT_MISSING_MESSAGE, ACCOUNT_SIGNED_OUT, ACCOUNT_TRANSCRIPT_DAYS } from "../../runner/accounts";
+import { cpuBusyNow, pressureLevelBytes } from "../../runner/desktop-session";
 import { handleRequest } from "../../runner/handlers";
 import { agentWorkspace } from "../../runner/paths";
 import {
   claudeSessionFile,
   executorCommand,
+  itemFolder,
   parseOutputLine,
+  roomNews,
+  TASK_ROOM_QUIET_MS,
   TaskManager,
   type TaskManagerOptions,
+  WRONG_SESSION_FLAG,
 } from "../../runner/tasks";
 import { errorCode, gitRepo, hasGit, removeDirs, tempDir, waitFor, withContainersClient } from "./helpers";
 
@@ -133,6 +138,30 @@ test("executor commands: Claude Code with stream-json and its session; prompts n
   expect(claudeSessionFile("/h/.claude", "/Users/me/agentes/dev-0193aaaa", "abc")).toBe(
     "/h/.claude/projects/-Users-me-agentes-dev-0193aaaa/abc.jsonl",
   );
+});
+
+test("a long line of `session ` is read in time for Claude Code's wrong-flag answer, which reads as before", () => {
+  // It took seconds when every `session ` of the line read on to its end.
+  const line = "session ".repeat(40_000);
+  const started = performance.now();
+  expect(WRONG_SESSION_FLAG.test(line)).toBe(false);
+  expect(WRONG_SESSION_FLAG.test(`${line}x not found`)).toBe(true);
+  expect(performance.now() - started).toBeLessThan(1000);
+  // One space is never both the end of `session ` and the start of ` not found`.
+  expect(WRONG_SESSION_FLAG.test("Error: session not found")).toBe(false);
+  expect(WRONG_SESSION_FLAG.test("Error: session 0193aaaa not found")).toBe(true);
+  // A line of ten million characters is read whole (a loop over it gives up in Bun and runs out of stack in Node).
+  expect(WRONG_SESSION_FLAG.test(`${"x".repeat(10_000_000)}session 0193aaaa not found`)).toBe(true);
+});
+
+test("a mission item's branch with a long run of dashes is read in time, its folder named as before", () => {
+  // It took seconds when every `-` of the run read on to its end.
+  const repo = tempDir("items-");
+  dirs.push(repo);
+  const started = performance.now();
+  expect(path.basename(itemFolder(repo, `a${"-".repeat(100_000)}b`, id(1)))).toBe(`a${"-".repeat(59)}`);
+  expect(path.basename(itemFolder(repo, `c${"-".repeat(100_000)}`, id(2)))).toBe("c");
+  expect(performance.now() - started).toBeLessThan(1000);
 });
 
 test("Claude Code's stream-json becomes a human line, edited files and the final result", () => {
@@ -961,4 +990,97 @@ test("a tool of Claude Code's served by the bridge reads as itself; the server's
     ).line;
   expect(line("mcp__agentes__Bash")).toBe("Running: ls");
   expect(line("mcp__agentes__update_plan")).toBe("Using mcp__agentes__update_plan");
+});
+
+const GIB = 1024 ** 3;
+
+test.skipIf(!posix)(
+  "tasks start on room, not on a count: below the floor they wait, Push harder starts them down to 0.5 GB",
+  async () => {
+    let free: number | null = 10 * GIB;
+    let cpuBusy = false;
+    let clock = Date.now();
+    let closed = 0;
+    const { tasks, send } = setup({
+      maxConcurrent: 1,
+      room: () => ({ free, cpuBusy }),
+      now: () => clock,
+      reclaim: async () => {
+        closed++;
+        return false;
+      },
+    });
+    await tasks.init();
+    tasks.attach(send);
+    const sleep = (n: number, extra: { pushHarder?: boolean } = {}) =>
+      tasks.start(AGENT, { taskId: id(800 + n), executor: "shell", command: "sleep 30", ...extra });
+    const started: number[] = [];
+    const run = async (n: number, extra: { pushHarder?: boolean } = {}) => {
+      await sleep(n, extra);
+      started.push(n);
+    };
+    try {
+      // Plenty of memory: a count of 1 no longer holds the second.
+      await run(1);
+      await run(2);
+      expect(tasks.room()).toMatchObject({ freeGb: 10, cpuBusy: false, pushHarder: false });
+      // The two still settling count: 10 GiB less 1.2 GB leaves room for a dozen more.
+      expect(tasks.room()?.more).toBe(Math.floor((10 * GIB - 1.2e9 - 1.5 * GIB) / 0.6e9) + 1);
+
+      // Settled, and 1.4 GiB free: under the 1.5 GiB floor, idle CLIs and browsers close first, then it waits.
+      clock += 31_000;
+      free = 1.4 * GIB;
+      expect(await errorCode(() => sleep(3))).toBe("no_slot");
+      expect(closed).toBeGreaterThan(0);
+      expect(tasks.room()?.more).toBe(0);
+      // The person asked in their own words for this one: down to 0.5 GiB.
+      await run(4, { pushHarder: true });
+
+      // The owner's switch: every task, down to 0.5 GiB (the one just started still counts).
+      clock += 31_000;
+      free = 0.6 * GIB;
+      expect(await errorCode(() => sleep(5))).toBe("no_slot");
+      tasks.setLimits({ pushHarder: true });
+      await run(6);
+      expect(tasks.room()).toMatchObject({ more: 0, pushHarder: true });
+      clock += 31_000;
+      free = 0.4 * GIB;
+      expect(await errorCode(() => sleep(7))).toBe("no_slot");
+
+      // A processor near full holds the next one, unless pushing harder.
+      tasks.setLimits({ pushHarder: false });
+      free = 10 * GIB;
+      cpuBusy = true;
+      expect(await errorCode(() => sleep(8))).toBe("no_slot");
+      await run(9, { pushHarder: true });
+
+      // Memory it can't read (an old setup): the count decides again.
+      free = null;
+      expect(tasks.room()).toBeNull();
+      expect(await errorCode(() => sleep(10))).toBe("no_slot");
+      expect(started).toEqual([1, 2, 4, 6, 9]);
+    } finally {
+      for (const n of started) tasks.cancel(AGENT, id(800 + n));
+    }
+  },
+  20_000,
+);
+
+test("free memory on a Mac is its memory-pressure level, not os.freemem(); a full processor is a minute's load", () => {
+  expect(pressureLevelBytes("42\n", 16 * GIB)).toBe(0.42 * 16 * GIB);
+  expect(pressureLevelBytes("0", 16 * GIB)).toBe(0);
+  for (const bad of ["", "abc", "101", "-1", "4.5"]) expect(pressureLevelBytes(bad, 16 * GIB)).toBeNull();
+  expect(cpuBusyNow(7.3, 8)).toBe(true);
+  expect(cpuBusyNow(7.1, 8)).toBe(false);
+});
+
+test("the room is told at once when the computer fills or frees up, its numbers alone only every few minutes", () => {
+  const room = { more: 8, freeGb: 6.4, cpuBusy: false, pushHarder: false };
+  expect(roomNews(null, room, 0)).toBe(true);
+  expect(roomNews(room, { ...room, more: 7, freeGb: 5.9 }, 15_000)).toBe(false);
+  expect(roomNews(room, { ...room, more: 7, freeGb: 5.9 }, TASK_ROOM_QUIET_MS)).toBe(true);
+  expect(roomNews(room, room, TASK_ROOM_QUIET_MS)).toBe(false);
+  expect(roomNews(room, { ...room, more: 0, freeGb: 1.4 }, 15_000)).toBe(true);
+  expect(roomNews(room, { ...room, cpuBusy: true }, 15_000)).toBe(true);
+  expect(roomNews(room, { ...room, pushHarder: true }, 15_000)).toBe(true);
 });

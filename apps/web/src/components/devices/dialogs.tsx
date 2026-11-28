@@ -1,14 +1,26 @@
-import type { DeviceAudience, DeviceJoinRequest } from "@agenteschat/client";
-import { defaultLinkAudience, joinFacts } from "@agenteschat/client/lib/devices";
+import type { DeviceJoinRequest } from "@agenteschat/client";
+import { defaultLinkAudience, joinFacts, joinLends } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { computerKind } from "@agenteschat/client/lib/machines";
-import { Button, ComputerPortrait, Dialog, DialogBody, DialogFooter, Field, Input, Locked } from "@agenteschat/ui";
+import {
+  Button,
+  ComputerPortrait,
+  Dialog,
+  DialogBody,
+  DialogFooter,
+  Field,
+  Icon,
+  Input,
+  Locked,
+} from "@agenteschat/ui";
+import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
 import { useToast } from "@/lib/toast";
-import { useApproveRequest, useDenyRequest } from "./queries";
-import { WhoPicker, WhoSelect } from "./WhoCanUse";
+import { StatusPill } from "./parts";
+import { useApproveRequest, useDenyRequest, useDevices } from "./queries";
+import { ComputerShareSwitch } from "./ShareSwitch";
 
 /** Rename a computer or a phone: one field, saved on Save. */
 export function RenameDeviceDialog({
@@ -127,8 +139,8 @@ export function RemoveDeviceDialog({
 }
 
 /**
- * A computer that ran a connect link, asking to join: its name, system, address and rough place, then a name and who
- * can use it, and Let it join or Deny. In the dialog that made the link and from the Devices list.
+ * A computer that ran a connect link, asking to join: its name, system, address and rough place, then its name, and
+ * Let it join or Deny. Who can use it comes after it joined (`ShareSwitch`), starting from the link's kind.
  */
 export function JoinRequestForm({
   request,
@@ -145,17 +157,18 @@ export function JoinRequestForm({
   footer?: boolean;
 }) {
   const { t } = useTranslation();
-  const { org, me } = useOrg();
+  const { org } = useOrg();
   const toast = useToast();
   const approve = useApproveRequest(org.id);
   const deny = useDenyRequest(org.id);
+  // Where computers lend their internet, this one will too, but a server box (ADR 0237).
+  const lends = joinLends(useDevices(org.id).data, request.os);
   const [name, setName] = useState(request.name);
-  const [audience, setAudience] = useState<DeviceAudience>(() => defaultLinkAudience(kind));
   const busy = approve.isPending || deny.isPending;
   const clean = name.trim();
   const join = () =>
     approve.mutate(
-      { id: request.id, name: clean || request.name, audience },
+      { id: request.id, name: clean || request.name, audience: defaultLinkAudience(kind) },
       {
         onSuccess: ({ machineId }) => onJoined(machineId, clean || request.name),
         onError: (err) => toast.show(errorText(t, err), "error"),
@@ -183,14 +196,12 @@ export function JoinRequestForm({
           <Field label={t("devices.name")} id={`join-${request.id}-name`} example={t("devices.nameHelp")}>
             <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
           </Field>
-          <Field
-            label={t("devices.who.title")}
-            id={`join-${request.id}-who`}
-            example={t(kind === "server" ? "devices.who.serverHelp" : "devices.who.computerHelp")}
-          >
-            <WhoSelect value={audience} onChange={setAudience} />
-          </Field>
-          <WhoPicker value={audience} onChange={setAudience} ownerUserId={me.user.id} idPrefix={`join-${request.id}`} />
+          {lends && (
+            <p className="setup-line ac-iconline small muted">
+              <Icon name="globe" size={14} />
+              <span>{t("devices.shareInternetJoin")}</span>
+            </p>
+          )}
         </DialogBody>
       </Locked>
       {footer && (
@@ -207,30 +218,95 @@ export function JoinRequestForm({
   );
 }
 
-/** Let it join, from the Devices list or a notification: the request's form in its own dialog. */
+/** Let it join, from the Devices list or a notification: the request's form in its own dialog, then it as connected. */
 export function JoinRequestDialog({ request, onClose }: { request: DeviceJoinRequest | null; onClose: () => void }) {
   const { t } = useTranslation();
   const { org } = useOrg();
-  const toast = useToast();
+  const [joined, setJoined] = useState<{ machineId: string; name: string; request: DeviceJoinRequest } | null>(null);
+  useEffect(() => {
+    if (!request) setJoined(null);
+  }, [request]);
   return (
     <Dialog
       open={request !== null}
       onOpenChange={(o) => !o && onClose()}
-      title={request ? t("devices.request.title", { name: request.name, org: org.name }) : ""}
+      title={
+        joined
+          ? t("devices.link.joinedTitle", { name: joined.name })
+          : request
+            ? t("devices.request.title", { name: request.name, org: org.name })
+            : ""
+      }
       closeLabel={t("common.close")}
       width={520}
     >
-      {request && (
-        <JoinRequestForm
-          request={request}
-          kind="computer"
-          onJoined={(_id, name) => {
-            toast.show(t("devices.request.joined", { name }));
-            onClose();
-          }}
-          onDenied={onClose}
-        />
+      {joined ? (
+        <Joined joined={joined} server={false} onClose={onClose} />
+      ) : (
+        request && (
+          <JoinRequestForm
+            request={request}
+            kind="computer"
+            onJoined={(machineId, name) => setJoined({ machineId, name, request })}
+            onDenied={onClose}
+          />
+        )
       )}
     </Dialog>
+  );
+}
+
+/** The computer joined: its portrait, name and state, what it is, whether the whole workspace may use it, and Done. */
+export function Joined({
+  joined,
+  server,
+  onClose,
+}: {
+  joined: { machineId: string; name: string; request: DeviceJoinRequest };
+  server: boolean;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const devices = useDevices(org.id);
+  const device = devices.data?.devices.find((d) => d.id === joined.machineId);
+  return (
+    <>
+      <DialogBody>
+        <div className="ac-faceline" role="status">
+          <span className="dv-pic">
+            <ComputerPortrait kind={computerKind(joined.request.os)} state="online" />
+          </span>
+          <span className="dv-connected__text">
+            <span className="dv-connected__name ac-captop">
+              {joined.name}
+              {/* Just joined and not running yet: its service is starting, not a computer gone away. */}
+              {device && (
+                <StatusPill
+                  status={device.status.kind === "offline" ? { kind: "preparing", reason: "starting" } : device.status}
+                />
+              )}
+            </span>
+            <span className="dv-connected__facts">{joinFacts(t, joined.request)}</span>
+          </span>
+        </div>
+        <ComputerShareSwitch machineId={joined.machineId} server={server} />
+        <p className="small muted">
+          <Link
+            to="/org/$orgId/settings/devices/$deviceId"
+            params={{ orgId: org.id, deviceId: joined.machineId }}
+            className="ac-link"
+            onClick={onClose}
+          >
+            {t("devices.link.openPage")}
+          </Link>
+        </p>
+      </DialogBody>
+      <DialogFooter>
+        <Button variant="primary" onClick={onClose}>
+          {t("devices.done")}
+        </Button>
+      </DialogFooter>
+    </>
   );
 }

@@ -45,8 +45,10 @@ env:
 # commit's image matters); a release tag's run is never cancelled. A pull request's runs and a manual run
 # on its branch are two groups.
 concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: ${{ github.ref_type != 'tag' }}
+  # Main keeps every run: a merge must not cancel the run of the one before it, or a busy day leaves no
+  # commit with a finished, green run to deploy. Branches still cancel their superseded runs.
+  group: ci-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'latest' }}
+  cancel-in-progress: ${{ github.ref_type != 'tag' && github.ref != 'refs/heads/main' }}
 
 defaults:
   run:
@@ -136,7 +138,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       # A tag publishes exactly the version /api/health reports; a tag that disagrees with
@@ -224,6 +226,13 @@ jobs:
           test "$(wc -l <<<"$refs")" -eq 2
           for f in $refs; do test -f "$f"; done
           if grep -l mermaidAPI $(ls assets/*.js | grep -vxF "$refs"); then exit 1; fi
+      # Opens a channel, its thread, a DM and older messages in Chrome, against a local server (PGlite, the fakes) and the
+      # build above, at a desktop and a phone size, and fails when anything on screen moves by itself: a placeholder of
+      # the wrong size, a card growing when its data comes, a thread jumping to its end (scripts/geometry/shifts.ts).
+      - name: Layout shifts (conversations opening, cards loading)
+        if: (success() || failure()) && steps.build.outcome == 'success'
+        timeout-minutes: 8
+        run: bun run check:shifts --report shifts-report.md --shots shifts-shots
       # A schema change without its migration fails here (drizzle-kit only diffs, no database). The
       # timeout covers drizzle-kit asking whether a column was renamed, which it can't in CI.
       - name: Migrations are up to date with the schema
@@ -261,6 +270,8 @@ jobs:
           path: |
             typecheck.log
             typecheck-times.log
+            shifts-report.md
+            shifts-shots
           if-no-files-found: ignore
           retention-days: 7
 
@@ -411,7 +422,7 @@ jobs:
         run: |
           mkdir -p dist src-tauri/binaries
           printf '<!doctype html>\n' > dist/index.html
-          for bin in agentes-runner agent-browser; do
+          for bin in agentes-runner agent-browser agent-desktop; do
             install -m 755 /dev/null "src-tauri/binaries/$bin-x86_64-unknown-linux-gnu"
           done
           bun scripts/icons.ts

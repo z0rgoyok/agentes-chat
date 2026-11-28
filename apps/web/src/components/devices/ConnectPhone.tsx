@@ -1,6 +1,5 @@
 import {
   type ComputerDevice,
-  type DeviceAudience,
   type PhoneDevice,
   useIphoneDevMode,
   useLookForPhones,
@@ -75,8 +74,8 @@ import { useToast } from "@/lib/toast";
 import { FlowFooter, type FlowProps } from "./flow";
 import { DevicePortrait } from "./parts";
 import { useDevices, useUpdatePhone, useWifiPairing } from "./queries";
+import { ShareSwitch } from "./ShareSwitch";
 import { Step } from "./Step";
-import { WhoPicker, WhoSelect } from "./WhoCanUse";
 
 /**
  * The iPhones on a Mac's Wi-Fi that already trust it, offered to who may manage the Mac: "Also on this Mac's Wi-Fi:
@@ -652,28 +651,25 @@ export function AndroidFlow({
   );
 }
 
-/** The phone showed up ready: its portrait and facts, its name and who can use it, saved on Done. */
+/**
+ * The phone showed up ready: its portrait and facts, whether the whole workspace may use it (saved at once), and its
+ * name, saved on Done.
+ */
 function PhoneConnected({ phone, host, onClose }: { phone: PhoneDevice; host: ComputerDevice; onClose: () => void }) {
   const { t } = useTranslation();
-  const { org, me } = useOrg();
+  const { org } = useOrg();
   const toast = useToast();
   const update = useUpdatePhone(org.id);
   const [name, setName] = useState(phone.name);
-  const [audience, setAudience] = useState<DeviceAudience>(
-    () => phone.audience ?? { mode: "owner", userIds: [], roleIds: [] },
-  );
-  const follows = phone.audience === null;
+  // Read from the list, which the switch's save patches at once; an iPhone follows its Mac's rule (null): no switch.
+  const audience = useDevices(org.id)
+    .data?.devices.flatMap((d) => d.phones)
+    .find((p) => p.id === phone.id)?.audience;
+  const failed = (err: unknown) => toast.show(errorText(t, err), "error");
   const done = () => {
     const clean = name.trim();
-    const input = {
-      ...(clean && clean !== phone.name ? { name: clean } : {}),
-      ...(!follows ? { audience } : {}),
-    };
-    if (Object.keys(input).length === 0) return onClose();
-    update.mutate(
-      { id: phone.id, ...input },
-      { onSuccess: onClose, onError: (err) => toast.show(errorText(t, err), "error") },
-    );
+    if (!clean || clean === phone.name) return onClose();
+    update.mutate({ id: phone.id, name: clean }, { onSuccess: onClose, onError: failed });
   };
   return (
     <>
@@ -689,17 +685,14 @@ function PhoneConnected({ phone, host, onClose }: { phone: PhoneDevice; host: Co
           <Field label={t("devices.name")} id="dv-phone-name" example={t("devices.nameHelp")}>
             <Input value={name} maxLength={80} onChange={(e) => setName(e.target.value)} />
           </Field>
-          {!follows && (
-            <>
-              <Field
-                label={t("devices.who.title")}
-                id="dv-phone-who"
-                example={t("devices.who.phoneHint", { host: host.name })}
-              >
-                <WhoSelect value={audience} onChange={setAudience} />
-              </Field>
-              <WhoPicker value={audience} onChange={setAudience} ownerUserId={me.user.id} idPrefix="dv-phone" />
-            </>
+          {audience && phone.mayManage && (
+            <ShareSwitch
+              id="dv-phone-share"
+              audience={audience}
+              saving={update.isPending}
+              hint={t("devices.who.phoneHint", { host: host.name })}
+              onChange={(next) => update.mutate({ id: phone.id, audience: next }, { onError: failed })}
+            />
           )}
         </DialogBody>
       </Locked>

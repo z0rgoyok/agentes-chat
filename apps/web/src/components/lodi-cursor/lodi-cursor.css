@@ -1,0 +1,59 @@
+/* Lodi's cursor: a layer over the whole window that never takes the pointer, under dialogs and toasts. */
+.lodi-cursor {
+  position: fixed;
+  z-index: var(--z-cursor);
+  inset: 0;
+  pointer-events: none;
+  --cursor-shadow: rgba(10, 20, 40, 0.38);
+}
+/* The agents' cursor (`CursorMark`), placed by the script's transform from the window's corner. */
+.lodi-cursor .lodi-cursor__cur {
+  left: 0;
+  top: 0;
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--out);
+}
+.lodi-cursor[data-shown] .lodi-cursor__cur {
+  opacity: 1;
+}
+/* A row it hasn't brought yet: its room is open, its words (a channel) or its face and name (an agent) not there yet. */
+[data-lodi="pending"][data-channel-row] .sidebar__item-label {
+  position: relative;
+  color: transparent;
+}
+[data-lodi="pending"][data-agent-row] .sidebar__item > * {
+  opacity: 0;
+}
+/* What it types over the channel's name, a letter at a time, with its caret. */
+.lodi-typing {
+  position: absolute;
+  inset: 0 auto 0 0;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.lodi-typing::after {
+  content: "";
+  display: inline-block;
+  width: 1.5px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: -0.15em;
+  background: currentColor;
+}
+/* The section's button it presses shows as if hovered. */
+.sidebar__section-add[data-hover] {
+  opacity: 1;
+  background: var(--plate);
+  color: var(--ink);
+}
+/* At phone width the rows it dropped into the closed menu: a count on the menu button until it opens. */
+.nav-toggle-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.nav-toggle-wrap > .ac-count {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  pointer-events: none;
+}

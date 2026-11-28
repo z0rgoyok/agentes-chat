@@ -62,7 +62,7 @@ export function MentionPicker({
       {
         onSuccess: () => {
           void qc.invalidateQueries({ queryKey: keys.roster(orgId, channelId) });
-          toast({ title: t("mobile.mention.added", { name: o.name }), agentId: o.id });
+          // No toast: the conversation's own line says who joined, for everyone.
           pick(o.handle);
         },
         onError: () => toast({ title: t("mobile.app.failed"), icon: "x" }),

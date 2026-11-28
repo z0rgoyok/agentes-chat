@@ -70,6 +70,7 @@ export {
   type LiveTiming,
 } from "./docs";
 export { DOCUMENT_TOOL_LIMITS, documentTools } from "./document-tools";
+export { type FileFont, readFileFonts } from "./file-fonts";
 export {
   AGENT_IMAGE_WAIT_MS,
   type AgentImageContext,

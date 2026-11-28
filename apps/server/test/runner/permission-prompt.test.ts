@@ -83,6 +83,19 @@ test("the prompt tool: a deny-list command is refused at once with its kind, nev
   expect(s.calls).toHaveLength(1);
 });
 
+test("Claude Code's PowerShell tool: the deny list, secrets and pushes are read on the computer as for Bash", async () => {
+  const s = server([]);
+  const ps = (command: string) => ({ tool_name: "PowerShell", input: { command } });
+  expect(await permissionPrompt(ps("gh pr merge 914"), s.call, instant)).toEqual({
+    behavior: "deny",
+    message: approvalMessage("This is a merge", ASK_IN_CHAT),
+  });
+  expect((await permissionPrompt(ps("Get-Content ~/.ssh/id_rsa"), s.call, instant)).behavior).toBe("deny");
+  // A push with nowhere to read the repository from waits for a person, without asking the server.
+  expect((await permissionPrompt(ps("git push origin main"), s.call, instant)).behavior).toBe("deny");
+  expect(s.calls.map((c) => (c.refused as { code?: string } | undefined)?.code)).toEqual(["never", "secret"]);
+});
+
 test("the prompt tool: a refusal for a key in an address is told without the key", async () => {
   const s = server([]);
   const key = `ghp_${"A".repeat(36)}`;

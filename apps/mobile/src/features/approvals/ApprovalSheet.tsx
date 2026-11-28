@@ -1,10 +1,19 @@
-import { ApiError, useApproval, useChannels, useDecideApproval } from "@agenteschat/client";
+import {
+  ApiError,
+  type Approval,
+  useApproval,
+  useApprovals,
+  useChannels,
+  useDecideApproval,
+} from "@agenteschat/client";
+import { approvalLine } from "@agenteschat/client/lib/approval-card";
 import { aheadPhase } from "@agenteschat/client/lib/approval-kind";
 import { approvalEffects } from "@agenteschat/client/lib/approval-review";
 import {
   aheadEndLine,
   alwaysRoutineName,
   approvalDetail,
+  approvalDoing,
   approvalWaitsFor,
   requesterDecidesLine,
 } from "@agenteschat/client/lib/approval-words";
@@ -18,6 +27,7 @@ import { useOrg } from "@/providers/org";
 import {
   Button,
   EmptyState,
+  FactStrip,
   GroupedFooter,
   GroupedHeader,
   GroupedList,
@@ -31,9 +41,10 @@ import {
 } from "@/ui";
 import { OpenItemHead } from "../activity/OpenItem";
 import { ExpiryLine } from "../chat/asks";
+import { ApprovalTrail } from "../chat/ToolCalls";
 import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useNow, useOrgId, useOwnerRoles } from "../shared/hooks";
-import { genderOf } from "../shared/logic";
+import { agentLook, genderOf } from "../shared/logic";
 import { approvalOwnerOf, ownerNameIn } from "../shared/owner";
 import { PushedLargeTitle } from "../shared/PushedLargeTitle";
 import { successHaptic } from "../shared/parts";
@@ -48,14 +59,18 @@ import {
   approveAlwaysLabel,
   approveAlwaysOffered,
   approveAlwaysToast,
+  requestFacts,
 } from "./logic";
 import {
   ApprovalAheadLine,
   ApprovalEmailLetter,
+  ApprovalMark,
   ApprovalUndoChip,
   approvalTitleText,
+  HeldLine,
   promptRefusal,
   traitKey,
+  useApprovalSource,
   useCancelAhead,
   useConnectorNamer,
   useOriginShort,
@@ -64,6 +79,14 @@ import { useWhenAsks } from "./when-asks";
 
 /** A value longer than this goes under its label, whole, instead of squeezed at the row's end. */
 const SHORT_VALUE = 22;
+/** The web review's facts strip (ADR 0218, addendum 2026-11-24): where it acts, what it does to the outside, who answers for it. */
+function RequestFacts({ approval: a, role }: { approval: Approval; role?: string }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const source = useApprovalSource(a);
+  const mark = <ApprovalMark approval={a} size={14} bare />;
+  return <FactStrip facts={requestFacts(t, a, { source: source.name, mark, role, personal: isPersonal(org) })} />;
+}
 
 /**
  * A request, from anywhere (deep link `approval/<id>`), on a pushed screen with the system's back (ADR 0218): the
@@ -95,12 +118,15 @@ export function ApprovalSheet({
   const c = useColors();
   const insets = useSafeAreaInsets();
   const approval = useApproval(orgId, id);
+  const known = useApprovals(orgId).data;
   const channels = useChannels(orgId);
   const decide = useDecideApproval(orgId);
   const cancelAhead = useCancelAhead();
   const [refusing, setRefusing] = useState(startRefusing);
   const [reason, setReason] = useState("");
   const [always, setAlways] = useState(false);
+  // The decision's height, so the request scrolls clear of it: its line of what approving does may wrap.
+  const [dockHeight, setDockHeight] = useState(140);
   const a = approval.data;
   const when = useWhenAsks(a);
   const nameOf = useConnectorNamer({ connector: a?.connector ?? null });
@@ -167,6 +193,7 @@ export function ApprovalSheet({
       );
   } else {
     const pending = a.status === "pending" && new Date(a.expiresAt).getTime() > now;
+    const waitsOn = approvalLine([a], known).get(a.id)?.waitsOn;
     const high = approvalRisk(a) === "high";
     // The owner it was asked under, else its agent's: a person, or a role (ADR 0085, addendum of 2026-11-21), which
     // decides as whoever holds it, unless the request names its own deciders.
@@ -181,10 +208,10 @@ export function ApprovalSheet({
     const facts = approvalTable(a, Number.POSITIVE_INFINITY, nameOf, true);
     // A built-in tool's action in words; a connector's is in its facts, an email is the letter.
     const detail = !a.connector && !a.email ? approvalDetail(a, i18n.language) : null;
-    // Whether it can be undone is the chip after the title; what it touches stays in the foot.
-    const { undo } = approvalEffects(a);
+    // Whether it can be undone is the chip after the title, what it does to the outside a fact: the foot keeps the rest.
+    const { undo, effect } = approvalEffects(a);
     const traits = approvalTraits(a)
-      .filter((tr) => tr !== undo)
+      .filter((tr) => tr !== undo && tr !== effect)
       .map((tr) => t(traitKey(tr, isPersonal(org))));
     const foot = [traits.join(" · "), requester].filter(Boolean).join("\n");
     const who = (
@@ -203,40 +230,54 @@ export function ApprovalSheet({
           </Text>
           <ApprovalUndoChip approval={a} />
         </View>
+        <RequestFacts approval={a} role={a.canDecide ? holders : undefined} />
       </View>
     );
     // The decision stays at the screen's foot while the request scrolls under it.
     if (!refusing)
       decision = pending ? (
         a.canDecide ? (
-          <View style={styles.pair}>
-            <View style={styles.half}>
-              <Button
-                variant="secondary"
-                wide
-                label={t("mobile.approval.refuse")}
-                disabled={decide.isPending}
-                onPress={askRefusal}
-              />
-            </View>
-            <View style={styles.half}>
-              {high ? (
-                <HoldButton
-                  label={t("mobile.approval.hold")}
-                  disabled={decide.isPending}
-                  onConfirm={() => done("approve", always)}
-                />
-              ) : (
+          <>
+            {/* What approving lets the agent do, as the web's Aprovar says; "Aprovar sempre" on says it in its row. */}
+            {always ? null : (
+              <Text variant="footnote" tone="muted" style={styles.note}>
+                {a.runAt
+                  ? t("approvals.clickNoteAhead", { when: runAt ?? "" })
+                  : t("approvals.review.grants", {
+                      name: name || t("channel.unknownAgent"),
+                      doing: approvalDoing(t, a, i18n.language),
+                    })}
+              </Text>
+            )}
+            <View style={styles.pair}>
+              <View style={styles.half}>
                 <Button
-                  variant="primary"
+                  variant="secondary"
                   wide
-                  label={approvalAction(a) === "draft" ? t("approval.approve.draft") : t("mobile.approval.approve")}
-                  loading={decide.isPending}
-                  onPress={() => done("approve", always)}
+                  label={t("mobile.approval.refuse")}
+                  disabled={decide.isPending}
+                  onPress={askRefusal}
                 />
-              )}
+              </View>
+              <View style={styles.half}>
+                {high ? (
+                  <HoldButton
+                    label={t("mobile.approval.hold")}
+                    disabled={decide.isPending}
+                    onConfirm={() => done("approve", always)}
+                  />
+                ) : (
+                  <Button
+                    variant="primary"
+                    wide
+                    label={approvalAction(a) === "draft" ? t("approval.approve.draft") : t("mobile.approval.approve")}
+                    loading={decide.isPending}
+                    onPress={() => done("approve", always)}
+                  />
+                )}
+              </View>
             </View>
-          </View>
+          </>
         ) : (
           <Text variant="small" tone="muted" style={styles.note}>
             {holders
@@ -246,6 +287,14 @@ export function ApprovalSheet({
                 : t("mobile.approval.onlyAdmins")}
           </Text>
         )
+      ) : waitsOn ? (
+        // Approved, waiting for a request asked before it: what for, and what moves it.
+        <>
+          <Text variant="small" tone="muted" style={styles.note}>
+            {t("mobile.approval.status.approved")}
+          </Text>
+          <HeldLine approval={a} waitsOn={waitsOn} />
+        </>
       ) : aheadPhase(a) === "scheduled" && runAt ? (
         <>
           <Text variant="small" tone="muted" style={styles.note}>
@@ -335,6 +384,7 @@ export function ApprovalSheet({
             {foot}
           </Text>
         ) : null}
+        <ApprovalTrail approval={a} color={agentLook(agent).color} />
         {pending && a.canDecide && (approveAlwaysOffered(a) || when.shown) ? (
           <View>
             <GroupedHeader>{t("mobile.approval.sheet.nextTime")}</GroupedHeader>
@@ -370,12 +420,15 @@ export function ApprovalSheet({
   }
 
   const dock = decision ? (
-    <View style={[styles.dock, { paddingBottom: insets.bottom + 12, backgroundColor: c.grouped, borderColor: c.line }]}>
+    <View
+      onLayout={(e) => setDockHeight(Math.ceil(e.nativeEvent.layout.height) + 24)}
+      style={[styles.dock, { paddingBottom: insets.bottom + 12, backgroundColor: c.grouped, borderColor: c.line }]}
+    >
       {decision}
     </View>
   ) : null;
   return (
-    <PushedLargeTitle title="" collapsed grouped keyboard bottomInset={dock ? 140 : 24} dock={dock}>
+    <PushedLargeTitle title="" collapsed grouped keyboard bottomInset={dock ? dockHeight : 24} dock={dock}>
       <OpenItemHead agentId={a?.agentId ?? null} grouped />
       <View style={styles.in}>{body}</View>
     </PushedLargeTitle>

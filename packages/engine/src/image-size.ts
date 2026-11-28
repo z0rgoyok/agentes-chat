@@ -46,6 +46,56 @@ export function imageSize(bytes: Uint8Array): { width: number; height: number } 
   return null;
 }
 
+/**
+ * A video's width and height as it shows (MP4 and MOV: its first picture track's header, turned a quarter when the
+ * track is), so its tile in a conversation has its shape before it loads. The header may sit after the picture data
+ * (a file not written for streaming): the boxes are walked by their sizes, never read through.
+ */
+export function videoSize(bytes: Uint8Array): { width: number; height: number } | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const type = (i: number) =>
+    String.fromCharCode(bytes[i] ?? 0, bytes[i + 1] ?? 0, bytes[i + 2] ?? 0, bytes[i + 3] ?? 0);
+  if (bytes.length < 16 || (type(4) !== "ftyp" && type(4) !== "moov")) return null;
+  /** The boxes between `from` and `to`, each as [start of its contents, its end, its type]. */
+  const boxes = function* (from: number, to: number): Generator<[number, number, string]> {
+    let i = from;
+    while (i + 8 <= to) {
+      let size = view.getUint32(i);
+      let head = 8;
+      if (size === 1) {
+        if (i + 16 > to) return;
+        size = Number(view.getBigUint64(i + 8));
+        head = 16;
+      } else if (size === 0) size = to - i;
+      if (size < head || i + size > to) return;
+      yield [i + head, i + size, type(i + 4)];
+      i += size;
+    }
+  };
+  const find = (from: number, to: number, name: string) => {
+    for (const box of boxes(from, to)) if (box[2] === name) return box;
+    return null;
+  };
+  const moov = find(0, bytes.length, "moov");
+  if (!moov) return null;
+  for (const [start, end, name] of boxes(moov[0], moov[1])) {
+    if (name !== "trak") continue;
+    const tkhd = find(start, end, "tkhd");
+    if (!tkhd) continue;
+    // Version 1 has 64-bit times, 12 bytes more before the matrix. The size, in 16.16 fixed point, ends the box.
+    const matrix = tkhd[0] + 4 + (bytes[tkhd[0]] === 1 ? 32 : 20) + 16;
+    if (matrix + 44 > tkhd[1]) continue;
+    const width = Math.round(view.getUint32(matrix + 36) / 65536);
+    const height = Math.round(view.getUint32(matrix + 40) / 65536);
+    // A sound track has no size.
+    if (!width || !height || width > 100_000 || height > 100_000) continue;
+    // A phone's portrait video is often stored landscape with a quarter turn: its matrix's a and d are zero.
+    const turned = view.getInt32(matrix) === 0 && view.getInt32(matrix + 16) === 0;
+    return turned ? { width: height, height: width } : { width, height };
+  }
+  return null;
+}
+
 /** A picture's size for a file's card in a message (`ArtifactLink`): only when both are known. */
 export const pictureSize = (v: { width?: number | null; height?: number | null }) =>
   v.width && v.height ? { width: v.width, height: v.height } : {};

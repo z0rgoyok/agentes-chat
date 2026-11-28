@@ -767,7 +767,7 @@ describe("the Drive past what loaded", () => {
     const screen = readFileSync(join(import.meta.dir, "../../src/features/drive/DriveScreen.tsx"), "utf8");
     expect(screen).toContain("if (looking) void fetchNextPage();");
     expect(screen).toContain("visible < matches.length || hasNextPage");
-    expect(screen).toContain("onPress={() => {\n                    setShown((n) => n + PAGE);");
+    expect(screen).toMatch(/onPress=\{\(\) => \{\n\s+setShown\(\(n\) => n \+ PAGE\);/);
   });
 });
 

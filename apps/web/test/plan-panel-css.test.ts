@@ -21,7 +21,7 @@ const layers = (shadow = "") =>
 /** A hex colour's first channel (the greys here are neutral). */
 const level = (hex = "") => Number.parseInt(hex.replace("#", "").slice(0, 2), 16);
 
-test("what ships keeps dark's chosen press visible, the ready line apart from the account, the key's note on its steps' columns", async () => {
+test("what ships keeps dark's chosen press visible, the ready line apart from the account, the key's note's icon on its steps' column", async () => {
   const css = await builtCss();
   const shipped = topLevel(css);
   const last = (selector: string, property: string) =>
@@ -60,9 +60,9 @@ test("what ships keeps dark's chosen press visible, the ready line apart from th
   expect(Math.max(...noteMargins)).toBeLessThan(readyRule[0] ?? -1);
   expect(css).toMatch(/\.ai-panel--plan\s*>\s*\.ai-panel__ready\s*\{\s*padding-bottom:\s*calc\([^}]*lh\)/);
 
-  // Under the key's steps its note keeps their columns: the icon centred in the 20px numbers', the words on the text's.
-  expect(last(".ai-panel > .agp-addacct__step ~ .ac-setnote", "gap")).toBe("12px");
-  expect(last(".ai-panel > .agp-addacct__step ~ .ac-setnote > :first-child", "margin-inline")).toBe("3px");
+  // Under the key's steps its note's icon sits centred in the 20px numbers', its words the kit's 8px after it.
+  expect(last(".ai-panel > .agp-addacct__step ~ .ac-setnote", "gap")).toBeUndefined();
+  expect(last(".ai-panel > .agp-addacct__step ~ .ac-setnote > :first-child", "margin-inline-start")).toBe("3px");
 
   // The computer's wait: every line under the steps' bar balances, and without it the status or hold line, which the
   // panel's pretty wrap ends on a word alone at 320 px. The email line takes the panel's wrap, and balances where

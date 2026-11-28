@@ -257,16 +257,6 @@ html:not([data-pointer]) .routines-horizon__label:focus-visible {
 .routine-row--on {
   background: color-mix(in srgb, var(--sunken) 80%, transparent);
 }
-.routine-row--on::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: 0 3px 3px 0;
-  background: var(--ink);
-}
 .routine-row__who {
   display: flex;
   justify-content: center;
@@ -826,6 +816,31 @@ html:not([data-pointer]) .routine-row__title:focus-visible {
 .routine-hook__group .ac-input {
   flex: 1;
   min-width: 0;
+}
+/* A webhook run's calls on its line in Runs: each one's headers and body, scrolling past a few lines. */
+.routine-run-calls__toggle {
+  margin-top: var(--space-1);
+  font-size: 12.5px;
+}
+.routine-run-calls__list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+.routine-run-calls__item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.routine-run-calls__item .machine-command__code {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .routine-hook__confirm {
   display: flex;

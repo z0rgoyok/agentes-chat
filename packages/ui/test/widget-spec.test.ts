@@ -120,8 +120,27 @@ describe("chart blocks", () => {
         delta: { text: "+12%", up: true },
         note: "vs. yesterday",
         spark: [3, 7, 11],
+        sparkLabels: ["9h", "10h", "11h"],
       },
     });
+  });
+
+  test("a number's trend keeps what each point is, one label per number, or is refused", () => {
+    const named = validateWidgetSpec({ kind: "kpi", value: 9, spark: [1, 2], sparkLabels: ["Nov 1", "Nov 2"] });
+    expect(named.ok && named.spec.kind === "kpi" && named.spec.sparkLabels).toEqual(["Nov 1", "Nov 2"]);
+    expect(validateWidgetSpec({ kind: "kpi", value: 9, spark: [1, 2], sparkLabels: ["Nov 1"] }).ok).toBe(false);
+    // With no trend there is nothing to name.
+    const bare = validateWidgetSpec({ kind: "kpi", value: 9, sparkLabels: ["Nov 1"] });
+    expect(bare.ok && "sparkLabels" in bare.spec).toBe(false);
+    // A chat chart whose labels don't match its values keeps its trend, unnamed.
+    const odd = chartBlockToWidgetSpec({
+      type: "number",
+      title: "x",
+      value: 1,
+      labels: ["a"],
+      series: [{ values: [1, 2] }],
+    });
+    expect(odd?.spec.kind === "kpi" && odd.spec.sparkLabels).toBeUndefined();
   });
 
   test("a percent stays after the number; a minus reads as down", () => {

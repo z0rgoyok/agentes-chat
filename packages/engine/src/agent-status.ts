@@ -4,8 +4,7 @@ import { type AgentWork, agentWorkFor, bareWork } from "./agent-work";
 import { caches, forgetOrgReads } from "./cache";
 import { publishOrgEvent } from "./events";
 import { type PendingReturn, pendingReturns } from "./follow-through";
-import { cutText } from "./format";
-import type { Judge, JudgeGroup } from "./judge";
+import { type Judge, type JudgeGroup, startJudgmentState } from "./judge";
 import { queueLiveActivityRun } from "./live-activity-queue";
 import { requirePermission } from "./organizations";
 import { type OutOfOffice, outOfOffice } from "./out-of-office";
@@ -100,8 +99,8 @@ export interface AgentStatusView {
 
 /** A run going this long is heavy work: the agent reads as busy. */
 export const AGENT_HEAVY_AFTER_MS = 2 * 60_000;
-/** No run for this long: away. */
-export const AGENT_AWAY_AFTER_MS = 30 * 60_000;
+/** Nothing done for this long (no run, or one only waiting since its last change): away. */
+export const AGENT_AWAY_AFTER_MS = 10 * 60_000;
 /** A running run counts only with a heartbeat this recent: a dead worker's run stops counting at once (§11). */
 export const AGENT_HEARTBEAT_FRESH_MS = 90_000;
 /** A run waiting longer than this keeps the agent online but loses its line (§11). */
@@ -327,16 +326,19 @@ export async function loadAgentStatuses(
       mine.some((w) => w.status === "live" && (w.state === null || w.state === "working"));
     const outNow = out && !thinking;
     if (outNow && stored?.line.by !== "self") status = outLine(out, catchUps.length);
-    // Away is for an agent idle a while since it last worked: one just made counts from its making, and the right hand,
-    // where the workspace's people come to talk, never idles away.
-    const fresh = activeAt ?? new Date(a.createdAt);
+    // Away is for an agent idle a while since it last worked: one just made counts from its making. A run parked on an
+    // approval or an answer counts only from its last change, so days of waiting don't keep it online.
+    const lastMove = Math.max(
+      new Date(a.lastRunAt ?? a.createdAt).getTime(),
+      ...runs.map((r) => r.updatedAt.getTime()),
+    );
     const presence: AgentPresence = a.heldAt
       ? "offline"
       : outNow
         ? "out"
         : heavy
           ? "busy"
-          : runs.length > 0 || a.builtin === "right_hand" || ms - fresh.getTime() < AGENT_AWAY_AFTER_MS
+          : working.length > 0 || mine.length > 0 || ms - lastMove < AGENT_AWAY_AFTER_MS
             ? "online"
             : "away";
     const budgetPaused =
@@ -511,7 +513,7 @@ export function lineInEnglish(line: AgentStatusLine): string | null {
     queued_computer: "in line for its computer",
     waiting_plan: "waiting for its plan to reset",
     waiting_budget: "waiting for its budget to renew",
-    provider_down: "waiting for its AI provider to come back (it retries by itself)",
+    provider_down: "waiting for its AI to answer again (it retries by itself)",
     out_of_plan: `out of office: its AI plan hit its limit${line.until ? `, back at ${line.until}` : ""}; what you send waits until then${line.count ? ` (${line.count} conversation${line.count === 1 ? "" : "s"} already waiting)` : ""}`,
     out_of_budget: `out of office: its monthly budget is spent${line.until ? `, back at ${line.until}` : ""}; what you send waits until then`,
     work:
@@ -696,6 +698,16 @@ export interface StatusPick {
 }
 
 /**
+ * A run whose only line says what its work is for (a task, a mission) shows it at once, as it would without Jev:
+ * asking first held it back by a model round trip. Any other sole line (where it answers, what a tool could do) still
+ * waits for Jev, who keeps a quick reply from saying anything (§8). Not weighed, so it doesn't make the agent busy.
+ */
+export const soleStatusPick = (candidates: StatusCandidate[]): StatusPick | null => {
+  const [only] = candidates;
+  return candidates.length === 1 && only && STICKY.has(only.kind) ? { line: only.key, heavy: 0, worth: 1 } : null;
+};
+
+/**
  * The run's line and whether it is busy, as it starts (§8–9): Jev's pick when it rated it worth showing, else no
  * line; without Jev, only what the work is for (task, mission, routine). Never replaces the agent's own words while
  * they hold.
@@ -746,11 +758,7 @@ export async function askRunStatus(
     kind: "agent_status",
     calibrated: true,
     ...(input.group ? { group: input.group } : {}),
-    state: {
-      agent: { name: input.agent.name, role: input.agent.role, instructions: cutText(input.agent.instructions, 1500) },
-      message: cutText(input.message, 2000),
-      recent: input.recent.map((m) => cutText(m, 400)).join("\n"),
-    },
+    state: startJudgmentState(input),
     questions: statusQuestions(input.candidates),
   });
   const line = answers.status_line?.choice;

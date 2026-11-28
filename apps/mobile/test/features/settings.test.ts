@@ -106,6 +106,7 @@ describe("the workspace's settings on the phone: who opens what (the web's sub-n
       "connectors:vault",
       "connectors:access",
       "connectors:apps",
+      "connectors:integrations",
       "advanced:computers",
       "advanced:storage",
       "advanced:import",
@@ -134,8 +135,11 @@ describe("the workspace's settings on the phone: who opens what (the web's sub-n
       "configure",
       "create_agents",
       "manage_roles",
+      "manage_connectors",
     ];
     expect(visibleSections(as("owner", all)).length).toBe(SETTINGS_SECTIONS.length);
+    // Integration apps (ADR 0251): only for who manages connectors.
+    expect(ids(["read", "manage_connectors"])).toContain("integrations");
     // No Geral (what the agents know of the workspace) or GIFs: those are the workspace's, for admins. Uso stays:
     // their own plans' meters, in percentages (ADR 0063).
     // The Vault and Skills are every member's (ADR 0144): their own items, and the team's shared with them.
@@ -472,6 +476,17 @@ describe("Computadores", () => {
       });
       expect(pick).toMatchObject({ value: "mini", noComputer: null, canPick: true });
       expect(pick.choices.map((m) => m.id)).toEqual(["mini", "box", "own"]);
+    });
+
+    test("the right hand's row only says its computer: it always uses the workspace's own", () => {
+      const lodi = agentComputerPick({
+        agent: { id: "lodi", ownerUserId: "u9", builtin: "right_hand" },
+        meId: "u9",
+        admin: true,
+        machines,
+        setup: null,
+      });
+      expect(lodi.canPick).toBe(false);
     });
 
     test("an agent's owner, the ones they connected (and the one it uses); anyone else only reads", () => {

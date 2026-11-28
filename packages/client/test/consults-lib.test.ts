@@ -32,6 +32,20 @@ const answered = (runId: string) =>
 const apply = (events: Ev[]) => events.reduce<ConsultsState>((s, e) => applyConsultEvent(s, e, at), {});
 
 describe("live consultations", () => {
+  test("work handed off whose result woke nobody ends the line, or says who is still at it", () => {
+    const note = (extra: Record<string, unknown>) =>
+      ({ ...answered("r1"), kind: "note", goesOn: false, ...extra }) as unknown as Ev;
+    const handed = { ...asked("r1"), kind: "note" } as unknown as Ev;
+    // Its result is on screen and the agent that handed it isn't writing: no "está escrevendo".
+    expect(consultsIn(apply([handed, note({})]), "c1", at)).toEqual([]);
+    // Another colleague still works on that turn's other part: the line is about it.
+    const [still] = consultsIn(apply([handed, note({ stillOutAgentId: "rui" })]), "c1", at);
+    expect(still).toMatchObject({ consultedAgentId: "rui", kind: "note", status: "asking" });
+    // A result that woke the agent keeps the old line until it writes.
+    const [woke] = consultsIn(apply([handed, { ...answered("r1"), kind: "note" } as unknown as Ev]), "c1", at);
+    expect(woke).toMatchObject({ consultedAgentId: "ada", status: "answered" });
+  });
+
   test("the answer woke another run of the asker: that run writing ends the line", () => {
     const back = apply([asked("r1"), answered("r1")]);
     expect(consultsIn(back, "c1", at)).toHaveLength(1);

@@ -70,8 +70,10 @@ import { LetMeTalkButton, useWidenAsk } from "@/components/ReachLines";
 import { useEmojiLabels } from "@/components/Reactions";
 import { RolesPicker } from "@/components/roles/RolesPicker";
 import { colorOf, ProfileSky } from "@/components/Sky";
+import { TextAction } from "@/components/UsagePauseCard";
 import { SeeUsageQueue } from "@/components/UsageQueue";
 import { useDirectory } from "@/hooks/useDirectory";
+import { useOpenConversation } from "@/hooks/useOpenConversation";
 import { type AgentShown, agentLine, personLine, useAgentPresence, usePersonPresence } from "@/hooks/usePresence";
 import { type MenuEntry, tidy } from "@/lib/context-menu";
 import { entityMenu } from "@/lib/entity-menu";
@@ -625,6 +627,8 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
   const workingIn = useStreams((s) => agentWorkingIn(s, agent.id));
   const busy = workingIn !== null;
   const here = workingIn ? channels?.find((c) => c.id === workingIn)?.name : undefined;
+  const openConversation = useOpenConversation();
+  const workPlace = shown?.work?.channelId ? { ...shown.work, channelId: shown.work.channelId } : null;
   const lines = audienceLines(agent, roles, dir.members);
   const why =
     shown &&
@@ -700,10 +704,23 @@ function AgentCardBody({ agent, onDone }: { agent: Agent; onDone: () => void }) 
                 ? t("profile.nowIn", { channel: here })
                 : shown.line.by === "self"
                   ? t("presence.bySelf", { name: agent.name })
-                  : t("presence.byAuto")}
+                  : shown.work?.private
+                    ? t("presence.byPrivate")
+                    : t("presence.byAuto")}
             </small>
             {/* Out of office with conversations waiting (ADR 0118): what it picks up when it is back, in order. */}
             {isOutOfOffice(shown.line) && shown.line.count ? <SeeUsageQueue agentId={agent.id} /> : null}
+            {/* Where it works, when the reader reads that conversation: the thread or the message it works from. */}
+            {workPlace && (
+              <TextAction
+                onClick={() => {
+                  onDone();
+                  openConversation(workPlace);
+                }}
+              >
+                {t("presence.openWork")}
+              </TextAction>
+            )}
           </span>
         </div>
       )}
@@ -867,7 +884,7 @@ function AudienceEdit({ agent }: { agent: Agent }) {
 function agentWhy(t: TFunction, shown: AgentShown, names: WorkPlaceNames, locale: string): string | null {
   const key = agentWhyKey(shown.presence, shown.noAi);
   if (key) return t(`presence.agentWhy.${key}`);
-  if (shown.presence === "online" && shown.work?.state !== "later") return null;
+  if ((shown.presence === "online" || shown.presence === "away") && shown.work?.state !== "later") return null;
   return workDetail(t, shown.work, names, locale);
 }
 

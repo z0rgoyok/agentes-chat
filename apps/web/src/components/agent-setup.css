@@ -40,6 +40,22 @@
   color: var(--ink-muted);
   font-variant-numeric: tabular-nums;
 }
+/*
+ * Its × on its page, after the count: as a dialog's close, the glyph reaches out by its air (5.2 of its 20 units), so
+ * its ink ends on the head's padding line and stands the head's gap from the count; on the title's first line (its
+ * size), taking no more height than it.
+ */
+.setup-cl__close {
+  --glyph-air: calc(var(--control-icon-sm) * 5.2 / 20);
+  flex: none;
+  align-self: flex-start;
+  font-size: 15px;
+}
+@supports (top: 1lh) {
+  .setup-cl__close {
+    margin-block: calc((1lh - var(--control-h-sm)) / 2);
+  }
+}
 .setup-cl__meter {
   display: flex;
   gap: 3px;

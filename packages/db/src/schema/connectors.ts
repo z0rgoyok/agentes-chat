@@ -88,6 +88,13 @@ export const connectorConnections = pgTable(
      * now: Reconectar adds the rest. Null: a key, a server's own sign-in or Composio.
      */
     oauthScopes: text(),
+    /**
+     * A server by address: what it said in `initialize` on how to use it (MCP's `instructions`) at its last listing,
+     * trimmed and kept up to a bound; null when it said nothing (ADR 0016 addendum of 2026-11-22).
+     */
+    instructions: text(),
+    /** A server by address: agents granted its tools get `instructions` (who may change the connection turns it off). */
+    useInstructions: boolean().notNull().default(true),
     /** `active`, or `needs_reconnect` (a Composio account that stopped working: no tools until Reconectar). */
     status: text().notNull().default("active"),
     /** Why it needs reconnecting. */
@@ -445,4 +452,25 @@ export const telegramUpdates = pgTable(
     index().on(t.connectionId, t.chatId, t.receivedAt),
     index().on(t.receivedAt),
   ],
+);
+
+/**
+ * A connector tool's name in a person's language, as the conversation's work lines show it (`list_available_accounts`
+ * → "Listar contas disponíveis"): written once per workspace and language by its cheap model when a person first sees
+ * the tool at work in a language other than English (`tool-label-words.ts` in the engine); until then, and for good
+ * when no model answers, the line shows the name's own English words. `key` is the name as the app's catalog keys it
+ * (`toolKey`). Tools with words in the app's own catalog are never asked for.
+ */
+export const toolLabelWords = pgTable(
+  "tool_label_words",
+  {
+    orgId: uuid()
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    locale: text().notNull(),
+    key: text().notNull(),
+    words: text().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.orgId, t.locale, t.key] })],
 );

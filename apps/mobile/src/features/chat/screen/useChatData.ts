@@ -1,5 +1,6 @@
 import {
   type Channel,
+  cardsInto,
   channelsQuery,
   type DirectMessage,
   dmsQuery,
@@ -29,7 +30,7 @@ import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand, rightHandSeenKey } from "@agenteschat/client/lib/right-hand";
 import { seenMessageId } from "@agenteschat/client/lib/seen";
 import { makingImage } from "@agenteschat/client/lib/work";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useIsFocused, useIsPreview } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { frameClock } from "@/agent/clock";
@@ -38,7 +39,7 @@ import { useOrg } from "@/providers/org";
 import type { ComposerWorking } from "@/ui";
 import { useSetupSteps } from "../../agents/setup/SetupCard";
 import { usePlanHold } from "../../ai/parts";
-import type { Directory } from "../../shared/hooks";
+import { type Directory, useConnection } from "../../shared/hooks";
 import { agentLook } from "../../shared/logic";
 import { ownsIn } from "../../shared/owner";
 import { browsingRuns } from "../LiveRows";
@@ -70,6 +71,7 @@ export function useChatData({
   api: ReturnType<typeof useApi>;
   dir: Directory;
 }) {
+  const qc = useQueryClient();
   // This conversation's row of each list, not the lists: they are read again for a message anywhere in the workspace,
   // and every conversation open was drawn again with each read.
   const ownChannel = useCallback((all: Channel[]) => all.find((x) => x.id === channelId), [channelId]);
@@ -171,6 +173,11 @@ export function useChatData({
   const focused = useIsFocused();
   const peeking = useIsPreview();
   const live = useChatLive(orgId, channelId, readable, focused || peeking);
+  // Opened, or back on top: the agent that answers in this DM or thread gets ready before anything is typed.
+  const connection = useConnection();
+  useEffect(() => {
+    if (focused && readable && (dmAgentId || isThread)) connection?.sendOpen(channelId, threadId);
+  }, [connection, focused, readable, dmAgentId, isThread, channelId, threadId]);
   // Agents my message here named that won't answer me: in this conversation or this thread only.
   const notices = useMemo(
     () => live.notices.filter((n) => (isThread ? n.threadId === threadId : n.threadId === null)),
@@ -305,7 +312,7 @@ export function useChatData({
     setLoadingOlder(true);
     setOlderFailed(false);
     api.chat
-      .messages(orgId, channelId, { before: oldest.createdAt, limit: MESSAGES_PAGE })
+      .messages(orgId, channelId, { before: oldest.createdAt, limit: MESSAGES_PAGE, onCards: cardsInto(qc, orgId) })
       .then((page) => {
         setOlder((prev) => [...page, ...prev]);
         if (page.length < MESSAGES_PAGE) setOlderDone(true);
@@ -315,7 +322,7 @@ export function useChatData({
         fetchingOlder.current = false;
         setLoadingOlder(false);
       });
-  }, [api, orgId, channelId, isThread, olderDone, top.data, older]);
+  }, [api, qc, orgId, channelId, isThread, olderDone, top.data, older]);
   // The list's own asks (reaching the top, a layout) stop after a page failed: without a connection they would ask
   // again at every layout. "Try again" on the row asks again.
   const loadOlder = useCallback(() => {
@@ -339,7 +346,7 @@ export function useChatData({
     if (!gap || fetchingNewer.current || !newest) return;
     fetchingNewer.current = true;
     api.chat
-      .messages(orgId, channelId, { after: newest.createdAt, limit: MESSAGES_PAGE })
+      .messages(orgId, channelId, { after: newest.createdAt, limit: MESSAGES_PAGE, onCards: cardsInto(qc, orgId) })
       .then((page) => {
         const known = new Set(older.map((m) => m.id));
         const next = [...older, ...page.filter((m) => !known.has(m.id))];
@@ -356,7 +363,7 @@ export function useChatData({
       .finally(() => {
         fetchingNewer.current = false;
       });
-  }, [api, orgId, channelId, gap, older, top.data, showAround]);
+  }, [api, qc, orgId, channelId, gap, older, top.data, showAround]);
   // The workspace's plan holding its agents: the no-AI banner and the key guard read it.
   const planHeld = usePlanHold(orgId, org) !== null;
 

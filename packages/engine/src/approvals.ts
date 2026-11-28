@@ -9,6 +9,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   isNull,
   lt,
   ne,
@@ -52,7 +53,7 @@ import { quietEnd, withMootRequest } from "./parked-asks";
 import { maySql, type RolePermission } from "./permissions";
 import { accountInUse } from "./standing";
 import { fileConversationReaderSql, taskReaderSql } from "./task-access";
-import { AHEAD_GRACE_MS, type Approval, readsSqlOnly, routineCall } from "./tools/gateway";
+import { AHEAD_GRACE_MS, type Approval, asksByChoice, isSensitive, readsSqlOnly, routineCall } from "./tools/gateway";
 import { canonicalJson } from "./tools/json-schema";
 import { REQUEST_PERMISSION_TOOL } from "./tools/permission";
 import type { ApprovalOrigin } from "./tools/run-policy";
@@ -145,6 +146,12 @@ export interface ApprovalView {
   routineId: string | null;
   /** Approved ahead and not run yet, and the person asking may still withdraw it (`cancelAheadApproval`). */
   canCancel: boolean;
+  /**
+   * The other runs' requests it runs after once approved (`approval-order.ts`), and whether the person asking may let it
+   * run now instead ("Rodar este agora", `runApprovalNow`).
+   */
+  afterIds: string[];
+  canRunNow: boolean;
   /**
    * Asked with `request_approval` (ADR 0126): who decides, in words ("Diretoria", "Ana, Bruno"), and the person
    * whose request it was, who decides it only when `requesterDecides` (an approver by role). Null: any other approval.
@@ -380,10 +387,11 @@ export async function approvalCardThreads(db: Executor, rows: Pick<Approval, "id
 }
 
 /**
- * The card an agent's new approval joins instead of posting its own: the one holding a pending request of the
- * same agent in the same conversation, as `heldHere` reads it: the run's conversation (`threadRootId`: a thread,
- * which for a run asked in the main timeline is its trigger, so a reply under it lands on its card), or the
- * main timeline for a card posted there. Each approval keeps its own row, hash and audit; only the card is shared.
+ * The card an agent's new approval joins instead of posting its own: the one holding a pending request of the same
+ * agent in the same conversation (`threadRootId`: a thread, which for a run asked in the main timeline is its
+ * trigger, so a reply under it lands on its card), or of the same run. Two top-level messages are two conversations,
+ * even in one channel's main timeline: their requests never share a card. Each approval keeps its own row, hash and
+ * audit; only the card is shared.
  */
 export async function openApprovalCard(
   db: Executor,
@@ -391,9 +399,8 @@ export async function openApprovalCard(
     orgId: string;
     agentId: string;
     channelId: string;
-    /** Where this approval's own card would go (null: the main timeline). */
-    threadId: string | null;
     threadRootId: string;
+    runId: string;
     exceptId: string;
   },
   now = new Date(),
@@ -410,11 +417,7 @@ export async function openApprovalCard(
         gt(approvals.expiresAt, now),
         ne(approvals.id, at.exceptId),
         eq(messages.channelId, at.channelId),
-        or(
-          eq(approvals.threadRootId, at.threadRootId),
-          at.threadId ? undefined : isNull(messages.threadId),
-          at.threadId ? eq(messages.threadId, at.threadId) : undefined,
-        ),
+        or(eq(approvals.threadRootId, at.threadRootId), eq(approvals.runId, at.runId)),
         isNull(messages.deletedAt),
       ),
     )
@@ -561,6 +564,8 @@ export const approvalView = (a: Approval, canDecide = false, routine = false): A
   runAt: a.runAt ? a.runAt.toISOString() : null,
   routineId: a.routineId,
   canCancel: canDecide && aheadLive(a) && a.status === "approved",
+  afterIds: a.afterIds ?? [],
+  canRunNow: canDecide && waitsItsTurn(a),
   approvers: a.approvers
     ? {
         label: a.approvers.label,
@@ -573,6 +578,15 @@ export const approvalView = (a: Approval, canDecide = false, routine = false): A
 
 /** What "Aprovar sempre" would keep for an approval: the kind the gateway offered on it (`rememberKinds`). */
 const alwaysKindOf = (a: Pick<Approval, "approveAlways">): RememberedKind | null => rememberedKindOf(a.approveAlways);
+
+/** Approved, not done yet, and asked after another run's requests: it may wait for them (`approval-order.ts`). */
+const waitsItsTurn = (a: Pick<Approval, "status" | "executedAt" | "result" | "runAt" | "runId" | "afterIds">) =>
+  a.status === "approved" &&
+  !a.executedAt &&
+  !a.result &&
+  !a.runAt &&
+  a.runId !== null &&
+  (a.afterIds ?? []).length > 0;
 
 /** An approval ahead that may still run: waiting for a person, or approved and not run yet. */
 const aheadLive = (a: Pick<Approval, "runAt" | "status" | "executedAt">) =>
@@ -980,7 +994,12 @@ export async function publishApproval(
       : [view];
     await publishUserEvent(deps.pubsub, approval.orgId, userId, {
       type,
-      approval: { ...theirs, canDecide: true, canCancel: approval.status === "approved" && aheadLive(approval) },
+      approval: {
+        ...theirs,
+        canDecide: true,
+        canCancel: approval.status === "approved" && aheadLive(approval),
+        canRunNow: waitsItsTurn(approval),
+      },
     });
   }
   // The inbox: waiting for whoever is told (`notifiedIds`); out of it once decided or expired.
@@ -1208,6 +1227,157 @@ export async function decideApprovals(
     approvals: await viewsOf(db, decided, () => false, false, actorId),
     skipped: ids.filter((id) => !done.has(id)),
   };
+}
+
+/**
+ * "Rodar este agora": an approved action waiting its turn behind another run's requests (`approval-order.ts`) runs
+ * without waiting for them, with the rest of its run's actions still to do. Whoever may decide it may (`decides`, or a
+ * cover). Its run wakes at once; the audit keeps who and what it no longer waited for.
+ */
+export async function runApprovalNow(
+  deps: { db: Database; pubsub?: PubSub },
+  actorId: string,
+  orgId: string,
+  approvalId: string,
+): Promise<ApprovalView> {
+  const { db } = deps;
+  const [current] = await db
+    .select()
+    .from(approvals)
+    .where(and(eq(approvals.id, approvalId), eq(approvals.orgId, orgId)));
+  if (!current) throw new NotFoundError("Approval not found");
+  const membership = await requirePermission(db, actorId, orgId, "read");
+  const asking = await askingAgents(db, orgId, [current]);
+  const direct = decides(current, actorId, membership, asking.get(current.agentId) ?? null);
+  if (!direct && !coveredFor(current, actorId, await activeCoversTo(db, orgId, actorId))) {
+    throw new ForbiddenError("Only the agent's owner or an admin can decide this");
+  }
+  const runId = current.runId;
+  if (!runId || !waitsItsTurn(current)) {
+    throw new ConflictError("This request isn't waiting for another one", "approval.not_waiting");
+  }
+  const rows = await db.transaction(async (tx) => {
+    const freed = await tx
+      .update(approvals)
+      .set({ afterIds: [] })
+      .where(
+        and(
+          eq(approvals.runId, runId),
+          eq(approvals.status, "approved"),
+          isNull(approvals.executedAt),
+          isNull(approvals.result),
+          isNull(approvals.runAt),
+          sql`cardinality(${approvals.afterIds}) > 0`,
+        ),
+      )
+      .returning();
+    await enqueue(tx, {
+      orgId,
+      kind: "agent_run.execute",
+      payload: { runId },
+      dedupeKey: `agent_run.execute:${runId}:run-now:${approvalId}`,
+      maxAttempts: 4,
+    });
+    await recordAudit(tx, {
+      orgId,
+      actor: { type: "person", id: actorId },
+      action: "approval.run_now",
+      target: { type: "approval", id: current.id },
+      details: {
+        tool: current.tool,
+        agentId: current.agentId,
+        title: current.title,
+        after: current.afterIds,
+      },
+      runId,
+      channelId: current.channelId,
+    });
+    return freed;
+  });
+  for (const row of rows) await publishApproval(deps, row, "approval.decided").catch(() => {});
+  const fresh = rows.find((r) => r.id === current.id) ?? { ...current, afterIds: [] };
+  const [view = approvalView(fresh, true)] = await viewsOf(db, [fresh], () => true, false, actorId);
+  return view;
+}
+
+/** Why a request no longer asks, for `releaseUnasked`: the agent's level, or the tool's. */
+const RELEASED = {
+  agent: "your approvals level changed: you no longer ask before this",
+  tool: "this tool no longer asks for approval",
+} as const;
+
+/**
+ * The agents' or a connection's tools changed so that requests still waiting would no longer ask (an agent set to
+ * "Nunca perguntar", a tool moved off "Pede sua aprovação"): each is canceled, nothing is done, and its run wakes and
+ * reads that it may call it again, now without a card. Never auto-approved: the agent redoes the call as things are
+ * now. `agentIds`: runs' requests of those agents, if they now never ask, except a tool whose job is asking.
+ * `connectionId`: a person's runs' requests of those tools (`tools`, under the connection's `prefix`) whose agent asks
+ * only for what is marked to ask, except one sensitive by its name.
+ */
+export async function releaseUnasked(
+  deps: { db: Database; pubsub?: PubSub },
+  actorId: string,
+  orgId: string,
+  which: { agentIds: string[] } | { connectionId: string; prefix: string; tools: string[] },
+): Promise<Approval[]> {
+  const byAgent = "agentIds" in which;
+  const tools = byAgent ? [] : which.tools.map((t) => exposedToolName(which.prefix, t));
+  if (byAgent ? which.agentIds.length === 0 : which.tools.length === 0) return [];
+  const rows = await deps.db.transaction(async (tx) => {
+    const waiting = await tx
+      .select({ approval: approvals })
+      .from(approvals)
+      .innerJoin(agents, and(eq(agents.orgId, approvals.orgId), eq(agents.id, approvals.agentId)))
+      .where(
+        and(
+          eq(approvals.orgId, orgId),
+          eq(approvals.status, "pending"),
+          isNotNull(approvals.runId),
+          byAgent
+            ? and(inArray(approvals.agentId, which.agentIds), eq(agents.approvalsLevel, "never"))
+            : and(
+                eq(approvals.connectionId, which.connectionId),
+                inArray(approvals.tool, tools),
+                isNull(approvals.origin),
+                eq(agents.approvalsLevel, "risky"),
+              ),
+        ),
+      );
+    const free = waiting
+      .map((r) => r.approval)
+      .filter((a) => {
+        const tool = { name: a.tool, scope: a.scope, connectionId: a.connectionId };
+        return byAgent ? !asksByChoice(tool) : !isSensitive({ ...tool, sensitive: false });
+      })
+      .map((a) => a.id);
+    if (free.length === 0) return [];
+    const canceled = await tx
+      .update(approvals)
+      .set({ status: "canceled", decidedByUserId: actorId, decidedAt: new Date() })
+      .where(and(inArray(approvals.id, free), eq(approvals.status, "pending")))
+      .returning();
+    const why = byAgent ? RELEASED.agent : RELEASED.tool;
+    for (const row of canceled) {
+      if (row.runId) {
+        await tx
+          .update(agentRuns)
+          .set({
+            transcript: withMootRequest(
+              row.id,
+              `Not done, and nobody needs to approve it any more: ${why}. If it still makes sense, call it again now; it runs without asking.`,
+            ),
+          })
+          .where(and(eq(agentRuns.id, row.runId), inArray(agentRuns.status, ["waiting_approval", "waiting_input"])));
+      }
+      await enqueueResume(tx, row);
+      await settleAheadRoutine(tx, row);
+      await auditDecision(tx, row, actorId);
+    }
+    await wakeLine(tx, canceled);
+    return canceled;
+  });
+  for (const row of rows) await publishApproval(deps, row, "approval.decided").catch(() => {});
+  return rows;
 }
 
 /**

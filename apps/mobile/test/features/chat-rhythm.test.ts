@@ -114,12 +114,15 @@ describe("one rhythm, the web's numbers (chat-rhythm-css.test.ts holds them to t
     expect(styleOf(row, "replied")).toContain("marginTop: 0");
   });
 
-  test("the agents' talk is quoted in the reply, or on its own at the turn's gap; on a reach line, the list's", async () => {
+  test("the agents' row stands at the turn's gap across the conversation's width; on a reach line, the list's", async () => {
     const row = await read("chat/MessageRow.tsx");
-    // On its own it stands on the bubbles' column in a conversation of bubbles, as wide as one (`plateInset`).
-    expect(row).toContain("<View style={[plateInset(look, aboveInset(look)), { marginTop: rhythm.turn }]}>");
+    expect(row).toContain("<View style={{ marginTop: rhythm.turn }}>\n          <ConsultPairRow");
+    // A relayed answer with no words of the reply stands on the bubbles' column, as wide as one (`plateInset`).
+    expect(row).toContain(
+      "<View style={[plateInset(look, aboveInset(look)), { marginTop: rhythm.turn }]}>{relayQuote}",
+    );
     const event = await read("chat/EventLine.tsx");
-    expect(event).toContain("<View style={[plateInset(look, inset), { marginTop: gap }]}>");
+    expect(event).toContain("<View style={{ marginTop: gap }}>\n        <ConsultPairRow");
     // Two on a reach line stack at the list's gap, as its other rows.
     const reach = await read("chat/ReachLines.tsx");
     expect(reach).toContain("list: { gap: LIST_GAP }");

@@ -30,3 +30,7 @@ export function anchorShift(rows: readonly RowResize[], scrollTop: number): numb
 /** The browser keeps the list's place itself (scroll anchoring). */
 export const anchorsScroll = () =>
   typeof CSS !== "undefined" && typeof CSS.supports === "function" && CSS.supports("overflow-anchor", "auto");
+
+/** Where `row` stands in `list`'s content (0 = its top): what scrolling never changes. */
+export const topInList = (list: HTMLElement, row: HTMLElement) =>
+  row.getBoundingClientRect().top - list.getBoundingClientRect().top + list.scrollTop;

@@ -4,11 +4,12 @@ import { managesAgent, ownsAgent } from "../audience";
 import { recordAudit } from "../audit";
 import { runAuthorityById } from "../authority";
 import { caches } from "../cache";
-import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
+import { ForbiddenError, NotFoundError } from "../errors";
 import { can, type Membership, requirePermission } from "../organizations";
 import { ownerApprovers, personalUseCheck } from "../personal-use";
 import { ALL_TOOLS, grantedScopeKeys, grantKey, isAllowed, listAgentScopes, toolAccess } from "../tools/scopes";
 import type { ToolContext, ToolDefinition } from "../tools/types";
+import { isOwnGitAccount } from "./own-github";
 
 const { connectorConnections } = schema;
 type ConnectorConnection = typeof connectorConnections.$inferSelect;
@@ -85,13 +86,10 @@ export const seesOthersOnAgent = (membership: Membership, agent: Parameters<type
 
 /**
  * Who may connect for whom: a personal connection (`personal`) any member makes, a team one who manages connectors.
- * GitHub stays the team's: its git proxy, repository lists and webhooks read the workspace's one GitHub connection.
+ * GitHub as a person's own is their account in code sessions (`git/person-account.ts`), never the workspace's GitHub:
+ * the git proxy, repository lists, webhooks and the agents' tools read the team's one (`teamGitHub`).
  */
-export async function requireConnect(db: Executor, actorId: string, orgId: string, personal: boolean, connector = "") {
-  if (personal && connector === "github") {
-    // The apps offer GitHub for the team only, so only an API client meets this.
-    throw new ValidationError("GitHub connects for the whole team only");
-  }
+export async function requireConnect(db: Executor, actorId: string, orgId: string, personal: boolean) {
   return requirePermission(db as Database, actorId, orgId, personal ? "read" : "manage_connectors");
 }
 
@@ -136,7 +134,10 @@ export async function usableConnections(ctx: ToolContext, connections: Connector
   const ownGrants = new Set([...keys].filter((k) => k !== grantKey(null, ALL_TOOLS)));
   const held = (id: string) => [...ownGrants].some((k) => k.startsWith(`${id}|`) && !k.includes("|deny:"));
   return {
-    connections: connections.filter((c) => !c.ownerUserId || (held(c.id) && check(c.ownerUserId))),
+    // A person's own GitHub account has no tools: the team's GitHub tools go as them in their code sessions.
+    connections: connections.filter(
+      (c) => !isOwnGitAccount(c) && (!c.ownerUserId || (held(c.id) && check(c.ownerUserId))),
+    ),
     ownGrants,
   };
 }

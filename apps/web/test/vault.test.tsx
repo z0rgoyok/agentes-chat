@@ -174,8 +174,18 @@ function fakeVault(
       log("remove", orgId, itemId);
       overview.items = overview.items.filter((i) => i.id !== itemId);
     },
+    setAccessMany: async (orgId, ids, next) => {
+      log("setAccessMany", orgId, ids, next);
+      for (const id of ids) Object.assign(find(id), { access: next });
+      return { changed: ids.length, kept: 0 };
+    },
+    removeMany: async (orgId, ids) => {
+      log("removeMany", orgId, ids);
+      overview.items = overview.items.filter((i) => !ids.includes(i.id));
+      return { deleted: ids.length, kept: 0 };
+    },
     importCsv: async (orgId, input) => {
-      log("importCsv", orgId, input.scope, input.dryRun);
+      log("importCsv", orgId, input.scope, input.dryRun, input.access);
       return { added: 2, updated: 0, skipped: [], format: "chrome" };
     },
     importKeys: async (orgId, input) => {
@@ -462,6 +472,73 @@ describe("Settings › Vault (ADR 0144)", () => {
 });
 
 /** Opens the header's Import menu (Radix: keyboard) and picks one of its two files. */
+describe("many items at once (ADR 0144)", () => {
+  test("Select: every row a checkbox, all of them at once, one access for all in one call", async () => {
+    const { state, t } = await openVault();
+    await click(screen().getByRole("button", { name: t("vault.bulk.select") }));
+    const bar = screen().getByRole("toolbar", { name: t("vault.bulk.selection") });
+    const access = within(bar).getByRole("button", { name: t("vault.bulk.access") }) as HTMLButtonElement;
+    expect(access.disabled).toBe(true);
+    // A row is its checkbox's label now: a click chooses it, never opens its details.
+    await click(rows()[1] as HTMLElement);
+    expect(screen().queryByRole("dialog")).toBeNull();
+    expect(bar.textContent).toContain(t("vault.bulk.selected", { count: 1 }));
+    await click(within(bar).getByRole("button", { name: t("vault.bulk.selectAll", { count: 2 }) }));
+    expect(bar.textContent).toContain(t("vault.bulk.selected", { count: 2 }));
+
+    await click(access);
+    const dialog = screen().getByRole("dialog", { name: t("vault.bulk.accessTitle", { count: 2 }) });
+    await click(within(dialog).getByRole("button", { name: t("vault.bulk.accessGo", { count: 2 }) }));
+    await settle(3);
+    const call = state.calls.find((c) => c.method === "vault.setAccessMany");
+    // It starts as the first one's (the login's: Ada may use it), and goes to both.
+    expect(call?.args.slice(1)).toEqual([["vi-login", "vi-key"], LOGIN.access]);
+    expect(document.querySelector(".ac-toast")?.textContent).toContain(t("vault.bulk.accessDone", { count: 2 }));
+    // Done: the rows open their details again.
+    expect(screen().queryByRole("toolbar", { name: t("vault.bulk.selection") })).toBeNull();
+  });
+
+  test("Delete: asks with how many, then one call for all of them", async () => {
+    const { state, t } = await openVault();
+    await click(screen().getByRole("button", { name: t("vault.bulk.select") }));
+    const bar = screen().getByRole("toolbar", { name: t("vault.bulk.selection") });
+    await click(within(bar).getByRole("button", { name: t("vault.bulk.selectAll", { count: 2 }) }));
+    await click(within(bar).getByRole("button", { name: t("vault.bulk.delete") }));
+    const dialog = screen().getByRole("dialog", { name: t("vault.bulk.deleteTitle", { count: 2 }) });
+    expect(dialog.textContent).toContain(t("vault.bulk.deleteText"));
+    await click(within(dialog).getByRole("button", { name: t("vault.bulk.deleteGo", { count: 2 }) }));
+    await settle(3);
+    expect(state.calls.find((c) => c.method === "vault.removeMany")?.args.slice(1)).toEqual([["vi-login", "vi-key"]]);
+    expect(rows()).toHaveLength(0);
+  });
+
+  test("a member who doesn't manage the team's items gets no Select there", async () => {
+    const { t } = await openVault(seedState(), overviewOf({ canManageTeam: false }));
+    expect(screen().queryByRole("button", { name: t("vault.bulk.select") })).toBeNull();
+  });
+
+  test("a passwords import takes the access chosen for its new logins", async () => {
+    const { state, t } = await openVault();
+    await openImport(t, "vault.import.title");
+    const dialog = screen().getByRole("dialog", { name: t("vault.import.title") });
+    const picker = dialog.querySelector<HTMLInputElement>('input[type="file"]') as HTMLInputElement;
+    const csv = "url,username,password\nhttps://a.example,ops,pw-a";
+    await act(async () =>
+      fireEvent.change(picker, { target: { files: [new File([csv], "passwords.csv", { type: "text/csv" })] } }),
+    );
+    await settle(3);
+    // The access block, as a new item's: who sees them and which agents use them.
+    expect(dialog.textContent).toContain(t("vault.access.people"));
+    await click(within(dialog).getByRole("button", { name: t("vault.import.confirm", { count: 2 }) }));
+    await settle(3);
+    const imports = state.calls.filter((c) => c.method === "vault.importCsv");
+    expect(imports.map((c) => c.args.slice(1))).toEqual([
+      ["team", true, undefined],
+      ["team", false, defaultAccess("team")],
+    ]);
+  });
+});
+
 async function openImport(t: (key: string) => string, item: string) {
   const button = screen().getByRole("button", { name: t("vault.import.open") });
   button.focus();

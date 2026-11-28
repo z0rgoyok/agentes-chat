@@ -1,4 +1,20 @@
 {
+  "permissionAsk": {
+    "title": "agentes.chat 需要“{{permission}}”权限",
+    "done": "我已允许",
+    "later": "以后再说",
+    "trayTitle": "正在等待“{{permission}}”权限",
+    "why": {
+      "app_management": "代理需要它来更改这台{{device}}上的应用。",
+      "screen": "代理需要它来截取这台{{device}}的屏幕。",
+      "accessibility": "代理需要它在这台{{device}}的应用中点击和输入。",
+      "disk": "代理需要它来打开你的文件，macOS 不必为每个文件夹询问。",
+      "network": "代理需要它来连接你网络中的手机和设备。",
+      "camera": "代理需要它来使用这台{{device}}的摄像头。",
+      "microphone": "代理需要它来使用这台{{device}}的麦克风。",
+      "automation": "代理需要它来控制这台{{device}}上的其他应用。"
+    }
+  },
   "device": {
     "mac": "Mac",
     "windows": "PC",
@@ -7,6 +23,11 @@
   "windowTitle": {
     "welcome": "欢迎",
     "prefs": "偏好设置"
+  },
+  "background": {
+    "title": "agentes.chat 仍在运行",
+    "bodyMac": "它在屏幕顶部的菜单栏中。可以从那里打开或退出。",
+    "bodyTray": "它在系统托盘中。可以从那里打开或退出。"
   },
   "common": {
     "cancel": "取消",
@@ -66,6 +87,12 @@
         "capturing": "正在截图",
         "tabs": "正在切换标签页"
       }
+    },
+    "apps": {
+      "title": "{{agent}} 正在使用 {{app}}",
+      "detail": "鼠标和键盘仍归你使用",
+      "stop": "停止",
+      "stopped": "{{agent}} 已停止使用你的应用"
     },
     "label": "agentes.chat",
     "now": "当前",
@@ -127,12 +154,17 @@
     "allowedOne": "已允许 {{agent}} 使用 {{folder}}",
     "allowedAll": "已允许所有智能体使用 {{folder}}",
     "denied": "已拒绝。{{agent}} 会在聊天中告知。",
+    "answerFailed": "无法回应此请求：{{message}}",
     "notifTitle": "{{agent}} 想使用文件夹 {{folder}}",
     "allowedTitle": "{{name}} 通过 agentes.chat 打开了{{tool}}",
     "allowedBody": "如果不是你，请在这里撤销。",
     "allowedUndo": "撤销",
     "allowedOk": "知道了",
     "allowedUndone": "已再次关闭：{{tool}}",
+    "pickTitle": "{{name}} 为智能体请求一个文件夹",
+    "pickTitleAgent": "{{name}} 为 {{agent}} 请求一个文件夹",
+    "pickBody": "选择要在这台 {{device}} 上允许的文件夹。",
+    "pickChoose": "选择文件夹",
     "quitTitle": "退出 agentes.chat？",
     "quitBody": "应用关闭期间，智能体无法使用这台 {{device}}。已在运行的工作会完成，并在你再次打开应用时发送结果。",
     "quitHereBody": "agentes.chat 将在这台 {{device}} 上停止运行：在你再次打开应用之前，任何人都无法使用它，无论是在这里、你的手机上还是队友的手机上。",
@@ -230,7 +262,7 @@
     "openTailscale": "打开 Tailscale",
     "getTailscale": "获取 Tailscale",
     "usage": "向 agentes.chat 发送匿名使用统计",
-    "usageText": "统计数量，例如成员数、智能体数、机器规格、已用的 AI 词元，以及智能体的浏览器收发了多少数据。绝不包括消息、文件、名称或网站。",
+    "usageText": "统计数量，例如成员数、智能体数、机器规格、已用的 AI 词元、智能体的浏览器收发了多少数据，以及应用打开和运行的速度。绝不包括消息、文件、名称或网站。",
     "start": "开始",
     "setting": "正在准备一切",
     "rest": "关闭应用时，你的智能体会休息。一打开它们就会回来。",
@@ -451,6 +483,16 @@
     "linkBody": "如果不是你发起的请求，请选择“以后再说”。",
     "waiting": "正在等待 {{by}} 允许加入…",
     "done": "已连接到 {{org}}",
+    "share": "让整个工作区使用",
+    "internet": "智能体使用这台电脑的网络",
+    "internetOn": "智能体访问的网站和服务器会看到你的位置",
+    "internetOff": "已关闭：智能体使用平常的连接",
+    "internetHint": "工作区的智能体通过这台电脑的连接上网：网站、git、SSH、数据库及其他 TCP 连接。绝不会访问你自己网络中的任何内容，也不会通过 25 端口发送邮件。智能体的 AI、域名解析、通话等 UDP 流量使用平常的连接。这台电脑离线时，所有流量都使用平常的连接。",
+    "internetHintProxy": "工作区智能体的浏览器和遵循代理设置的程序（通过 HTTPS 的 git、curl、大多数命令行工具）通过这台电脑的连接上网。SSH、数据库客户端等忽略代理设置的程序使用平常的连接，智能体的 AI、域名解析和 UDP 流量也一样。绝不会访问你自己网络中的任何内容，也不会通过 25 端口发送邮件。这台电脑离线时，所有流量都使用平常的连接。",
+    "internetOnly": "只用这台电脑的网络",
+    "internetOnlyHint": "智能体只用这台电脑的网络，包括 AI 在内，绝不使用平常的连接。这台电脑离线时，智能体在它恢复前都无法上网。",
+    "shareOff": "目前只有你",
+    "shareHint": "{{org}} 所有人的智能体都能以你的用户身份在上面运行任务。",
     "addFolders": "添加文件夹",
     "expired": "此链接已过期。请在“设备”中新建一个。",
     "openDevices": "打开设备",
@@ -494,6 +536,9 @@
     "grokDesc": "使用你的 Grok 账号，在允许的文件夹中编写和修改代码。",
     "antigravityName": "Antigravity CLI",
     "antigravityDesc": "使用你的 Gemini 账号，在允许的文件夹中编写和修改代码。",
+    "devinName": "Devin CLI",
+    "devinDesc": "使用你的 Devin 账号，在允许的文件夹中编写和修改代码。",
+    "devinWindows": "Devin 暂不支持 Windows：在这里它的 CLI 无法把每个账号的登录分开保存。智能体会在 Mac 或 Linux 电脑上用 Devin 思考。",
     "found": "已找到",
     "notFound": "未找到",
     "loggedOut": "未登录",
@@ -783,6 +828,7 @@
       "brainMax": "打开的对话",
       "brainMaxDesc": "每个工作区中保持打开的对话数量。越多回复越快，但会占用更多内存。",
       "brainIdle": "空闲对话关闭时间",
+      "mixed": "各工作区不一致：{{values}}。在这里更改会应用到所有工作区。",
       "folder": "智能体文件夹",
       "folderDesc": "每个工作区一个文件夹，其中每个智能体各有一个文件夹。"
     }

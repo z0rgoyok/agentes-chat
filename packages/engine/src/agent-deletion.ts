@@ -157,6 +157,11 @@ export async function eraseAgent(deps: AgentDeletionDeps, actorId: string, orgId
     ]) {
       await tx.delete(table).where(and(eq(table.orgId, orgId), eq(table.agentId, agentId)));
     }
+    // Out of every channel, it is responsible for none.
+    await tx
+      .update(channels)
+      .set({ leadAgentId: null })
+      .where(and(eq(channels.orgId, orgId), eq(channels.leadAgentId, agentId)));
     await tx
       .update(approvals)
       .set({ status: "canceled", decidedAt: now })

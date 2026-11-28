@@ -288,6 +288,8 @@ suggests one and makes the change as before.
   It is listed only for those agents, in runs a person can answer, and hidden in a session (`CODE_SESSION_HIDDEN_TOOLS`);
   "How you work" says when to use it only where it applies (`CODE_SESSION_LINE`). It talks, it doesn't work: it isn't
   a step of the reply's work, and a run that only suggested hasn't started the change.
+  "How you work" asks for it before `work_in_background`; a run that moved itself to the background first still
+  answers the person's request, so it may suggest, and its report carries the card where they asked.
 - The suggestion rides on the agent's reply (`meta.codeSuggestion`, as a mission's link does): the project, the title,
   the words of the message the run answered and who wrote them. The apps draw it as the chat's request card, kind
   `code` ("Sugere uma sessão de código"), with "Ver o pedido" opening those words, "Abrir sessão" and "Fazer aqui".
@@ -308,6 +310,18 @@ whether it has anything for the person (`OrgOverview.code`, `hasCodeWork`): an a
 Only then do the apps offer it (`offersCode`, `offeredTools`): the sidebar's More and its setup dialog, ⌘K, and Eu on
 the phone. A person who put Code in the sidebar's list keeps it there. The address still opens the page, which says
 what is missing, and a session's links keep working.
+
+### 13. Any git host, and in the person's name (addendum 2026-11-24, ADR 0227)
+
+A session works on a repository of any git host the workspace connected: GitHub's `owner/name`, or another host's with
+the host first (`gitlab:group/project`, `bitbucket:workspace/repo`, a git server's `git:team/project.git`), by name or
+by its address. A project only on the computer stays a plain name.
+
+When the person who asked connected that host as their own account (ADR 0099), the session's work on its repository
+goes out as them: the commits are authored with their name and the host's no-reply address for the account, the
+branch is pushed with their token, and the pull request is opened with it. Their token stays on the server; the
+agent's computer gets a name and an address for that turn. A host refusing their token, a run nobody asked for or a
+person with no account there: the workspace's connection, as before (ADR 0227 §5).
 
 ## Consequences
 

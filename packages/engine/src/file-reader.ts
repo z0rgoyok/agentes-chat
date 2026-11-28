@@ -2,6 +2,7 @@ import { inflateSync } from "node:zlib";
 import { PDF_MEDIA_TYPE, type ToolImage } from "@agenteschat/providers";
 import { MODEL_IMAGE_BYTES, sniffModelImage } from "./avatars";
 import { decodeXmlEntities, formatBytes, tableToCsv, textOfBytes } from "./format";
+import { untrustedBlock } from "./untrusted";
 import { inflateZipEntry, listZip, type ZipListing } from "./zip";
 
 /**
@@ -22,6 +23,11 @@ const ANY_TEXT_BYTES = 5_000_000;
 const TEXT_TYPE = /^text\/|json|xml|yaml/;
 /** One part of an Office file (a sheet, the document's XML) inflated, at most: also all of one an app reads (ADR 0198). */
 export const OFFICE_PART_BYTES = 40_000_000;
+/** A PDF's text a connection that takes no PDFs reads in its place, at most (about 12,000 tokens). */
+export const MODEL_PDF_TEXT_CHARS = 50_000;
+/** The pages and time spent reading a PDF's text: past them the rest goes unread, and the AI is told so. */
+const PDF_TEXT_PAGES = 500;
+const PDF_TEXT_MS = 20_000;
 const ZIP_LIST_MAX = 300;
 const SHEET_ROWS_MAX = 5000;
 /** Excel's last column (XFD): a cell past it is no real cell, and would make every row that wide. */
@@ -168,6 +174,60 @@ export function readForModel(file: { name: string; contentType: string; bytes: U
   }
   return {
     note: `It is a binary file (${ext ? `.${ext}, ` : ""}${contentType}, ${size}) that can't be shown to you as it is. Tell the person exactly that. ${WITH_COMPUTER}`,
+  };
+}
+
+/** A PDF's text, page by page, as far as `PDF_TEXT_PAGES` and `PDF_TEXT_MS` go: "" when none can be read (a scan). */
+export async function pdfText(bytes: Uint8Array): Promise<{ text: string; pages: number; read: number }> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  // Given here, a bundled server needs no worker file beside it.
+  // @ts-expect-error pdf.js ships no types for its worker module.
+  (globalThis as { pdfjsWorker?: unknown }).pdfjsWorker ??= await import("pdfjs-dist/legacy/build/pdf.worker.mjs");
+  const task = pdfjs.getDocument({ data: bytes.slice(), disableFontFace: true, verbosity: 0 });
+  const out = { text: "", pages: 0, read: 0 };
+  const parts: string[] = [];
+  // ponytail: parsed on the server's own thread, as pdf.js does with no Worker; a Worker if big PDFs ever stall it.
+  const timer = setTimeout(() => void task.destroy(), PDF_TEXT_MS);
+  try {
+    const doc = await task.promise;
+    out.pages = doc.numPages;
+    for (let n = 1; n <= Math.min(doc.numPages, PDF_TEXT_PAGES); n++) {
+      const content = await (await doc.getPage(n)).getTextContent();
+      const page = content.items
+        .map((i) => ("str" in i ? `${i.str}${i.hasEOL ? "\n" : ""}` : ""))
+        .join("")
+        .trim();
+      if (page) parts.push(`## Page ${n}\n${page}`);
+      out.read = n;
+    }
+  } catch {
+    // Not readable as a PDF, encrypted, or past the time: what was read stays.
+  } finally {
+    clearTimeout(timer);
+    await task.destroy().catch(() => undefined);
+  }
+  out.text = parts.join("\n\n");
+  return out;
+}
+
+/**
+ * `readForModel` with a PDF's own text read out of it: beside a PDF shown as itself, for the connections that take no
+ * PDFs (`ToolImage.text`), and in place of one too big to show, for every AI.
+ */
+export async function openForModel(file: { name: string; contentType: string; bytes: Uint8Array }): Promise<ModelFile> {
+  const read = readForModel(file);
+  if (!isPdf(file.bytes)) return read;
+  const { text, pages, read: pagesRead } = await pdfText(file.bytes);
+  if (!text) return read;
+  const unread = pagesRead < pages ? ` Only its first ${pagesRead} of ${pages} pages were read.` : "";
+  const pdf = read.images?.[0];
+  if (pdf) {
+    const body = unread ? `${text}\n[${unread.trim()}]` : text;
+    return { ...read, images: [{ ...pdf, text: untrustedBlock(`file ${file.name}`, body, MODEL_PDF_TEXT_CHARS) }] };
+  }
+  return {
+    text,
+    note: `It is a PDF of ${formatBytes(file.bytes.byteLength)} and ${pages} pages, past the ${formatBytes(MODEL_PDF_BYTES)} and ${MODEL_PDF_PAGES} pages an AI is shown at once, so its pages aren't shown to you: its text, read out of it, follows, without its pictures, scanned pages or layout.${unread} If the answer hangs on those, tell the person exactly that: the pages that matter as a smaller PDF would go through.`,
   };
 }
 

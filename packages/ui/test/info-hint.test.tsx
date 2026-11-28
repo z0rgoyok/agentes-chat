@@ -211,6 +211,8 @@ describe("InfoHint", () => {
       return Number(layers.match(new RegExp(`--z-${name}:\\s*(\\d+)`))?.[1]);
     };
     expect(layer(".ac-hint__bubble")).toBe(layer(".ac-dialog"));
+    // A word wider than the bubble (a computer named by its address) breaks inside it, as a tip's does.
+    expect(components.split(".ac-hint__bubble {")[1]?.split("}")[0]).toContain("overflow-wrap: anywhere");
   });
 
   test("the keyboard focus ring stays clear of the label: inside the target, past the part that reaches into it", async () => {

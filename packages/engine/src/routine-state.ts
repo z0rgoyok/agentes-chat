@@ -65,8 +65,9 @@ export const routineCodeText = (code: string | null | undefined) => (code && ROU
 export const routineJobAlive = (routineRunId: typeof routineRuns.id | SQL) => {
   // Always the outer row's id: a bare "id" inside the subquery would be the job's own.
   const id = routineRunId === routineRuns.id ? sql.raw(`"routine_runs"."id"`) : routineRunId;
-  return sql`exists (select 1 from ${outbox} o where o.dedupe_key = 'routine.run:' || ${id}::text
-    and o.status in ('pending', 'processing'))`;
+  // Its job, or a later one of a run queued behind another routine of its agent (`queueBehindAgentRoutine`).
+  return sql`exists (select 1 from ${outbox} o where (o.dedupe_key = 'routine.run:' || ${id}::text
+    or o.dedupe_key like 'routine.run:' || ${id}::text || ':%') and o.status in ('pending', 'processing'))`;
 };
 
 /**

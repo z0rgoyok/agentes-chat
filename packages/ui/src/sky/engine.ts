@@ -15,6 +15,7 @@
  * element's CSS background shows.
  */
 import { onScreenNow } from "../device";
+import { onSight } from "../sight";
 import { PAINT_ATTRS } from "../theme";
 import {
   blobsAt,
@@ -121,7 +122,7 @@ const REDUCE = "(prefers-reduced-motion: reduce)";
 export const prefersReducedMotion = () =>
   typeof window !== "undefined" && typeof window.matchMedia === "function" && window.matchMedia(REDUCE).matches;
 
-/** Every sky held still (`holdSkies`, or nobody looking: `holdSkiesWhileAway`), and what each live sky does then. */
+/** Every sky held still (`holdSkies`, or nobody looking: `sight`), and what each live sky does then. */
 let held = false;
 let away = false;
 const onHold = new Set<() => void>();
@@ -134,6 +135,13 @@ const setHeld = (next: { held?: boolean; away?: boolean }) => {
 };
 
 /**
+ * Nobody looking (`sight` not present: hidden, behind another window, or no input for a while): the skies stand
+ * still, and the first input or the window coming forward moves them again. A hidden desktop window keeps running its
+ * page (no throttling there), where each frame of a sky costs a core's time for nothing.
+ */
+onSight((now) => setHeld({ away: now !== "present" }));
+
+/**
  * Holds every sky still, as with reduced motion: drawn once, and again on a resize or a theme change. For the Linux
  * app, whose WebKitGTK paints without the GPU there (its DMA-BUF renderer is off, apps/desktop/src-tauri/src/main.rs):
  * each frame of a moving sky repainted it and everything over it in software, 30 times a second, which kept a core
@@ -144,52 +152,6 @@ export function holdSkies(hold = true) {
 }
 
 export const skiesHeld = () => held || away;
-
-/** No key, click, touch or pointer move for this long: nobody is looking, the skies stand still. */
-export const SKY_IDLE_MS = 2 * 60_000;
-
-/**
- * Holds the skies still while nobody looks: the page hidden, the window in the background, or no input for
- * `SKY_IDLE_MS`. The first input, or the window coming forward, moves them again. A hidden desktop window keeps
- * running its page (no throttling there), where each frame of a sky costs a core's time for nothing. Returns the stop.
- */
-export function holdSkiesWhileAway(idleMs = SKY_IDLE_MS) {
-  let last = Date.now();
-  let idle = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const update = () => setHeld({ away: idle || document.hidden || !document.hasFocus() });
-  const check = () => {
-    const left = idleMs - (Date.now() - last);
-    if (left > 0) timer = setTimeout(check, left);
-    else {
-      idle = true;
-      timer = undefined;
-      update();
-    }
-  };
-  const active = () => {
-    last = Date.now();
-    if (timer === undefined) timer = setTimeout(check, idleMs);
-    if (!idle) return;
-    idle = false;
-    update();
-  };
-  const inputs = ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"];
-  for (const name of inputs) window.addEventListener(name, active, { capture: true, passive: true });
-  window.addEventListener("focus", update);
-  window.addEventListener("blur", update);
-  document.addEventListener("visibilitychange", update);
-  active();
-  update();
-  return () => {
-    clearTimeout(timer);
-    for (const name of inputs) window.removeEventListener(name, active, { capture: true });
-    window.removeEventListener("focus", update);
-    window.removeEventListener("blur", update);
-    document.removeEventListener("visibilitychange", update);
-    setHeld({ away: false });
-  };
-}
 
 interface Sky {
   dirty: boolean;

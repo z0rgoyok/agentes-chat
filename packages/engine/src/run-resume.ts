@@ -1,5 +1,5 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, type Database, type Executor, eq, schema, sql } from "@agenteschat/db";
+import { and, type Database, type Executor, eq, or, schema, sql } from "@agenteschat/db";
 import { routineBriefOfRun } from "./background";
 import type { ToolResult } from "./brains/types";
 import { threadIsConfidential } from "./confidential";
@@ -14,7 +14,7 @@ import { runState } from "./run-state";
 import { type AgentRun, replyThreadOf } from "./runs";
 import { runStretchOf } from "./stretch";
 
-const { agentRuns, messages } = schema;
+const { agentRuns, machines, messages } = schema;
 
 /** A wait the run stopped waiting on (`waits.ts` `detachWait`): its result comes later as a notice. */
 export interface DetachedWait {
@@ -254,9 +254,10 @@ export function forPeople(notice: Notice) {
  * waits for its computer); one job per wait (`waitingForBrain.waitId`), so
  * reconnects while the job is still queued don't add more. A routine's run
  * whose slot is more than 12 hours old doesn't run late: it is missed
- * (`missStaleRoutineRun`, ADR 0053 §6.4). A run parked on its CLI's failure (`parkOutage`) whose agent's sign-in
- * never answered a turn stays on its own resume: the computer coming back changes nothing there. Returns the runs
- * queued again.
+ * (`missStaleRoutineRun`, ADR 0053 §6.4). A run parked on this computer's own refusal or its CLI's failure
+ * (`parkOutage`, `outage.machineId`) is queued too: a runner reconnects with what changed there (its shared Claude
+ * login passing its self-check again). One whose agent's sign-in never answered a turn stays on its own resume: the
+ * computer coming back changes nothing there. Returns the runs queued again.
  */
 export async function resumeRunsWaitingForMachine(
   db: Database,
@@ -274,7 +275,13 @@ export async function resumeRunsWaitingForMachine(
     .from(agentRuns)
     .where(
       and(
-        eq(agentRuns.waitingMachineId, machineId),
+        or(
+          eq(agentRuns.waitingMachineId, machineId),
+          and(
+            sql`${agentRuns.orgId} = (select ${machines.orgId} from ${machines} where ${machines.id} = ${machineId})`,
+            sql`${runState}->'outage'->>'machineId' = ${machineId}`,
+          ),
+        ),
         eq(agentRuns.status, "waiting_input"),
         // The computer coming back says nothing about a plan's limit or a budget.
         sql`coalesce(${runState}->'waitingForBrain'->>'code', '') not in ('plan_limit', 'budget', 'usage_pause')`,

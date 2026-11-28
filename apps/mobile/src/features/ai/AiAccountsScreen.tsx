@@ -12,6 +12,7 @@ import {
   useSettings,
   useUpdateSettings,
 } from "@agenteschat/client";
+import { CLI_OF_BRAIN } from "@agenteschat/client/lib/activity";
 import {
   accountSub,
   accountTitle,
@@ -73,6 +74,7 @@ import { overLimit, TextArea } from "../shared/TextArea";
 import { PlanMeter } from "../usage/parts";
 import { openKeyForAll } from "./AgentSetupScreen";
 import { HubList } from "./AiHubScreens";
+import { CliFetchNote } from "./CliFetchNote";
 import { orderMoves, ownAccountRows } from "./logic";
 import { openConnectAi } from "./NoAiCard";
 import { alertKeyRefused, Note, openRenameAiAccount, PasteField, PlanHoldNote, usePlanHold } from "./parts";
@@ -274,6 +276,12 @@ function AiAccounts() {
               {groups.length === 0 ? connect : null}
             </GroupedList>
             {hold ? <PlanHoldNote org={org} inset /> : null}
+            {/* A computer fetching the CLI of an account here (ADR 0228 §6), or why that failed. */}
+            {(machines.data ?? []).flatMap((m) =>
+              Object.keys(m.cliFetch ?? {})
+                .filter((cli) => rows.some((r) => r.machineId === m.id && CLI_OF_BRAIN[r.kind] === cli))
+                .map((cli) => <CliFetchNote key={`${m.id}:${cli}`} machineId={m.id} cli={cli} />),
+            )}
             {groups.map((g) => (
               <OrderSection
                 key={`${g.machineId}:${g.kind}`}
@@ -783,9 +791,9 @@ export function RenameAiAccountScreen({ machineId, accountId }: { machineId: str
       for (const key of [keys.aiAccounts(orgId), keys.planUsage(orgId), ["org", orgId, "agent"]])
         void qc.invalidateQueries({ queryKey: key });
       goBack();
-    } catch {
+    } catch (e) {
       errorHaptic();
-      toast({ title: t("agentPage.work.failed"), icon: "x" });
+      toast({ title: errorText(t, e), icon: "x" });
     } finally {
       setBusy(false);
     }

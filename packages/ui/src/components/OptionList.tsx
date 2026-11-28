@@ -1,6 +1,8 @@
 import { RadioGroup as RRadioGroup } from "radix-ui";
-import { Fragment, type ReactNode } from "react";
+import { type ButtonHTMLAttributes, Fragment, type ReactNode, useId } from "react";
 import { cx } from "../cx";
+import { Icon, type IconName } from "../icons/Icon";
+import { Chip } from "./Chip";
 import { useLocked } from "./Field";
 
 export interface OptionListItem<V extends string> {
@@ -138,5 +140,90 @@ export function OptionList<V extends string>({
         )
       )}
     </RRadioGroup.Root>
+  );
+}
+
+export interface OptionLinkItem {
+  /** Stable key, also the row's `data-option`. */
+  value: string;
+  title: ReactNode;
+  /** The way most people should take ("Recomendado"): a chip after the title. */
+  tag?: ReactNode;
+  /** One short line under the title. May hold a link: it stays clickable above the row's own button. */
+  description?: ReactNode;
+  /** Before the text: a provider's logo, an icon tile, an avatar. */
+  leading?: ReactNode;
+  /** Quiet words before the chevron ("Um login por agente"). */
+  side?: ReactNode;
+  /** In place of the chevron: `chevronDown` for a row that shows more rows here instead of opening steps. */
+  end?: IconName;
+  disabled?: boolean;
+  onSelect: () => void;
+  /** The row's button, beyond its click: focus and pointer handlers, `autoFocus`, `aria-expanded`. */
+  button?: Omit<ButtonHTMLAttributes<HTMLButtonElement>, "type" | "onClick" | "disabled" | "children">;
+}
+
+/**
+ * A choice that opens its own steps (which app to bring a team from, which AI to connect, where to keep files): the
+ * `OptionList` row's look, each a button with a chevron at its end, the recommended way marked with a chip. Nothing
+ * stays chosen here: a pick moves on. The title is the button and stretches over the whole row, so a link in the
+ * description stays a link (a link can't sit inside a button).
+ */
+export function OptionLinks({
+  options,
+  className,
+  ...rest
+}: {
+  options: readonly OptionLinkItem[];
+  className?: string;
+  "aria-label"?: string;
+  "aria-labelledby"?: string;
+}) {
+  const id = useId();
+  return (
+    <ul className={cx("ac-optlist ac-optlinks", className)} {...rest}>
+      {options.map((o) => {
+        const desc = o.description ? `${id}-${o.value}` : undefined;
+        // The chip sits outside the button: read with its line, so "Recomendado" is heard on the button too.
+        const tagId = o.tag ? `${id}-${o.value}-tag` : undefined;
+        const describedBy = [tagId, desc].filter(Boolean).join(" ") || undefined;
+        return (
+          <li
+            key={o.value}
+            data-option={o.value}
+            className={cx("ac-optrow ac-optrow--link", o.leading ? "ac-optrow--lead" : undefined)}
+            data-disabled={o.disabled ? "" : undefined}
+          >
+            {o.leading && <span className="ac-optrow__lead">{o.leading}</span>}
+            <span className="ac-optrow__text">
+              <span className="ac-optrow__title">
+                <button
+                  type="button"
+                  className="ac-optrow__hit"
+                  aria-describedby={describedBy}
+                  {...o.button}
+                  disabled={o.disabled}
+                  onClick={o.onSelect}
+                >
+                  {o.title}
+                </button>
+                {o.tag && (
+                  <Chip tone="info" className="ac-optrow__chip" id={tagId}>
+                    {o.tag}
+                  </Chip>
+                )}
+              </span>
+              {o.description && (
+                <span className="ac-optrow__desc" id={desc}>
+                  {o.description}
+                </span>
+              )}
+            </span>
+            {o.side && <span className="ac-optrow__side ac-optrow__side--link">{o.side}</span>}
+            <Icon name={o.end ?? "chevronRight"} size={16} className="ac-optrow__go" />
+          </li>
+        );
+      })}
+    </ul>
   );
 }

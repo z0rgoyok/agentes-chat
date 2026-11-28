@@ -300,4 +300,56 @@ describe("one query embedding for a run's memory and wiki", () => {
     expect(sent).toContain("Deploy Northwind with scripts/blue.sh.");
     expect(sent).toContain("after the checks pass");
   });
+
+  test("a run asks its trigger's vector as it reads it, while its tools are still being read", async () => {
+    f = await setup({ embeddings: true, contextTools: true, wikiTools: true });
+    await add({ title: "Deploy da Northwind", content: "Deploy Northwind with scripts/blue.sh." });
+    await drainOutbox(f.db, f.handlers);
+    const queries: string[][] = [];
+    let asked: () => void = () => {};
+    const askedOnce = new Promise<void>((resolve) => {
+      asked = resolve;
+    });
+    const embed = f.embeddings.embed.bind(f.embeddings);
+    f.embeddings.embed = (texts, options) => {
+      if (options.inputType === "query") {
+        queries.push(texts);
+        asked();
+      }
+      return embed(texts, options);
+    };
+    const tools = f.tools as NonNullable<typeof f.tools>;
+    const granted = tools.granted.bind(tools);
+    let askedBeforeTools = false;
+    tools.granted = async (...args) => {
+      await Promise.race([askedOnce, Bun.sleep(500)]);
+      askedBeforeTools = queries.length > 0;
+      return granted(...args);
+    };
+    const body = "@dev como faço o deploy da Northwind?";
+    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body });
+    await drainOutbox(f.db, f.handlers);
+    expect(askedBeforeTools).toBe(true);
+    // Memory and the wiki read that same call.
+    expect(queries).toEqual([[body]]);
+    expect(JSON.stringify(f.provider.calls)).toContain("Deploy Northwind with scripts/blue.sh.");
+  });
+
+  test("with vectors for the wiki alone, a run that doesn't search the wiki asks no query vector", async () => {
+    f = await setup({ embeddings: { kinds: ["wiki"] }, contextTools: true });
+    await add({ title: "Deploy da Northwind", content: "Deploy Northwind with scripts/blue.sh." });
+    await drainOutbox(f.db, f.handlers);
+    const queries: string[][] = [];
+    const embed = f.embeddings.embed.bind(f.embeddings);
+    f.embeddings.embed = (texts, options) => {
+      if (options.inputType === "query") queries.push(texts);
+      return embed(texts, options);
+    };
+    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+      body: "@dev como faço o deploy da Northwind?",
+    });
+    await drainOutbox(f.db, f.handlers);
+    expect(queries).toEqual([]);
+    expect(JSON.stringify(f.provider.calls)).toContain("Deploy Northwind with scripts/blue.sh.");
+  });
 });

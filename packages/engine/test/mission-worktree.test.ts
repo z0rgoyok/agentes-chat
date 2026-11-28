@@ -3,6 +3,7 @@ import type { ServerFrame } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
 import {
   afterMissionRunEnded,
+  claimQueuedTask,
   closeMission,
   createMission,
   createMissionRunToolSource,
@@ -54,6 +55,8 @@ function runner(hub: MachineHub) {
   const state = {
     ensure: [] as EnsurePlan[],
     noSlot: false,
+    /** The runner's connection at its ceiling of requests in flight. */
+    connectionBusy: false,
     baseBehind: undefined as number | undefined,
   };
   const reply = (frame: unknown) => hub.message(conn, JSON.stringify(frame));
@@ -84,6 +87,7 @@ function runner(hub: MachineHub) {
         }
         if (frame.op === "task.start") {
           if (state.noSlot) return fail("no_slot", "all 3 task slots are busy");
+          if (state.connectionBusy) return fail("internal", "busy");
           started.push(frame);
           return ok({
             taskId: frame.taskId,
@@ -95,6 +99,7 @@ function runner(hub: MachineHub) {
           });
         }
         if (frame.op === "task.cancel") return ok({ canceled: true });
+        if (frame.op === "task.status") return ok({ tasks: [] });
         if (frame.op === "read") return ok({ base64: null, size: 0 });
         if (frame.op === "write") return ok({ size: 1 });
         return ok({});
@@ -355,6 +360,66 @@ describe("one worktree per mission (ADR 0044)", () => {
     await drainOutbox(f.db, f.handlers);
     expect(r.started.at(-1)?.taskId).toBe(waiting);
     expect((await taskRow(waiting))?.status).toBe("running");
+  });
+
+  test("a runner connection at its ceiling queues the item instead of failing it, and the queue looks again by itself", async () => {
+    const { r } = await started();
+    r.state.connectionBusy = true;
+    const out = await startTask({ title: "Tests", prompt: "Run the tests", mode: "read" });
+    expect(out.content).toContain("Queued task");
+    const waiting = taskIdOf(out.content);
+    expect(await taskRow(waiting)).toMatchObject({ status: "queued", endedAt: null });
+    r.state.connectionBusy = false;
+    // No task ends there to free anything: the retry comes on its own.
+    await drainOutbox(f.db, f.handlers, { now: new Date(Date.now() + 20_000) });
+    expect(r.started.at(-1)?.taskId).toBe(waiting);
+    expect((await taskRow(waiting))?.status).toBe("running");
+  });
+
+  test("a crash after the queue's claim, before the start went out: the computer back, it starts with all it was asked", async () => {
+    const { r, paired } = await started();
+    r.state.noSlot = true;
+    const out = await startTask({ title: "Tests", prompt: "Run the tests", mode: "read" });
+    const waiting = taskIdOf(out.content);
+    const asked = (await taskRow(waiting))?.startRequest;
+    // Taken from the queue, then the server stops before `task.start` is sent.
+    const claimed = await claimQueuedTask(f.db, (await taskRow(waiting))?.machineId ?? "");
+    expect(claimed?.row.id).toBe(waiting);
+    expect((await taskRow(waiting))?.startRequest).toMatchObject({ ...asked, claimedAt: expect.any(String) });
+    await f.db
+      .update(schema.machineTasks)
+      .set({ updatedAt: new Date(Date.now() - 5 * 60_000) })
+      .where(eq(schema.machineTasks.id, waiting));
+    // Its runner's journal doesn't have it: back in the queue (twice told, once done), then started as asked.
+    r.state.noSlot = false;
+    await r.reconnect(paired.token);
+    await r.reconnect(paired.token);
+    await settle();
+    const start = r.started.find((s) => s.taskId === waiting);
+    const { prompt, cwd, executor } = asked as { prompt: string; cwd: string; executor: string };
+    expect(start).toMatchObject({ prompt, cwd, executor });
+    expect(r.started.filter((s) => s.taskId === waiting)).toHaveLength(1);
+    expect(await taskRow(waiting)).toMatchObject({ status: "running", startRequest: null });
+  });
+
+  test("a server back within the start's grace: the claimed item is looked at again after it, and starts once", async () => {
+    const { r, paired } = await started();
+    r.state.noSlot = true;
+    const waiting = taskIdOf((await startTask({ title: "Tests", prompt: "Run the tests", mode: "read" })).content);
+    const asked = (await taskRow(waiting))?.startRequest;
+    await claimQueuedTask(f.db, (await taskRow(waiting))?.machineId ?? "");
+    // The computer says hello seconds after the claim: its start could still be on the way, so nothing yet.
+    r.state.noSlot = false;
+    await r.reconnect(paired.token);
+    await r.reconnect(paired.token);
+    await settle();
+    expect(r.started.filter((s) => s.taskId === waiting)).toHaveLength(0);
+    expect((await taskRow(waiting))?.status).toBe("queued");
+    // Past the grace, its journal doesn't have it: back in the queue and started as asked, once.
+    await drainOutbox(f.db, f.handlers, { now: new Date(Date.now() + 3 * 60_000) });
+    const { prompt, cwd, executor } = asked as { prompt: string; cwd: string; executor: string };
+    expect(r.started.filter((s) => s.taskId === waiting)).toEqual([expect.objectContaining({ prompt, cwd, executor })]);
+    expect(await taskRow(waiting)).toMatchObject({ status: "running", startRequest: null });
   });
 
   test("the base moving is told to the main session once per new count", async () => {

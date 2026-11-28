@@ -4,6 +4,7 @@ import { errorText } from "@agenteschat/client/lib/errors";
 import { firstName } from "@agenteschat/client/lib/format";
 import {
   CLI_GIT_MISSING,
+  CLI_HOME_ONLY,
   cliCommandWayOut,
   cliInstallFailure,
   cliOneClick,
@@ -18,8 +19,9 @@ import { CommandBlock } from "../machine-bits";
 import { useOrg } from "../org-context";
 
 /**
- * Claude Code or Codex isn't on a computer someone connected (`not_installed`), or is there and won't start
- * (`cant_start`): one line, then the way on. Whoever connected it installs it from here with the vendor's own installer,
+ * Claude Code or Codex isn't on a computer someone connected (`not_installed`), is there and won't start
+ * (`cant_start`), or is too old for agentes.chat (`cli_outdated`: the same installer brings the newest, so its button
+ * says "Update"): one line, then the way on. Whoever connected it installs it from here with the vendor's own installer,
  * anyone else asks them; anyone looks again after installing by hand. `useKey`: the panel's "Use an API key now".
  * A program the apps don't install gets the line to run there instead (`cliCommandWayOut`). Null for a computer where
  * nobody installs from here (the workspace's own installs its programs itself) or a program with neither: the caller
@@ -35,7 +37,7 @@ export function CliMissing({
   machine: Machine | undefined;
   kind: MachineAccountKind;
   computer: string;
-  reason: "not_installed" | "cant_start";
+  reason: "not_installed" | "cant_start" | "cli_outdated";
   useKey?: ReactNode;
 }) {
   const { t } = useTranslation();
@@ -84,7 +86,10 @@ export function CliMissing({
   const install = run.install;
   const running = install?.state === "running";
   const pending = run.start.isPending || run.cancel.isPending || run.ask.isPending || check.isPending;
-  const broken = reason === "cant_start" ? (machine.cliErrors?.[cli] ?? "") : null;
+  const said = reason === "cant_start" ? (machine.cliErrors?.[cli] ?? "") : null;
+  // Only root starts it (system mode): to the agents it isn't there, so its install is the way on, not its error.
+  const homeOnly = said === CLI_HOME_ONLY;
+  const broken = homeOnly ? null : said;
   const gitMissing =
     (install?.state === "failed" && install.cause === "git_missing") ||
     (broken === CLI_GIT_MISSING && install?.state !== "failed");
@@ -106,14 +111,18 @@ export function CliMissing({
           ? broken
             ? t("connectAi.cli.cantStart", { ...words, message: broken })
             : t("brain.reasons.cant_start", words)
-          : checked
-            ? t("connectAi.cli.checked", words)
-            : oneClick?.kind === "outdated"
-              ? t("common.joinSentences", {
-                  a: t("connectAi.cli.missing", words),
-                  b: t("connectAi.cli.outdated", { computer }),
-                })
-              : null));
+          : homeOnly
+            ? t("brain.reasons.home_only", words)
+            : reason === "cli_outdated"
+              ? t("brain.reasons.cli_outdated", words)
+              : checked
+                ? t("connectAi.cli.checked", words)
+                : oneClick?.kind === "outdated"
+                  ? t("common.joinSentences", {
+                      a: t("connectAi.cli.missing", words),
+                      b: t("connectAi.cli.outdated", { computer }),
+                    })
+                  : null));
     // The Claude chat app is likely on a Mac or a PC, and isn't Claude Code: said once, behind the ⓘ.
     const why = cli === "claude" && (machine.os === "windows" || machine.os === "darwin");
     line = (
@@ -158,7 +167,9 @@ export function CliMissing({
                 loading={run.start.isPending}
                 onClick={start}
               >
-                {failedBefore ? t("common.retry") : t("connectAi.cli.install", { program })}
+                {failedBefore
+                  ? t("common.retry")
+                  : t(reason === "cli_outdated" ? "connectAi.cli.update" : "connectAi.cli.install", { program })}
               </Button>
             )}
             {oneClick?.kind === "ask" && broken === null && (
@@ -186,6 +197,24 @@ export function CliMissing({
         {useKey}
       </div>
     </>
+  );
+}
+
+/** Looks for the computer's programs again, once one that wouldn't start was fixed there by hand. */
+export function CliCheckAgain({ machine }: { machine: Machine }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const toast = useToast();
+  const check = useCheckMachineClis(org.id);
+  return (
+    <Button
+      size="sm"
+      disabled={check.isPending || !machine.online}
+      loading={check.isPending}
+      onClick={() => check.mutate(machine.id, { onError: (err) => toast.show(errorText(t, err), "error") })}
+    >
+      {t("connectAi.cli.check")}
+    </Button>
   );
 }
 

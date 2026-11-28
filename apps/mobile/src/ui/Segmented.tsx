@@ -13,7 +13,7 @@ import { CHROME_MAX_SCALE, weights } from "./type-scale";
 
 export type SegmentedProps = FiltersProps & {
   /**
-   * As wide as its box, the segments sharing it evenly (a screen's views, as an agent's Today · Access · Memory).
+   * As wide as its box, the segments sharing it evenly (a screen's views, as the tasks' List · Board).
    * `fit`: each as wide as its words first, so long labels stay on one line (a form's choice).
    */
   wide?: boolean | "fit";

@@ -18,6 +18,7 @@
     "check:licenses": "bun scripts/check-licenses.ts",
     "check:migrations": "bun scripts/check-migrations.ts",
     "check:geometry": "bun scripts/geometry/check.ts",
+    "check:shifts": "bun scripts/geometry/shifts.ts",
     "sync:unavailable": "bun scripts/unavailable-page.ts",
     "ci:local": "bash scripts/ci-local.sh",
     "db:generate": "cd packages/db && bunx drizzle-kit generate --name",
@@ -26,6 +27,9 @@
     "i18n:apply": "bun scripts/i18n.ts apply",
     "i18n:status": "bun scripts/i18n.ts status",
     "report:autonomy": "bun --env-file=.env apps/server/scripts/autonomy-report.ts",
+    "report:speed": "bun --env-file=.env apps/server/scripts/speed-report.ts",
+    "probe:speed": "bun --env-file=.env apps/server/scripts/speed-probe.ts",
+    "eval:speed-budget": "bun apps/server/scripts/speed-budget.ts",
     "smoke": "bun --env-file=.env scripts/smoke.ts",
     "composio:check": "bun --env-file=.env apps/server/scripts/composio-check.ts",
     "eval:memory": "bun --env-file=.env packages/engine/eval/memory.ts",
@@ -36,6 +40,7 @@
     "eval:catchup": "bun --env-file=.env packages/engine/eval/catch-up.ts",
     "eval:router": "bun --env-file=.env packages/engine/eval/router.ts",
     "eval:steer": "bun --env-file=.env packages/engine/eval/steer-triage.ts",
+    "eval:ask-kinds": "bun --env-file=.env packages/engine/eval/ask-kinds.ts",
     "eval:turns": "bun --env-file=.env packages/engine/eval/turns-real.ts",
     "eval:conversation": "bun --env-file=.env packages/engine/eval/conversation.ts",
     "eval:browser": "bun --env-file=.env packages/engine/eval/browser/ab.ts",
@@ -52,7 +57,8 @@
   "patchedDependencies": {
     "react-native-screens@4.30.0": "patches/react-native-screens@4.30.0.patch",
     "@legendapp/list@3.7.3": "patches/@legendapp%2Flist@3.7.3.patch",
-    "react-native-pdf-light@3.2.1": "patches/react-native-pdf-light@3.2.1.patch"
+    "react-native-pdf-light@3.2.1": "patches/react-native-pdf-light@3.2.1.patch",
+    "expo-router@58.0.23": "patches/expo-router@58.0.23.patch"
   },
   "packageManager": "bun@1.4.4",
   "license": "AGPL-3.0-only"

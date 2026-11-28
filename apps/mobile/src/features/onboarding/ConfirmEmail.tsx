@@ -35,7 +35,8 @@ export function ConfirmEmailScreen({ email }: { email: string }) {
   const { t } = useTranslation();
   const api = useApi();
   const qc = useQueryClient();
-  useQuery({ ...meQuery(api), refetchInterval: OPENED_POLL_MS, refetchOnWindowFocus: "always" });
+  const undelivered = useQuery({ ...meQuery(api), refetchInterval: OPENED_POLL_MS, refetchOnWindowFocus: "always" })
+    .data?.user.emailUndelivered;
   const [pending, setPending] = useState(false);
   const [said, setSaid] = useState<{ text: string; failed: boolean } | null>(null);
   const [changing, setChanging] = useState(false);
@@ -138,6 +139,10 @@ export function ConfirmEmailScreen({ email }: { email: string }) {
           style={[CENTER, styles.said]}
         >
           {said.text}
+        </Text>
+      ) : undelivered && !changing ? (
+        <Text variant="small" tone="danger" accessibilityLiveRegion="polite" style={[CENTER, styles.said]}>
+          {t(`auth.confirm.undelivered.${undelivered}`, { email })}
         </Text>
       ) : late && !changing ? (
         <Text variant="small" tone="faint" style={[CENTER, styles.said]}>

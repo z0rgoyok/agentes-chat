@@ -23,7 +23,7 @@ import type { ToolDefinition } from "./tools/types";
 /** A group is loaded up front at this probability or more (a miss costs a search; a load costs every call). */
 export const TOOL_GROUP_THRESHOLD = 0.3;
 /** The judge answers within this, or the run starts with the previous run's groups (`chooseToolGroups`). */
-export const TOOL_GROUPS_TIMEOUT_MS = 1500;
+export const TOOL_GROUPS_TIMEOUT_MS = 1000;
 /** Tool names per group shown to the judge. */
 const NAMES_PER_GROUP = 20;
 

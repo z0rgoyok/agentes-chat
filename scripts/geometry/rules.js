@@ -2394,8 +2394,8 @@
       }
     },
     /**
-     * A day's column of the calendar: no item covers another. A stack of routine runs and a meeting that meet sit side
-     * by side, and a stack stops before the next item (`runStacks`, `layoutDay`). A meeting reaches down its slot (its
+     * A day's column of the calendar: no item covers another. A reminder and a meeting that meet sit side by side
+     * (`layoutDay`). A meeting reaches down its slot (its
      * `min-height`): what a wrapped title draws past it, the page measures and lays out again (`TimeGrid`'s heights),
      * which a captured screen never ran, so only the slots are held here.
      */
@@ -2406,7 +2406,7 @@
         return { left: r.left, right: r.right, top: r.top, bottom: planned > 0 ? r.top + planned : r.bottom };
       };
       for (const col of document.body.querySelectorAll(".cal-week__col")) {
-        const items = [...col.querySelectorAll(":scope > .cal-chip--block, :scope > .cal-week__runs")].filter(seen);
+        const items = [...col.querySelectorAll(":scope > .cal-chip--block, :scope > .cal-week__moment")].filter(seen);
         for (const [i, a] of items.entries()) {
           const ra = slot(a);
           for (const b of items.slice(i + 1)) {
@@ -2580,8 +2580,9 @@
         const s = style(row);
         if (!s.display.includes("flex") || s.flexDirection !== "row" || s.flexWrap !== "wrap" || s.direction === "rtl")
           continue;
-        const toEnd = ["flex-end", "end", "right"].includes(s.justifyContent);
-        if (!toEnd && !["normal", "flex-start", "start", "left"].includes(s.justifyContent)) continue;
+        // Chrome 158 serializes `flex-end` and `flex-start` as `flow-end` and `flow-start`; older ones keep them.
+        const toEnd = ["flex-end", "flow-end", "end", "right"].includes(s.justifyContent);
+        if (!toEnd && !["normal", "flex-start", "flow-start", "start", "left"].includes(s.justifyContent)) continue;
         const kids = flow(row);
         if (kids.length < 2) continue;
         const r = row.getBoundingClientRect();

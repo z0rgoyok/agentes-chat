@@ -1,6 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
+import type { spawn } from "node:child_process";
+import { EventEmitter } from "node:events";
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import {
   type BrainRouteRequest,
   MACHINE_OPS,
@@ -16,6 +19,7 @@ import {
   newestLuna,
   routeWithPlan,
 } from "../../runner/brain-route";
+import { windowsShell } from "../../runner/executors";
 import { handleRequest, NEW_WORK_OPS, OP_ROUTES } from "../../runner/handlers";
 import { errorCode, removeDirs, tempDir, withContainersClient } from "./helpers";
 
@@ -262,6 +266,29 @@ test.skipIf(!posix)("killed past its time, with what it started; an answer that 
   expect(String((error as Error).message)).toMatch(/^Claude Code didn't answer in \d+ s$/);
   expect(Date.now() - started).toBeLessThan(10_000);
   expect(await errorCode(() => routeWithPlan(request({ prompt: "BAD_ROUTE" }), deps))).toBe("internal");
+});
+
+test("on Windows a route starts the CLI as every other start does (cliSpawn), with no console", async () => {
+  const { deps } = folders();
+  const seen: { file: string; args: readonly string[]; options: Record<string, unknown> }[] = [];
+  const fake = ((file: string, args: readonly string[], options: Record<string, unknown>) => {
+    seen.push({ file, args, options });
+    const child = Object.assign(new EventEmitter(), {
+      stdin: new PassThrough(),
+      stdout: new PassThrough(),
+      stderr: new PassThrough(),
+    });
+    setTimeout(() => child.emit("close", 1), 0);
+    return child;
+  }) as unknown as typeof spawn;
+  const { claudeCommand: _, ...rest } = deps;
+  expect(await errorCode(() => routeWithPlan(request(), { ...rest, platform: "win32", spawn: fake }))).toBe("internal");
+  expect(seen).toHaveLength(1);
+  const [run] = seen;
+  // No claude.cmd on this PATH: cmd.exe's not found, as `cliSpawn` starts it (its quoting of a found one: cli-spawn.test).
+  expect(run?.file).toBe(windowsShell());
+  expect(run?.args).toEqual(["/d", "/c", "exit", "9009"]);
+  expect(run?.options.detached).toBe(false);
 });
 
 const AGENT = "0193aaaa-bbbb-7ccc-8ddd-eeeeffff0000";

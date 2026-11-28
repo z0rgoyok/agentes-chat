@@ -128,6 +128,13 @@ export class MissingCredentialError extends Error {
   }
 }
 
+/**
+ * A saved provider key this server can't open (`SealedValueError`): almost always one saved under another
+ * AGENTES_SECRET. Stored as the run's error and matched by `runErrorDetail`.
+ */
+export const UNREADABLE_KEY =
+  "This server can't open the saved API key, usually because AGENTES_SECRET changed after the key was saved. Paste the key again in the workspace's AI keys.";
+
 /** Unique-violation detection that works with postgres.js and PGlite. */
 export function isUniqueViolation(error: unknown): boolean {
   let e: unknown = error;

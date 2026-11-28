@@ -1,5 +1,7 @@
 /** The ghost of a panel that just closed, while it plays its exit; a panel opening in the same commit takes it away. */
 let leaving: (() => void) | null = null;
+/** What that ghost is a copy of. */
+let leftFrom: readonly Element[] = [];
 
 /**
  * Plays an element's exit after React removed it: a lifeless copy (inert, no handlers) takes its place in `<body>` with
@@ -39,6 +41,7 @@ export function leaveAnimated(nodes: (Element | null | undefined)[]) {
   };
   if (moving.length === 0) return done();
   leaving = done;
+  leftFrom = live;
   // The longest exit is --dur-base (180ms); a hidden copy (a phone's scrim) never fires animationend.
   setTimeout(done, 400);
   queueMicrotask(() => {
@@ -46,9 +49,14 @@ export function leaveAnimated(nodes: (Element | null | undefined)[]) {
   });
 }
 
-/** A panel opening in the same commit another closed: the ghost goes and the new one skips its entrance. */
-export function takeOverLeaving(): boolean {
+/**
+ * A panel opening in the same commit another closed: the ghost goes and the new one skips its entrance. A ghost of
+ * these very `nodes` is no other panel: React's StrictMode remounting it in development. It goes, and the panel keeps
+ * its entrance.
+ */
+export function takeOverLeaving(nodes: (Element | null | undefined)[] = []): boolean {
   if (!leaving) return false;
+  const self = nodes.some((n) => n && leftFrom.includes(n));
   leaving();
-  return true;
+  return !self;
 }

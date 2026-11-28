@@ -1,13 +1,59 @@
 import { describe, expect, test } from "bun:test";
 import { deflateSync } from "node:zlib";
 import { PDF_MEDIA_TYPE } from "@agenteschat/providers";
-import { docxText, markdownToDocx, markdownToPdf, pdfPages, pptxText, readForModel, xlsxText, zip } from "../src";
+import {
+  docxText,
+  MODEL_PDF_TEXT_CHARS,
+  markdownToDocx,
+  markdownToPdf,
+  openForModel,
+  pdfPages,
+  pptxText,
+  readForModel,
+  xlsxText,
+  zip,
+} from "../src";
 import { decodeXmlEntities } from "../src/format";
 import { PNG, pptxFixture, xlsxFixture } from "./file-fixtures";
 
 const bytesOf = (s: string) => new TextEncoder().encode(s);
 const read = (name: string, bytes: Uint8Array, contentType = "application/octet-stream") =>
   readForModel({ name, contentType, bytes });
+describe("openForModel", () => {
+  const open = (name: string, bytes: Uint8Array) => openForModel({ name, contentType: "application/pdf", bytes });
+
+  test("a PDF shown as itself carries its text, as data, for the AIs that take no PDFs", async () => {
+    const pdf = markdownToPdf("# Relatório\n\nVendas subiram em março.", { fonts: "standard" });
+    const out = await open("relatorio.pdf", pdf);
+    expect(out.note).toBe("It is a PDF (1 page): shown to you with this result.");
+    expect(out.images?.[0]).toMatchObject({ mediaType: PDF_MEDIA_TYPE, pages: 1, name: "relatorio.pdf" });
+    expect(out.images?.[0]?.text).toBe(
+      '<external_data source="file relatorio.pdf">\n## Page 1\nRelatório\nVendas subiram em março.\n</external_data>',
+    );
+  });
+
+  test("past 100 pages its text goes to every AI, paged by the reader; a long one is cut where it is shown alone", async () => {
+    const long = Array.from({ length: 4000 }, (_, i) => `Cláusula ${i + 1}: prazo de ${i + 1} dias.`).join("\n\n");
+    const book = await open("contrato.pdf", markdownToPdf(long, { fonts: "standard" }));
+    expect(book.images).toBeUndefined();
+    expect(book.note).toContain("pages, past the 4.8 MB and 100 pages an AI is shown at once");
+    expect(book.note).toContain("its text, read out of it, follows");
+    expect(book.text).toStartWith("## Page 1\nCláusula 1: prazo de 1 dias.");
+    expect(book.text).toContain("Cláusula 4000: prazo de 4000 dias.");
+
+    const shown = await open("curto.pdf", markdownToPdf(long.slice(0, 80_000), { fonts: "standard" }));
+    expect(shown.images?.[0]?.text?.length).toBeLessThan(MODEL_PDF_TEXT_CHARS + 200);
+    expect(shown.images?.[0]?.text).toContain("more characters cut]");
+  });
+
+  test("a PDF with no text in it (a scan), or one that isn't readable, stays as readForModel has it", async () => {
+    const broken = bytesOf("%PDF-1.7\n<< /Type /Page >>\ngarbage");
+    expect(await open("scan.pdf", broken)).toEqual(read("scan.pdf", broken));
+    const blank = markdownToPdf("", { fonts: "standard" });
+    expect((await open("vazio.pdf", blank)).images?.[0]?.text).toBeUndefined();
+  });
+});
+
 describe("readForModel", () => {
   test("a picture the model reads is shown; one past 3.5 MB says so with its size", () => {
     expect(read("print.png", PNG)).toEqual({

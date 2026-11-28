@@ -8,8 +8,7 @@ import { dayLabel, EventChip } from "./EventChip";
 
 /**
  * Agenda: the next 30 days as a list, only the days with something. Each day's
- * rows are the month's (the owner's face, the time, the name), a routine's
- * runs among them.
+ * rows are the month's (the owner's face, the time, the name).
  */
 export function AgendaView({
   days,
@@ -75,7 +74,6 @@ export function AgendaView({
                 item={e.item}
                 variant="line"
                 now={now}
-                day={e.day}
                 open={openKey === e.key}
                 onOpenChange={(o) => onOpenKey(o ? e.key : null)}
                 details={details(e.item)}

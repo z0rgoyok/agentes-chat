@@ -17,22 +17,44 @@ import type { BrainPlan } from "./brains/select";
 import { TtlCache } from "./cache";
 import { NotFoundError } from "./errors";
 import { publishOrgEvent } from "./events";
-import { getMachine } from "./machines";
+import { getMachine, type ShownMaintenance, shownMaintenance, shownMoving } from "./machines";
 import { requirePermission } from "./organizations";
 import { enqueue } from "./outbox";
 import { runState } from "./run-state";
 import { RUN_STALE_MS, replyThreadOf } from "./runs";
 
-const { agentRuns, agents, channelMembers, channels, messages } = schema;
+const { agentRuns, agents, channelMembers, channels, machines, messages } = schema;
 
 /**
  * The line for a shared computer's room (ADR 0032, "Calm waits" and "Calm wakes"). The runner admits a turn only
  * while its memory floor holds and keeps no order, so the engine keeps it, in three ranks: runs a person is waiting
  * on, then agents' work a person asked for lately (`transcript.roomAsked`), then the rest; by when each started
- * waiting within a rank. Only the head of the line asks the runner again, and agents' turns start
- * `ROOM_ASK_SPACING_MS` apart, so a burst of mentions reaches the computer one by one instead of all refused at once.
+ * waiting within a rank. Only the head of the line asks the runner again. On a computer near its floor, agents'
+ * turns start `ROOM_ASK_SPACING_MS` apart, so a burst of mentions reaches it one by one instead of all refused at
+ * once (each refusal closes idle CLIs for room); one with clear headroom (`roomIsClear`), or a turn on a CLI already
+ * open, starts at once.
  */
 export const ROOM_ASK_SPACING_MS = 3_000;
+
+/**
+ * What a coding CLI grows to once it runs, and the floor the runner keeps for agents' turns: mirrors of the runner's
+ * `TURN_BYTES` and `MIN_FREE_BYTES` (`apps/server/runner/handlers.ts`, `desktop-session.ts`).
+ */
+const TURN_BYTES = 0.6e9;
+const AGENTS_FLOOR_BYTES = 1.5 * 1024 ** 3;
+/**
+ * How old a computer's free-memory report may be: the runner sends it at most this long after it changed (its
+ * `TASK_ROOM_QUIET_MS`), so a turn asked since may be missing from it and is counted against it.
+ */
+const ROOM_REPORT_MS = 120_000;
+
+/**
+ * Clear headroom: the computer's last free-memory report (`size.room.freeGb`, protocol 78), less a turn's growth for
+ * each turn asked there within `ROOM_REPORT_MS`, still fits one more above the agents' floor. No report (memory not
+ * read there, an older runner): not clear.
+ */
+export const roomIsClear = (freeGb: number | null, recentAsks: number) =>
+  freeGb !== null && freeGb * 1024 ** 3 - recentAsks * TURN_BYTES >= AGENTS_FLOOR_BYTES + TURN_BYTES;
 
 /**
  * When a run behind another in line looks again. The line moves by kicks (a turn ended, the spacing is over), so this
@@ -73,13 +95,6 @@ export type RoomRank = 0 | 1 | 2;
  */
 export type RoomWaitCause = "line" | "sign_in" | "spacing" | "memory";
 
-/**
- * Runs one Claude plan sign-in thinks for at once, by default (`CLAUDE_PLAN_CONCURRENCY`). A personal plan used by
- * many sessions at once reads as automated use to its provider; past this the next run waits in its computer's line
- * for one of them to end. Long work can hold a slot for hours, so 1 would park every reply behind it.
- */
-export const SIGN_IN_CONCURRENCY = 6;
-
 /** A Claude plan sign-in a run thinks with: its account, or its computer's own sign-in (`own`). */
 export interface SignInSlot {
   key: string;
@@ -99,8 +114,32 @@ export function signInSlotOf(plan: Pick<BrainPlan, "kind" | "account">, cap: num
 /** A computer's own sign-in is that computer's; an account is the workspace's, whichever computer its runs think on. */
 const ownSignIn = (key: string) => key === "own";
 
-/** The sign-in a run in line waits on (`signInWait`): only runs waiting for that same sign-in hold it back. */
+/**
+ * The sign-in a run in line waits to think with (`signInWait`), whatever held it (its cap, the line, the spacing):
+ * only runs on that same sign-in hold it back. A run without one (the computer's memory, or no plan sign-in) holds
+ * back the whole line.
+ */
 const signInWaitSql = sql<string | null>`${runState}->'signInWait'->>'key'`;
+
+/** A run working on a sign-in now, holding one of its slots: one whose worker died stops counting once its heartbeat is stale. */
+const holdsSlot = (orgId: string, now: number) =>
+  and(
+    eq(agentRuns.orgId, orgId),
+    eq(agentRuns.status, "running"),
+    sql`${agentRuns.heartbeatAt} > ${new Date(now - RUN_STALE_MS).toISOString()}::timestamptz`,
+  );
+
+/** The workspace's accounts with every slot taken now, so a run at its own sign-in's cap goes on with another one. */
+export async function fullSignIns(db: Executor, orgId: string, cap: number): Promise<Set<string>> {
+  const key = sql<string>`${runState}->'roomAsk'->>'signIn'`;
+  const rows = await db
+    .select({ key })
+    .from(agentRuns)
+    .where(and(holdsSlot(orgId, Date.now()), sql`${key} is not null`, sql`${key} <> 'own'`))
+    .groupBy(key)
+    .having(sql`count(*) >= ${cap}`);
+  return new Set(rows.map((r) => r.key));
+}
 
 /** The run first in line for room on this computer, with the wait its job must carry. */
 export async function roomHead(
@@ -144,7 +183,10 @@ export async function frontOfLine(db: Executor, run: { id: string; orgId: string
   });
 }
 
-/** Asks the head of the line to look again: now (a turn there ended), or `at` (the spacing is over). One job of each per wait. */
+/**
+ * Asks the head of the line to look again: now (a turn there ended, or one went in with clear headroom), or `at` (the
+ * spacing is over). One job of each per wait.
+ */
 export async function kickRoomQueue(db: Database, machineId: string, at?: Date) {
   const head = await roomHead(db, machineId);
   if (!head?.waitId) return;
@@ -181,20 +223,22 @@ export async function kickSignInLine(db: Executor, machineId: string, key: strin
 
 /**
  * Whether this run may send its computer turn now. Null: go (its ask is recorded, and the next in line is asked
- * once the spacing is over). Otherwise it is behind: `retryAt` is when it may look again. Behind when a run waiting
- * for room ranks ahead of it (by rank, then the longest wait), or, for agents' work, when another run asked
- * this computer less than `ROOM_ASK_SPACING_MS` ago. A person's turn never waits for the spacing; the runner's
- * memory floor still decides whether it fits.
+ * at once on a computer with clear headroom, else once the spacing is over). Otherwise it is behind: `retryAt` is when
+ * it may look again. Behind when a run waiting for room ranks ahead of it (by rank, then the longest wait), or, for
+ * agents' work on a computer without clear headroom (`roomIsClear`), when another run asked it less than
+ * `ROOM_ASK_SPACING_MS` ago. A person's turn and one on a CLI already open on this computer (`warmOn`: it starts no process) never wait
+ * for the spacing; the runner's memory floor still decides whether each fits.
  */
 export async function roomGate(
   db: Database,
   run: { id: string; orgId: string },
   machineId: string,
-  place: { rank: RoomRank; since: number },
+  place: { rank: RoomRank; since: number; warmOn?: string | null },
   signIn?: SignInSlot,
 ): Promise<{ retryAt: number; cause: RoomWaitCause } | null> {
   const now = Date.now();
   const rank = place.rank === 2 && place.since < now - ROOM_RANK_AGE_MS ? 1 : place.rank;
+  let clear = false;
   const behind = await db.transaction(async (tx) => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`room:${machineId}`}))`);
     const [ahead] = await tx
@@ -214,38 +258,42 @@ export async function roomGate(
     if (signIn) {
       if (!ownSignIn(signIn.key))
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`sign-in:${signIn.key}`}))`);
-      // Its slots: runs working on this sign-in now. One whose worker died stops counting once its heartbeat is stale.
       const [taken] = await tx
         .select({ n: sql<number>`count(*)::int` })
         .from(agentRuns)
         .where(
           and(
-            eq(agentRuns.orgId, run.orgId),
-            eq(agentRuns.status, "running"),
+            holdsSlot(run.orgId, now),
             sql`${agentRuns.id} <> ${run.id}`,
             ownSignIn(signIn.key) ? sql`${runState}->'roomAsk'->>'machineId' = ${machineId}` : undefined,
             sql`${runState}->'roomAsk'->>'signIn' = ${signIn.key}`,
-            sql`${agentRuns.heartbeatAt} > ${new Date(now - RUN_STALE_MS).toISOString()}::timestamptz`,
           ),
         );
       if (Number(taken?.n ?? 0) >= signIn.cap)
         return { retryAt: now + ROOM_BEHIND_RETRY_MS, cause: "sign_in" as const };
     }
-    if (rank > 0) {
-      const [last] = await tx
-        .select({ at: sql<string>`max((${runState}->'roomAsk'->>'at')::bigint)` })
-        .from(agentRuns)
-        .where(
-          and(
-            eq(agentRuns.orgId, run.orgId),
-            eq(agentRuns.status, "running"),
-            sql`${agentRuns.id} <> ${run.id}`,
-            sql`${runState}->'roomAsk'->>'machineId' = ${machineId}`,
-          ),
-        );
-      const at = Number(last?.at ?? 0);
-      if (now - at < ROOM_ASK_SPACING_MS) return { retryAt: at + ROOM_ASK_SPACING_MS, cause: "spacing" as const };
-    }
+    const askAt = sql`(${runState}->'roomAsk'->>'at')::bigint`;
+    const [last] = await tx
+      .select({
+        at: sql<string | null>`max(${askAt})`,
+        recent: sql<number>`count(*) filter (where ${askAt} > ${now - ROOM_REPORT_MS}::bigint)::int`,
+        freeGb: sql<
+          number | null
+        >`(select (${machines.size}->'room'->>'freeGb')::float8 from ${machines} where ${machines.id} = ${machineId})`,
+      })
+      .from(agentRuns)
+      .where(
+        and(
+          eq(agentRuns.orgId, run.orgId),
+          eq(agentRuns.status, "running"),
+          sql`${agentRuns.id} <> ${run.id}`,
+          sql`${runState}->'roomAsk'->>'machineId' = ${machineId}`,
+        ),
+      );
+    clear = roomIsClear(last?.freeGb == null ? null : Number(last.freeGb), Number(last?.recent ?? 0));
+    const at = Number(last?.at ?? 0);
+    if (rank > 0 && place.warmOn !== machineId && !clear && now - at < ROOM_ASK_SPACING_MS)
+      return { retryAt: at + ROOM_ASK_SPACING_MS, cause: "spacing" as const };
     await tx
       .update(agentRuns)
       .set({
@@ -254,7 +302,7 @@ export async function roomGate(
       .where(eq(agentRuns.id, run.id));
     return null;
   });
-  if (!behind) await kickRoomQueue(db, machineId, new Date(now + ROOM_ASK_SPACING_MS));
+  if (!behind) await kickRoomQueue(db, machineId, clear ? undefined : new Date(now + ROOM_ASK_SPACING_MS));
   return behind;
 }
 
@@ -325,6 +373,10 @@ export interface QueueWaiting extends QueueAccess {
 export interface ComputerQueue {
   machineId: string;
   name: string;
+  /** It is away for what we do to it (a move, a restart…): the line waits for it, and its dialog says so. */
+  moving: boolean;
+  /** What we do to it (`shownMaintenance`). */
+  maintenance: ShownMaintenance | null;
   working: QueueWorking[];
   waiting: QueueWaiting[];
 }
@@ -572,6 +624,8 @@ export async function computerQueue(
   return {
     machineId,
     name: machine.name,
+    moving: shownMoving(machine),
+    maintenance: shownMaintenance(machine),
     working: working.map((r, i) => ({
       runId: r.runId,
       agentId: r.agentId,

@@ -16,6 +16,7 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
+import { ROUTINE_PROMPT_MAX } from "@agenteschat/tokens/routines";
 import { getAgent } from "./agents";
 import { type AiStatusDeps, rightHandWorkAi } from "./ai-status";
 import { decidesAgentApprovals, MAX_OWN_ACTIONS, OWN_ACTION_NAME } from "./approval-rules";
@@ -80,9 +81,17 @@ import {
   routineAccessOf,
   routineReportOf,
 } from "./routine-brief";
-import { enqueueRoutineJob, queueEventRun, startGatheredRun } from "./routine-events";
-import { claimRoutineRun, haltRoutineRuns, makeWayForRun, skipRoutineRun, unclaimRoutineRun } from "./routine-firing";
+import { enqueueRoutineJob, queueEventRun, startGatheredRun, wakeHeldRuns } from "./routine-events";
 import {
+  claimRoutineRun,
+  haltRoutineRuns,
+  makeWayForRun,
+  queueBehindAgentRoutine,
+  skipRoutineRun,
+  unclaimRoutineRun,
+} from "./routine-firing";
+import {
+  callCountOf,
   DEFAULT_HOOK_METHODS,
   ensureRoutineHook,
   type HookMethod,
@@ -281,6 +290,8 @@ export interface RoutineRunView {
   link: { channelId: string; threadId: string | null; messageId: string } | null;
   /** While it waits for a person: the approval it waits on, if any (readers only). */
   approvalId?: string | null;
+  /** A webhook routine's run: how many calls it carried (readers only; who manages it reads them, `routineRunCalls`). */
+  calls?: number;
   finishedAt: string | null;
 }
 
@@ -707,6 +718,21 @@ function runView(run: RunRow, details: RunDetails, detailed: boolean): RoutineRu
   // A provider's failure says its cause and its words, for who reads the records: the code alone says only "an error".
   const failure = detailed && status === "failed" ? providerFailure(agentRun?.error) : null;
   const cause = failure?.errorParams?.provider ? failure : null;
+  const calls = callCountOf(run.event);
+  // In line behind another routine of its agent (`queueBehindAgentRoutine`): which one.
+  const behind = status === "queued" && typeof run.event?.waitingFor === "string" ? run.event.waitingFor : null;
+  if (behind !== null)
+    return {
+      id: run.id,
+      at: run.at.toISOString(),
+      status,
+      code: "waiting_routine",
+      codeParams: { routine: behind },
+      summary: "",
+      brain: run.brain,
+      link: null,
+      finishedAt: null,
+    };
   return {
     id: run.id,
     at: run.at.toISOString(),
@@ -728,6 +754,7 @@ function runView(run: RunRow, details: RunDetails, detailed: boolean): RoutineRu
     brain: run.brain,
     link: link && run.messageId ? { ...link, messageId: run.messageId } : null,
     ...(status === "waiting" ? { approvalId } : {}),
+    ...(detailed && calls !== null ? { calls } : {}),
     finishedAt: run.finishedAt?.toISOString() ?? null,
   };
 }
@@ -840,7 +867,16 @@ async function viewerRights(
   return out;
 }
 
-const BRAINS: readonly BrainKind[] = ["model", "claude_code", "codex", "cursor", "opencode", "grok", "antigravity"];
+const BRAINS: readonly BrainKind[] = [
+  "model",
+  "claude_code",
+  "codex",
+  "cursor",
+  "opencode",
+  "grok",
+  "antigravity",
+  "devin",
+];
 const brainKindOf = (v: unknown): BrainKind => (BRAINS.includes(v as BrainKind) ? (v as BrainKind) : "model");
 
 /** Who paid the week: a computer brain's plan, the API, or both; no usage yet: what its brain would bill. */
@@ -1452,8 +1488,8 @@ export async function createRoutine(
   const agent = await getAgent(db, orgId, input.agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
   // A routine asks the agent on its creator's behalf: only people who can talk to it create one.
-  if (!canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId))) throw await audienceError(db, agent);
-  const prompt = input.prompt.trim().slice(0, 10_000);
+  if (!canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId))) throw await audienceError(db, agent, actorId);
+  const prompt = input.prompt.trim().slice(0, ROUTINE_PROMPT_MAX);
   if (!prompt) throw new ValidationError("Say what the agent should do", "routine.prompt_required");
   await checkTarget(db, orgId, agent.id, input.target, actorId);
   const trigger = await resolveTrigger(deps, actorId, orgId, input.trigger);
@@ -1750,16 +1786,18 @@ export async function updateRoutine(
     set.agentId = patch.agentId;
   }
   const agent = await getAgent(db, orgId, agentId);
-  if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
+  // Pausing needs nothing of its agent: an archived agent's routine can still be switched off.
+  const pausing = patch.active === false && Object.entries(patch).every(([k, v]) => k === "active" || v === undefined);
+  if (!agent || (agent.archivedAt && !pausing)) throw new NotFoundError("Agent not found");
   if (set.agentId && !canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId)))
-    throw await audienceError(db, agent);
+    throw await audienceError(db, agent, actorId);
   if (patch.name !== undefined) {
     const name = patch.name.trim().slice(0, 120);
     if (!name) throw new ValidationError("Give the routine a name", "routine.name_required");
     set.name = name;
   }
   if (patch.prompt !== undefined) {
-    const prompt = patch.prompt.trim().slice(0, 10_000);
+    const prompt = patch.prompt.trim().slice(0, ROUTINE_PROMPT_MAX);
     if (!prompt) throw new ValidationError("Say what the agent should do", "routine.prompt_required");
     set.prompt = prompt;
   }
@@ -1891,6 +1929,7 @@ export async function updateRoutine(
     await haltRoutineRuns(deps, orgId, row.id, { code: "paused", byUserId: actorId });
   } else if (patch.active === true && !current.active) {
     await resolveRoutinePaused(deps, orgId, row.id).catch(() => {});
+    await wakeHeldRuns(deps, row.id);
   }
   const before: Record<string, unknown> = {};
   const after: Record<string, unknown> = {};
@@ -1981,7 +2020,7 @@ export async function duplicateRoutine(
   if (targetOf(current).type === "widget") throw new ForbiddenError(WIDGET_ROUTINE_FIXED, "routine.widget_fixed");
   const agent = await getAgent(db, orgId, current.agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  if (!canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId))) throw await audienceError(db, agent);
+  if (!canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId))) throw await audienceError(db, agent, actorId);
   // Whoever copies it becomes its creator: they must be able to post where it reports.
   await checkTarget(db, orgId, agent.id, targetOf(current), actorId);
   const { id: _id, createdAt: _c, updatedAt: _u, lastRunAt: _l, deletedAt: _d, ...copy } = current;
@@ -2046,7 +2085,10 @@ export async function setRoutineActive(
   if (!active) {
     await haltRoutineRuns(deps, orgId, id, { code: "paused", byUserId: actorId });
     await cancelRoutineAhead(deps, orgId, id, actorId);
-  } else await resolveRoutinePaused(deps, orgId, id).catch(() => {});
+  } else {
+    await resolveRoutinePaused(deps, orgId, id).catch(() => {});
+    if (!current.active) await wakeHeldRuns(deps, id);
+  }
   const watch = row ? (await watchesOf(deps.db, [row.id])).get(row.id) : undefined;
   if (row && watch) {
     if (active && !current.active) await resetMailWatchState(deps.db, row.id);
@@ -2101,6 +2143,48 @@ export async function resumeRoutineBySystem(
   await resolveRoutinePaused(deps, orgId, id).catch(() => {});
   await publishListChanged(deps.pubsub, orgId, "routines");
   return true;
+}
+
+/**
+ * An archived agent came back (an archive's Undo): the routines its archive paused (`agent_archived`) run again as
+ * they were, from their next slot, their pause notices done. That pause never dropped their mail watches or connector
+ * triggers, so nothing else needs restoring.
+ */
+export async function resumeArchivedAgentRoutines(
+  deps: { db: Database; pubsub?: PubSub },
+  orgId: string,
+  agentId: string,
+  actorId: string,
+): Promise<number> {
+  const paused = and(eq(routines.active, false), eq(routines.pausedReason, "agent_archived"));
+  const rows = await deps.db
+    .select()
+    .from(routines)
+    .where(and(eq(routines.orgId, orgId), eq(routines.agentId, agentId), paused, isNull(routines.deletedAt)));
+  const now = new Date();
+  for (const r of rows) {
+    await deps.db
+      .update(routines)
+      .set({
+        active: true,
+        nextRunAt: r.triggerType === "schedule" ? nextRoutineTime(r, now) : null,
+        updatedAt: now,
+        pausedReason: null,
+        failuresInRow: 0,
+      })
+      .where(and(eq(routines.id, r.id), paused));
+    await recordAudit(deps.db, {
+      orgId,
+      actor: { type: "person", id: actorId },
+      action: "routine.resumed",
+      target: { type: "routine", id: r.id },
+      details: { name: r.name, after: "agent_archived" },
+    });
+    await resolveRoutinePaused(deps, orgId, r.id).catch(() => {});
+    await wakeHeldRuns(deps, r.id);
+  }
+  if (rows.length > 0) await publishListChanged(deps.pubsub, orgId, "routines");
+  return rows.length;
 }
 
 /**
@@ -2477,6 +2561,10 @@ async function fireClaimedRun(deps: RoutineDeps, run: RunRow) {
     if (once) await ran();
     return;
   }
+  if (await queueBehindAgentRoutine(deps, routine, run)) {
+    await publishRoutineRuns(deps.pubsub, routine.orgId, routine.id);
+    return;
+  }
   const brief: RoutineBrief = {
     routineId: routine.id,
     routineRunId: run.id,
@@ -2597,7 +2685,7 @@ export async function takeOverRoutine(
   await requireRoutineManager(db, actorId, orgId, current.agentId);
   const agent = await getAgent(db, orgId, current.agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  if (!canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId))) throw await audienceError(db, agent);
+  if (!canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId))) throw await audienceError(db, agent, actorId);
   const target = targetOf(current);
   if (
     (target.type === "channel" || target.type === "conversation") &&
@@ -2683,7 +2771,7 @@ export async function createReminder(
   const membership = await requirePermission(db, requesterId, orgId, "post");
   const agent = await getAgent(db, orgId, input.agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  if (!canTalkTo(agent, requesterId, speakerOf(membership))) throw await audienceError(db, agent);
+  if (!canTalkTo(agent, requesterId, speakerOf(membership))) throw await audienceError(db, agent, requesterId);
   const message = input.message.trim().slice(0, 2000);
   if (!message) throw new ValidationError("Say what to remind", "reminder.text_required");
   if (input.forUserId && input.forUserId !== requesterId) {

@@ -1,0 +1,94 @@
+/* Não lidas (UnreadsPage.tsx, ADR 0260): the inbox's waiting rows, then one card per unread conversation. */
+.unreads {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  padding-bottom: var(--space-8);
+}
+.unreads__part {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.unreads__inbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.unreads__conv {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.unreads__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--control-h-sm);
+}
+.unreads__name {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 650;
+  text-decoration: none;
+}
+.unreads__name > span {
+  overflow-wrap: anywhere;
+}
+.unreads__name:hover > span {
+  text-decoration: underline;
+}
+/* What calls on me (a mention, a DM): the sidebar's red count. */
+.unreads__count {
+  background: var(--danger);
+  color: var(--raised);
+  font-weight: 700;
+}
+.unreads__acts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-inline-start: auto;
+}
+.unreads__msgs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.unreads__msg-text {
+  min-width: 0;
+  color: var(--ink2);
+}
+.unreads__msg-text time {
+  color: var(--muted);
+  font-size: 12px;
+}
+.unreads__msg-body {
+  display: block;
+  overflow-wrap: anywhere;
+}
+.unreads__more {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+/* A phone: the card's buttons go under its name, each its own width. */
+@media (max-width: 640px) {
+  .unreads__head {
+    flex-wrap: wrap;
+  }
+  .unreads__acts {
+    flex-basis: 100%;
+    margin-inline-start: 0;
+  }
+}

@@ -7,6 +7,7 @@ import "./styles.css";
 import { AppProvider } from "./app";
 import { toolWords } from "./control/activity";
 import type { LocalPhase, ServeProblem, SetupStep, Tailnet } from "./control/local-server";
+import { raisePick } from "./control/notify";
 import { DesktopStore, orgName } from "./control/store";
 import { DevFrame } from "./dev/DevFrame";
 import { readPref } from "./hooks";
@@ -83,6 +84,10 @@ const store = new DesktopStore(host, {
     if (host.window !== "popover") return;
     const values = { name: allowed.byName || orgName(home), tool: toolWords(i18n.t, allowed.tool) };
     void host.notify(i18n.t("desktop.tray.allowedTitle", values), i18n.t("desktop.tray.allowedBody")).catch(() => {});
+  },
+  // Asked for from the apps by a person: always told, and the popover opens on the card where the person here answers.
+  onPickAsked: (home, pick) => {
+    if (host.window === "popover") raisePick(host, i18n.t, home, pick);
   },
 });
 store.start();

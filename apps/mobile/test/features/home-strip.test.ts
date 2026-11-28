@@ -55,24 +55,24 @@ const team = [
 const starters = agentStarters(team);
 const keys = (list: { key: string }[]) => list.map((r) => r.key);
 
-describe("the pinned strip", () => {
-  test("agents first, then channels, then people, each in the pins' order", () => {
-    const pins = { agents: ["dev", "ada"], channels: ["vendas"], people: ["ana"] };
-    expect(keys(pinnedRows(rows, starters, pins))).toEqual(["d:d-dev", "d:d-ada", "c:vendas", "d:d-ana"]);
+describe("the strip of Favoritos (ADR 0260)", () => {
+  test("people, agents and channels together, in the person's order", () => {
+    const favorites = ["person:ana", "agent:dev", "channel:vendas", "agent:ada"];
+    expect(keys(pinnedRows(rows, starters, favorites))).toEqual(["d:d-ana", "d:d-dev", "c:vendas", "d:d-ada"]);
   });
 
-  test("a pinned agent never talked to stands as one to start; its DM's row once there is one", () => {
-    const strip = pinnedRows(rows, starters, { agents: ["theo", "ada"], channels: [], people: [] });
+  test("a favorite agent never talked to stands as one to start; its DM's row once there is one", () => {
+    const strip = pinnedRows(rows, starters, ["agent:theo", "agent:ada"]);
     expect(strip.map((r) => [r.key, r.channelId])).toEqual([
       ["a:theo", ""],
       ["d:d-ada", "d-ada"],
     ]);
   });
 
-  test("a pin of something no longer listed (gone, hidden, the right hand) holds no place; nothing pinned, nothing", () => {
-    const pins = { agents: ["gone", "dev"], channels: ["left"], people: ["nobody"] };
-    expect(keys(pinnedRows(rows, starters, pins))).toEqual(["d:d-dev"]);
-    expect(pinnedRows(rows, starters, { agents: [], channels: [], people: [] })).toEqual([]);
+  test("a favorite of something no longer listed (gone, hidden, the right hand) holds no place; none, nothing", () => {
+    const favorites = ["agent:gone", "agent:dev", "channel:left", "person:nobody", "bogus"];
+    expect(keys(pinnedRows(rows, starters, favorites))).toEqual(["d:d-dev"]);
+    expect(pinnedRows(rows, starters, [])).toEqual([]);
   });
 
   test("an agent whose DM wouldn't open is never one to start, though the Agents tab lists it", () => {
@@ -81,9 +81,9 @@ describe("the pinned strip", () => {
     const edited = { id: "iris", name: "Iris", handle: "iris", canTalk: false, canEdit: true, canManage: false };
     const locked = { id: "ivo", name: "Ivo", handle: "ivo", canTalk: false, canManage: false };
     const managed = { id: "lia", name: "Lia", handle: "lia", canTalk: false, canManage: true };
-    const pins = { agents: ["iris", "ivo", "lia", "ada"], channels: [], people: [] };
+    const favorites = ["agent:iris", "agent:ivo", "agent:lia", "agent:ada"];
     // The one I manage opens its DM (its composer offers to let me in); the others hold no place on the strip.
-    expect(keys(pinnedRows(rows, agentStarters([...team, edited, locked, managed]), pins))).toEqual([
+    expect(keys(pinnedRows(rows, agentStarters([...team, edited, locked, managed]), favorites))).toEqual([
       "a:lia",
       "d:d-ada",
     ]);
@@ -134,8 +134,9 @@ describe("Conversas with the strip and one list", () => {
     const loaded = home.slice(home.indexOf("<HomeWidgets"));
     const order = ["<HomeWidgets", "<PinnedStrip", 'title={t("mobile.chats.recent")}'].map((p) => loaded.indexOf(p));
     expect(order.every((pos, i) => pos >= 0 && (i === 0 || pos > (order[i - 1] ?? 0)))).toBe(true);
-    expect(home).toContain("pinnedRows(pinned.rows, starters, pins.pins)");
-    expect(home).toContain('holdLabel={t("sidebarPins.unpin")}');
+    expect(home).toContain("pinnedRows(pinned.rows, starters, pins.favorites)");
+    expect(home).toContain('holdLabel={t("sidebarFavorites.remove")}');
+    expect(strip).toContain('title={t("mobile.chats.favorites")}');
   });
 
   test("Recentes: the home's rows with no grouping, no pin first and no pin mark, the first twenty and See all", () => {
@@ -186,7 +187,11 @@ describe("Conversas with the strip and one list", () => {
   });
 
   test("the app's faces, the kit's press and badge, the screen's sides, and nothing that moves for show", () => {
-    expect(strip).toContain("<AgentFace agentId={r.with.id} size={FACE - 2} mode={facts.face} live={live} presence />");
+    // At work it wears the orbit, as its row's face does.
+    expect(strip).toContain(
+      "<AgentFace agentId={r.with.id} size={FACE - 2} mode={facts.face} live={live} presence orbit={ringed} />",
+    );
+    expect(strip).toContain('const ringed = r.kind === "dm" && r.with.type === "agent" && facts.face === "run";');
     expect(strip).toContain('<Tile icon="hash" size={FACE} />');
     expect(strip).toMatch(/<PressScale\s+haptic=\{false\}/);
     expect(strip).toContain("<Count");
@@ -201,13 +206,13 @@ describe("Conversas with the strip and one list", () => {
 
   test("its words in both languages, and the per-kind sections' words gone", () => {
     for (const keysOf of [featureKeysEn, featureKeysPtBR]) {
-      expect(typeof keysOf.chats.pinned).toBe("string");
+      expect(typeof keysOf.chats.favorites).toBe("string");
       expect(typeof keysOf.chats.recent).toBe("string");
       expect(typeof keysOf.chats.seeAll).toBe("string");
       expect("section" in keysOf.chats).toBe(false);
       expect("seeAll" in keysOf.categories).toBe(false);
     }
-    expect(featureKeysPtBR.chats.pinned).toBe("Fixados");
+    expect(featureKeysPtBR.chats.favorites).toBe("Favoritos");
     expect(featureKeysPtBR.chats.recent).toBe("Recentes");
   });
 });

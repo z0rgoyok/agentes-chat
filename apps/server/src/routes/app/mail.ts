@@ -1,6 +1,7 @@
 import {
   completeComposioConnect,
   createImapAccount,
+  desktopBackPage,
   desktopMailRedirect,
   getAgentMail,
   listMailAccounts,
@@ -247,7 +248,7 @@ export function mailRoutes(deps: AppDeps, log: Logger) {
       tags,
       summary: "Where Composio sends the person back (browser navigation, no session needed)",
       description:
-        "Reads the connected account, then redirects to the connectors screen with `mail=connected` or `mail=failed`, and `account=<id>`. Started in the desktop app (`from=desktop`): to the app's link instead (`agenteschat://desktop/connectors/oauth?org=…&state=mail&code=connected|failed`), which opens the connectors screen in its window.",
+        "Reads the connected account, then redirects to the connectors screen with `mail=connected` or `mail=failed`, and `account=<id>`. Started in the desktop app (`from=desktop`): to the browser page `/desktop/back` instead, carrying in its fragment the app's link (`agenteschat://desktop/connectors/oauth?org=…&state=mail&code=connected|failed`), which opens the connectors screen in the app's window.",
       request: { query: z.object({ account: z.uuid(), from: z.enum(["desktop"]).optional() }) },
       responses: {
         302: { description: "Back to the web app, or to the desktop app" },
@@ -266,7 +267,8 @@ export function mailRoutes(deps: AppDeps, log: Logger) {
         return null;
       });
       // The person is in the app's window, which is signed in. This browser may not be.
-      if (from === "desktop") return c.redirect(desktopMailRedirect(r?.orgId, r?.ok === true), 302);
+      if (from === "desktop")
+        return c.redirect(desktopBackPage(base, desktopMailRedirect(r?.orgId, r?.ok === true)), 302);
       const account = `account=${encodeURIComponent(accountId)}`;
       if (!r) return c.redirect(`${base}/?mail=failed&${account}`, 302);
       return c.redirect(

@@ -11,6 +11,7 @@ import type {
   LiveDeps,
   LiveDocs,
   LiveImages,
+  LocalSpeech,
   McpConnect,
   ModelGateway,
   ResolveHost,
@@ -96,6 +97,8 @@ export interface AppExtras {
   githubApp?: GitHubAppSettings;
   /** Speech engines and what voice messages need (ADR 0100); absent: no voice messages. */
   speech?: SpeechSettings;
+  /** The helper on this computer its owner may set up (`speech-local.ts`); absent: not offered here. */
+  speechLocal?: LocalSpeech | null;
   voice?: VoiceDeps;
   /** Live files (ADR 0196): the documents this process hosts; absent: their routes answer 500. */
   live?: LiveDocs;

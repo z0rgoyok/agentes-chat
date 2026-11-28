@@ -420,6 +420,18 @@ describe("the workspace menu tells closed and same-named workspaces apart", () =
     expect(first?.textContent).toMatch(/Criado em 10 jan/);
     expect(second?.textContent).toMatch(/Criado em 2 mar/);
   });
+
+  test("a personal one of mine is me, with the line under the name a team's has (ADR 0159)", async () => {
+    const { state } = await open(`/org/${ORG_ID}/issues`, {
+      beta: { id: BETA_ID, name: "Pessoal", role: "owner", mode: "personal" },
+    });
+    const [acme, mine] = await rows();
+    expect(acme?.querySelector(".ac-mo__name")?.textContent).toBe("Acme");
+    expect(acme?.querySelector(".ac-menu__desc")?.textContent).toBe("Dono");
+    // My name on it, never the workspace's, and "Pessoal" where a team's says my role: the same two lines.
+    expect(mine?.querySelector(".ac-mo__name")?.textContent).toBe(state.me?.user.name);
+    expect(mine?.querySelector(".ac-menu__desc")?.textContent).toBe("Pessoal");
+  });
 });
 
 describe("the desktop app lists every server's workspaces (ADR 0154)", () => {

@@ -4,22 +4,17 @@
     "send": "Gönder"
   },
   "categories": {
-    "title": "Kategoriler",
-    "where": "#{{channel}} kanalının göründüğü yer",
-    "whereHelp": "Herkes için değişir. Kanala kimlerin katıldığı aynı kalır.",
-    "create": "Oluştur",
-    "endOfList": "Herkes için listenin sonuna eklenir.",
-    "channelCount_one": "{{count}} kanal",
-    "channelCount_other": "{{count}} kanal",
-    "none": "Henüz kategori yok.",
-    "manageHint": "Sıra, adlar ve silme",
-    "deleteTitle": "{{name}} silinsin mi?",
-    "order": "Listedeki yeri",
     "up": "Yukarı taşı",
     "down": "Aşağı taşı",
-    "position": "{{at}} / {{count}}.",
-    "channelPosition": "{{at}} / {{count}}.",
-    "itsChannels": "Kanallar"
+    "channelPosition": "{{at}} / {{count}}."
+  },
+  "sections": {
+    "title": "Bölüm",
+    "where": "#{{channel}} senin listende nerede",
+    "whereHelp": "Yalnızca senin listen değişir. Herkes kendi bölümlerini düzenler.",
+    "none": "Bölüm yok",
+    "order": "Bölümdeki yeri",
+    "tooLong": "En fazla 40 karakter kullan."
   },
   "blocks": {
     "send": "Gönder",
@@ -70,6 +65,17 @@
     "raw": "Ham",
     "more": "{{count}} satırın tümünü gör",
     "gone": "Bu kod artık açık değil."
+  },
+  "table": {
+    "label_one": "Tablo · {{count}} satır",
+    "label_other": "Tablo · {{count}} satır",
+    "title": "Tablo",
+    "rows_one": "{{count}} satır",
+    "rows_other": "{{count}} satır",
+    "copy": "Tabloyu kopyala",
+    "copied": "Tablo kopyalandı",
+    "more": "{{count}} satırın tümünü gör",
+    "gone": "Bu tablo artık açık değil."
   },
   "time": {
     "today": "Bugün",
@@ -187,11 +193,11 @@
       "text": "Sunucu kapalı ya da ağınızın dışında olabilir. Tekrar açıldığında sohbetleriniz kendiliğinden görünür.",
       "kept": "Uygulamada zaten olanlar gösteriliyor."
     },
-    "pinned": "Sabitlenenler",
+    "favorites": "Favoriler",
     "recent": "Son sohbetler",
     "view": {
       "title": "Sohbetleri göster",
-      "sectors": "Bölümler",
+      "sections": "Bölümler",
       "dms": "Doğrudan mesajlar",
       "channels": "Kanallar"
     },
@@ -847,6 +853,7 @@
   },
   "agent": {
     "talk": "Sohbet et",
+    "responsible": "Sorumlu",
     "task": "Görev",
     "owner": "sorumlu: {{name}}",
     "cantTalk": "Bu ajan sizinle çalışmıyor.",
@@ -927,6 +934,7 @@
       "admin_ask_channel_agent": "{{names}}, {{agent}} ajanını #{{label}} kanalına eklemenizi istiyor",
       "admin_ask_create_agents": "{{names}}, ajan oluşturabilmek istiyor",
       "admin_ask_webhook": "{{names}}, rutinler için {{service}} webhook'unu kurmanızı istiyor",
+      "admin_ask_voice": "{{names}}, sesli mesajları açmanızı istiyor",
       "routine_paused_one": "Rutin duraklatıldı",
       "routine_paused_other": "Rutin duraklatıldı",
       "routine_stalled_one": "Rutin bilgisayarı bekliyor",
@@ -995,6 +1003,10 @@
       "computer_disk_full_other": "Bir bilgisayarın diski neredeyse dolu",
       "computer_no_chrome_one": "Bir bilgisayarın Google Chrome'a ihtiyacı var. google.com/chrome adresinden indirin",
       "computer_no_chrome_other": "Bilgisayarların Google Chrome'a ihtiyacı var. google.com/chrome adresinden indirin",
+      "computer_down_one": "Bir bilgisayar yanıt vermiyor",
+      "computer_down_other": "Bir bilgisayar yanıt vermiyor",
+      "computer_back_one": "Bir bilgisayar geri geldi",
+      "computer_back_other": "Bir bilgisayar geri geldi",
       "app_created_one": "Bir yapay zeka uygulaması sizin için bir şeyler oluşturdu",
       "app_created_other": "Bir yapay zeka uygulaması sizin için bir şeyler oluşturdu"
     },
@@ -1510,6 +1522,15 @@
     "next": {
       "pr": "Dal gönderildi, henüz pull request yok",
       "mergeLocal": "{{base}} dalına birleştirmeye hazır"
+    },
+    "terminal": {
+      "keys": "Terminal tuşları",
+      "keyboard": "Klavye",
+      "pasteHint": "Kopyaladığınızı terminale yapıştırın",
+      "key": {
+        "CtrlC": "Control-C, kes",
+        "CtrlD": "Control-D, girdinin sonu"
+      }
     }
   },
   "taskManager": {
@@ -2092,6 +2113,7 @@
       "tool_request": "{{names}}, {{device}} cihazınızda {{tool}} açmanızı istiyor",
       "cli_request": "{{names}}, {{device}} cihazınıza {{tool}} kurmanızı istiyor",
       "folder_request": "{{names}}, {{device}} cihazınızda {{path}} klasörünü istiyor",
+      "internet_shared": "Ajanlar artık web sitelerini {{device}} bilgisayarının internetiyle açıyor",
       "allowOnce": "Bir kez izin ver",
       "always": "{{name}} için her zaman izin ver",
       "no": "Hayır",
@@ -2802,11 +2824,12 @@
     },
     "formatAuto": "En iyisini {{name}} seçer",
     "newWidget": {
-      "alerts": "Uyarı açık",
       "realData": "Gerçek veriler",
       "editAsk": "İsteği değiştir",
       "asked": "“{{ask}}”",
-      "autoFormat": "Otomatik biçim"
+      "testReal": "Gerçek verilerle test et",
+      "addHome": "Ana sayfaya ekle",
+      "addTo": "Şuraya ekle: {{where}}"
     },
     "agentPick": {
       "search": "Ajan ara",
@@ -3248,7 +3271,8 @@
       "workspaceSub": "Çalışma alanının API anahtarı",
       "key": "API anahtarı",
       "keyDefault": "çalışma alanı varsayılanı",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} artık bunu kullanmaz."
     },
     "missionAi": "Yapay zeka",
     "missionLocked": "İşi kimin yapacağı Başlat'tan önce seçilir. Model her zaman değiştirilebilir."

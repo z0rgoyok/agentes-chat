@@ -1,26 +1,9 @@
 import { afterEach, expect, jest, mock, test } from "bun:test";
 import { keys, type Message, RealtimeConnection, type SocketLike } from "@agenteschat/client";
 import { focusManager, QueryObserver } from "@tanstack/react-query";
+import { app, resetAppState, to } from "./app-state";
 import { message } from "./features/fixtures";
 
-// iOS's app states, driven by the test: what React Native's `AppState` tells its listeners.
-type Listener = (state: string) => void;
-const app = { state: "active", listeners: new Set<Listener>() };
-const to = (state: string) => {
-  app.state = state;
-  for (const l of [...app.listeners]) l(state);
-};
-mock.module("react-native", () => ({
-  AppState: {
-    get currentState() {
-      return app.state;
-    },
-    addEventListener: (_event: "change", listener: Listener) => {
-      app.listeners.add(listener);
-      return { remove: () => app.listeners.delete(listener) };
-    },
-  },
-}));
 mock.module("expo-network", () => ({
   addNetworkStateListener: () => ({ remove: () => undefined }),
   getNetworkStateAsync: async () => ({ isConnected: true }),
@@ -31,8 +14,7 @@ const { bindFocusToAppState, catchUpQueries, createQueryClient } = await import(
 
 afterEach(() => {
   jest.useRealTimers();
-  app.state = "active";
-  app.listeners.clear();
+  resetAppState();
   focusManager.setFocused(undefined);
 });
 

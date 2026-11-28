@@ -1,7 +1,7 @@
 import { TASK_LIMIT_BOUNDS } from "@agenteschat/adapters/machine-protocol";
 import type { ControlConfig, ControlConfigPatch } from "@agenteschat/adapters/runner-control";
 import { Button, Segmented } from "@agenteschat/ui";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useHost, useSnapshot, useStore } from "../../app";
 import type { Platform } from "../../control/platform";
@@ -13,7 +13,7 @@ import { shortPath } from "../../ui/time";
 
 /**
  * The runner's defaults (the same numbers `agentes-runner`'s `DEFAULT_LIMITS` uses when the config has none): on
- * Linux, where it reads free memory and closes idle conversations once memory runs short, they stay open longer. Its
+ * Linux, where free memory decides room for a turn, more conversations stay open, and longer. Its
  * task limit is sized to the computer: `config.get` says it (`defaultMaxConcurrentTasks`), 3 from an older runner.
  */
 export const defaultLimits = (
@@ -23,8 +23,10 @@ export const defaultLimits = (
   maxConcurrentTasks,
   taskMaxSeconds: 4 * 3600,
   brainMaxProcesses: platform === "linux" ? 8 : 1,
-  brainIdleMinutes: platform === "linux" ? 60 : 3,
+  brainIdleMinutes: platform === "linux" ? 60 : 30,
 });
+
+type Limit = keyof ReturnType<typeof defaultLimits>;
 
 const TASK_MAX = ["3600", "14400", "28800"] as const;
 const idleChoices = (platform: Platform) => (platform === "linux" ? ["10", "20", "30", "60"] : ["3", "5", "10", "30"]);
@@ -36,33 +38,60 @@ export function Advanced() {
   const snap = useSnapshot();
   const toast = useToast();
   const homes = pairedHomes(snap);
-  const first = homes[0]?.homeId;
-  const [config, setConfig] = useState<ControlConfig | null>(null);
+  const ids = homes.map((h) => h.homeId).join(" ");
+  // Each workspace's own limits, in `homes` order (null: it didn't answer).
+  const [configs, setConfigs] = useState<(ControlConfig | null)[]>([]);
 
+  const load = useCallback(
+    () =>
+      Promise.all(
+        ids
+          .split(" ")
+          .filter(Boolean)
+          .map((id) => store.request(id, { type: "config.get" }).catch(() => null)),
+      ),
+    [store, ids],
+  );
   useEffect(() => {
-    if (!first) return;
     let live = true;
-    store
-      .request(first, { type: "config.get" })
-      .then((c) => live && setConfig(c))
-      .catch(() => {});
+    void load().then((c) => live && setConfigs(c));
     return () => {
       live = false;
     };
-  }, [store, first]);
+  }, [load]);
 
+  const config = configs.find(Boolean) ?? null;
   const defaults = defaultLimits(host.platform, config?.defaultMaxConcurrentTasks);
   const idle = idleChoices(host.platform);
   const limits = { ...defaults, ...(config ?? {}) };
+  const limitsOf = (c: ControlConfig) => ({ ...defaultLimits(host.platform, c.defaultMaxConcurrentTasks), ...c });
+  const label = (key: Limit, v: number) =>
+    key === "taskMaxSeconds"
+      ? t("desktop.common.hours", { count: v / 3600 })
+      : key === "brainIdleMinutes"
+        ? t("desktop.common.minutes", { count: v })
+        : String(v);
+  /** One control sets every workspace: where they differ now, the row says each one's number. */
+  const mixed = (key: Limit) => {
+    const each = homes.flatMap((h, i) => {
+      const c = configs[i];
+      return c ? [{ name: orgName(h), value: limitsOf(c)[key] }] : [];
+    });
+    if (new Set(each.map((e) => e.value)).size < 2) return undefined;
+    const values = each.map((e) => `${e.name} ${label(key, e.value)}`).join(", ");
+    return t("desktop.prefs.advanced.mixed", { values });
+  };
 
-  // Limits apply to each organization: the same numbers go to every one.
+  // Limits apply to each organization: the same numbers go to every one. Read back after, so a workspace the change
+  // didn't reach shows its own number.
   const change = async (patch: ControlConfigPatch, done?: string) => {
-    setConfig((c) => (c ? { ...c, ...patch } : c));
+    setConfigs((all) => all.map((c) => (c ? { ...c, ...patch } : c)));
     try {
       await store.requestAll({ type: "config.set", patch });
       if (done) toast(done);
     } catch {
       toast(t("desktop.common.error"), "alert");
+      setConfigs(await load());
     }
   };
 
@@ -86,22 +115,27 @@ export function Advanced() {
 
       <CardTitle>{t("desktop.prefs.advanced.longJobs")}</CardTitle>
       <PrefCard>
-        <PrefRow
-          title={t("desktop.prefs.advanced.concurrent")}
-          hint={hintFor(t, t("desktop.prefs.advanced.concurrent"), t("desktop.prefs.advanced.concurrentDesc"))}
-          end={
-            <Stepper
-              label={t("desktop.prefs.advanced.concurrent")}
-              value={limits.maxConcurrentTasks}
-              min={TASK_LIMIT_BOUNDS[0]}
-              max={TASK_LIMIT_BOUNDS[1]}
-              onChange={(v) => void change({ maxConcurrentTasks: v })}
-            />
-          }
-        />
+        {/* Where tasks start on the computer's room, a count would be a setting that changes nothing. */}
+        {!config?.tasksOnRoom && (
+          <PrefRow
+            title={t("desktop.prefs.advanced.concurrent")}
+            hint={hintFor(t, t("desktop.prefs.advanced.concurrent"), t("desktop.prefs.advanced.concurrentDesc"))}
+            desc={mixed("maxConcurrentTasks")}
+            end={
+              <Stepper
+                label={t("desktop.prefs.advanced.concurrent")}
+                value={limits.maxConcurrentTasks}
+                min={TASK_LIMIT_BOUNDS[0]}
+                max={TASK_LIMIT_BOUNDS[1]}
+                onChange={(v) => void change({ maxConcurrentTasks: v })}
+              />
+            }
+          />
+        )}
         <PrefRow
           title={t("desktop.prefs.advanced.maxTime")}
           hint={hintFor(t, t("desktop.prefs.advanced.maxTime"), t("desktop.prefs.advanced.maxTimeDesc"))}
+          desc={mixed("taskMaxSeconds")}
           end={
             <Segmented
               size="sm"
@@ -126,6 +160,7 @@ export function Advanced() {
         <PrefRow
           title={t("desktop.prefs.advanced.brainMax")}
           hint={hintFor(t, t("desktop.prefs.advanced.brainMax"), t("desktop.prefs.advanced.brainMaxDesc"))}
+          desc={mixed("brainMaxProcesses")}
           end={
             <Stepper
               label={t("desktop.prefs.advanced.brainMax")}
@@ -138,6 +173,7 @@ export function Advanced() {
         />
         <PrefRow
           title={t("desktop.prefs.advanced.brainIdle")}
+          desc={mixed("brainIdleMinutes")}
           end={
             <Segmented
               size="sm"

@@ -1,8 +1,7 @@
-import type { LiveCode, LiveOutput } from "@agenteschat/client";
+import type { LiveCode, LiveOutput, LiveRun, LiveWork } from "@agenteschat/client";
 import { nearBottom } from "@agenteschat/client/lib/chat";
-import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { Button, Icon } from "@agenteschat/ui";
-import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
+import { Button } from "@agenteschat/ui";
+import { type ReactNode, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useToast } from "@/lib/toast";
 
@@ -140,7 +139,7 @@ export function OutputView({ output, live }: { output: LiveOutput[]; live?: bool
   );
 }
 
-/** Code + output with "copiar" (the code). Used live in the activity bar and in the work summary. */
+/** Code + output with "copiar" (the code). Used live on the working row and in the work summary. */
 export function CodePanel({
   code,
   output,
@@ -176,19 +175,16 @@ export function CodePanel({
   );
 }
 
-/** "Ver código" under the activity bar: opens the live code and output of the agents running code. */
-export function LiveCodeToggle({ name, code, output }: { name: string; code: LiveCode; output: LiveOutput[] }) {
-  const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  return (
-    <div className="live-code-toggle">
-      <button type="button" className="live-code-toggle__btn" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon name="code" size={14} />
-        {open ? t("code.hide") : t("code.show", agentGrammar(name))}
-      </button>
-      {open && <CodePanel code={code} output={output} live header={t("code.running", { name })} />}
-    </div>
-  );
+type CodeCall = Extract<LiveWork, { kind: "call" }> & { code: LiveCode };
+
+/** The run's last call that ran code (`run_code`, a skill script), with that code's own output; none before any. */
+export function lastCodeCall(run: Pick<LiveRun, "work">): CodeCall | undefined {
+  const work = run.work ?? [];
+  for (let i = work.length - 1; i >= 0; i--) {
+    const w = work[i];
+    if (w?.kind === "call" && w.code) return w as CodeCall;
+  }
+  return undefined;
 }
 
 /** "3,4 KB" / "820 B". */

@@ -30,6 +30,11 @@
 .lf-doc__style-name {
   white-space: nowrap;
 }
+/* The text style menu's "Aa" and its chevron (ADR 0220 §8). */
+.sheet-tools__menu.lf-doc__aa {
+  gap: var(--space-1);
+  padding: 0 var(--space-1) 0 var(--space-2);
+}
 /* Each style in the menu looks like itself, quietly. */
 .lf-doc__style-item[data-style="h1"],
 .lf-doc__style-item[data-style="h2"],
@@ -426,4 +431,12 @@
 }
 .lf-skel__page > :nth-child(2) {
   margin-bottom: var(--space-6);
+}
+
+/* The document's own heading and text fonts (ADR 0220 §3), when it has them; code keeps its own. */
+.lf-doc__prose[data-fonts] .lf-doc__body {
+  font-family: var(--lf-doc-body);
+}
+.lf-doc__prose[data-fonts] .lf-doc__body :is(h1, h2, h3, h4) {
+  font-family: var(--lf-doc-heading);
 }

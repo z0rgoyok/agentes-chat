@@ -6,6 +6,7 @@ import { cx } from "@agenteschat/ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
+import { FileAudio } from "@/components/artifacts/FileAudio";
 import { MAX_THUMB_BYTES, usePreviewUrl } from "@/components/artifacts/FileView";
 import { MermaidDiagram } from "@/components/artifacts/Mermaid";
 import { PdfCover } from "@/components/artifacts/PdfCover";
@@ -49,8 +50,17 @@ const extensionOf = (name: string) => (/\.([a-z0-9]{1,8})$/i.exec(name)?.[1] ?? 
  * lines of a document, a mini table, the diff's first lines, the diagram,
  * a page's frame, an image's thumbnail, a PDF's sheet or the file's type.
  * Scales with its box (container units). Neutral placeholder until loaded.
+ * `player`: an audio file plays right here (only where the preview sits in no button of its own: the Drive's card).
  */
-export function DrivePreview({ artifact, size = "md" }: { artifact: Artifact; size?: "sm" | "md" | "lg" }) {
+export function DrivePreview({
+  artifact,
+  size = "md",
+  player = false,
+}: {
+  artifact: Artifact;
+  size?: "sm" | "md" | "lg";
+  player?: boolean;
+}) {
   const { org } = useOrg();
   const [ref, seen] = useSeen<HTMLDivElement>();
   // At its exact version: never stale, and shared by every card of that version. A live file's preview is its head's
@@ -58,14 +68,24 @@ export function DrivePreview({ artifact, size = "md" }: { artifact: Artifact; si
   const live = isLiveFileKind(artifact.kind);
   const query = useArtifact(org.id, seen || size === "lg" ? artifact.id : null, live ? undefined : artifact.version);
   const content = query.data?.content;
+  // A sound this browser can't play falls back to its type tile, as the viewer does.
+  const [audioFailed, setAudioFailed] = useState(false);
+  const audio = player && !audioFailed && content?.kind === "file" && previewKind(content.contentType) === "audio";
   return (
     <div
       ref={ref}
-      className={cx("drive-pv", `drive-pv--${size}`, !content && "drive-pv--loading")}
+      className={cx("drive-pv", `drive-pv--${size}`, !content && "drive-pv--loading", audio && "drive-pv--audio")}
       data-kind={artifact.kind}
-      aria-hidden="true"
+      aria-hidden={audio ? undefined : "true"}
     >
-      {content && <PreviewBody content={content} artifact={artifact} size={size} />}
+      {content && (
+        <PreviewBody
+          content={content}
+          artifact={artifact}
+          size={size}
+          onAudioFailed={audio ? () => setAudioFailed(true) : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -74,10 +94,13 @@ function PreviewBody({
   content,
   artifact,
   size,
+  onAudioFailed,
 }: {
   content: ArtifactContent;
   artifact: Artifact;
   size: "sm" | "md" | "lg";
+  /** Given: an audio file plays here, and this hears that it can't. */
+  onAudioFailed?: () => void;
 }) {
   const { t } = useTranslation();
   // The small list thumbnail stays simple: diagrams and pages by their shape.
@@ -167,7 +190,7 @@ function PreviewBody({
         </div>
       );
     case "file":
-      return <FilePreview content={content} artifact={artifact} />;
+      return <FilePreview content={content} artifact={artifact} onAudioFailed={onAudioFailed} />;
     // Live files (ADR 0196 §7), documents too (ADR 0200): drawn from the preview the server keeps.
     case "document":
     case "spreadsheet":
@@ -177,7 +200,15 @@ function PreviewBody({
   }
 }
 
-function FilePreview({ content, artifact }: { content: ArtifactFileContent; artifact: Artifact }) {
+function FilePreview({
+  content,
+  artifact,
+  onAudioFailed,
+}: {
+  content: ArtifactFileContent;
+  artifact: Artifact;
+  onAudioFailed?: () => void;
+}) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const api = useApi();
@@ -225,9 +256,35 @@ function FilePreview({ content, artifact }: { content: ArtifactFileContent; arti
       </>
     );
   }
-  return (
+  const glyph = (
     <span className="drive-pv__glyph">
       <span className="drive-pv__ext">{ext}</span>
     </span>
+  );
+  if (!onAudioFailed) return glyph;
+  return (
+    <>
+      {glyph}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: keeps the card's own press and drag off the player */}
+      <div
+        className="drive-pv__audio"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        // The card drags into folders: a press on the wave (to seek) drags nothing.
+        draggable
+        onDragStart={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+      >
+        <FileAudio
+          artifactId={artifact.id}
+          version={artifact.version}
+          content={content}
+          fallback={null}
+          onFailed={onAudioFailed}
+        />
+      </div>
+    </>
   );
 }

@@ -25,31 +25,31 @@ import {
   agentStateOfRun,
   browserHandoffOf,
   browserTrailOf,
+  cardsInto,
   codeSuggestionOf,
   consultsIn,
   desktopTrailOf,
   fileConversationOf,
   heldRowsIn,
   inMainTimeline,
-  isQuiet,
   isScreenTool,
   keys,
   type LiveRun,
   MESSAGES_PAGE,
   messageLiveRef,
   OPEN_THREAD,
-  QUIET_AFTER_MS,
+  PAGE_AHEAD_SCREENS,
   runsInChannel,
   type StreamsState,
   sendHelpers,
   typingIn,
   useAddChannelMember,
+  useAgentGroups,
   useAiStatus,
   useApproval,
   useApprovals,
   useCachedMessages,
   useCardApprovals,
-  useChannelCategories,
   useChannelMembers,
   useChannels,
   useChannelThreads,
@@ -86,11 +86,10 @@ import {
 import { actionCardOf } from "@agenteschat/client/lib/action-cards";
 import {
   barConsultTime,
-  barElapsed,
   barEntries,
+  barFaces,
   bothAtIt,
   consultDetails,
-  entriesOffScreen,
   lineStep,
   runElapsed,
   someoneTypes,
@@ -117,11 +116,11 @@ import {
   usageLine,
 } from "@agenteschat/client/lib/chat";
 import { firstUnreadId, opensAtLastRead, unreadThreadRootId } from "@agenteschat/client/lib/chat-look";
-import { choiceReplyLine } from "@agenteschat/client/lib/choices";
+import { choiceReplyLine, choiceReplyRows } from "@agenteschat/client/lib/choices";
 import { draftKeyOf } from "@agenteschat/client/lib/composer-drafts";
-import { type ConsultPairItem, consultsForLine } from "@agenteschat/client/lib/consult-group";
+import { type ConsultPairItem, consultsForLine, type RelayedAnswer } from "@agenteschat/client/lib/consult-group";
 import { consultationsOf } from "@agenteschat/client/lib/consultations";
-import { deviceWaitOf } from "@agenteschat/client/lib/devices";
+import { deviceWaitOf, spilledText } from "@agenteschat/client/lib/devices";
 import { clearDraft, peekDraft } from "@agenteschat/client/lib/drafts";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
 import {
@@ -172,16 +171,19 @@ import { picksForMe, replyAloneKey } from "@agenteschat/client/lib/routing";
 import { ConversationSeat } from "@agenteschat/client/lib/seat-context";
 import { seenMessageId } from "@agenteschat/client/lib/seen";
 import { hiddenCount, tasksOf, todayStart } from "@agenteschat/client/lib/task-manager";
-import { contextMarks, hiddenByThreads, rangeCandidates, threadStartOf } from "@agenteschat/client/lib/threads";
+import { hiddenByThreads, rangeCandidates, threadStartOf } from "@agenteschat/client/lib/threads";
 import { buildTimeline, lastPostedId, mergeTimeline, type TimelineItem } from "@agenteschat/client/lib/timeline";
+import { type TrailLine, usePacedTrail, workTrail } from "@agenteschat/client/lib/trail";
 import { usageWaitOf } from "@agenteschat/client/lib/usage-pause";
-import { appVia, surfaceVia } from "@agenteschat/client/lib/via";
-import { listedText, voiceOf } from "@agenteschat/client/lib/voice";
+import { appAuthor, appVia, surfaceVia } from "@agenteschat/client/lib/via";
+import { listedText, micShown, voiceOf } from "@agenteschat/client/lib/voice";
 import { waitingAway, waitingNotification } from "@agenteschat/client/lib/waiting";
 import { barStep, makingImage, splitCanceled } from "@agenteschat/client/lib/work";
 import { CodeConversation, useShowsWork } from "@agenteschat/client/lib/work-context";
+import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   AffixInput,
+  AppMark,
   Avatar,
   Button,
   Composer,
@@ -209,6 +211,7 @@ import {
   Locked,
   Mention,
   Menu,
+  MenuCheckboxItem,
   MenuItem,
   MenuRadioGroup,
   MenuSeparator,
@@ -217,6 +220,7 @@ import {
   MessageText,
   mayTakeFocus,
   OPEN_LAYER,
+  OrbitGlyph,
   PixelSpinner,
   pastedFiles,
   SavedNote,
@@ -250,7 +254,7 @@ import {
 } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
-import { anchorShift, anchorsScroll, type RowResize } from "@/chat/anchor";
+import { anchorShift, anchorsScroll, type RowResize, topInList } from "@/chat/anchor";
 import { tokenizeBody } from "@/chat/body";
 import { ChatMedia } from "@/chat/ChatMedia";
 import { ChatVoice } from "@/chat/ChatVoice";
@@ -283,22 +287,24 @@ import { objectUrls } from "@/components/artifacts/FileView";
 import { ImageMaking } from "@/components/artifacts/ImageMaking";
 import { ImageSet } from "@/components/artifacts/viewer-context";
 import { HandedWorkLine, MessageWorkLine } from "@/components/BackgroundWork";
+import { usePlanToast } from "@/components/BillingLinkButton";
 import { HeldBrowserCard, RunBrowserCard, useHeldTakeover } from "@/components/browser/BrowserCard";
 import { BrowserHandoffCard } from "@/components/browser/BrowserHandoffCard";
 import { BrowserTrailCard } from "@/components/browser/BrowserTrailCard";
 import { requestBrowserCard } from "@/components/browser/open";
 import { ScreenPanelContext } from "@/components/browser/screen-panel";
-import { CategorySelect } from "@/components/ChannelCategoryDialogs";
 import { ChannelHeader } from "@/components/ChannelHeader";
 import { ChannelPermissions } from "@/components/ChannelPermissions";
 import { ChannelPinnedBar } from "@/components/ChannelPins";
 import { InlineProposal, MemoryChangeCard, QuestionCard, SecretCard } from "@/components/ChatCards";
 import {
+  AppAuthorTags,
   AppViaTag,
   NoticeLine,
   RoutineReport,
   RoutineTag,
   SpeedFallbackLine,
+  SpilledLine,
   StopPill,
   StopsProvider,
   SurfaceViaMark,
@@ -316,6 +322,7 @@ import {
   ConsultGroupsProvider,
   ConsultHelpingTag,
   ConsultPairRow,
+  RelayQuote,
   useConsultGroups,
   useReplyConsults,
 } from "@/components/ConsultGroup";
@@ -329,13 +336,14 @@ import { DeviceWaitCard } from "@/components/devices/DeviceWaitCard";
 import { WaitToolOffAction } from "@/components/devices/ToolOneClick";
 import { useArchiveChannelWithUndo } from "@/components/entity-menus";
 import { FeedbackOfferRow } from "@/components/FeedbackOffer";
+import { GroupCover, groupWho } from "@/components/GroupCover";
 import { InPlaceProvider } from "@/components/InPlace";
 import { HandedTaskChips, IssueTakenLine, IssueWorkCard } from "@/components/IssueWork";
 import { ArrivalCard, useArrival } from "@/components/invite/Arrival";
 import { InviteOfferRow, useInviteDialog, useInviteOffer } from "@/components/invite/InviteDialog";
 import { useLeaveChannelWithUndo } from "@/components/LeaveChannelDialog";
 import { useUploadFailed } from "@/components/Limits";
-import { LiveCodeToggle } from "@/components/LiveCode";
+import { CodePanel, lastCodeCall } from "@/components/LiveCode";
 import { ErrorState, LoadingConversation } from "@/components/Loading";
 import { ResolveButton, ResolvedLine } from "@/components/live/media/ResolveBits";
 import { ChatCommentsLine } from "@/components/live/media/ViewerBits";
@@ -368,7 +376,7 @@ import {
 import { MissionCommandCard } from "@/components/missions/MissionCommandCard";
 import { NewMissionDialog } from "@/components/missions/MissionDialogs";
 import { NavToggle } from "@/components/NavDrawer";
-import { CHANNEL_NAME, ChannelAccessChoice, toChannelName } from "@/components/NewChannelDialog";
+import { ChannelAccessChoice, channelNameError, toChannelName, toGroupName } from "@/components/NewChannelDialog";
 import { FailedRunFix, KeyGuardDialog, NoAiBanner, NoAiCard, useNoAiAutoOpen } from "@/components/NoAi";
 import { useNotificationOpener } from "@/components/NotificationOpen";
 import { useNewAgent } from "@/components/new-agent/new-agent-context";
@@ -391,6 +399,7 @@ import {
   WaitMark,
 } from "@/components/RequestCard";
 import { ReturnLine } from "@/components/ReturnLine";
+import { SectorSelect } from "@/components/SectorSelect";
 import { SidePanel } from "@/components/SidePanel";
 import { ChannelWelcome, colorOf } from "@/components/Sky";
 import { isStoppable, StopButton, useContinueRun, useStopRun, useWasContinued } from "@/components/StopRun";
@@ -416,6 +425,7 @@ import {
   useChannelThreadsView,
 } from "@/components/threads/ThreadLines";
 import { UsageWaitCancel, UsageWaitClosed } from "@/components/UsagePauseCard";
+import { useVoiceSetup } from "@/components/VoiceSetupDialog";
 import { PushAskContext, PushAskInline, usePushAsk } from "@/components/WebPush";
 import { useWikiLinkRenderer } from "@/components/WikiLinks";
 import { BarAlsoTyping, BarPhrase, BarStep, ConsultClock, TypingMark, WorkingStack } from "@/components/WorkingLine";
@@ -442,11 +452,11 @@ import { reportPainted } from "@/lib/perf";
 import { useToast } from "@/lib/toast";
 import { useValueStore } from "@/lib/value-store";
 import {
-  reconcileChannelRuns,
   useChannelRealtime,
   useDismissRun,
   useLive,
   useLiveStore,
+  useOpenedConversation,
   useStreams,
   useTypingSender,
 } from "@/realtime/context";
@@ -519,6 +529,8 @@ export interface ChannelChrome {
    * and first cards, ADR 0137, which say it themselves).
    */
   intro?: ReactNode;
+  /** What the intro draws from (or who it is) is still loading: the conversation waits as its skeleton, then shows whole. */
+  introPending?: boolean;
   /** The composer's label and placeholder ("Responder na thread"). */
   composerLabel?: string;
   /** In place of the composer (an archived thread's read-only note). */
@@ -585,7 +597,9 @@ function highlightMessage(scroller: HTMLElement | null, messageId: string) {
   el.scrollIntoView?.({ block: "center" });
   // Center again after the next frame. Content around the message can change height as the page renders.
   requestAnimationFrame(() => setTimeout(() => el.scrollIntoView?.({ block: "center" }), 0));
-  // A soft plate that fades (CSS; static with reduced motion).
+  // A soft plate that fades (CSS; static with reduced motion), one at a time: a thread's root the conversation opened
+  // at loses it when the thread sends the person on to a message of the conversation.
+  for (const lit of scroller?.querySelectorAll(".ac-msg--focus") ?? []) lit.classList.remove("ac-msg--focus");
   el.classList.add("ac-msg--focus");
   setTimeout(() => el.classList.remove("ac-msg--focus"), HIGHLIGHT_MS);
   return true;
@@ -671,7 +685,7 @@ function QuotedMessage({ reply }: { reply: ReplyRef }) {
         else actions?.jumpTo?.(reply.messageId);
       }}
     >
-      {reply.author.id ? (
+      {reply.author.id && reply.author.type !== "app" ? (
         <ActorAvatar actor={{ type: reply.author.type, id: reply.author.id }} name={name} size="xs" />
       ) : null}
       <span className="msg-quote__who" aria-hidden="true">
@@ -713,7 +727,10 @@ export function ChannelPage({
   const dms = useDms(org.id);
   const dm = channel ? undefined : dms.data?.find((d) => d.channelId === channelId);
   // "#loja · Acme": the window's name in the app (Window menu, Mission Control), the tab's in a browser.
-  useDocumentTitle(channel && !fallback && !thread ? `#${channel.name} · ${org.name}` : undefined);
+  // A personal workspace's group conversation goes by its name as written (ADR 0159).
+  useDocumentTitle(
+    channel && !fallback && !thread ? `${isPersonal(org) ? "" : "#"}${channel.name} · ${org.name}` : undefined,
+  );
 
   if (channels.isPending && !fallback) return <ChannelSkeleton />;
   if (dm) {
@@ -901,6 +918,12 @@ function ChannelView({
   const pushAsk = usePushAsk(thread || !isMember ? undefined : topLevel);
   // Read from the server (a thread's root the channel held stands in until then: its replies are still unknown).
   const serverRead = messages.isSuccess && !messages.isPlaceholderData;
+  // A thread whose replies are still loading: only their skeleton shows, never the root the channel holds above it,
+  // which the replies would push out of view. It opens on them, at its end, in one paint.
+  const repliesPending = Boolean(thread && messages.isPlaceholderData && thread.replyCount > 0);
+  // An agent's DM whose setup checklist still reads its data, or whose first page is still loading: the intro shows with
+  // the messages, never alone over their skeleton (the rows would then land under it and push it out of view).
+  const introPending = Boolean(!thread && (chrome?.introPending || (chrome?.intro && messages.isLoading)));
   // The channel's threads: closed lines, context marks, markers (not in a thread view or while adjusting).
   const listsThreads = readable && !thread;
   const openThreads = useChannelThreads(org.id, channel.id, "all", listsThreads);
@@ -925,6 +948,7 @@ function ChannelView({
   const arrival = useArrival(channel);
   const arriving = arrival.show && !thread;
   const sendTyping = useTypingSender(channel.id, thread?.id);
+  useOpenedConversation(channel.id, thread?.id, Boolean(chrome?.dmAgentId || thread));
   // ⌘K "Pedir a um agente" leaves the text for this DM's composer.
   const draftKey = chrome?.dmAgentId ? `agent:${chrome.dmAgentId}` : null;
   // What I typed and didn't send stays in this browser: switching conversations or reloading keeps it. Only the box
@@ -1238,6 +1262,10 @@ function ChannelView({
         .filter((p): p is Member => Boolean(p)),
     [members.data, dir.memberById],
   );
+  // A personal workspace's group conversation (ADR 0159, amendment of 2026-11-26): a cover at its start, its name as
+  // written where a channel says "#nome".
+  const groupConversation = isPersonal(org) && !chrome;
+  const composerTarget = chrome?.composerTarget ?? (groupConversation ? channel.name : undefined);
 
   /** Agents of this channel the text mentions (instant "pensando…" before the server answers). */
   const mentioned = (body: string) =>
@@ -1247,6 +1275,7 @@ function ChannelView({
       .map((a) => a.id);
 
   const toast = useToast();
+  const planToast = usePlanToast();
   const qc = useQueryClient();
   const post = usePostMessage(org.id, channel.id, {
     me: { id: me.user.id },
@@ -1290,8 +1319,11 @@ function ChannelView({
   const { send, retry } = sendHelpers(post);
   const sendVoice = useSendVoice(org.id, channel.id, {
     me: { id: me.user.id },
-    onRefused: (error) =>
-      toast.show(errorCode(error) === "voice_limit" ? t("voice.limit") : errorText(t, error), "error"),
+    onRefused: (error) => {
+      const code = errorCode(error);
+      if (code === "voice.plan") planToast(t("voice.plan"));
+      else toast.show(code === "voice_limit" ? t("voice.limit") : errorText(t, error), "error");
+    },
   });
 
   const api = useApi();
@@ -1344,7 +1376,7 @@ function ChannelView({
   // pages come as the person scrolls down, until they reach it.
   const [gap, setGap] = useState(false);
   const [newerLoading, setNewerLoading] = useState(false);
-  const anchor = useRef<{ height: number; top: number } | null>(null);
+  const anchor = useRef<{ row: HTMLElement; top: number } | null>(null);
   const loadOlder = (limit = OLDER_PAGE) => {
     // A thread view loads its whole conversation at once.
     if (thread || olderState !== "idle" || !messages.data) return;
@@ -1355,18 +1387,22 @@ function ChannelView({
     }
     setOlderState("loading");
     api.chat
-      .messages(org.id, channel.id, { before: oldest.createdAt, limit })
+      .messages(org.id, channel.id, { before: oldest.createdAt, limit, onCards: cardsInto(qc, org.id) })
       .then((page) => {
-        // Keep what's on screen where it is: remember the distance from the bottom.
+        // Keep what's on screen where it is: the list moves down by what lands above the oldest row it holds.
         const el = scroller.current;
-        if (el) anchor.current = { height: el.scrollHeight, top: el.scrollTop };
-        setOlder((prev) => {
-          const known = new Set(prev.map((m) => m.id));
-          const next = [...page.filter((m) => !known.has(m.id)), ...prev];
-          if (!gap) qc.setQueryData<OlderPages>(olderKey, { pages: next, done: page.length < limit });
-          return next;
+        const row = el?.querySelector<HTMLElement>(".ac-msg");
+        if (el && row) anchor.current = { row, top: topInList(el, row) };
+        // Drawn in slices: fifty rows in one task would hold the page still while the person scrolls on.
+        startTransition(() => {
+          setOlder((prev) => {
+            const known = new Set(prev.map((m) => m.id));
+            const next = [...page.filter((m) => !known.has(m.id)), ...prev];
+            if (!gap) qc.setQueryData<OlderPages>(olderKey, { pages: next, done: page.length < limit });
+            return next;
+          });
+          setOlderState(page.length < limit ? "done" : "idle");
         });
-        setOlderState(page.length < limit ? "done" : "idle");
       })
       .catch(() => setOlderState("idle"));
   };
@@ -1385,7 +1421,7 @@ function ChannelView({
     if (!gap || newerLoading || !newest) return;
     setNewerLoading(true);
     api.chat
-      .messages(org.id, channel.id, { after: newest.createdAt, limit: OLDER_PAGE })
+      .messages(org.id, channel.id, { after: newest.createdAt, limit: OLDER_PAGE, onCards: cardsInto(qc, org.id) })
       .then((page) => {
         const known = new Set(older.map((m) => m.id));
         const start = channelMessages.data?.[0]?.createdAt;
@@ -1406,7 +1442,10 @@ function ChannelView({
     const a = anchor.current;
     if (!el || !a) return;
     anchor.current = null;
-    el.scrollTop = el.scrollHeight - a.height + a.top;
+    // Scroll anchoring already moved a list that isn't at its very top (Chromium, measured: also when only read here).
+    if (anchorsScroll() && el.scrollTop > 0) return;
+    // By what came above, not back to where the list was: the person may have scrolled on since the page was asked for.
+    if (a.row.isConnected) el.scrollTop += topInList(el, a.row) - a.top;
   }, [older]);
 
   // Every thread with replies is one line under its root; its replies live in the panel.
@@ -1438,11 +1477,6 @@ function ChannelView({
     };
   }, [thread, threadList, threadLines]);
   const threadsStore = useValueStore(threadsView);
-  // Messages that are a thread's context and still in the channel: the gutter mark.
-  const contextMarkIds = useMemo(
-    () => (thread ? NO_MARKS : contextMarks(threadList, [...older, ...(channelMessages.data ?? [])], channel.id)),
-    [thread, threadList, older, channelMessages.data, channel.id],
-  );
   const timeline = useMemo(() => {
     if (thread) {
       // The thread's conversation. One made from a range: not its root (the channel's marker) nor the
@@ -1804,6 +1838,8 @@ function ChannelView({
         const before = heights.get(target);
         const after = target.offsetHeight;
         heights.set(target, after);
+        // Laid out whole once: it may be skipped now, at the height it remembers (layout.css).
+
         if (before !== undefined && before !== after)
           resized.push({ top: target.getBoundingClientRect().top - listTop, before, after });
       }
@@ -1909,13 +1945,10 @@ function ChannelView({
     }
   }, [lastKey, slotsKey]);
 
-  // Which agents' blocks are on screen: the line above the composer speaks only for those out of view.
-  // By run: a "pensando…" hands its block (same key) to the real run, and that run must count as in view.
-  // A block's row draws only once it has something to show (`RunBlock`, `rowShows`): then it is measured again.
+  // A block's row draws only once it has something to show (`RunBlock`, `rowShows`): then what is on screen is measured
+  // again.
   const [rowsDrawn, setRowsDrawn] = useState(0);
   const rowDrawn = useCallback(() => setRowsDrawn((n) => n + 1), []);
-  const inView = useBlocksInView(scroller, `${slots.map((x) => x.runId).join(" ")} ${rowsDrawn}`);
-  const outOfView = useMemo(() => (runId: string) => !inView.has(runId), [inView]);
   // Hand-offs whose line under the reply that handed them is on screen (`HandedWorkLine`): the bar leaves those out.
   const handoffsKey = timeline
     .flatMap((i) => (i.kind === "message" ? (i.message.handedWorks ?? []).map((w) => w.id) : []))
@@ -1963,13 +1996,6 @@ function ChannelView({
     () => (tasksAgentId ? tasksOf(taskView.data?.tasks ?? [], tasksAgentId) : []),
     [taskView.data, tasksAgentId],
   );
-  /** "Ver" on that line: back to the agent's block. */
-  const seeRun = (runId: string) => {
-    const row = Array.from(scroller.current?.querySelectorAll<HTMLElement>("[data-run-id]") ?? []).find(
-      (el) => el.dataset.runId === runId,
-    );
-    row?.scrollIntoView?.({ block: "end", behavior: reducedMotion ? "auto" : "smooth" });
-  };
 
   // Dev only: "click → first paint of messages".
   const fromCache = useRef(messages.data !== undefined);
@@ -2172,16 +2198,40 @@ function ChannelView({
       toBottom();
       toast.show(text, "error");
     };
-    // A thread view holds all it can show; a page read around it that still doesn't show it: deleted or not visible.
-    if (thread || (around?.id === focusTarget && around.done)) {
+    // A page read around it that still doesn't show it: deleted or not visible.
+    if (around?.id === focusTarget && around.done) {
       // A cached page refreshing may still bring it.
       if (!messages.isFetching) missing();
       return;
     }
     if (around?.id === focusTarget) return;
+    // A thread view holds all of its thread: a message of the conversation outside it (a long work's report, posted
+    // where it was asked) opens in the conversation, at it, and only one there is nowhere says it is gone.
+    if (thread) {
+      if (messages.isFetching) return;
+      setAround({ id: focusTarget, done: false });
+      api.chat
+        .messages(org.id, channel.id, { around: focusTarget, limit: 1 })
+        .then((page) => {
+          setAround({ id: focusTarget, done: true });
+          if (!page.some((m) => m.id === focusTarget)) return missing();
+          setFocusDone(true);
+          // From a link (`?tm=` in the panel): Back would open the thread at it again and come right back here.
+          const replace = !jumping.current;
+          jumping.current = false;
+          void navigateTo({
+            to: "/org/$orgId/c/$channelId",
+            params: { orgId: org.id, channelId: channel.id },
+            search: { m: focusTarget },
+            replace,
+          });
+        })
+        .catch(missing);
+      return;
+    }
     setAround({ id: focusTarget, done: false });
     api.chat
-      .messages(org.id, channel.id, { around: focusTarget, limit: FOCUS_PAGE })
+      .messages(org.id, channel.id, { around: focusTarget, limit: FOCUS_PAGE, onCards: cardsInto(qc, org.id) })
       .then((page) => {
         showAround(page);
         setAround({ id: focusTarget, done: true });
@@ -2337,7 +2387,7 @@ function ChannelView({
     }
     toBottom(true);
     setDraft("");
-    const meta = localMeta(quote, quote ? dir.authorName(quote.author) : "", attached);
+    const meta = localMeta(quote, quote ? dir.authorName(quote.author, quote.meta) : "", attached);
     setQuote(null);
     // About what is selected in the file beside it (ADR 0199): the message carries it, then the quote goes. A comment
     // on a picture, a video or a PDF uploads its pictures of the place first (ADR 0208), so only a sent one keeps them.
@@ -2363,7 +2413,10 @@ function ChannelView({
   const sendMediaNow = useRef<(media: MessageMedia) => void>(() => {});
   sendMediaNow.current = (media) => {
     toBottom(true);
-    const meta: Record<string, unknown> = { ...localMeta(quote, quote ? dir.authorName(quote.author) : "", []), media };
+    const meta: Record<string, unknown> = {
+      ...localMeta(quote, quote ? dir.authorName(quote.author, quote.meta) : "", []),
+      media,
+    };
     setQuote(null);
     if (thread && chrome?.openThread) meta[OPEN_THREAD] = true;
     send("", thread ? thread.id : null, meta);
@@ -2373,15 +2426,23 @@ function ChannelView({
   // Voice messages (ADR 0100), where this person can write and the workspace has them; a reply to a mission goes in
   // text, to the mission. The recording goes in the box's thread with what was typed and the finished files, in one
   // message. A key pasted in the text stays in the box for the person to choose (`KeyGuardDialog`).
+  // The microphone follows the workspace's switch; where voice doesn't become text yet, the first press asks first
+  // (`useVoiceSetup`). A server older than `speechState` shows it only with an engine.
   const voiceSettings = useSettings(org.id);
-  const voiceOn = Boolean(voiceSettings.data?.voiceAvailable && voiceSettings.data.voiceMessages);
+  const voiceOn = micShown(voiceSettings.data);
+  const voiceSetup = useVoiceSetup(voiceSettings.data);
   const voice: ComposerVoice | undefined =
     voiceOn && !chrome?.locked && !missionReply
       ? {
           scope: `${channel.id}:${thread?.id ?? ""}`,
           allowed: async () => {
-            const { allowed } = await api.voice.allowed(org.id).catch(() => ({ allowed: true }));
-            if (!allowed) toast.show(t("voice.limit"));
+            const asked = await voiceSetup.ask();
+            if (!asked) return false;
+            const { allowed, reason } = await api.voice
+              .allowed(org.id)
+              .catch(() => ({ allowed: true, reason: undefined }));
+            if (reason === "plan") planToast(t("voice.plan"));
+            else if (!allowed) toast.show(t("voice.limit"));
             return allowed;
           },
           // "gravando áudio…" for the others while it records and while it uploads (then the server keeps it until the
@@ -2405,7 +2466,7 @@ function ChannelView({
               replyTo: quote?.id ?? null,
               language: i18n.language.split("-")[0] ?? null,
               text,
-              meta: localMeta(quote, quote ? dir.authorName(quote.author) : "", attached),
+              meta: localMeta(quote, quote ? dir.authorName(quote.author, quote.meta) : "", attached),
             })
               .then((went) => {
                 // Refused: what was typed and attached comes back to the box (thumbnails as icons: theirs are freed).
@@ -2644,7 +2705,7 @@ function ChannelView({
       send(
         handle ? `@${handle} ${text}` : text,
         thread ? thread.id : (message.threadId ?? null),
-        localMeta(message, dir.authorName(message.author), []),
+        localMeta(message, dir.authorName(message.author, message.meta), []),
       );
     },
     jumpTo,
@@ -2871,7 +2932,8 @@ function ChannelView({
                                 Date.now() - lastUpGesture.current < GESTURE_MS ||
                                 (byPerson && selectingIn(e.currentTarget));
                               if (byPerson) datePill.current?.poke();
-                              if (byPerson && e.currentTarget.scrollTop < 240) loadOlder();
+                              const ahead = e.currentTarget.clientHeight * PAGE_AHEAD_SCREENS;
+                              if (byPerson && e.currentTarget.scrollTop <= ahead) loadOlder();
                               if (upByPerson && previousTop !== null && e.currentTarget.scrollTop < previousTop) {
                                 letGo();
                                 return;
@@ -2879,7 +2941,7 @@ function ChannelView({
                               // Away from the latest page, its end is not the conversation's: newer pages, never pinned.
                               if (gap) {
                                 const below = e.currentTarget.scrollHeight - e.currentTarget.scrollTop;
-                                if (byPerson && below - e.currentTarget.clientHeight < 240) loadNewer();
+                                if (byPerson && below - e.currentTarget.clientHeight <= ahead) loadNewer();
                                 return;
                               }
                               const near = nearBottom(e.currentTarget);
@@ -2897,11 +2959,32 @@ function ChannelView({
                               }
                             }}
                           >
+                            {/* A personal workspace's group conversation opens with its cover (ADR 0159), above its
+                                first message: shown once the conversation's start is loaded. */}
+                            {groupConversation &&
+                              readable &&
+                              !thread &&
+                              (olderState === "done" ||
+                                (messages.data !== undefined &&
+                                  messages.data.length < MESSAGES_PAGE &&
+                                  older.length === 0 &&
+                                  !gap)) && (
+                                <GroupCover
+                                  name={channel.name}
+                                  agentIds={channelAgents.map((a) => a.id)}
+                                  who={groupWho(t, me.user.id, channelPeople, channelAgents)}
+                                  hint={
+                                    serverRead && timeline.length === 0 && channel.can?.post !== false
+                                      ? t("chat.sayHiText")
+                                      : undefined
+                                  }
+                                />
+                              )}
                             {/* Pushes short channels down, next to the composer. */}
                             <div className="channel__spacer" aria-hidden="true" />
                             {chrome?.top}
-                            {chrome?.intro}
-                            {messages.isLoading && <LoadingConversation />}
+                            {!introPending && chrome?.intro}
+                            {(messages.isLoading || introPending) && <LoadingConversation />}
                             {messages.isError && !messages.data && (
                               <ErrorState error={messages.error} onRetry={() => void messages.refetch()} />
                             )}
@@ -2910,7 +2993,8 @@ function ChannelView({
                               slots.length === 0 &&
                               !thread &&
                               !adjusting &&
-                              !chrome?.intro && (
+                              !chrome?.intro &&
+                              !groupConversation && (
                                 <div className="channel__empty">
                                   <EmptyState
                                     size="panel"
@@ -2970,8 +3054,9 @@ function ChannelView({
                             ) : (
                               <>
                                 <Timeline
-                                  items={timeline}
-                                  ready={serverRead}
+                                  items={repliesPending || introPending ? NO_ROWS : timeline}
+                                  // Held rows aren't its first load: counted then, they would all enter as new ones.
+                                  ready={serverRead && !repliesPending && !introPending}
                                   slots={gap ? NO_SLOTS : slots}
                                   runKeys={runKeys.current}
                                   divider={divider}
@@ -2980,13 +3065,11 @@ function ChannelView({
                                   dmPersonId={thread ? undefined : chrome?.dmPersonId}
                                   consultGroups={consultGroups}
                                   seenId={thread ? null : seenId}
-                                  marks={contextMarkIds}
                                   progressive={opensAtEnd}
                                   openThreadId={panel?.id ?? null}
                                 />
-                                {/* A thread's root is on screen from the channel: only its replies are loading. */}
-                                {thread && messages.isPlaceholderData && thread.replyCount > 0 && (
-                                  <LoadingConversation count={Math.min(thread.replyCount, 6)} />
+                                {repliesPending && (
+                                  <LoadingConversation count={Math.min((thread?.replyCount ?? 0) + 1, 6)} />
                                 )}
                                 {!thread && (
                                   <ArchivedThreadsNote
@@ -3005,6 +3088,17 @@ function ChannelView({
                             )}
                             <LiveMemoryCards channelId={channel.id} />
                             <LiveNotices channelId={channel.id} />
+                            {!adjustThreadId && (
+                              <WorkingTail
+                                channelId={channel.id}
+                                threadId={thread?.id ?? null}
+                                visible={runVisible}
+                                pendingAsks={pendingAsks}
+                                onSeeAsk={seeAsk}
+                                consultBlocks={consultGroups.nearEnd}
+                                handoffsInView={handoffsInView}
+                              />
+                            )}
                           </section>
                         </RowsProvider>
                         <ToLatest
@@ -3038,8 +3132,6 @@ function ChannelView({
                             channelId={channel.id}
                             threadId={thread?.id ?? null}
                             visible={runVisible}
-                            outOfView={outOfView}
-                            onSee={seeRun}
                             asks={asksOut}
                             pendingAsks={pendingAsks}
                             onSeeAsk={seeAsk}
@@ -3108,7 +3200,7 @@ function ChannelView({
                                   quote ? (
                                     <>
                                       <QuoteBar
-                                        name={dir.authorName(quote.author)}
+                                        name={dir.authorName(quote.author, quote.meta)}
                                         onCancel={() => {
                                           setQuote(null);
                                           composer.current?.focus();
@@ -3160,15 +3252,16 @@ function ChannelView({
                                 disabled={Boolean(chrome?.locked)}
                                 label={
                                   chrome?.composerLabel ??
-                                  (chrome?.composerTarget
-                                    ? t("channel.composerDm", { name: chrome.composerTarget })
+                                  (composerTarget
+                                    ? t("channel.composerDm", { name: composerTarget })
                                     : t("channel.composerLabel", { channel: channel.name }))
                                 }
                                 placeholder={
-                                  // DMs name the person or agent ("Mensagem para Theo"); channels keep "#nome".
+                                  // DMs and a personal workspace's group conversations name who or what ("Mensagem para
+                                  // Theo"); channels keep "#nome".
                                   chrome?.composerLabel ??
-                                  (chrome?.composerTarget
-                                    ? t("channel.composerDm", { name: chrome.composerTarget })
+                                  (composerTarget
+                                    ? t("channel.composerDm", { name: composerTarget })
                                     : t("channel.composerPlaceholder", { channel: channel.name }))
                                 }
                                 sendLabel={t("channel.send")}
@@ -3211,6 +3304,7 @@ function ChannelView({
                                   onDone={() => setOffer(null)}
                                 />
                               )}
+                              {voiceSetup.dialog}
                               <KeyGuardDialog
                                 ask={keyAsk}
                                 onClose={() => setKeyAsk(null)}
@@ -3344,6 +3438,7 @@ function ChannelView({
                         channel={channel}
                         people={channelPeople}
                         agents={channelAgents}
+                        pending={!members.data || dir.loading}
                         {...(addsMembers ? { onAdd: addMembers } : {})}
                       />
                     )
@@ -3464,7 +3559,6 @@ const Timeline = memo(function Timeline({
   dmPersonId,
   consultGroups,
   seenId = null,
-  marks,
   progressive = false,
   openThreadId = null,
 }: {
@@ -3486,8 +3580,6 @@ const Timeline = memo(function Timeline({
   consultGroups: ConsultGroups;
   /** My message they read last: their face is its receipt. */
   seenId?: string | null;
-  /** Messages that are a thread's context and still in the channel: the gutter mark. */
-  marks: ReadonlySet<string>;
   /** It opens at its end: the last rows are drawn first, the ones above them right after (`FIRST_ROWS`). */
   progressive?: boolean;
   /** The thread open in the panel beside the channel: only its line reads it (`OpenThreadContext`). */
@@ -3630,9 +3722,17 @@ const Timeline = memo(function Timeline({
       />
     );
   };
+  // A row after a consulted agent's words folded into its asker's quote doesn't group under them.
+  let afterRelayed = false;
   for (const [at, item] of items.entries()) {
     if (at < from) continue;
-    const grouped = item.kind === "message" && item.grouped && !afterUnshown();
+    // A consulted agent's words its asker passes on right below: they are the quote at the top of that message.
+    if (item.kind === "message" && consultGroups.relayed.has(item.message.id)) {
+      afterRelayed = true;
+      continue;
+    }
+    const grouped = item.kind === "message" && item.grouped && !afterUnshown() && !afterRelayed;
+    afterRelayed = false;
     const after = items[at + 1];
     // Where it sits in its author's run: my own rows' bubbles square the corners they share.
     const run = runPosition(grouped, after?.kind === "message" && after.grouped && !unshown.has(item.key));
@@ -3670,11 +3770,11 @@ const Timeline = memo(function Timeline({
           grouped={grouped}
           entering={false}
           modelLabels={modelLabels}
-          contextMark={marks.has(m.id)}
           replyContext={item.context}
           lastOfRun={lastByRun.get(m.agentRunId) === item.key}
           run={run}
           answer={answers.has(m.id)}
+          relay={consultGroups.relays.get(m.id)}
         />
       ) : (
         <TimelineMessage
@@ -3683,7 +3783,6 @@ const Timeline = memo(function Timeline({
           grouped={grouped}
           entering={entering}
           modelLabels={modelLabels}
-          contextMark={marks.has(m.id)}
           replyContext={item.context}
           lastOfRun={Boolean(m.agentRunId && lastByRun.get(m.agentRunId) === item.key)}
           dmPersonId={dmPersonId}
@@ -3691,6 +3790,7 @@ const Timeline = memo(function Timeline({
           helping={m.agentRunId && !isMediaAfterReply(m.meta) ? consultGroups.helping.get(m.agentRunId) : undefined}
           run={run}
           answer={answers.has(m.id)}
+          relay={consultGroups.relays.get(m.id)}
         />
       ),
     );
@@ -3752,8 +3852,8 @@ const HELD_RECENT_MS = 12 * 60 * 60_000;
 
 /** Model names for the rows of "Ajustar trecho" (no usage line is shown there). */
 const NO_LABELS = new Map<string, string>();
-const NO_MARKS: ReadonlySet<string> = new Set();
 const NO_SLOTS: RunSlot[] = [];
+const NO_ROWS: ReturnType<typeof buildTimeline> = [];
 
 /** The live run as a message, while it has none (the block's header comes from the run): from when it started. */
 function liveMessageOf(r: LiveRun): MessageType {
@@ -3787,11 +3887,11 @@ function RunBlock({
   grouped: boolean;
   entering: boolean;
   modelLabels: Map<string, string>;
-  contextMark?: boolean;
   replyContext?: ReplyRef;
   lastOfRun?: boolean;
   run?: RunPosition;
   answer?: boolean;
+  relay?: RelayedAnswer<MessageType>;
 }) {
   const run = useStreams((s) => (message ? undefined : s.runs[runId]));
   const last = useRef<LiveRun | undefined>(undefined);
@@ -3808,10 +3908,7 @@ function RunBlock({
     [liveId, liveAgent, liveChannel, liveThread, liveStart],
   );
   // At work the bar above the composer speaks for it, and the block draws only for something to show (`rowShows`).
-  // A run gone quiet meanwhile draws for "sem notícias · Atualizar": wake when that moment comes.
-  const waits = Boolean(live && !message && waitsForWords(live));
-  useDue(live?.lastEventAt ?? liveStart ?? null, QUIET_AFTER_MS, waits);
-  const hidden = Boolean(live && !message && !rowShows(live, Date.now()));
+  const hidden = Boolean(live && !message && !rowShows(live));
   const shown = message ?? placeholder;
   // Its live row on the page: the view measures which blocks are in view again (the bar speaks for those out of it).
   const rowDrawn = useContext(RowDrawnContext);
@@ -3938,9 +4035,8 @@ function RowsProvider({
 }
 
 /**
- * The end of an agent's live row: "· 12 s" (the bar's clock) and its stop. The bar says neither while the row is on
- * screen, so they sit where the eye already is. The clock keeps its room from the start, so the stop never shifts
- * when the seconds appear.
+ * The end of an agent's live row: "· 2 min" (the bar's clock, from a minute on) and its stop. The bar says neither
+ * while the row is on screen, so they sit where the eye already is.
  */
 function RunTail({ run }: { run: LiveRun }) {
   const { t } = useTranslation();
@@ -3957,46 +4053,27 @@ function RunTail({ run }: { run: LiveRun }) {
   );
 }
 
-/** Under a live block: "sem notícias há 4 min · Atualizar" (what it does now is the bar's to say). */
-function LiveRunStatus({ run }: { run: LiveRun }) {
-  const { t } = useTranslation();
-  const { org } = useOrg();
-  const api = useApi();
-  const qc = useQueryClient();
-  const liveStore = useLiveStore();
-  // A run with no news for minutes (orphaned by a restart?): say so and offer to check.
-  const [, tick] = useState(0);
-  useEffect(() => {
-    const again = () => tick((n) => n + 1);
-    const timer = setInterval(again, 15_000);
-    // Back to the tab after a while: check right away.
-    window.addEventListener("focus", again);
-    return () => {
-      clearInterval(timer);
-      window.removeEventListener("focus", again);
-    };
-  }, []);
-  const [checking, setChecking] = useState(false);
-  if (!isQuiet(run)) return null;
-  const recheck = () => {
-    setChecking(true);
-    void reconcileChannelRuns(api, liveStore, org.id, run.channelId, [run.runId])
-      .then((dropped) => {
-        if (dropped) void qc.invalidateQueries({ queryKey: keys.messages(org.id, run.channelId) });
-      })
-      .finally(() => setChecking(false));
-  };
+/**
+ * The person's picks on a choice card (ADR 0124), sent as their message: the check on the first line, then a line per
+ * question, the question quiet and the answer standing out. A reply that doesn't carry them apart is one line.
+ */
+function ChoiceReply({ body, meta }: { body: string; meta: Record<string, unknown> | undefined }) {
+  const rows = choiceReplyRows(body, meta);
   return (
-    <div className="run-status">
-      <p className="ac-msg__activity run-quiet">
-        {t("run.quiet", {
-          minutes: Math.max(3, Math.floor((Date.now() - (run.lastEventAt ?? run.startedAt ?? 0)) / 60_000)),
-        })}
-        {" · "}
-        <Button variant="ghost" size="sm" loading={checking} onClick={recheck}>
-          {t("run.refresh")}
-        </Button>
-      </p>
+    <div className="choice-reply ac-iconline">
+      <Icon name="check" size={14} />
+      {rows ? (
+        <span className="choice-reply__rows">
+          {rows.map((r, i) => (
+            // biome-ignore lint/suspicious/noArrayIndexKey: the card's questions in their order, never reordered
+            <span key={i} className="choice-reply__row">
+              <span className="choice-reply__asked">{r.question}</span> <b>{r.answer}</b>
+            </span>
+          ))}
+        </span>
+      ) : (
+        <b>{choiceReplyLine(body)}</b>
+      )}
     </div>
   );
 }
@@ -4084,27 +4161,6 @@ function StoppedLine({
       className="run-canceled"
     />
   );
-}
-
-/** Shows only after `ms` while `on` ("enviando" waits half a second: most sends never show it). */
-/** True from `from + ms` on (now when `from` is unknown, i.e. counted from the mount), while `on`. */
-function useDue(from: number | null, ms: number, on: boolean) {
-  const [start] = useState(() => Date.now());
-  const at = (from ?? start) + ms;
-  const [, tick] = useState(0);
-  const wait = at - Date.now();
-  useEffect(() => {
-    if (!on || wait <= 0) return;
-    const again = () => tick((n) => n + 1);
-    const timer = setTimeout(again, wait);
-    // Back to the tab after a while: look again at once (a sleeping computer's timers run late).
-    window.addEventListener("focus", again);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener("focus", again);
-    };
-  }, [on, wait]);
-  return !on || wait <= 0;
 }
 
 function useAfter(ms: number, on: boolean) {
@@ -4224,60 +4280,29 @@ function useAsksOutOfView(scroller: { current: HTMLElement | null }, registry: A
   return out;
 }
 
-/**
- * The bar right above the composer, one for everyone at work here and always one width: a bare line on the
- * conversation's ground (no glass, no band behind it), their small faces (the typing dots first when only people
- * type) and one line that says it all. An agent whose live row is on screen is left out: the row says its step, its
- * time and its stop. Its row out of view, or no words of its own yet (there is no thinking row in the conversation),
- * the bar speaks for it: its face, its step, its time and "Ver" once its row is there. Stopping it is the composer's
- * button (and Esc), never a second one here.
- */
-function ActivityBar({
-  channelId,
-  threadId,
-  visible,
-  outOfView,
-  onSee,
-  asks,
-  pendingAsks,
-  onSeeAsk,
-  waiting,
-  onSeeWaiting,
-  consultBlocks,
-  handoffsInView,
-  member,
-}: {
+/** Where the people and agents at work here are read from: the conversation's view, for the tail and the bar alike. */
+interface WorkHere {
   channelId: string;
   /** A thread view: who types there (null: who types in the conversation itself). */
   threadId: string | null;
   /** Which runs belong here (a thread view shows only its own). */
   visible?: { current: (r: { threadId: string | null; provisional?: boolean }) => boolean };
-  /** The run's block is not on screen ("Ver" brings it back). */
-  outOfView: (runId: string) => boolean;
-  /** "Ver": back to that block. */
-  onSee: (runId: string) => void;
-  /** Requests waiting for the viewer out of view: the bar says the first one instead of who works. */
-  asks: PendingAsk[];
   /** Every request waiting for the viewer here, in view or not: a hand-off whose agent asks them says so. */
   pendingAsks: readonly PendingAsk[];
-  /** "Ver" on a request: scrolls to it and lights it up. */
-  onSeeAsk: (id: string) => void;
-  /** What waits on the viewer here with no card loaded, oldest first: counted when no request above speaks. */
-  waiting: WaitingItem[];
-  /** "Ver" on that count: goes to the oldest one. */
-  onSeeWaiting: (item: WaitingItem) => void;
   /** Runs whose questions a block near the end shows (`ConsultGroup`): the line doesn't say them again. */
   consultBlocks: ReadonlySet<string>;
   /** Hand-offs whose line under the reply that handed them is on screen: it says them, with its own Ver. */
   handoffsInView: ReadonlySet<string>;
-  /** The reader is in this conversation (may answer here). */
-  member: boolean;
-}) {
-  const { t, i18n } = useTranslation();
+}
+
+/**
+ * Who is at work here, in the order the working line says it (`barEntries`): agents asking another one, agents at work,
+ * then people typing or recording. Ticks each second while someone is.
+ */
+function useWorkHere({ channelId, threadId, visible, pendingAsks, consultBlocks, handoffsInView }: WorkHere) {
+  const { t } = useTranslation();
   const { org, me } = useOrg();
   const dir = useDirectory(org.id);
-  // The returns agents set here (a thread's own, else the main timeline's): the bar holds them while nobody works.
-  const returns = returnsHere(useFollowUps(org.id, channelId).data, threadId);
   const all = useStreams((s) => runsInChannel(s, channelId).filter((r) => visible?.current(r) ?? true), sameRuns);
   const runs = all.filter((r) => r.status !== "failed");
   const typing = useLive((s) => s.typing[channelId]);
@@ -4314,50 +4339,132 @@ function ActivityBar({
     .filter((c) => !(c.kind === "note" && !c.yours && c.id && handoffsInView.has(c.id)));
   asking.current = consults.length > 0;
   const ids = typingIn({ [channelId]: typing ?? {} }, channelId, now, me.user.id, threadId);
-  // At work, its row shows only what it has to show meanwhile (its browser card): the bar says what it does, for how
-  // long, and stops it. A row that says all that (none at work now) leaves the agent out while it is in view.
-  const rowInView = (r: LiveRun) => !waitsForWords(r) && !outOfView(r.runId);
-  const entries = entriesOffScreen(
-    barEntries(
-      runs,
-      ids,
-      (id) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent"),
-      (id) => dir.memberById.get(id)?.name,
-      consults,
-    ),
+  const entries = barEntries(
     runs,
-    rowInView,
+    ids,
+    (id) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent"),
+    (id) => dir.memberById.get(id)?.name,
+    consults,
   );
-  const active = entries.length > 0;
-  const agents = entries.filter((e) => e.type === "agent");
-  const firstAgent = agents[0];
-  // The time and "Ver" are one agent's: with several, the line can't say whose.
-  const soloRun = agents.length === 1 && firstAgent ? runs.find((r) => r.agentId === firstAgent.id) : undefined;
-  // Only while its row is out of view (a question it asks keeps its phrase here, its row in view or not).
-  const soloAway = soloRun && !rowInView(soloRun) ? soloRun : undefined;
-  const took = soloAway ? barElapsed(t, entries, runs, now) : null;
-  // The row's own words for what it does now, after its name; a question out keeps its own phrase.
-  const step = soloAway && firstAgent && !firstAgent.consult ? barStep(t, soloAway, i18n.language, now) : null;
-  // Agents running code: "Ver código" with the live code and output.
-  const coding = runs.filter(
-    (r) => !rowInView(r) && r.code && (r.work ?? []).some((w) => w.kind === "call" && w.running),
-  );
-  // An agent working in its browser: the bar says so, and a click opens its browser card in the conversation.
-  // Its row in view draws its browser card itself.
-  const browsing = runs.find((r) => usesBrowser(r) && !rowInView(r));
-  const openBrowser = browsing ? () => requestBrowserCard({ agentId: browsing.agentId }) : undefined;
+  return { runs, entries, now };
+}
+
+/**
+ * The bar right above the composer: what waits on the reader (a request out of view, what waits on them here with no
+ * card loaded) and, while nobody works, the soonest return (ADR 0037 addendum). Who works and what they do is the
+ * conversation's last row (`WorkingTail`), as a reply on its way, with the code it runs.
+ */
+function ActivityBar({
+  asks,
+  onSeeAsk,
+  waiting,
+  onSeeWaiting,
+  member,
+  ...here
+}: WorkHere & {
+  /** Requests waiting for the viewer out of view: the bar says the first one. */
+  asks: PendingAsk[];
+  /** "Ver" on a request: scrolls to it and lights it up. */
+  onSeeAsk: (id: string) => void;
+  /** What waits on the viewer here with no card loaded, oldest first: counted when no request above speaks. */
+  waiting: WaitingItem[];
+  /** "Ver" on that count: goes to the oldest one. */
+  onSeeWaiting: (item: WaitingItem) => void;
+  /** The reader is in this conversation (may answer here). */
+  member: boolean;
+}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const { channelId, threadId } = here;
+  // The returns agents set here (a thread's own, else the main timeline's): the bar holds them while nobody works.
+  const returns = returnsHere(useFollowUps(org.id, channelId).data, threadId);
+  const { entries } = useWorkHere(here);
   // A request waiting for you, out of view: the bar says that instead (waiting beats working).
   const ask = asks[0];
   const askName = ask ? (dir.anyAgent(ask.agentId)?.name ?? t("channel.unknownAgent")) : "";
   const away = ask ? undefined : waiting[0];
   const awayAgent = away?.asker?.type === "agent" ? dir.anyAgent(away.asker.id) : undefined;
-  const pill = !ask && !away && active;
   // Nobody at work and nothing waiting on the reader: the soonest return rests in the same box (ADR 0037 addendum).
-  const rest = !ask && !away && !active && returns.length > 0;
-  // One agent's question or hand-off still out (ADR 0095 addendum): the consulted agent's state, its sky, its time, and
-  // "Ver", which opens their talk (or, when its card waits on me, goes to the card). No stop: that is theirs.
-  const consult = agents.length === 1 && firstAgent?.consult?.status === "asking" ? firstAgent.consult : undefined;
-  const consultAsk = consult?.yours ? askOf(pendingAsks, consult.to, consult.toRun) : null;
+  const rest = !ask && !away && entries.length === 0 && returns.length > 0;
+  return (
+    <div
+      className="ac-typing"
+      aria-live="polite"
+      data-active={Boolean(ask) || Boolean(away)}
+      data-rest={rest || undefined}
+      data-ask={ask || away ? true : undefined}
+    >
+      {ask && (
+        <>
+          <span className="ac-typing__avatars" aria-hidden="true">
+            <span className="ac-typing__tok">
+              <AgentAvatar agentId={ask.agentId} size="xs" name={askName} state="waiting" />
+            </span>
+          </span>
+          <WaitMark />
+          <span className="ac-typing__text">
+            {/* What it asks is the agent's or a person's own text: shown as written, never read as markup. */}
+            <Trans
+              i18nKey={`ask.bar.${ask.kind}` as const}
+              values={{ name: askName, what: ask.what }}
+              components={{ b: <b /> }}
+              {...TYPED_VALUES}
+            />
+          </span>
+          {asks.length > 1 && <span className="ac-typing__more">{t("ask.bar.more", { count: asks.length - 1 })}</span>}
+          <span className="ac-typing__sep" aria-hidden="true" />
+          <button type="button" className="ac-typing__see" onClick={() => onSeeAsk(ask.id)}>
+            {t("ask.bar.see")}
+          </button>
+        </>
+      )}
+      {away && (
+        <>
+          {awayAgent && (
+            <span className="ac-typing__avatars" aria-hidden="true">
+              <span className="ac-typing__tok">
+                <AgentAvatar agentId={awayAgent.id} size="xs" name={awayAgent.name} state="waiting" />
+              </span>
+            </span>
+          )}
+          <WaitMark />
+          <span className="ac-typing__text">
+            <b>{t("ask.bar.here", { count: waiting.length })}</b>
+          </span>
+          <span className="ac-typing__sep" aria-hidden="true" />
+          <button type="button" className="ac-typing__see" onClick={() => onSeeWaiting(away)}>
+            {t("ask.bar.see")}
+          </button>
+        </>
+      )}
+      {rest && <ReturnLine returns={returns} channelId={channelId} canAnswer={member} />}
+    </div>
+  );
+}
+
+/**
+ * The conversation's last row while someone works here, as a reply on its way (the phone's working line is the same):
+ * the agent at work in its face's column, its rings orbiting it, then one line that says it all ("Nina consultando o
+ * Email · 12 s", its stop) and under it what it did so far (`workTrail`), a few lines at most. With several at work the
+ * line says them all; people only typing get their dots. When its reply posts, the row goes and the reply shows the
+ * same work in its block, in the same order. A question or hand-off out keeps its own phrase, time and "Ver".
+ */
+function WorkingTail({ onSeeAsk, ...here }: WorkHere & { onSeeAsk: (id: string) => void }) {
+  const { t, i18n } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const { runs, entries, now } = useWorkHere(here);
+  const agents = entries.filter((e) => e.type === "agent");
+  const lead = agents[0];
+  // The time, the step, the stop and the trail are one agent's: with several, the line can't say whose.
+  const solo = agents.length === 1 && lead ? runs.find((r) => r.agentId === lead.id) : undefined;
+  const step = solo && lead && !lead.consult ? barStep(t, solo, i18n.language, now) : null;
+  const trail = usePacedTrail(solo && step !== null ? workTrail(t, solo, i18n.language) : NO_TRAIL);
+  // One agent's question or hand-off still out (ADR 0095 addendum): the consulted agent's state, its time, and "Ver",
+  // which opens their talk (or, when its card waits on me, goes to the card). No stop: that is theirs.
+  const consult = agents.length === 1 && lead?.consult?.status === "asking" ? lead.consult : undefined;
+  const consultAsk = consult?.yours ? askOf(here.pendingAsks, consult.to, consult.toRun) : null;
   const consultTime = barConsultTime(i18n.language, consult, now);
   const openTalk = useChannelActions()?.openConsultation;
   const seeConsult = consultAsk
@@ -4366,144 +4473,139 @@ function ActivityBar({
       ? () => openTalk(consult.id as string)
       : undefined;
   const consultTip =
-    consult?.kind === "note" && firstAgent
-      ? t("chat.consult.handedOff", {
-          to: consult.toName,
-          from: firstAgent.name,
-          context: agentGrammar(firstAgent.name).context,
-        })
+    consult?.kind === "note" && lead
+      ? t("chat.consult.handedOff", { to: consult.toName, from: lead.name, context: agentGrammar(lead.name).context })
       : undefined;
+  // An agent working in its browser: the row says so, and a click opens its browser card in the conversation.
+  const browsing = runs.find((r) => usesBrowser(r) && waitsForWords(r));
+  const openBrowser = browsing ? () => requestBrowserCard({ agentId: browsing.agentId }) : undefined;
+  // Its last code and that code's output, from its first command until its reply: "See code" stays between two
+  // commands (and the code stays open, showing the last one), or the row would change under the pointer each time.
+  const code = solo && step !== null ? lastCodeCall(solo) : undefined;
+  const [codeOpenFor, setCodeOpenFor] = useState<string | null>(null);
+  const codeOpen = Boolean(code) && codeOpenFor === solo?.runId;
+  if (entries.length === 0) return null;
+  // The face's column holds whoever does the work, with its orbit while it works: the agent at work, or the one a
+  // question or hand-off went to (its own wait holds it still). The line names both and never repeats a face: its
+  // small faces are the others at it.
+  const worker = consult ? { id: consult.to, name: consult.toName } : lead;
+  const atWork = consult ? !consult.yours && !consult.wait : Boolean(lead);
+  const faces = barFaces(entries).filter((e) => e !== lead);
+  const agent = worker ? dir.agentById.get(worker.id) : undefined;
   return (
-    <>
-      {coding.map((r) =>
-        r.code ? (
-          <LiveCodeToggle
-            key={r.runId}
-            name={dir.agentById.get(r.agentId)?.name ?? t("channel.unknownAgent")}
-            code={r.code}
-            output={r.output ?? []}
-          />
-        ) : null,
-      )}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the "No navegador" button inside is the keyboard way; the pill is a bigger target */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: same */}
-      <div
-        className="ac-typing"
-        aria-live="polite"
-        data-active={active || Boolean(ask) || Boolean(away)}
-        data-rest={rest || undefined}
-        data-ask={ask || away ? true : undefined}
-        data-consult={pill && consult ? (consult.yours ? "you" : consult.wait ? "wait" : "work") : undefined}
-        data-browser={pill && openBrowser ? true : undefined}
-        onClick={
-          pill && openBrowser
-            ? (e) => {
-                // Its own buttons (Ver) keep their job.
-                if ((e.target as HTMLElement).closest("button, [role=dialog]")) return;
-                openBrowser();
-              }
-            : undefined
-        }
-      >
-        {ask && (
-          <>
-            <span className="ac-typing__avatars" aria-hidden="true">
-              <span className="ac-typing__tok">
-                <AgentAvatar agentId={ask.agentId} size="xs" name={askName} state="waiting" />
-              </span>
-            </span>
-            <WaitMark />
-            <span className="ac-typing__text">
-              {/* What it asks is the agent's or a person's own text: shown as written, never read as markup. */}
-              <Trans
-                i18nKey={`ask.bar.${ask.kind}` as const}
-                values={{ name: askName, what: ask.what }}
-                components={{ b: <b /> }}
-                {...TYPED_VALUES}
-              />
-            </span>
-            {asks.length > 1 && (
-              <span className="ac-typing__more">{t("ask.bar.more", { count: asks.length - 1 })}</span>
-            )}
-            <span className="ac-typing__sep" aria-hidden="true" />
-            <button type="button" className="ac-typing__see" onClick={() => onSeeAsk(ask.id)}>
-              {t("ask.bar.see")}
-            </button>
-          </>
-        )}
-        {away && (
-          <>
-            {awayAgent && (
-              <span className="ac-typing__avatars" aria-hidden="true">
-                <span className="ac-typing__tok">
-                  <AgentAvatar agentId={awayAgent.id} size="xs" name={awayAgent.name} state="waiting" />
-                </span>
-              </span>
-            )}
-            <WaitMark />
-            <span className="ac-typing__text">
-              <b>{t("ask.bar.here", { count: waiting.length })}</b>
-            </span>
-            <span className="ac-typing__sep" aria-hidden="true" />
-            <button type="button" className="ac-typing__see" onClick={() => onSeeWaiting(away)}>
-              {t("ask.bar.see")}
-            </button>
-          </>
-        )}
-        {pill && (
-          <>
-            {/* Agents at work: their faces open the pill (their rows are out of view); people only typing: the dots
-                first. Who records has a mark of their own by their words, and so has who types beside them. */}
-            {!firstAgent && someoneTypes(entries) && !bothAtIt(entries) && <TypingMark />}
-            <WorkingStack entries={entries} />
+    // biome-ignore lint/a11y/noStaticElementInteractions: the globe button inside is the keyboard way; the row is a bigger target
+    // biome-ignore lint/a11y/useKeyWithClickEvents: same
+    <div
+      className="working-tail"
+      data-browser={openBrowser ? true : undefined}
+      onClick={
+        openBrowser
+          ? (e) => {
+              // Its own buttons keep their job.
+              if ((e.target as HTMLElement).closest("button, [role=dialog]")) return;
+              openBrowser();
+            }
+          : undefined
+      }
+    >
+      <div className="working-tail__face" aria-hidden="true">
+        {worker && atWork ? (
+          <OrbitGlyph appearance={lookOf(agent)}>
+            <AgentAvatar agentId={worker.id} name={worker.name} state={consult ? "thinking" : "writing"} />
+          </OrbitGlyph>
+        ) : worker ? (
+          <AgentAvatar agentId={worker.id} name={worker.name} state={consult?.yours ? "waiting" : "idle"} />
+        ) : someoneTypes(entries) && !bothAtIt(entries) ? (
+          <TypingMark />
+        ) : null}
+      </div>
+      <div className="working-tail__body">
+        <div
+          className={cx("ac-typing working-tail__line", trail.lines.length > 0 && "ac-captop")}
+          aria-live="polite"
+          data-active="true"
+          data-consult={consult ? (consult.yours ? "you" : consult.wait ? "wait" : "work") : undefined}
+        >
+          {/* What it says, wrapping whole pieces when short of room; its globe and "Ver" end the line, never wrapped
+              away alone. */}
+          <span className="working-tail__words">
+            <WorkingStack entries={entries} faces={faces} />
             {/* The phrase turns: the old one leaves upward, the new one comes from below. Names in ink. */}
             <span className="ac-typing__text" title={consultTip}>
-              {step !== null && firstAgent ? (
-                <BarStep name={firstAgent.name} step={step} />
-              ) : (
-                <BarPhrase entries={entries} />
-              )}
+              {step !== null && lead ? <BarStep name={lead.name} step={step} /> : <BarPhrase entries={entries} />}
             </span>
+            {/* Its time and its stop right after its words. */}
+            {solo && step !== null && <RunTail run={solo} />}
+            {solo && code && (
+              <>
+                <span className="ac-typing__sep" aria-hidden="true" />
+                <button
+                  type="button"
+                  className="ac-typing__see"
+                  aria-expanded={codeOpen}
+                  onClick={() => setCodeOpenFor(codeOpen ? null : solo.runId)}
+                >
+                  {t(codeOpen ? "code.hide" : "code.see")}
+                </button>
+              </>
+            )}
             <ConsultClock entries={entries} now={now} />
-            {took && <span className="ac-typing__elapsed ac-num">{took}</span>}
             {consultTime && <span className="ac-typing__elapsed ac-num">{consultTime}</span>}
-            {step !== null && <BarAlsoTyping entries={entries} />}
-            {openBrowser && (
-              <Button
-                size="sm"
-                variant="ghost"
-                icon="globe"
-                iconOnly
-                className="ac-typing__browser"
-                aria-label={t("browser.watch.title")}
-                title={t("browser.watch.open")}
-                onClick={openBrowser}
-              />
+          </span>
+          {openBrowser && (
+            <Button
+              size="sm"
+              variant="ghost"
+              icon="globe"
+              iconOnly
+              className="ac-typing__browser"
+              aria-label={t("browser.watch.title")}
+              title={t("browser.watch.open")}
+              onClick={openBrowser}
+            />
+          )}
+          {seeConsult && (
+            <>
+              <span className="ac-typing__sep" aria-hidden="true" />
+              <button type="button" className="ac-typing__see" onClick={seeConsult}>
+                {t("run.strip.see")}
+              </button>
+            </>
+          )}
+          {/* Who types beside its step: a row of its own, so the step keeps the line. */}
+          {step !== null && (
+            <span className="working-tail__also">
+              <BarAlsoTyping entries={entries} />
+            </span>
+          )}
+        </div>
+        {trail.lines.length > 0 && (
+          <ol
+            className="working-tail__trail"
+            aria-label={t("chat.trail.label", {
+              name: lead?.name ?? "",
+              context: agentGrammar(lead?.name ?? "").context,
+            })}
+          >
+            {trail.earlier > 0 && (
+              <li className="working-tail__more">{t("chat.trail.earlier", { count: trail.earlier })}</li>
             )}
-            {seeConsult && (
-              <>
-                <span className="ac-typing__sep" aria-hidden="true" />
-                <button type="button" className="ac-typing__see" onClick={seeConsult}>
-                  {t("run.strip.see")}
-                </button>
-              </>
-            )}
-            {/* "Ver" once its row is in the conversation (before that, there is nothing to go back to). */}
-            {!seeConsult && soloAway && rowShows(soloAway, now) && (
-              <>
-                <span className="ac-typing__sep" aria-hidden="true" />
-                <button type="button" className="ac-typing__see" onClick={() => onSee(soloAway.runId)}>
-                  {t("run.strip.see")}
-                </button>
-              </>
-            )}
-          </>
+            {trail.lines.map((l) => (
+              <li key={l.key}>{l.text}</li>
+            ))}
+          </ol>
         )}
-        {rest && <ReturnLine returns={returns} channelId={channelId} canAnswer={member} />}
+        {code && codeOpen && (
+          <div className="working-tail__code">
+            <CodePanel code={code.code} output={code.output} live={code.running} header={code.code.language} />
+          </div>
+        )}
       </div>
-    </>
+    </div>
   );
 }
+
+const NO_TRAIL: TrailLine[] = [];
 
 /**
  * One row; agent replies get feedback actions, people's messages get receipts. With `live`, the agent's
@@ -4515,7 +4617,6 @@ export const TimelineMessage = memo(function TimelineMessage({
   grouped,
   entering,
   modelLabels,
-  contextMark,
   replyContext,
   live = null,
   seenLive,
@@ -4526,13 +4627,12 @@ export const TimelineMessage = memo(function TimelineMessage({
   readOnly = false,
   run = "solo",
   answer = false,
+  relay,
 }: {
   message: MessageType;
   grouped: boolean;
   entering: boolean;
   modelLabels: Map<string, string>;
-  /** Part of a thread's context (still in the channel): the quiet mark in the gutter. */
-  contextMark?: boolean;
   /** Shown away from the message it answers: that message, quoted above (`buildTimeline`). */
   replyContext?: ReplyRef;
   /** The run still at work (the row is its live block; `message` is a placeholder). */
@@ -4553,6 +4653,8 @@ export const TimelineMessage = memo(function TimelineMessage({
   run?: RunPosition;
   /** The newest message, or one after my latest (`answerIds`): it shows whole however long. */
   answer?: boolean;
+  /** Another agent's words this agent passes on (`relayedAnswers`): quoted at its top, as a reply quotes. */
+  relay?: RelayedAnswer<MessageType>;
 }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
@@ -4584,7 +4686,9 @@ export const TimelineMessage = memo(function TimelineMessage({
   // Mine in a DM between people: the slot of their face, from the moment it is sent, so it never rewraps a line.
   const own = m.author.type === "person" && m.author.id === me.user.id;
   const seenSlot = dmPersonId !== undefined && own;
-  const name = dir.authorName(m.author);
+  const name = dir.authorName(m.author, m.meta);
+  // An integration app's message (ADR 0251): its mark and an "App" tag, never a person's or an agent's card.
+  const app = m.author.type === "app" ? appAuthor(m.meta) : null;
   // What a routine found, told by its agent (`meta.routine`): a tag that opens the routine, and the report
   // it answers on demand (that report's own line folds into this message).
   const routine = routineReplyOf(m);
@@ -4665,6 +4769,7 @@ export const TimelineMessage = memo(function TimelineMessage({
   };
   const meta = m.meta ?? {};
   const standIn = modelStandInText(t, meta);
+  const spilled = m.author.type === "agent" ? spilledText(t, meta, org) : null;
   const approvalId = typeof meta.approvalId === "string" ? meta.approvalId : null;
   const proposalId = typeof meta.proposalId === "string" ? meta.proposalId : null;
   const memoryUpdates = Array.isArray(meta.memoryUpdates)
@@ -4738,7 +4843,10 @@ export const TimelineMessage = memo(function TimelineMessage({
   );
   // Work it handed over that reports here: its line under this reply says what the pair row would.
   const handedWorks = lastOfRun && !m.local ? (m.handedWorks ?? []) : [];
-  const paired = consults.filter((c) => !handedWorks.some((w) => w.handedBy?.consultationId === c.id));
+  // The question whose answer it quotes at its top (`relay`) isn't in the pair row too.
+  const paired = consults.filter(
+    (c) => !handedWorks.some((w) => w.handedBy?.consultationId === c.id) && c.id !== relay?.consultation.id,
+  );
   const pair =
     m.author.type === "agent" && m.author.id && paired.length > 0 ? (
       <ConsultPairRow askerId={m.author.id} items={paired} />
@@ -4844,9 +4952,10 @@ export const TimelineMessage = memo(function TimelineMessage({
         run={run}
         bare={waiting || !bodyShown}
         quote={
-          quoted || liveRef ? (
+          quoted || liveRef || relay ? (
             <>
               {quoted && <QuotedMessage reply={quoted} />}
+              {relay && <RelayQuote relay={relay} />}
               {liveRef && <LiveRefLine liveRef={liveRef} />}
             </>
           ) : undefined
@@ -4857,7 +4966,6 @@ export const TimelineMessage = memo(function TimelineMessage({
         streaming={Boolean(live) && !liveFailed && !liveWaiting}
         className={cx(
           local && `ac-msg--local ac-msg--${local}`,
-          contextMark && "msg--context",
           mentionsMe && "ac-msg--mentions-me",
           wide && "ac-msg--wide",
         )}
@@ -4865,7 +4973,9 @@ export const TimelineMessage = memo(function TimelineMessage({
         onFocus={feedback ? () => setActive(true) : undefined}
         onContextMenu={live || readOnly ? undefined : menu.onContextMenu}
         avatar={
-          m.author.id ? (
+          m.author.type === "app" ? (
+            <AppMark color={app?.color ?? "graphite"} name={name} />
+          ) : m.author.id ? (
             <ProfileTrigger
               actor={{ type: m.author.type, id: m.author.id }}
               label={t("profile.of", { name })}
@@ -4895,7 +5005,9 @@ export const TimelineMessage = memo(function TimelineMessage({
           )
         }
         author={
-          m.author.id ? (
+          m.author.type === "app" ? (
+            <AppAuthorTags name={name} sender={app?.sender ?? null} />
+          ) : m.author.id ? (
             <>
               <ProfileTrigger
                 actor={{ type: m.author.type, id: m.author.id }}
@@ -4980,7 +5092,6 @@ export const TimelineMessage = memo(function TimelineMessage({
       >
         {live && waiting ? (
           <Parts resetKey={m}>
-            <LiveRunStatus run={live} />
             {makingImage(live) && <ImageMaking color={colorOf(agent)} />}
             {/* Its subagents and workflows at work, in a code session (ADR 0215). */}
             <LiveSubagents work={live.work ?? []} agentName={name} color={colorOf(agent)} />
@@ -5044,16 +5155,12 @@ export const TimelineMessage = memo(function TimelineMessage({
                 </ClippedBody>
               </MessageText>
             )}
-            {choiceReply && (
-              <p className="choice-reply">
-                <Icon name="check" size={14} />
-                <b>{choiceReplyLine(body)}</b>
-              </p>
-            )}
+            {choiceReply && <ChoiceReply body={body} meta={m.meta} />}
             {media && <ChatMedia media={media} />}
             {voice && <ChatVoice message={m} voice={voice} />}
             {m.author.type === "agent" && meta.speedFallback === true && <SpeedFallbackLine agent={agent} />}
             {m.author.type === "agent" && standIn && <ModelStandInLine text={standIn} agent={agent} meta={meta} />}
+            {spilled && <SpilledLine text={spilled} />}
             {(stopped.canceled || atLimit || providerCut) && (
               <StoppedLine
                 runId={m.agentRunId}
@@ -5341,16 +5448,17 @@ function ChannelDetails({
   const routing = useAiStatus(org.id, open).data?.routing;
   const update = useUpdateChannel(org.id, channel.id);
   const editable = managesChannel(channel, me.user.id, org);
+  // A personal workspace's group conversation (ADR 0159): its name as written, with no #.
+  const groupName = isPersonal(org);
   const toast = useToast();
-  const categories = useChannelCategories(org.id);
+  const sectors = useAgentGroups(org.id).data ?? [];
   const place = usePlaceChannel(org.id);
   const archive = useArchiveChannelWithUndo();
   const leaving = useLeaveChannelWithUndo();
   // Name: saved on blur or Enter, like the description.
   const [name, setName] = useState(channel.name);
   const [nameError, setNameError] = useState<string | undefined>();
-  const categoryName =
-    categories.data?.find((c) => c.id === channel.categoryId)?.name ?? t("channelCategories.noCategory");
+  const sectorName = sectors.find((g) => g.id === channel.groupId)?.name ?? t("agentGroups.none");
   const [q, setQ] = useState("");
   const [topic, setTopic] = useState(channel.topic);
   const [saved, setSaved] = useState(false);
@@ -5412,24 +5520,30 @@ function ChannelDetails({
     );
   };
   const saveName = () => {
-    if (!editable || name === channel.name) return;
-    if (!name) {
+    // A personal workspace's group conversation keeps its name as written (ADR 0159); a team's channel, lower case.
+    const next = groupName ? name.trim() : name;
+    if (!editable || next === channel.name) return;
+    if (!next) {
       setName(channel.name);
       return;
     }
-    if (!CHANNEL_NAME.test(name)) {
-      setNameError(t("newChannel.nameInvalid"));
+    if (channelNameError(next, new Set(), groupName) === "invalid") {
+      setNameError(t(modeKey(org, "newChannel.nameInvalid")));
       return;
     }
     update.mutate(
-      { name },
+      { name: next },
       {
         onSuccess: () => {
           setNameError(undefined);
           setSaved(true);
         },
         onError: (e) =>
-          setNameError(e instanceof ApiError && e.status === 409 ? t("channel.nameTaken", { name }) : errorText(t, e)),
+          setNameError(
+            e instanceof ApiError && e.status === 409
+              ? t(modeKey(org, "channel.nameTaken"), { name: next })
+              : errorText(t, e),
+          ),
       },
     );
   };
@@ -5441,9 +5555,9 @@ function ChannelDetails({
     setAdding(false);
     onOpenChange(false);
   };
-  const moveTo = (categoryId: string | null) =>
+  const moveTo = (groupId: string | null) =>
     place.mutate(
-      { channelId: channel.id, categoryId },
+      { channelId: channel.id, groupId },
       {
         onSuccess: () => setSaved(true),
         onError: (e) => toast.show(errorText(t, e), "error"),
@@ -5500,6 +5614,18 @@ function ChannelDetails({
       <span className="member-group__count">{count}</span>
     </p>
   );
+  // How an agent answers my messages; the responsible agent's line says that first, alone when it answers on its own
+  // and something picks for me.
+  const agentLine = (r: (typeof all)[number]) => {
+    const line = !r.autoReply
+      ? t("channelMembers.mentionLine", { handle: r.handle })
+      : !picksForMe(routing)
+        ? t(replyAloneKey(routing), agentGrammar(r.name))
+        : t("channelMembers.aloneLine", agentGrammar(r.name));
+    if (r.id !== channel.leadAgentId) return line;
+    const lead = t("channelMembers.lead");
+    return r.autoReply && picksForMe(routing) ? lead : [lead, line].join(" · ");
+  };
   const membersList = (
     <DialogSearchList
       query={q}
@@ -5521,13 +5647,7 @@ function ChannelDetails({
           </OpensAgent>
           <span className="list-col">
             <span style={{ fontWeight: 600 }}>{r.name}</span>
-            <span className="small muted">
-              {!r.autoReply
-                ? t("channelMembers.mentionLine", { handle: r.handle })
-                : !picksForMe(routing)
-                  ? t(replyAloneKey(routing), agentGrammar(r.name))
-                  : t("channelMembers.aloneLine", agentGrammar(r.name))}
-            </span>
+            <span className="small muted">{agentLine(r)}</span>
           </span>
           {r.setsReply && (
             <Menu
@@ -5573,6 +5693,20 @@ function ChannelDetails({
               />
               {editable && (
                 <>
+                  <MenuSeparator />
+                  <MenuCheckboxItem
+                    checked={r.id === channel.leadAgentId}
+                    disabled={update.isPending}
+                    description={t("channelMembers.leadHelp")}
+                    onCheckedChange={(on) =>
+                      update.mutate(
+                        { leadAgentId: on ? r.id : null },
+                        { onError: (e) => toast.show(errorText(t, e), "error") },
+                      )
+                    }
+                  >
+                    {t("channelMembers.lead")}
+                  </MenuCheckboxItem>
                   <MenuSeparator />
                   <MenuItem icon="close" danger onSelect={() => setRemoving({ kind: "agent", id: r.id, name: r.name })}>
                     {t("channelMembers.remove")}
@@ -5633,12 +5767,12 @@ function ChannelDetails({
         width={editable ? 760 : 600}
         onOpenChange={(o) => (o ? onOpenChange(o) : leave())}
         subtitle={t("channel.detailsSub", {
-          category: categoryName,
+          category: sectorName,
           visibility: t(ACCESS_LABEL[accessOf(channel).mode]),
         })}
         title={
           <>
-            {t("channel.detailsTitle", { channel: channel.name })}
+            {t(modeKey(org, "channel.detailsTitle"), { channel: channel.name })}
             {editable && <SavedNote shown={saved} label={t("common.saved")} className="channel-topic__saved" />}
           </>
         }
@@ -5720,11 +5854,12 @@ function ChannelDetails({
                     error={nameError}
                   >
                     <AffixInput
-                      prefix="#"
+                      prefix={groupName ? undefined : "#"}
                       value={name}
                       disabled={channel.name === "general"}
+                      maxLength={groupName ? 80 : undefined}
                       onChange={(e) => {
-                        setName(toChannelName(e.target.value));
+                        setName(groupName ? toGroupName(e.target.value) : toChannelName(e.target.value));
                         setNameError(undefined);
                       }}
                       onBlur={saveName}
@@ -5746,9 +5881,11 @@ function ChannelDetails({
                       maxLength={250}
                     />
                   </Field>
-                  <Field label={t("channelCategories.category")} id="channel-edit-category">
-                    <CategorySelect value={channel.categoryId ?? null} onChange={moveTo} canCreate={editable} />
-                  </Field>
+                  {sectors.length > 0 && (
+                    <Field label={t("agentGroups.group")} id="channel-edit-sector">
+                      <SectorSelect value={channel.groupId ?? null} onChange={moveTo} />
+                    </Field>
+                  )}
                   <SettingRow
                     title={t("channel.replyInThreads")}
                     hint={{
@@ -5811,7 +5948,7 @@ function ChannelDetails({
       <Dialog
         open={open && Boolean(removing)}
         onOpenChange={(o) => !o && setRemoving(null)}
-        title={t("channelMembers.removeTitle", { name: removing?.name ?? "", channel: channel.name })}
+        title={t(modeKey(org, "channelMembers.removeTitle"), { name: removing?.name ?? "", channel: channel.name })}
         description={t(
           removing?.kind === "agent" ? "channelMembers.removeAgentBody" : "channelMembers.removePersonBody",
           agentGrammar(removing?.name ?? ""),
@@ -5911,7 +6048,7 @@ function AddMembersDialog({
     <Dialog
       open={open}
       onOpenChange={(o) => !o && onClose()}
-      title={t("channelMembers.addTitle", { channel: channel.name })}
+      title={t(modeKey(org, "channelMembers.addTitle"), { channel: channel.name })}
       closeLabel={t("common.close")}
     >
       <Locked when={add.isPending}>
@@ -6015,7 +6152,6 @@ function AddToChannelOffer({ channelId, agentId, onDone }: { channelId: string; 
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const add = useAddChannelMember(org.id);
-  const toast = useToast();
   const name = dir.agentById.get(agentId)?.name ?? t("channel.unknownAgent");
   const admin = can(org, "manage_channels");
   return (
@@ -6029,12 +6165,8 @@ function AddToChannelOffer({ channelId, agentId, onDone }: { channelId: string; 
           onClick={() =>
             add.mutate(
               { channelId, member: { agentId } },
-              {
-                onSuccess: () => {
-                  toast.show(t("mentions.added", { name }));
-                  onDone();
-                },
-              },
+              // No toast: the conversation's own line says who joined, for everyone.
+              { onSuccess: onDone },
             )
           }
         >

@@ -8,6 +8,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   rowsOf,
   type SQL,
@@ -17,7 +18,8 @@ import {
 import { resolveChannelAgentAsks } from "./admin-asks";
 import { managesAgent, OWNER_COLUMNS, ownsAgent, REACH_COLUMNS } from "./audience";
 import { caches } from "./cache";
-import { endOfCategory, requireCategoryInOrg } from "./channel-categories";
+import { noteJoined, writeLeftLine } from "./channel-joins";
+import { endOfSector, requireSectorInOrg } from "./channel-sectors";
 import { wordsOf } from "./confidential";
 import { ConflictError, ForbiddenError, isUniqueViolation, NotFoundError, ValidationError } from "./errors";
 import { publishChannelEvent, publishChannelsChanged, publishOrgEvent, publishUserEvent } from "./events";
@@ -62,12 +64,91 @@ import {
   fileConversationReaderSql,
   taskReaderSql,
 } from "./task-access";
+import { isPersonalWorkspace } from "./workspace-mode";
 
 const { channels, channelMembers, agents, organizationMembers, organizations, users } = schema;
 
 export type Channel = typeof channels.$inferSelect;
 
 export const CHANNEL_NAME_PATTERN = /^[a-z0-9][a-z0-9_-]{0,79}$/;
+
+/** The longest a channel's name may be, in either form. */
+export const CHANNEL_NAME_MAX = 80;
+
+/**
+ * A group conversation's name in a personal workspace (ADR 0159, amendment of 2026-11-26): what the person wrote, as
+ * written ("Viagem pra Lisboa"), its runs of spaces folded to one and a leading # dropped; null when nothing is left,
+ * it is too long, holds a control character or starts with `dm-` (the direct conversations' prefix).
+ */
+export function personalChannelName(raw: string): string | null {
+  const name = raw
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^#+\s*/, "");
+  if (!name || name.length > CHANNEL_NAME_MAX) return null;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what this refuses
+  if (/[\u0000-\u001f\u007f]/.test(name)) return null;
+  if (name.toLowerCase().startsWith("dm-")) return null;
+  return name;
+}
+
+/** A channel's name as someone typed it ("#Vendas", " viagem pra lisboa "): no leading #, no outer space. */
+export const typedChannelName = (raw: string) => raw.trim().replace(/^#/, "").trim();
+
+/** A name as it is compared, as the apps' `matchesName` does: NFKC, no format characters, spaces folded, lower case. */
+const nameForm = (value: string) =>
+  value
+    .normalize("NFKC")
+    .replace(/\p{Cf}/gu, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+/**
+ * Whether `name` is the channel `typed` names, in any case: a personal workspace's names keep the case they were
+ * written in (ADR 0159), while an agent or a person may write them in another.
+ */
+export const namesChannel = (name: string, typed: string) => nameForm(name) === nameForm(typedChannelName(typed));
+
+/** `namesChannel` in SQL, on `channels.name`. */
+export const channelNameIs = (typed: string) => sql`lower(${channels.name}) = lower(${typedChannelName(typed)})`;
+
+/**
+ * The name a channel is created or renamed to: a team's is lower case, digits, - or _ (`CHANNEL_NAME_PATTERN`); a
+ * personal workspace's group conversation keeps what the person wrote (`personalChannelName`).
+ */
+export async function channelNameFor(db: Database, orgId: string, raw: string): Promise<string> {
+  if (await isPersonalWorkspace(db, orgId)) {
+    const name = personalChannelName(raw);
+    if (!name) throw new ValidationError("name: up to 80 characters, on one line", "channel.name_invalid");
+    return name;
+  }
+  const name = raw.trim().toLowerCase();
+  if (name.startsWith("dm-")) throw new ValidationError("Channel names can't start with dm-");
+  if (!CHANNEL_NAME_PATTERN.test(name)) {
+    throw new ValidationError("channel name: lower-case letters, digits, - or _ (max 80)");
+  }
+  return name;
+}
+
+/**
+ * Refuses a name another channel of the workspace already has in any case ("Casa" beside "casa"): names that differ
+ * only in case would read as the same conversation. `except`: the channel being renamed.
+ */
+export async function requireChannelNameFree(db: Database, orgId: string, name: string, except?: string) {
+  const [taken] = await db
+    .select({ id: channels.id })
+    .from(channels)
+    .where(
+      and(
+        eq(channels.orgId, orgId),
+        sql`lower(${channels.name}) = lower(${name})`,
+        except ? ne(channels.id, except) : undefined,
+      ),
+    )
+    .limit(1);
+  if (taken) throw new ConflictError(`#${name} already exists`);
+}
 
 /** The most departments or roles a channel is limited to (ADR 0125), as for an agent's audience. */
 export const CHANNEL_ROLES_MAX = 100;
@@ -190,21 +271,25 @@ export async function createChannel(
     visibility?: "public" | "private";
     /** Private only: people holding one of these roles also see it and may join (ADR 0125). */
     audienceRoleIds?: string[];
-    categoryId?: string | null;
+    /** Its sector (ADR 0240): whoever may create a channel may put it in an existing one. */
+    groupId?: string | null;
+    /** Who joins it right after its creator, with the same checks as adding them one by one (`addChannelMember`). */
+    members?: ({ userId: string } | { agentId: string })[];
   },
   options: { pubsub?: PubSub } = {},
 ): Promise<Channel> {
   await requirePermission(db, actorId, orgId, "create_channels");
-  // Whoever may create a channel may put it in an existing category (arranging categories is for admins).
-  const categoryId = input.categoryId ?? null;
-  if (categoryId) await requireCategoryInOrg(db, orgId, categoryId);
-  const name = input.name.trim().toLowerCase();
-  if (name.startsWith("dm-")) throw new ValidationError("Channel names can't start with dm-");
-  if (!CHANNEL_NAME_PATTERN.test(name)) {
-    throw new ValidationError("channel name: lower-case letters, digits, - or _ (max 80)");
-  }
+  const groupId = input.groupId ?? null;
+  if (groupId) await requireSectorInOrg(db, orgId, groupId);
+  const name = await channelNameFor(db, orgId, input.name);
+  await requireChannelNameFree(db, orgId, name);
   const visibility = input.visibility ?? "public";
   const audienceRoleIds = await channelRoleIds(db, orgId, visibility, input.audienceRoleIds);
+  const members = input.members ?? [];
+  // Answers in threads keep the main timeline clear for the other people in it (ADR 0214): a channel made with no one
+  // but its creator, or in a personal workspace (ADR 0159), starts with them in the main timeline instead.
+  const alone = !members.some((m) => "userId" in m && m.userId !== actorId);
+  const threadsOff = alone || (await isPersonalWorkspace(db, orgId));
   try {
     const made = await db.transaction(async (tx) => {
       const [channel] = await tx
@@ -216,8 +301,9 @@ export async function createChannel(
           visibility,
           audienceRoleIds,
           createdByUserId: actorId,
-          categoryId,
-          position: await endOfCategory(tx, orgId, categoryId),
+          groupId,
+          position: await endOfSector(tx, orgId, groupId),
+          ...(threadsOff ? { replyInThreads: false } : {}),
         })
         .returning();
       if (!channel) throw new Error("channel insert returned nothing");
@@ -225,6 +311,10 @@ export async function createChannel(
       return channel;
     });
     await publishChannelsChanged(options.pubsub, orgId);
+    for (const member of members) {
+      if ("userId" in member && member.userId === actorId) continue;
+      await addChannelMember(db, actorId, orgId, made.id, member, options);
+    }
     return made;
   } catch (error) {
     if (isUniqueViolation(error)) throw new ConflictError(`#${name} already exists`);
@@ -260,12 +350,14 @@ export interface ChannelListItem {
   audienceRoleIds: string[];
   createdByUserId: string | null;
   createdAt: Date;
-  /** Its sidebar category; null: on top, with none. */
-  categoryId: string | null;
-  /** Order inside its category. */
+  /** Its sector (ADR 0240); null: under Canais, in none. */
+  groupId: string | null;
+  /** Order inside its sector (or among the channels in none). */
   position: number;
   /** Agents asked in its main timeline answer in the thread under that message (ADR 0214). */
   replyInThreads: boolean;
+  /** The agent responsible for the channel (ADR 0095, addendum of 2026-11-23); null: none. */
+  leadAgentId: string | null;
   isMember: boolean;
   /** Listed only because I'm an administrator (ADR 0151): the apps keep it off the sidebar until opened or joined. */
   seenAsAdmin: boolean;
@@ -291,7 +383,16 @@ export interface ChannelListItem {
    * shows); null when I'm not a member (I can't read it) or it's empty.
    */
   lastMessage: ChannelLastMessage | null;
+  /**
+   * Its first agents, in the order they joined (at most `CHANNEL_FACES`), and how many it has: a personal workspace's
+   * group conversation shows them as its face (ADR 0159, amendment of 2026-11-26).
+   */
+  agentIds: string[];
+  agentCount: number;
 }
+
+/** The most agents a channel in the list names (`ChannelListItem.agentIds`): a group's face shows four at most. */
+export const CHANNEL_FACES = 4;
 
 interface ChannelListRow {
   id: string;
@@ -302,9 +403,10 @@ interface ChannelListRow {
   audience_role_ids: string[] | string;
   created_by_user_id: string | null;
   created_at: Date | string;
-  category_id: string | null;
+  group_id: string | null;
   position: number | string;
   reply_in_threads: boolean | string;
+  lead_agent_id: string | null;
   is_member: boolean;
   seen_as_admin: boolean;
   unread_count: number | string | null;
@@ -322,6 +424,8 @@ interface ChannelListRow {
   can_post: boolean;
   can_call: boolean;
   can_manage: boolean;
+  agent_ids: string[] | string | null;
+  agent_count: number | string | null;
 }
 
 const asDate = (v: Date | string) => (v instanceof Date ? v : new Date(v));
@@ -350,18 +454,19 @@ export async function listChannels(db: Database, userId: string, orgId: string):
     and u.meta->>'mediaAfter' is null`;
   const rows = rowsOf<ChannelListRow>(
     await db.execute(sql`select c.id, c.org_id, c.name, c.topic, c.visibility, c.audience_role_ids, c.created_by_user_id, c.created_at,
-        c.category_id, c.position, c.reply_in_threads,
+        c.group_id, c.position, c.reply_in_threads, c.lead_agent_id,
         (cm.id is not null) as is_member,
         (cm.id is null and c.visibility <> 'public' and not ${channelAudienceSql("c", sql`${userId}`)}) as seen_as_admin,
         coalesce(un.n, 0) as unread_count, coalesce(un.m, 0) as mention_count,
         coalesce(cr.muted, false) as muted, coalesce(cr.last_read_at, cm.created_at) as last_read_at,
         lm.id as last_id, lm.body as last_body, lm.meta as last_meta, lm.created_at as last_at, lm.author_type as last_author_type,
         lm.author_user_id as last_user_id, lm.author_agent_id as last_agent_id,
-        coalesce(lu.name, la.name) as last_author_name,
+        coalesce(lu.name, la.name, lm.meta -> 'app' ->> 'name') as last_author_name,
         ${channelCanSql(orgId, userId, "post")} as can_post,
         ${channelCanSql(orgId, userId, "talk_to_agents")} as can_call,
         (${maySql(sql`${orgId}::uuid`, sql`${userId}::text`, "manage_channels")} or (cm.id is not null
-          and (c.created_by_user_id = ${userId} or ${channelCanSql(orgId, userId, "manage_channels")}))) as can_manage
+          and (c.created_by_user_id = ${userId} or ${channelCanSql(orgId, userId, "manage_channels")}))) as can_manage,
+        ag.ids as agent_ids, ag.n as agent_count
       from ${channels} c
       left join ${channelMembers} cm on cm.org_id = c.org_id and cm.channel_id = c.id and cm.user_id = ${userId}
       left join ${schema.channelReads} cr on cr.channel_id = c.id and cr.user_id = ${userId}
@@ -386,6 +491,15 @@ export async function listChannels(db: Database, userId: string, orgId: string):
           (select count(*)::int from (select 1 from ${schema.messages} u
             where ${unread} and ${userId} = any(u.mentioned_user_ids) limit ${MAX_CHANNEL_UNREAD}) y) as m
       ) un on true
+      left join lateral (
+        select
+          (select coalesce(array_agg(f.agent_id::text order by f.created_at, f.agent_id), '{}') from (
+            select a.agent_id, a.created_at from ${channelMembers} a
+            where a.org_id = c.org_id and a.channel_id = c.id and a.agent_id is not null
+            order by a.created_at, a.agent_id limit ${CHANNEL_FACES}) f) as ids,
+          (select count(*)::int from ${channelMembers} a
+            where a.org_id = c.org_id and a.channel_id = c.id and a.agent_id is not null) as n
+      ) ag on true
       where c.org_id = ${orgId}::uuid and c.archived_at is null and c.kind = 'channel'
         and (c.visibility = 'public' or cm.id is not null or ${channelAudienceSql("c", sql`${userId}`)}
           or ${maySql(sql`${orgId}::uuid`, sql`${userId}::text`, "administrator")})
@@ -403,9 +517,10 @@ export async function listChannels(db: Database, userId: string, orgId: string):
       audienceRoleIds: uuidArray(r.audience_role_ids),
       createdByUserId: r.created_by_user_id,
       createdAt: asDate(r.created_at),
-      categoryId: r.category_id,
+      groupId: r.group_id,
       position: Number(r.position),
       replyInThreads: r.reply_in_threads === true || r.reply_in_threads === "t",
+      leadAgentId: r.lead_agent_id,
       isMember: r.is_member === true,
       seenAsAdmin: r.seen_as_admin === true,
       unreadCount: Number(r.unread_count ?? 0),
@@ -413,6 +528,8 @@ export async function listChannels(db: Database, userId: string, orgId: string):
       lastReadAt: r.last_read_at ? asDate(r.last_read_at) : null,
       muted: r.muted === true,
       can: { post: r.can_post === true, callAgents: r.can_call === true, manage: r.can_manage === true },
+      agentIds: uuidArray(r.agent_ids),
+      agentCount: Number(r.agent_count ?? 0),
       lastMessage:
         r.last_id && r.last_at && r.last_author_type
           ? {
@@ -504,6 +621,20 @@ export async function isChannelMember(db: Executor, orgId: string, channelId: st
     .from(channelMembers)
     .where(
       and(eq(channelMembers.orgId, orgId), eq(channelMembers.channelId, channelId), eq(channelMembers.userId, userId)),
+    );
+  return row !== undefined;
+}
+
+async function isAgentInChannel(db: Executor, orgId: string, channelId: string, agentId: string) {
+  const [row] = await db
+    .select({ id: channelMembers.id })
+    .from(channelMembers)
+    .where(
+      and(
+        eq(channelMembers.orgId, orgId),
+        eq(channelMembers.channelId, channelId),
+        eq(channelMembers.agentId, agentId),
+      ),
     );
   return row !== undefined;
 }
@@ -712,7 +843,12 @@ export async function joinChannel(
     await publishChannelsChanged(options.pubsub, orgId);
   };
   if (channel.visibility === "public" || admin) {
-    await db.insert(channelMembers).values({ orgId, channelId, userId }).onConflictDoNothing();
+    const fresh = await db
+      .insert(channelMembers)
+      .values({ orgId, channelId, userId })
+      .onConflictDoNothing()
+      .returning({ id: channelMembers.id });
+    if (fresh.length > 0) await noteJoined(db, orgId, channelId, userId);
     await joined();
     return;
   }
@@ -726,7 +862,10 @@ export async function joinChannel(
         where c.id = ${channelId}::uuid and c.org_id = ${orgId}::uuid and ${channelAudienceSql("c", sql`${userId}`)}
         on conflict do nothing returning 1`),
     );
-    if (rows.length > 0) return true;
+    if (rows.length > 0) {
+      await noteJoined(tx, orgId, channelId, userId);
+      return true;
+    }
     return isChannelMember(tx, orgId, channelId, userId);
   });
   if (!byRole) throw new ForbiddenError("This channel is private");
@@ -846,7 +985,12 @@ export async function addChannelMember(
     if (!(await getMembership(db, member.userId, orgId))) {
       throw new ValidationError("That person is not a member of this organization");
     }
-    await db.insert(channelMembers).values({ orgId, channelId, userId: member.userId }).onConflictDoNothing();
+    const fresh = await db
+      .insert(channelMembers)
+      .values({ orgId, channelId, userId: member.userId })
+      .onConflictDoNothing()
+      .returning({ id: channelMembers.id });
+    if (fresh.length > 0 && channel.kind === "channel") await noteJoined(db, orgId, channelId, actorId);
     caches.channelMembers.delete(`${orgId}:${channelId}`);
     const event = {
       type: "channel.member_added" as const,
@@ -862,10 +1006,13 @@ export async function addChannelMember(
   await refuseRightHand(db, orgId, member.agentId, "added to a channel");
   await requirePlacesAgent(db, membership, actorId, channel, member.agentId);
   const autoReply = member.autoReply ?? true;
+  // Only a real join is said: turning an agent already here to auto-reply adds no line.
+  const already = await isAgentInChannel(db, orgId, channelId, member.agentId);
   await db
     .insert(channelMembers)
     .values({ orgId, channelId, agentId: member.agentId, autoReply })
     .onConflictDoUpdate({ target: [channelMembers.channelId, channelMembers.agentId], set: { autoReply } });
+  if (!already && channel.kind === "channel") await noteJoined(db, orgId, channelId, actorId);
   caches.channelMembers.delete(`${orgId}:${channelId}`);
   caches.scopes.deletePrefix(`${orgId}:${member.agentId}:visible`);
   await publishChannelEvent(options.pubsub, {
@@ -983,6 +1130,15 @@ export async function removeChannelMember(
     )
     .returning({ channelId: channelMembers.channelId });
   caches.channelMembers.delete(`${orgId}:${channelId}`);
+  // Out of the channel, an agent is no longer responsible for it. The column is read by the update itself, never from
+  // the row above: a lead saved while the agent was leaving goes too (`updateChannel` locks its member row).
+  if ("agentId" in member) {
+    await db
+      .update(channels)
+      .set({ leadAgentId: null })
+      .where(and(eq(channels.orgId, orgId), eq(channels.id, channelId), eq(channels.leadAgentId, member.agentId)));
+    caches.channels.delete(`${orgId}:${channelId}`);
+  }
   // The last person out of a private channel: nobody could reach it again, so it closes (its messages are kept).
   if (self && gone.length > 0 && channel.visibility === "private" && !channel.archivedAt) {
     const [stays] = await db
@@ -992,10 +1148,15 @@ export async function removeChannelMember(
       .limit(1);
     if (!stays) await closeChannel(db, orgId, channelId, options);
   }
+  // The line that says so comes after a person's live subscription ended: the conversation is no longer theirs.
+  const left = (who: { type: "person" | "agent"; id: string }) =>
+    gone.length > 0 ? writeLeftLine({ db, pubsub: options.pubsub }, orgId, channelId, who) : undefined;
   if ("userId" in member) {
     await announceChannelLeavers({ db, pubsub: options.pubsub }, orgId, [{ channelId, userId: member.userId }]);
+    await left({ type: "person", id: member.userId });
     return;
   }
+  await left({ type: "agent", id: member.agentId });
   caches.scopes.deletePrefix(`${orgId}:${member.agentId}:visible`);
   await publishChannelEvent(options.pubsub, {
     type: "channel.member_removed",

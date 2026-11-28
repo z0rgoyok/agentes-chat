@@ -235,6 +235,20 @@ export function createJevJudge(options: {
   };
 }
 
+/**
+ * What a run's start judgments read: the agent, the message and what was said before it. Judgments of one `JudgeGroup`
+ * with the same state go to Jev as one request, so every one that reads these builds them here.
+ */
+export const startJudgmentState = (input: {
+  agent: { name: string; role: string; instructions: string };
+  message: string;
+  recent: string[];
+}) => ({
+  agent: { name: input.agent.name, role: input.agent.role, instructions: cutText(input.agent.instructions, 1500) },
+  message: cutText(input.message, 2000),
+  recent: input.recent.map((m) => cutText(m, 400)).join("\n"),
+});
+
 /** How long a grouped judgment waits for the others of its group before it goes alone with those that came. */
 export const JUDGE_GROUP_WAIT_MS = 100;
 

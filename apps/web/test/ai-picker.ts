@@ -147,3 +147,73 @@ export async function confirmScreen(d: HTMLElement) {
 
 /** "Concluído": on "Mais opções" it saves; on the first screen and after a switch it closes the dialog. */
 export const done = (d: HTMLElement, name = "Concluído") => clicked(within(d).getByRole("button", { name }));
+
+/*
+ * The Conta field of "Quem pensa": one list of every way the agent can think (the accounts in their groups, its
+ * computer's own sign-in, the keys), "Adicionar conta" and "Gerenciar contas" at its foot. Picking switches at once;
+ * the notes under the field say what happened, with "Desfazer".
+ */
+
+/** One option of the open Conta list, as drawn. */
+export interface AccountOptionRow {
+  title: string;
+  /** The line under the name: its plan and whose it is, or what it is. */
+  sub: string;
+  /** Its group's heading ("Suas contas", "Do time", "Chaves de API"). */
+  group: string;
+  off: boolean;
+  checked: boolean;
+  /** One of the viewer's accounts that signed out: "Entrar de novo" at its end. */
+  again: boolean;
+  /** What its end says: its room ("53%"), why it can't be picked, "Entrar de novo". */
+  end: string;
+  mark: string | null;
+}
+
+/** The options of the open Conta list, in order. */
+export function accountOptions(): AccountOptionRow[] {
+  return Array.from(document.querySelectorAll<HTMLElement>('.ac-tz__list [role="option"]')).map((o) => ({
+    title: o.querySelector(".aa-row > span:first-child")?.textContent ?? "",
+    sub: o.querySelector(".aa-row > .ac-menu__desc")?.textContent ?? "",
+    group: o.closest('[role="group"]')?.getAttribute("aria-label") ?? "",
+    off: o.getAttribute("aria-disabled") === "true",
+    checked: o.getAttribute("aria-selected") === "true",
+    again: o.querySelector(".aa-row__again") !== null,
+    end: o.querySelector(".aa-row__end > :first-child")?.textContent ?? "",
+    mark: o.querySelector(".ac-brand")?.getAttribute("data-mark") ?? null,
+  }));
+}
+
+/** Opens the Conta list of the dialog: its options. */
+export async function openAccounts(d: HTMLElement) {
+  if (!document.querySelector(".ac-tz__list")) {
+    const conta = within(d).getByRole("combobox", { name: "Conta" });
+    conta.focus();
+    await act(async () => fireEvent.keyDown(conta, { key: "Enter" }));
+    await settle(3);
+  }
+  return accountOptions();
+}
+
+/**
+ * Picks an option of the Conta list (opening it): the first whose title starts with `which` (a string) or matches it
+ * (a RegExp), or the first `which` holds true for.
+ */
+export async function pickAccount(d: HTMLElement, which: string | RegExp | ((o: AccountOptionRow) => boolean)) {
+  const rows = await openAccounts(d);
+  const test = typeof which === "function" ? which : (o: AccountOptionRow) => startsWith(which).test(o.title);
+  const at = rows.findIndex(test);
+  const option = document.querySelectorAll('.ac-tz__list [role="option"]')[at];
+  if (at < 0 || !option) throw new Error(`No account ${which} in: ${rows.map((r) => r.title).join(", ")}`);
+  await clicked(option);
+}
+
+/** "Adicionar conta" at the foot of the Conta list: the dialog's own screen of AIs. */
+export async function addAccount(d: HTMLElement) {
+  await openAccounts(d);
+  await clicked(screen().getByRole("button", { name: /^Adicionar conta/ }));
+}
+
+/** The notes the first screen shows (what a switch did, why it can't think now…), in order. */
+export const brainNotes = (d: HTMLElement) =>
+  Array.from(d.querySelectorAll(".ac-setnote")).map((n) => n.textContent ?? "");

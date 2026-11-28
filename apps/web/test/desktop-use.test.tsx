@@ -76,9 +76,10 @@ describe("whether agents can use apps on their desktops", () => {
       access: { folders: [], tools: { claude: false, codex: false, commands: on, desktop: on } },
       ...m,
     }) as Machine;
-  const card = () => screen().getByRole("region", { name: "Apps nas telas dos agentes" });
+  const TITLE = "Tela própria de cada agente";
+  const card = () => screen().getByRole("region", { name: TITLE });
 
-  test("a computer's page: what is missing and the command, Linux only, or the switches to turn on", async () => {
+  test("a Linux computer's page: what is missing and the command, or the switches to turn on; never on a Mac", async () => {
     const state = seedState();
     const api = createFakeApi(state);
     const linux = computer(api, { name: "Servidor", desktopUse: { available: false, reason: MISSING } });
@@ -99,10 +100,13 @@ describe("whether agents can use apps on their desktops", () => {
     await page(linux);
     // What the card is for is its title's ⓘ.
     expect(card().querySelector(".ac-card__sub")).toBeNull();
-    expect(hintOf("Apps nas telas dos agentes", card()).text).toBe(
-      "Os agentes abrem e usam apps na própria tela aqui, como uma pessoa faria, e as pessoas assistem pela página de cada um.",
-    );
-    expect(card().textContent).toContain("Indisponível");
+    // What it is, that people watch it, and why Linux alone.
+    const about = hintOf(TITLE, card()).text;
+    expect(about).toContain("cada agente ganha uma tela só dele, separada da sua");
+    expect(about).toContain("Você assiste pela página do agente.");
+    expect(about).toContain("Por enquanto só no Linux, que abre uma tela extra para cada agente sem mexer na sua.");
+    expect(card().textContent).toContain("Falta preparar");
+    expect(card().textContent).not.toContain("Indisponível");
     // A runner from before reason codes: the app's own sentence, the command once, in its block to copy.
     expect(card().textContent).toContain("Instale neste computador o que o uso da área de trabalho precisa:");
     expect(card().textContent).not.toContain("Install what desktop use needs");
@@ -111,11 +115,11 @@ describe("whether agents can use apps on their desktops", () => {
     );
     expect(card().textContent?.split("sudo apt install").length).toBe(2);
 
-    // Nothing to install on a Mac: the app's own words, not the computer's English.
+    // A Mac can't have it: no card at all, never an alarming "unavailable".
     await page(mac);
-    expect(card().textContent).toContain("Os agentes só usam apps na própria tela em computadores Linux.");
-    expect(card().textContent).not.toContain("runs on Linux computers");
-    expect(card().querySelector(".machine-command")).toBeNull();
+    expect(screen().queryByRole("region", { name: TITLE })).toBeNull();
+    expect(document.body.textContent).not.toContain("Indisponível");
+    expect(document.body.textContent).not.toContain("runs on Linux computers");
 
     await page(off);
     expect(card().textContent).toContain("Desligado");
@@ -150,7 +154,7 @@ describe("whether agents can use apps on their desktops", () => {
 
     // A runner that doesn't report it shows nothing.
     await page(old);
-    expect(screen().queryByRole("region", { name: "Apps nas telas dos agentes" })).toBeNull();
+    expect(screen().queryByRole("region", { name: TITLE })).toBeNull();
   });
 
   test("the agent's page says it on its Linux computer, when the agent may use its desktop", async () => {

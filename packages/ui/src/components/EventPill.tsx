@@ -1,6 +1,7 @@
-import type { ButtonHTMLAttributes, HTMLAttributes, ReactNode } from "react";
+import { type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, useRef } from "react";
 import { cx } from "../cx";
 import { Icon } from "../icons/Icon";
+import { useMorph } from "../motion";
 
 export interface EventPillProps extends Omit<HTMLAttributes<HTMLDivElement>, "children"> {
   /** A request waiting for someone: its words in ink (the pulsing mark and a `primary` action say the rest). */
@@ -14,6 +15,9 @@ export interface EventPillProps extends Omit<HTMLAttributes<HTMLDivElement>, "ch
   actions?: ReactNode;
   /** Under the frame: the opened text, a reason's field. */
   below?: ReactNode;
+  /** The pill drawn in its place by another component once its state changes (a request decided) glides and fades
+   * from this one: the same key on both. */
+  morphKey?: string;
 }
 
 /**
@@ -29,10 +33,14 @@ export function EventPill({
   below,
   waiting = false,
   className,
+  morphKey,
   ...rest
 }: EventPillProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  // A size or state change glides and fades in place (a request decided, a stop continued).
+  useMorph(ref, { key: morphKey, live: waiting });
   return (
-    <div className={cx("ac-eventpill", waiting && "ac-eventpill--waiting", className)} {...rest}>
+    <div ref={ref} className={cx("ac-eventpill", waiting && "ac-eventpill--waiting", className)} {...rest}>
       <span className="ac-eventpill__frame">
         <span className="ac-eventpill__main">
           <span className="ac-eventpill__mark">{mark}</span>

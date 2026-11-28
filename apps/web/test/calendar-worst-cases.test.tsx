@@ -3,7 +3,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import type { Agent, CalendarEvent, CalendarRange, Member } from "@agenteschat/client";
+import type { Agent, CalendarEvent, CalendarReminder, Member } from "@agenteschat/client";
 import { addDays, mondayOf } from "@agenteschat/client/lib/calendar";
 import { toYmd } from "@agenteschat/client/lib/format";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
@@ -16,15 +16,15 @@ pinFileClock();
 afterEach(() => cleanup());
 
 /**
- * The calendar with what breaks it (break-ui): a 56-character routine, seven runs at one time beside a meeting, runs
- * a quarter of an hour apart, long and non-Latin names, faces with no photo, an emoji first, a three-day bar, due dates
- * with and without someone, twelve owners, nine items on one day, a reminder at 23:50. CI's geometry check lays out
+ * The calendar with what breaks it (break-ui): a 63-character reminder, a reminder beside a meeting at its time,
+ * reminders a quarter of an hour apart, long and non-Latin names, faces with no photo, an emoji first, a three-day bar,
+ * due dates with and without someone, twelve owners, many items on one day, a reminder at 23:50. CI's geometry check lays out
  * every screen these tests reach, at 1280, 390 and 320.
  */
 const monday = mondayOf(new Date());
 const on = (day: number, h: number, m = 0) =>
   new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + day, h, m).toISOString();
-const LONG_ROUTINE = "Conferir os boletos vencidos e mandar o resumo para a diretoria";
+const LONG_REMINDER = "Conferir os boletos vencidos e mandar o resumo para a diretoria";
 const LONG_PERSON = "Aleksandra Wiśniewska-Kowalczyk";
 const FOX_ID = "00000000-0000-4000-8000-0000000000f0";
 
@@ -78,12 +78,16 @@ const SIX: [string, [number, number], [number, number], CalendarEvent["createdBy
   ["1:1", [14, 30], [15, 0], { type: "person", id: "u-enzo" }],
   ["Demo para o cliente", [14, 45], [15, 45], { type: "person", id: "u-fe" }],
 ];
-const runAt = (routineId: string, name: string, agentId: string, at: string): CalendarRange["routines"][number] => ({
-  routineId,
-  name,
-  agentId,
+const reminderAt = (id: string, message: string, agentId: string, at: string): CalendarReminder => ({
+  id,
+  message,
   at,
-  target: { type: "channel", channelId: ENG_ID },
+  forUserId: "u-walter",
+  channelId: ENG_ID,
+  threadId: null,
+  agentId,
+  createdBy: "u-walter",
+  canCancel: true,
 });
 
 const go = async (view?: "Dia" | "Mês" | "Agenda") => {
@@ -102,8 +106,9 @@ const go = async (view?: "Dia" | "Mês" | "Agenda") => {
   const range = api.calendar.range;
   api.calendar.range = async (...args) => {
     const out = await range(...args);
+    // Tuesday holds a dozen items for the month's "+N mais".
     const tuesday = [ADA_ID, ATLAS_ID, FOX_ID, ADA_ID, ATLAS_ID, FOX_ID, ADA_ID].map((agent, i) =>
-      runAt(`rt-tue-${i}`, `Conferência ${i + 1}`, agent, on(1, 9)),
+      reminderAt(`rem-tue-${i}`, `Conferência ${i + 1}`, agent, on(1, 11 + i)),
     );
     return {
       ...out,
@@ -135,25 +140,15 @@ const go = async (view?: "Dia" | "Mês" | "Agenda") => {
           },
         ),
       ],
-      routines: [
-        ...out.routines,
-        ...tuesday,
-        runAt("rt-long", LONG_ROUTINE, FOX_ID, on(3, 7)),
-        runAt("rt-early", "Bom dia", ADA_ID, on(2, 9)),
-        runAt("rt-quarter", "Fila do suporte", ATLAS_ID, on(2, 9, 15)),
-      ],
       reminders: [
-        {
-          id: "rem-late",
-          message: "Mandar o fechamento do mês para a contabilidade",
-          at: on(5, 23, 50),
-          forUserId: "u-walter",
-          channelId: ENG_ID,
-          threadId: null,
-          agentId: FOX_ID,
-          createdBy: "u-walter",
-          canCancel: true,
-        },
+        ...(out.reminders ?? []),
+        ...tuesday,
+        reminderAt("rem-tue-9", "Ligar para o banco", FOX_ID, on(1, 9)),
+        reminderAt("rem-long", LONG_REMINDER, FOX_ID, on(3, 7)),
+        reminderAt("rem-early", "Bom dia", ADA_ID, on(2, 9)),
+        reminderAt("rem-quarter", "Fila do suporte", ATLAS_ID, on(2, 9, 15)),
+        reminderAt("rem-monday", "Resumo da semana", ATLAS_ID, on(0, 9)),
+        reminderAt("rem-late", "Mandar o fechamento do mês para a contabilidade", FOX_ID, on(5, 23, 50)),
       ],
       deadlines: [
         ...out.deadlines,
@@ -185,29 +180,27 @@ const col = (day: number) =>
   document.querySelector(`.cal-week__col[data-day="${toYmd(addDays(monday, day))}"]`) as HTMLElement;
 
 describe("Calendário at its worst", () => {
-  test("week: seven runs at 09:00 show two and +5, beside the meeting at 09:00; the 56-character name whole", async () => {
+  test("week: a reminder at 09:00 sits beside the meeting at 09:00; the 63-character name whole", async () => {
     await go();
     // How many days, for the CSS: a phone's week of 7 draws its bars as faces too.
     expect(document.querySelector<HTMLElement>(".cal-week")?.dataset.days).toBe("7");
     const tuesday = col(1);
-    const stack = [...tuesday.querySelectorAll<HTMLElement>(".cal-week__runs")].find((s) =>
-      s.textContent?.includes("Conferência 1"),
-    ) as HTMLElement;
-    expect(stack.querySelectorAll(".cal-chip--run")).toHaveLength(2);
-    expect(within(stack).getByRole("button", { name: "+5 rotinas" })).toBeTruthy();
-    // Beside the meeting, never under it: the runs are the narrow column, the meeting keeps room for its name.
+    const reminder = within(tuesday)
+      .getByRole("button", { name: "Ligar para o banco, 09:00" })
+      .closest(".cal-week__moment") as HTMLElement;
+    // Beside the meeting, never under it, each as wide as the other.
     const meeting = within(tuesday).getByRole("button", { name: "Planejamento trimestral, 09:00–10:00" });
-    expect(stack.style.getPropertyValue("--cols")).toBe("2");
-    expect(meeting.style.getPropertyValue("--col")).not.toBe(stack.style.getPropertyValue("--col"));
-    expect(stack.hasAttribute("data-thin")).toBe(true);
+    expect(reminder.style.getPropertyValue("--cols")).toBe("2");
+    expect(meeting.style.getPropertyValue("--col")).not.toBe(reminder.style.getPropertyValue("--col"));
     // Never "…": the whole name is there to wrap.
-    expect(within(col(3)).getByRole("button", { name: `Rotina ${LONG_ROUTINE}, 07:00` }).textContent).toContain(
-      LONG_ROUTINE,
+    expect(within(col(3)).getByRole("button", { name: `${LONG_REMINDER}, 07:00` }).textContent).toContain(
+      LONG_REMINDER,
     );
-    // A quarter of an hour apart: one stack of two rows, not two stacks over each other.
-    const wednesday = [...col(2).querySelectorAll(".cal-week__runs")].filter((s) => s.textContent?.includes("Bom dia"));
-    expect(wednesday).toHaveLength(1);
-    expect(wednesday[0]?.textContent).toContain("Fila do suporte");
+    // A quarter of an hour apart: side by side, never over each other.
+    const wednesday = [...col(2).querySelectorAll<HTMLElement>(".cal-week__moment")].filter((s) =>
+      /Bom dia|Fila do suporte/.test(s.textContent ?? ""),
+    );
+    expect(wednesday.map((s) => s.style.getPropertyValue("--cols"))).toEqual(["2", "2"]);
   });
 
   test("six meetings at once sit side by side, each its own column, its owner's face first", async () => {
@@ -252,23 +245,23 @@ describe("Calendário at its worst", () => {
     expect(trip.length).toBe(3);
   });
 
-  test("a stack drawn taller than a line (a name that wraps) puts the meeting under it beside it", async () => {
-    // A layout engine's height for the stacks: the run's long name on several lines.
+  test("a reminder drawn taller than a line (a name that wraps) puts the meeting under it beside it", async () => {
+    // A layout engine's height for the reminders: the long name on several lines.
     const was = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
     Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
       configurable: true,
       get(this: HTMLElement) {
-        return this.dataset.measure?.startsWith("runs-") ? 120 : 0;
+        return this.classList.contains("cal-week__moment") ? 120 : 0;
       },
     });
     try {
       await go();
       const first = col(0);
-      const stack = first.querySelector(".cal-week__runs") as HTMLElement;
+      const reminder = first.querySelector(".cal-week__moment") as HTMLElement;
       const daily = within(first).getByRole("button", { name: "Daily de produto, 10:00–11:00" });
-      expect(stack.textContent).toContain("Resumo da semana");
+      expect(reminder.textContent).toContain("Resumo da semana");
       expect(daily.style.getPropertyValue("--cols")).toBe("2");
-      expect(daily.style.getPropertyValue("--col")).not.toBe(stack.style.getPropertyValue("--col"));
+      expect(daily.style.getPropertyValue("--col")).not.toBe(reminder.style.getPropertyValue("--col"));
     } finally {
       if (was) Object.defineProperty(HTMLElement.prototype, "offsetHeight", was);
       else delete (HTMLElement.prototype as { offsetHeight?: number }).offsetHeight;

@@ -4,6 +4,7 @@ import {
   actionsFor,
   addRunStep,
   approveSkillUpdate,
+  createFileArtifact,
   createSkillToolSource,
   createToolGateway,
   dismissSkillUpdate,
@@ -11,6 +12,7 @@ import {
   ForbiddenError,
   getSkill,
   importSkillFromUrl,
+  importSkillsFromFile,
   insertMessage,
   linkRunActions,
   listNotifications,
@@ -464,6 +466,78 @@ describe("agents installing and updating skills", () => {
     const theirs = await call(deps, await runFor(f, member.id), "load_skill", { name: "deploy" });
     expect(theirs).toMatchObject({ isError: true });
     expect(theirs.content).toContain("The skill deploy is installed here but not on for you: ask for it with");
+    expect(await cardsOf(f)).toHaveLength(1);
+  });
+
+  test("offer_install_skill takes a .zip sent in the conversation: the card installs it whole from Drive, on for its agent", async () => {
+    f = await setup();
+    const { deps } = depsOf(f, {});
+    const ctx = await runFor(f, f.owner.id);
+    const upload = (name: string, bytes: Uint8Array) =>
+      createFileArtifact(f.artifactDeps, { type: "person", userId: f.owner.id }, f.org.id, {
+        title: name,
+        name,
+        bytes,
+        channelId: f.general.id,
+      });
+    const kit = await upload(
+      "kit-main.zip",
+      zip([
+        ["kit-main/SKILL.md", skillMd("# Deploy\nRead references/steps.md first.")],
+        ["kit-main/references/steps.md", "1. Build.\n2. Ship."],
+      ]),
+    );
+    const notes = await upload("notes.txt", new TextEncoder().encode("not a skill"));
+    const empty = await upload("photos.zip", zip([["photos/readme.md", "no skill here"]]));
+
+    expect(await call(deps, ctx, "offer_install_skill", { file: notes.id, why: "x" })).toMatchObject({ isError: true });
+    const none = await call(deps, ctx, "offer_install_skill", { file: empty.id, why: "x" });
+    expect(none.content).toContain("holds no SKILL.md");
+    const both = await call(deps, ctx, "offer_install_skill", { url: LINK, file: kit.id, why: "x" });
+    expect(both).toMatchObject({ isError: true });
+    expect(await cardsOf(f)).toHaveLength(0);
+
+    const out = await call(deps, ctx, "offer_install_skill", { file: kit.id, why: "Faz deploys" });
+    expect(out.isError).toBeFalsy();
+    expect((await cardsOf(f)).map((m) => [m.body, m.meta.actionCard])).toEqual([
+      [
+        "Install the skill in kit-main.zip: Faz deploys",
+        {
+          kind: "install_skill",
+          forUserId: f.owner.id,
+          params: { file: kit.id, name: "kit-main.zip", skills: ["deploy"], why: "Faz deploys" },
+        },
+      ],
+    ]);
+    // Nothing installed by the card itself.
+    expect(await f.db.select().from(schema.skills).where(eq(schema.skills.orgId, f.org.id))).toHaveLength(0);
+
+    // The card's dialog: the .zip read from Drive and listed, then the pick installed with its files, on for the agent.
+    const listed = await importSkillsFromFile(deps, f.owner.id, f.org.id, kit.id, { list: true });
+    if (Array.isArray(listed) || !("choices" in listed)) throw new Error("not listed");
+    expect(listed.choices.map((c) => c.name)).toEqual(["deploy"]);
+    const installed = await importSkillsFromFile(deps, f.owner.id, f.org.id, kit.id, {
+      paths: listed.choices.map((c) => c.path),
+      forAgentId: f.agent.id,
+    });
+    if (!Array.isArray(installed)) throw new Error("not installed");
+    const [skill] = installed;
+    if (!skill) throw new Error("nothing installed");
+    expect(skill.name).toBe("deploy");
+    expect(skill.files.map((x) => x.path)).toContain("references/steps.md");
+    const on = await f.db
+      .select()
+      .from(schema.agentSkills)
+      .where(and(eq(schema.agentSkills.orgId, f.org.id), eq(schema.agentSkills.agentId, f.agent.id)));
+    expect(on.map((r) => [r.skillId, r.enabled])).toEqual([[skill.id, true]]);
+
+    // A member reads the file but doesn't install for the team.
+    const member = await addMember(f.db, f.org.id, "member");
+    await expect(importSkillsFromFile(deps, member.id, f.org.id, kit.id, { list: true })).rejects.toBeInstanceOf(
+      ForbiddenError,
+    );
+    const again = await call(deps, ctx, "offer_install_skill", { file: kit.id, why: "x" });
+    expect(again.content).toContain("kit-main.zip is already installed here (deploy)");
     expect(await cardsOf(f)).toHaveLength(1);
   });
 

@@ -1,7 +1,9 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <!-- No browser translation anywhere: it rewrites the text React keeps track of (the next update throws) and the app already speaks the person's language. -->
+    <meta name="google" content="notranslate" />
     <!-- Drawn pixel by pixel at 16 and 32 (packages/ui/scripts/app-icons.mjs); a person's pick swaps it (lib/app-icon.ts). -->
     <link rel="icon" href="/favicon.ico" sizes="16x16 32x32 48x48" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
@@ -27,6 +29,10 @@
     <meta name="twitter:image" content="https://app.agentes.chat/og.png" />
     <meta name="theme-color" content="#f6f6f4" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#131312" media="(prefers-color-scheme: dark)" />
+    <!-- The name and icons for an installed web app or a home screen shortcut (ADR 0249). -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!-- Open tabs on a build older than this (an ISO time, a build's agentes-build) run a known-bad version: they move to this one at the first short pause (lib/app-version.ts). Raise it when a fix must reach every open tab. -->
+    <meta name="agentes-oldest-good" content="" />
     <script>
       // Apply the saved or system theme before the first paint (no flash).
       try {

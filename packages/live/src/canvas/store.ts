@@ -1,6 +1,9 @@
 import * as Y from "yjs";
 import type { PeerUser } from "../awareness";
+import { cleanGradient, cleanLineHeight, cleanPadding, cleanShadow, cleanTracking, isDash } from "../effects";
+import { isFontRef, isFontWeight } from "../fonts";
 import { compareStack } from "../fractional";
+import { type LiveGroup, readGroupMap } from "../groups";
 import { LIVE_LIMITS } from "../limits";
 import { readRich } from "../rich/yjs";
 import { type Box, center, isBoxEnd, isPoint, type Point, rotatedBounds, union } from "./geometry";
@@ -172,20 +175,29 @@ function styleOf(value: unknown): CanvasTextStyle | undefined {
   const color = colorOf(o.color);
   if (color) style.color = color;
   if (o.align === "left" || o.align === "center" || o.align === "right") style.align = o.align;
-  if (o.weight === 400 || o.weight === 600 || o.weight === 700) style.weight = o.weight;
+  if (o.valign === "top" || o.valign === "middle" || o.valign === "bottom") style.valign = o.valign;
+  if (isFontWeight(o.weight)) style.weight = o.weight;
+  if (isFontRef(o.font) && o.font !== "heading" && o.font !== "body") style.font = o.font;
+  const lineHeight = cleanLineHeight(o.lineHeight);
+  if (lineHeight !== undefined) style.lineHeight = lineHeight;
+  const tracking = cleanTracking(o.tracking);
+  if (tracking !== undefined) style.tracking = tracking;
+  if (o.caps === true) style.caps = true;
+  const padding = cleanPadding(o.padding);
+  if (padding !== undefined) style.padding = padding;
   return Object.keys(style).length ? style : undefined;
 }
 
-/** Keys every shape may hold besides its box and stacking key: turn, frame, lock, who made it, hidden. */
-export const COMMON_PROPS: readonly string[] = ["rot", "parent", "locked", "by", "hidden"];
+/** Keys every shape may hold besides its box and stacking key: turn, frame, lock, who made it, hidden, group. */
+export const COMMON_PROPS: readonly string[] = ["rot", "parent", "locked", "by", "hidden", "group"];
 
 /** Keys each type holds besides the common ones. */
 export const TYPE_PROPS: Record<ShapeType, readonly string[]> = {
-  image: ["asset", "nw", "nh", "alt", "gen", "crop"],
-  note: ["color"],
+  image: ["asset", "nw", "nh", "alt", "gen", "crop", "radius", "shadow"],
+  note: ["color", "style"],
   text: ["style"],
   frame: ["name", "fill"],
-  shape: ["kind", "fill", "stroke", "strokeWidth", "radius"],
+  shape: ["kind", "fill", "gradient", "stroke", "strokeWidth", "dash", "radius", "shadow", "style"],
   arrow: ["from", "to", "label", "dashed", "route", "heads", "stroke", "strokeWidth"],
   draw: ["points", "stroke", "strokeWidth", "tool"],
   html: ["artifact"],
@@ -215,7 +227,14 @@ export function cleanProp(key: string, value: unknown): unknown {
     case "asset":
     case "artifact":
     case "request":
+    case "group":
       return isShapeOrAssetId(value) ? value : undefined;
+    case "gradient":
+      return cleanGradient(value);
+    case "dash":
+      return isDash(value) ? value : undefined;
+    case "shadow":
+      return cleanShadow(value);
     case "locked":
     case "dashed":
     case "hidden":
@@ -304,6 +323,8 @@ export function readShape(id: string, map: Y.Map<unknown>, opts: ReadShapesOptio
   const by = cleanProp("by", map.get("by"));
   if (by) view.by = by as PeerUser;
   if (map.get("hidden") === true) view.hidden = true;
+  const group = cleanProp("group", map.get("group"));
+  if (typeof group === "string") view.group = group;
   const fragment = opts.text === false ? undefined : map.get("text");
   if (fragment instanceof Y.XmlFragment) view.text = readRich(fragment);
   const props = view as unknown as Record<string, unknown>;
@@ -399,4 +420,14 @@ export function descendantsOf(ids: Iterable<string>, shapes: readonly ShapeView[
     }
   }
   return out;
+}
+
+/** The canvas's groups map (ADR 0220 §3): group id to `{ name?, parent? }`. */
+export function canvasGroupsMapOf(doc: Y.Doc): Y.Map<unknown> {
+  return doc.getMap<unknown>("groups");
+}
+
+/** The canvas's groups, each once and loop-free. */
+export function readCanvasGroups(doc: Y.Doc): LiveGroup[] {
+  return readGroupMap(canvasGroupsMapOf(doc));
 }

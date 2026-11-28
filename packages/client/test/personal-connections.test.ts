@@ -93,8 +93,8 @@ describe("what a viewer may do with a row (the engine's rule)", () => {
     expect(connectionActs({ ownerUserId: null }, "walter", true)).toMatchObject({ rename: true, remove: true });
   });
 
-  test("GitHub connects for the team only; any other connector or a server by address may be personal", () => {
-    expect(personalAllowed("github")).toBe(false);
+  test("every connector, GitHub among them, and a server by address may be personal", () => {
+    expect(personalAllowed("github")).toBe(true);
     expect(personalAllowed("linear")).toBe(true);
     expect(personalAllowed(null)).toBe(true);
   });

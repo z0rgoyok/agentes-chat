@@ -4,23 +4,17 @@
     "send": "Enviar"
   },
   "categories": {
-    "title": "Categorías",
-    "where": "Dónde aparece #{{channel}}",
-    "whereHelp": "Cambia para todos. Quién participa en el canal no cambia.",
-    "create": "Crear",
-    "endOfList": "Va al final de la lista para todos.",
-    "channelCount_one": "{{count}} canal",
-    "channelCount_many": "{{count}} canales",
-    "channelCount_other": "{{count}} canales",
-    "none": "Todavía no hay categorías.",
-    "manageHint": "Orden, nombres y eliminar",
-    "deleteTitle": "¿Eliminar {{name}}?",
-    "order": "Lugar en la lista",
     "up": "Subir",
     "down": "Bajar",
-    "position": "{{at}} de {{count}}.",
-    "channelPosition": "{{at}} de {{count}}.",
-    "itsChannels": "Canales"
+    "channelPosition": "{{at}} de {{count}}."
+  },
+  "sections": {
+    "title": "Sección",
+    "where": "Dónde queda #{{channel}} para ti",
+    "whereHelp": "Solo cambia tu lista. Cada persona ordena sus propias secciones.",
+    "none": "Sin sección",
+    "order": "Lugar en la sección",
+    "tooLong": "Usa 40 caracteres o menos."
   },
   "blocks": {
     "send": "Enviar",
@@ -72,6 +66,19 @@
     "raw": "Original",
     "more": "Ver las {{count}} líneas",
     "gone": "Este código ya no está abierto."
+  },
+  "table": {
+    "label_one": "Tabla · {{count}} fila",
+    "label_many": "Tabla · {{count}} filas",
+    "label_other": "Tabla · {{count}} filas",
+    "title": "Tabla",
+    "rows_one": "{{count}} fila",
+    "rows_many": "{{count}} filas",
+    "rows_other": "{{count}} filas",
+    "copy": "Copiar la tabla",
+    "copied": "Tabla copiada",
+    "more": "Ver las {{count}} filas",
+    "gone": "Esta tabla ya no está abierta."
   },
   "time": {
     "today": "Hoy",
@@ -193,11 +200,11 @@
       "text": "Puede estar caído o fuera de tu red. Tus chats aparecen solos cuando vuelva.",
       "kept": "Mostrando lo que ya estaba en la app."
     },
-    "pinned": "Fijados",
+    "favorites": "Favoritos",
     "recent": "Recientes",
     "view": {
       "title": "Ver las conversaciones",
-      "sectors": "Sectores",
+      "sections": "Secciones",
       "dms": "Mensajes directos",
       "channels": "Canales"
     },
@@ -872,6 +879,7 @@
   },
   "agent": {
     "talk": "Chatear",
+    "responsible": "Responsable",
     "task": "Tarea",
     "owner": "responsable: {{name}}",
     "cantTalk": "Este agente no trabaja contigo.",
@@ -971,6 +979,7 @@
       "admin_ask_channel_agent": "{{names}} te pide añadir a {{agent}} a #{{label}}",
       "admin_ask_create_agents": "{{names}} pide poder crear agentes",
       "admin_ask_webhook": "{{names}} te pide configurar el webhook de {{service}} para rutinas",
+      "admin_ask_voice": "{{names}} te pide activar los mensajes de voz",
       "routine_paused_one": "Rutina en pausa",
       "routine_paused_many": "Rutinas en pausa",
       "routine_paused_other": "Rutinas en pausa",
@@ -1070,6 +1079,12 @@
       "computer_no_chrome_one": "Una computadora necesita Google Chrome. Descárgalo en google.com/chrome",
       "computer_no_chrome_many": "Computadoras necesitan Google Chrome. Descárgalo en google.com/chrome",
       "computer_no_chrome_other": "Computadoras necesitan Google Chrome. Descárgalo en google.com/chrome",
+      "computer_down_one": "Una computadora no responde",
+      "computer_down_many": "Una computadora no responde",
+      "computer_down_other": "Una computadora no responde",
+      "computer_back_one": "Una computadora volvió",
+      "computer_back_many": "Una computadora volvió",
+      "computer_back_other": "Una computadora volvió",
       "app_created_one": "Una app de IA creó cosas para ti",
       "app_created_many": "Una app de IA creó cosas para ti",
       "app_created_other": "Una app de IA creó cosas para ti"
@@ -1594,6 +1609,15 @@
     "next": {
       "pr": "Rama enviada, aún sin pull request",
       "mergeLocal": "Lista para hacer merge en {{base}}"
+    },
+    "terminal": {
+      "keys": "Teclas del terminal",
+      "keyboard": "Teclado",
+      "pasteHint": "Pegar en el terminal lo que copiaste",
+      "key": {
+        "CtrlC": "Control-C, interrumpir",
+        "CtrlD": "Control-D, fin de la entrada"
+      }
     }
   },
   "taskManager": {
@@ -2189,6 +2213,7 @@
       "tool_request": "{{names}} te pide activar {{tool}} en tu {{device}}",
       "cli_request": "{{names}} te pide instalar {{tool}} en tu {{device}}",
       "folder_request": "{{names}} te pide la carpeta {{path}} en tu {{device}}",
+      "internet_shared": "Los agentes ahora abren sitios web a través del internet de {{device}}",
       "allowOnce": "Permitir una vez",
       "always": "Permitir siempre a {{name}}",
       "no": "No",
@@ -2910,11 +2935,12 @@
     },
     "formatAuto": "{{name}} elige el mejor",
     "newWidget": {
-      "alerts": "Avisa",
       "realData": "Datos reales",
       "editAsk": "Cambiar el pedido",
       "asked": "“{{ask}}”",
-      "autoFormat": "Formato automático"
+      "testReal": "Probar con datos reales",
+      "addHome": "Agregar a Inicio",
+      "addTo": "Agregar a {{where}}"
     },
     "agentPick": {
       "search": "Buscar agentes",
@@ -3372,7 +3398,8 @@
       "workspaceSub": "Clave de API del workspace",
       "key": "Clave de API",
       "keyDefault": "predeterminada del workspace",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} deja de usarla."
     },
     "missionAi": "IA",
     "missionLocked": "Quién hace el trabajo se elige antes de Iniciar. El modelo se puede cambiar en cualquier momento."

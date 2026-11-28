@@ -20,7 +20,7 @@ export function RoleChecklist({
     return (
       <label key={r.id} htmlFor={id} className="scope-row">
         <Checkbox id={id} checked={picked.has(r.id)} onCheckedChange={(on) => onToggle(r.id, on)} />
-        <RoleMark color={r.color} icon={r.icon} size={26} />
+        <RoleMark color={r.color} icon={r.icon} size={24} />
         <span className="scope-row__text">
           <span>{r.name}</span>
           <span className="small muted">{t("audience.roleMembers", { count: r.people })}</span>

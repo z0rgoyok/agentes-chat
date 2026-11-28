@@ -1,28 +1,13 @@
 import { useEffect } from "react";
 import { PAINT_ATTRS } from "../theme";
-
-const BAR = 3;
-const GAP = 2;
-
-function resample(peaks: readonly number[], n: number) {
-  if (peaks.length === 0) return Array.from({ length: n }, () => 0.06);
-  return Array.from({ length: n }, (_, i) => {
-    const from = Math.floor((i * peaks.length) / n);
-    const to = Math.max(from + 1, Math.floor(((i + 1) * peaks.length) / n));
-    return Math.max(...peaks.slice(from, to));
-  });
-}
-
-/** How many bars fit in `width`. */
-const barsIn = (width: number) => Math.max(1, Math.floor((width + GAP) / (BAR + GAP)));
-
-/** The handle's radius. */
-const HANDLE = 6;
-/**
- * With a handle, the bars leave its width and 2px at both ends: at 0:00 it stands before the first bar and at the end
- * after the last, flush with the canvas's edges, as WhatsApp's dot does.
- */
-const INSET = 2 * HANDLE + 2;
+import {
+  VOICE_BAR as BAR,
+  barsIn,
+  VOICE_BAR_GAP as GAP,
+  VOICE_HANDLE as HANDLE,
+  playedBars,
+  resamplePeaks,
+} from "./voice-bars";
 
 /** Where `clientX` falls on a wave drawn with its handle: its middle there, 0 flush left, 1 flush right. */
 export function waveAt(canvas: HTMLElement, clientX: number) {
@@ -58,8 +43,8 @@ export function drawVoiceWave(
   const css = getComputedStyle(canvas);
   const on = css.getPropertyValue("--voice-on").trim() || css.color;
   const off = css.getPropertyValue("--voice-off").trim() || on;
-  const n = barsIn(handle ? w - 2 * INSET : w);
-  const data = live ? peaks.slice(-n) : resample(peaks, n);
+  const n = handle ? playedBars(w).count : barsIn(w);
+  const data = live ? peaks.slice(-n) : resamplePeaks(peaks, n);
   const span = data.length * (BAR + GAP) - GAP;
   // Live: the newest bar at the right edge. Otherwise centred on whole pixels, the same room at both ends.
   const x0 = live ? w - span : Math.round((w - span) / 2);

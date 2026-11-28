@@ -13,7 +13,8 @@ describe("a message's sideways scrollers never grow downward", () => {
     expect(spans).toMatch(
       /<ScrollView horizontal scrollEnabled=\{false\} showsHorizontalScrollIndicator=\{false\} style=\{styles\.sideways\}>/,
     );
-    expect(spans).toMatch(/<GestureScrollView\s+ref=\{scroller\}\s+horizontal\s+style=\{styles\.sideways\}/);
+    // In a message (not the full screen's, which fills it), the table's own scroller.
+    expect(spans).toMatch(/<TableScroller\s+horizontal\s+style=\{full \? styles\.fill : styles\.sideways\}/);
     const code = src("features/chat/CodeCard.tsx");
     expect(code).toContain("sideways: { flexGrow: 0 },");
     expect(code).toMatch(

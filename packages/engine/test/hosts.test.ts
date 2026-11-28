@@ -18,6 +18,9 @@ import {
 
 const OWN = new Set(["chat.example.com"]);
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString("base64");
+/** 8×2 RGBA: white ink in the middle, see-through around it. */
+const WHITE_INK_PNG =
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAACCAYAAABllJ3tAAAAE0lEQVR42mNggIL/aIABHeBSAAAcXh/hYZBkvQAAAABJRU5ErkJggg==";
 
 let close: (() => Promise<void>) | undefined;
 afterEach(async () => {
@@ -134,6 +137,13 @@ test("the logo: stored, replaced, kept when left out, deleted with the host", as
 
   await putHost(deps, OWN, host, { name: "Northwind" });
   expect((await hostLook(db, host))?.logo).toBe(first ?? "");
+
+  // A light-ink logo's mark rides on the column, never on the stored file's key.
+  await putHost(deps, OWN, host, { name: "Northwind", logo: { contentType: "image/png", base64: WHITE_INK_PNG } });
+  const light = (await hostLook(db, host))?.logo ?? "";
+  expect(light).toEndWith(".png#ink=light");
+  expect(await blobs.list("host-logos/")).toEqual([light.replace("#ink=light", "")]);
+  expect((await hostLogoFile(deps, host))?.contentType).toBe("image/png");
 
   const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xda, 0x00, 0x02, 0x01, 0xff, 0xd9]).toString("base64");
   await putHost(deps, OWN, host, { name: "Northwind", logo: { contentType: "image/jpeg", base64: jpeg } });

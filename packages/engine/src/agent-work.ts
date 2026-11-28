@@ -46,6 +46,8 @@ export interface AgentWork {
   count: number;
   /** With `later`: when it comes back to that conversation. */
   at?: string;
+  /** Its conversation is one the viewer doesn't read (someone else's DM, a private channel): no place to open. */
+  private?: true;
 }
 
 const OPEN = sql.raw("('queued', 'running', 'waiting_approval', 'waiting_input')");
@@ -287,6 +289,7 @@ export async function agentWorkFor(
       forAgentId: placed && truthy(r.anchored) ? r.for_agent : null,
       routine,
       count: 1,
+      ...(truthy(r.placeable) && !readable && !routine ? { private: true as const } : {}),
       rank: RANK[state],
     };
     const best = out.get(r.agent_id);
@@ -325,7 +328,7 @@ const orgWork = (db: Executor, orgId: string) =>
   ) as Promise<Row[]>;
 
 /** The work without where it is: what an agent hidden from the viewer, or a place they don't read, shows. */
-export const bareWork = (w: AgentWork): AgentWork => ({
+export const bareWork = ({ private: _private, ...w }: AgentWork): AgentWork => ({
   ...w,
   channelId: null,
   channelKind: null,

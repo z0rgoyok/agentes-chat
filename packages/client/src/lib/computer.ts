@@ -232,6 +232,16 @@ export function newerSetup(cached: ComputerSetup | undefined, fetched: ComputerS
   return Date.parse(fetched.since) < Date.parse(cached.since) ? cached : fetched;
 }
 
+/**
+ * The workspace's own computer is on now: ready, and online in the list (`machines`). Null where the workspace has none
+ * of its own (people connect theirs).
+ */
+export const workspaceComputerOn = (
+  view: SetupView | null,
+  machines: readonly Pick<Machine, "kind" | "online">[] | undefined,
+): boolean | null =>
+  view === null ? null : view.phase === "ready" && machines?.find((m) => m.kind === "managed")?.online === true;
+
 /** The portrait: lit once ready and online, dimmed while on its way, dark when stuck or offline. */
 export function setupPortrait(view: SetupView, online: boolean): ComputerState {
   if (view.phase === "ready") return online ? "online" : "offline";

@@ -3,6 +3,10 @@ import type { WifiIphone } from "@agenteschat/client";
 import { WIFI_IPHONES_POLL_MS } from "@agenteschat/client/lib/devices";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useHost } from "./app";
+import { prefKey, readPref, writePref } from "./prefs";
+
+export { readPref, writePref };
+
 import { siteApi } from "./control/devices";
 import { type LocalServerStatus, NO_SERVER, type Tailnet } from "./control/local-server";
 import type { ServerWorkspaces } from "./control/server";
@@ -228,7 +232,7 @@ export function agentOf(home: Home | undefined, agent: { id: string; name: strin
 export function usePref<T>(key: string, fallback: T): [T, (value: T) => void] {
   const read = (): T => {
     try {
-      const raw = localStorage.getItem(`agentes.desktop.${key}`);
+      const raw = localStorage.getItem(prefKey(key));
       return raw === null ? fallback : (JSON.parse(raw) as T);
     } catch {
       return fallback;
@@ -239,7 +243,7 @@ export function usePref<T>(key: string, fallback: T): [T, (value: T) => void] {
     (v: T) => {
       setValue(v);
       try {
-        localStorage.setItem(`agentes.desktop.${key}`, JSON.stringify(v));
+        localStorage.setItem(prefKey(key), JSON.stringify(v));
       } catch {
         // Not kept; still applies now.
       }
@@ -247,23 +251,6 @@ export function usePref<T>(key: string, fallback: T): [T, (value: T) => void] {
     [key],
   );
   return [value, set];
-}
-
-export function readPref<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(`agentes.desktop.${key}`);
-    return raw === null ? fallback : (JSON.parse(raw) as T);
-  } catch {
-    return fallback;
-  }
-}
-
-export function writePref<T>(key: string, value: T) {
-  try {
-    localStorage.setItem(`agentes.desktop.${key}`, JSON.stringify(value));
-  } catch {
-    // ignore
-  }
 }
 
 /** Preferences, on `tab` when given: the window reads the tab it is asked for when it shows (`Prefs`). */

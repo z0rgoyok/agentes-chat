@@ -13,9 +13,11 @@ import {
   CONSULTATION_TTL_MS,
   cancelRun,
   consultationConversation,
+  consultationNotice,
   consultationsIn,
   createAgent,
   createAgentRuns,
+  createChannel,
   createIssue,
   decideApproval,
   deleteAgent,
@@ -668,6 +670,30 @@ describe("ask_agent", () => {
     expect(shared[0]?.body).toBe("How is staging deployed?");
     expect(shared.some((m) => m.body === "Checking the deploy logs first.")).toBe(false);
     expect(shared.some((m) => m.channelId === f.general.id && typeof m.meta.approvalId === "string")).toBe(true);
+
+    // An asker that ended before the answer hears it as a notice where it was woken: opened from there too.
+    const shop = await createChannel(f.db, f.owner.id, f.org.id, { name: "shop" });
+    const notice = consultationNotice(row, "infra");
+    const fromShop = () => consultationConversation(f.db, f.org.id, shop.id, row.id);
+    // Another kind of notice naming the question opens nothing.
+    await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: shop.id,
+      author: { type: "agent", agentId: f.agent.id, runId: null, hop: 0, stretchId: null },
+      body: notice.text,
+      meta: { notice: { ...notice, kind: "agent_note" } },
+    });
+    expect(await fromShop()).toBeNull();
+    await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: shop.id,
+      author: { type: "agent", agentId: f.agent.id, runId: null, hop: 0, stretchId: null },
+      body: notice.text,
+      meta: { notice },
+    });
+    expect((await fromShop())?.messages[0]?.body).toBe("How is staging deployed?");
+    // Never a question whose reply landed somewhere else.
+    expect(await consultationConversation(f.db, f.org.id, shop.id, otherId)).toBeNull();
   });
 
   test("no cycles: the consulted agent can't ask back the one asking it", async () => {
@@ -1090,7 +1116,7 @@ describe("ask_agent", () => {
       .set({ updatedAt: new Date(sweep.getTime() - 60_000) })
       .where(eq(schema.agentRuns.id, target.id));
     expect(await expireConsultations({ db: f.db }, sweep)).toBe(1);
-    expect((await consultations())[0]?.answer).toContain("its AI provider stayed down");
+    expect((await consultations())[0]?.answer).toContain("its AI stayed unavailable");
   });
 
   test("a colleague waiting on a person has no such limit: its card has its own deadline", async () => {
@@ -1822,6 +1848,136 @@ describe("tell_agent: what comes of work handed off comes back by itself (ADR 00
     expect(await runsOf(ops.id)).toHaveLength(1);
     // Infra and Ops each reported to the person themselves: Dev is not woken to relay it.
     expect(await runsOf(f.agent.id)).toHaveLength(1);
+  });
+
+  test("an agent that handed part on goes on once when what came back needs a step from it, and that run's reply goes back", async () => {
+    let woken = "";
+    f = await setup({
+      askAgent: true,
+      judge: (kind) => (kind === "note_reply" || kind === "handed_back_next" ? 0.9 : undefined),
+      reply: handing([{ agent: "@infra", message: "Cuida do deploy de staging." }], {
+        Infra: (req) => {
+          if (!lastText(req).includes("this came back"))
+            return lastText(req).includes("tool_result")
+              ? answer("Deploy feito; pedi ao Ops para checar a fila.")
+              : {
+                  chunks: [],
+                  toolUses: [{ name: "tell_agent", input: { agent: "@ops", message: "Checa a fila de staging." } }],
+                };
+          woken = lastText(req);
+          return answer("Destravei os 3 jobs; staging no ar.");
+        },
+        Ops: () => answer("3 jobs travados na fila."),
+      }),
+    });
+    const infra = await addInfra();
+    const ops = await addAgent("Ops");
+    const { handlers, release } = holding(ops.id);
+    await post("@dev pede ao infra para cuidar do deploy");
+    await drainOutbox(f.db, handlers);
+    const parent = (await consultations()).find((c) => c.targetAgentId === infra.id);
+    expect(parent).toMatchObject({ status: "open", answer: null });
+
+    await release(ops.id);
+    const infraRuns = await runsOf(infra.id);
+    expect(infraRuns).toHaveLength(2);
+    const [first, again] = infraRuns.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    // It goes on in the agents' DM where it answered, and that run is the one that answers.
+    expect(again?.channelId).toBe(first?.channelId);
+    expect((await consultations()).find((c) => c.id === parent?.id)).toMatchObject({
+      status: "answered",
+      targetRunId: again?.id,
+      answer:
+        "Destravei os 3 jobs; staging no ar.\n\n[@ops, to whom @infra handed part of it]: 3 jobs travados na fila.",
+    });
+    const judged = (f.context.judge as unknown as { calls: { kind: string }[] }).calls;
+    expect(judged.map((c) => c.kind)).toContain("handed_back_next");
+    // It is told to act and answer in full, not to report to people as after a person's hand-off.
+    expect(woken).toContain("instead of your earlier one");
+    expect(woken).not.toContain("Tell the people here");
+  });
+
+  test("a closer the judge says no to leaves what a concurrent wake took to the run it woke", async () => {
+    let moveTo: (() => Promise<void>) | null = null;
+    let armed = false;
+    f = await setup({
+      askAgent: true,
+      judge: (kind) => {
+        if (kind === "handed_back_next") armed = true;
+        return kind === "note_reply" ? 0.9 : kind === "handed_back_next" ? 0.1 : undefined;
+      },
+      reply: handing([{ agent: "@infra", message: "Cuida do deploy de staging." }], {
+        Infra: (req) =>
+          lastText(req).includes("tool_result")
+            ? answer("Deploy feito; pedi ao Ops para checar a fila.")
+            : { chunks: [], toolUses: [{ name: "tell_agent", input: { agent: "@ops", message: "Checa a fila." } }] },
+        Ops: () => answer("3 jobs travados na fila."),
+      }),
+    });
+    const infra = await addInfra();
+    const ops = await addAgent("Ops");
+    const { handlers, release } = holding(ops.id);
+    await post("@dev pede ao infra para cuidar do deploy");
+    await drainOutbox(f.db, handlers);
+    const parent = (await consultations()).find((c) => c.targetAgentId === infra.id);
+    const [opsRun] = await runsOf(ops.id);
+    // Another colleague's close, judged yes at the same moment, moves what is owed to the run it woke between this
+    // closer's read and its close (as `goOnBetween` does under the asker's lock).
+    moveTo = () =>
+      f.db
+        .update(schema.agentConsultations)
+        .set({ targetRunId: opsRun?.id })
+        .where(eq(schema.agentConsultations.id, parent?.id ?? ""))
+        .then(() => {});
+    const realTransaction = f.db.transaction.bind(f.db);
+    f.db.transaction = (async (...args: Parameters<typeof realTransaction>) => {
+      if (armed && moveTo) {
+        const move = moveTo;
+        moveTo = null;
+        await move();
+      }
+      return realTransaction(...args);
+    }) as typeof f.db.transaction;
+    await release(ops.id);
+    f.db.transaction = realTransaction;
+
+    expect(armed).toBe(true);
+    expect(moveTo).toBeNull();
+    // Still open for the run that took it: that run's reply goes back, not the earlier one.
+    expect((await consultations()).find((c) => c.id === parent?.id)).toMatchObject({
+      status: "open",
+      targetRunId: opsRun?.id,
+    });
+  });
+
+  test("an agent that goes on with what came back and fails still sends up what its colleagues sent back, with why", async () => {
+    f = await setup({
+      askAgent: true,
+      judge: (kind) => (kind === "note_reply" || kind === "handed_back_next" ? 0.9 : undefined),
+      reply: handing([{ agent: "@infra", message: "Cuida do deploy de staging." }], {
+        Infra: (req) =>
+          lastText(req).includes("this came back")
+            ? { chunks: [], failMidStream: { error: "model_error", retryable: false, inputTokens: null } }
+            : lastText(req).includes("tool_result")
+              ? answer("Deploy feito; pedi ao Ops para checar a fila.")
+              : {
+                  chunks: [],
+                  toolUses: [{ name: "tell_agent", input: { agent: "@ops", message: "Checa a fila de staging." } }],
+                },
+        Ops: () => answer("3 jobs travados na fila."),
+      }),
+    });
+    const infra = await addInfra();
+    const ops = await addAgent("Ops");
+    const { handlers, release } = holding(ops.id);
+    await post("@dev pede ao infra para cuidar do deploy");
+    await drainOutbox(f.db, handlers);
+    await release(ops.id);
+    const infraRuns = (await runsOf(infra.id)).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    expect(infraRuns.map((r) => r.status)).toEqual(["done", "failed"]);
+    const parent = (await consultations()).find((c) => c.targetAgentId === infra.id);
+    expect(parent?.status).toBe("failed");
+    expect(parent?.answer).toContain("[@ops, to whom @infra handed part of it]: 3 jobs travados na fila.");
   });
 
   test("what comes back while the agent that handed it on still works is read at its next step, and joins its answer even if it ends first", async () => {

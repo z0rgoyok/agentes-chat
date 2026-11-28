@@ -31,6 +31,7 @@ import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
   brainTool,
   CLI_GIT_MISSING,
+  CLI_HOME_ONLY,
   cliCommandWayOut,
   cliInstallFailure,
   cliOneClick,
@@ -58,6 +59,7 @@ import {
   planLabel,
   planMark,
   planOfAccount,
+  planOffSystem,
   planPickText,
 } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -500,7 +502,8 @@ export function ConnectAiPage(props: ConnectAiFlowProps) {
         onHave={pickHave}
       />
     );
-  if (view.page === "plans") return <Plans onPlan={toPlan} dims={dims} />;
+  if (view.page === "plans")
+    return <Plans onPlan={toPlan} dims={dims} offSystem={(choice) => planOffSystem(t, gateAt(choice))} />;
   // The makers are a choice for the key's page under them: picking one goes back to it.
   if (view.page === "makers") return <Makers form={props.keyForm} onDone={() => goBack()} />;
   if (view.page === "plan")
@@ -686,14 +689,23 @@ function AllHave({
 }
 
 /** The plans, the most used first, with a search: what each is sold as under its name. Picking one pushes its page. */
-function Plans({ onPlan, dims }: { onPlan: (choice: PlanChoice) => void; dims: (choice: PlanChoice) => boolean }) {
+function Plans({
+  onPlan,
+  dims,
+  offSystem,
+}: {
+  onPlan: (choice: PlanChoice) => void;
+  dims: (choice: PlanChoice) => boolean;
+  /** The computer's system where a plan doesn't run there (`planOffSystem`): its row says so before it is picked. */
+  offSystem: (choice: PlanChoice) => string | null;
+}) {
   const { t } = useTranslation();
   return (
     <PickList
       options={PLAN_CHOICES.map((c) => ({
         value: c,
         label: planLabel(t, c),
-        description: t(`connectAi.plan.${c}.tiers`),
+        description: offSystem(c) ? t("connectAi.offSystem", { system: offSystem(c) }) : t(`connectAi.plan.${c}.tiers`),
         mark: planMark(c),
         off: dims(c),
         keywords: planPickText(t, c),
@@ -752,8 +764,8 @@ function Hero({ mark, sub }: { mark: ReactNode; sub: string }) {
 }
 
 /**
- * The web's `CliMissing` on the phone: Claude Code or Codex isn't on a computer someone connected, or won't start
- * there. Whoever connected it installs it from here (it runs on the computer), anyone else asks them, anyone looks
+ * The web's `CliMissing` on the phone: Claude Code or Codex isn't on a computer someone connected, won't start there,
+ * or is too old for agentes.chat (its installer brings the newest: "Update"). Whoever connected it installs it from here (it runs on the computer), anyone else asks them, anyone looks
  * again. The page's own "Use an API key now" stays under it.
  */
 function CliMissingCard({
@@ -765,7 +777,7 @@ function CliMissingCard({
   machine: Machine;
   kind: MachineAccountKind;
   computer: string;
-  reason: "not_installed" | "cant_start";
+  reason: "not_installed" | "cant_start" | "cli_outdated";
 }) {
   const { t } = useTranslation();
   const { orgId } = useAiOrg();
@@ -781,7 +793,10 @@ function CliMissingCard({
   const install = run.install;
   const running = install?.state === "running";
   const pending = run.start.isPending || run.cancel.isPending || run.ask.isPending || check.isPending;
-  const broken = reason === "cant_start" ? (machine.cliErrors?.[cli] ?? "") : null;
+  const said = reason === "cant_start" ? (machine.cliErrors?.[cli] ?? "") : null;
+  // Only root starts it (system mode): to the agents it isn't there, so its install is the way on, not its error.
+  const homeOnly = said === CLI_HOME_ONLY;
+  const broken = homeOnly ? null : said;
   const gitMissing =
     (install?.state === "failed" && install.cause === "git_missing") ||
     (broken === CLI_GIT_MISSING && install?.state !== "failed");
@@ -795,14 +810,18 @@ function CliMissingCard({
           ? broken
             ? t("connectAi.cli.cantStart", { ...words, message: broken })
             : t("brain.reasons.cant_start", words)
-          : checked
-            ? t("connectAi.cli.checked", words)
-            : oneClick?.kind === "outdated"
-              ? t("common.joinSentences", {
-                  a: t("connectAi.cli.missing", words),
-                  b: t("connectAi.cli.outdated", { computer }),
-                })
-              : t("connectAi.cli.missing", words)));
+          : homeOnly
+            ? t("brain.reasons.home_only", words)
+            : reason === "cli_outdated"
+              ? t("brain.reasons.cli_outdated", words)
+              : checked
+                ? t("connectAi.cli.checked", words)
+                : oneClick?.kind === "outdated"
+                  ? t("common.joinSentences", {
+                      a: t("connectAi.cli.missing", words),
+                      b: t("connectAi.cli.outdated", { computer }),
+                    })
+                  : t("connectAi.cli.missing", words)));
   const failedBefore = install?.state === "failed" || install?.state === "canceled";
   const actions = running ? (
     <Button
@@ -819,7 +838,11 @@ function CliMissingCard({
         <Button
           size="sm"
           variant={gitMissing ? "secondary" : "primary"}
-          label={failedBefore ? t("common.retry") : t("connectAi.cli.install", { program })}
+          label={
+            failedBefore
+              ? t("common.retry")
+              : t(reason === "cli_outdated" ? "connectAi.cli.update" : "connectAi.cli.install", { program })
+          }
           disabled={pending}
           loading={run.start.isPending}
           onPress={() => run.start.mutate(undefined, { onError: fail })}
@@ -859,6 +882,7 @@ function CliMissingCard({
     install?.state !== "failed" &&
     broken === null &&
     !checked &&
+    reason !== "cli_outdated" &&
     oneClick?.kind !== "outdated";
   const why = plain && cli === "claude" && (machine.os === "windows" || machine.os === "darwin");
   return (
@@ -884,7 +908,7 @@ function CliCommandCard({
   machine: Machine;
   kind: MachineAccountKind;
   computer: string;
-  reason: "not_installed" | "cant_start";
+  reason: "not_installed" | "cant_start" | "cli_outdated";
 }) {
   const { t } = useTranslation();
   const { orgId } = useAiOrg();
@@ -924,6 +948,24 @@ function CliCommandCard({
       </InfoCard>
       <CommandBlock command={way.command} />
     </View>
+  );
+}
+
+/** Looks for the computer's programs again, once one that wouldn't start was fixed there by hand. */
+function CliCheckAgain({ machine }: { machine: Machine }) {
+  const { t } = useTranslation();
+  const { orgId } = useAiOrg();
+  const toast = useToast();
+  const check = useCheckMachineClis(orgId);
+  return (
+    <Button
+      size="sm"
+      variant="secondary"
+      label={t("connectAi.cli.check")}
+      disabled={check.isPending || !machine.online}
+      loading={check.isPending}
+      onPress={() => check.mutate(machine.id, { onError: (err) => toast({ title: errorText(t, err), icon: "x" }) })}
+    />
   );
 }
 
@@ -1534,7 +1576,7 @@ function GateWait({
     );
   } else if (
     gate.state === "unsupported" &&
-    (gate.reason === "not_installed" || gate.reason === "cant_start") &&
+    (gate.reason === "not_installed" || gate.reason === "cant_start" || gate.reason === "cli_outdated") &&
     !hold &&
     installableCli(kind) &&
     row &&
@@ -1543,14 +1585,28 @@ function GateWait({
     wait = <CliMissingCard machine={row} kind={kind} computer={computer} reason={gate.reason} />;
   } else if (
     gate.state === "unsupported" &&
-    (gate.reason === "not_installed" || gate.reason === "cant_start") &&
+    (gate.reason === "not_installed" || gate.reason === "cant_start" || gate.reason === "cli_outdated") &&
     !hold &&
     row &&
     cliCommandWayOut(t, kind, row, gate.reason, computer)
   ) {
     wait = <CliCommandCard machine={row} kind={kind} computer={computer} reason={gate.reason} />;
   } else if (why && !(gate.state === "offline" && signingIn)) {
-    wait = <InfoCard icon={why.rechecks ? "clock" : "laptop"}>{why.text}</InfoCard>;
+    // A program there that won't start, on a computer someone connected: its own words, then a look once it's fixed.
+    const recheck =
+      gate.state === "unsupported" &&
+      gate.reason === "cant_start" &&
+      !hold &&
+      row?.kind !== "managed" &&
+      row?.cliInstall;
+    wait = (
+      <InfoCard
+        icon={why.rechecks ? "clock" : "laptop"}
+        action={recheck && row ? <CliCheckAgain machine={row} /> : undefined}
+      >
+        {why.text}
+      </InfoCard>
+    );
   } else if (gate.state === "missing") {
     wait = (
       <>

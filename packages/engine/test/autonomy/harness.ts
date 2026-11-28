@@ -4,6 +4,7 @@ import type { FakeReply } from "@agenteschat/providers/testing";
 import {
   type Agent,
   addChannelMember,
+  CHANNEL_JOINED_JOB,
   createAgent,
   createChannel,
   createJobHandlers,
@@ -78,12 +79,24 @@ export interface JudgeTable {
   stuck?: number;
   /** `note_reply`: whether a note's reply matters to its sender (default 0.9). */
   noteReply?: number;
+  /**
+   * `handed_back_next`: whether an agent in an agents' DM has a step left with what came back before its answer goes
+   * up (default 0: the parts roll up with its reply).
+   */
+  handedBack?: number;
   /** `ask_check`: what an `ask_user` question asks for (default: something only a person can give); "fail" errors. */
   ask?: (state: Record<string, unknown>) => "findable" | "secret" | "person" | "none" | "fail";
   /** `alert_triage` (ADR 0131 §5): whether an unrequested item is work now or noise for the digest (default work). */
   triage?: (state: Record<string, unknown>) => "work" | "noise";
   /** `held_reply`: what goes out after a reply held back as untried (default: the new words alone). */
   heldReply?: (state: Record<string, unknown>) => "reply" | "both" | "held";
+  /**
+   * `hand_off_next` (ADR 0095): whether an agent whose hand-offs all posted their results to the people still has a
+   * step of its own (default 0: a plain delegation wakes nobody).
+   */
+  handOffNext?: number;
+  /** `channel_lead_next` (ADR 0095): whether ended work leaves the channel's responsible agent a step (default 0). */
+  leadNext?: number;
 }
 
 /** Judgments the engine asks along the way that the scenarios leave at the fake's defaults. */
@@ -91,6 +104,7 @@ const INCIDENTAL = new Set([
   "tool_groups",
   "steer_triage",
   "agent_status",
+  "ask_kind",
   "context_budget",
   "ai_intent",
   "status_fits",
@@ -201,6 +215,12 @@ export async function world(options: WorldOptions) {
       case "note_reply":
       case "note_reply_matters":
         return table.noteReply ?? 0.9;
+      case "handed_back_next":
+        return table.handedBack ?? 0;
+      case "hand_off_next":
+        return table.handOffNext ?? 0;
+      case "channel_lead_next":
+        return table.leadNext ?? 0;
       default:
         if (!INCIDENTAL.has(kind)) unknownJudgments.push(kind);
         return undefined;
@@ -247,6 +267,8 @@ export async function world(options: WorldOptions) {
       await addChannelMember(f.db, f.owner.id, f.org.id, channelId, { agentId: agent.id });
     for (const [name, p] of Object.entries(people))
       if (name !== "ana") await addChannelMember(f.db, f.owner.id, f.org.id, channelId, { userId: p.id });
+    // The scenario starts with everyone in the room: their joins aren't news.
+    await f.db.delete(schema.outbox).where(eq(schema.outbox.kind, CHANNEL_JOINED_JOB));
   }
 
   // The router's step, from the scenario's table (by body; a burst of messages is one body per line).

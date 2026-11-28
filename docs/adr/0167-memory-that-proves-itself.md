@@ -147,3 +147,27 @@ still matches word for word, and keys cover only the languages written and only 
 Checked offline: 24 made-up memories, Portuguese requests for English ones and the reverse, among lookalikes that
 share their words, with a fake model that gives a translation its original's vector: every one is in the top 5 of
 the hybrid ranking, almost none by words alone. A real model is checked in production.
+
+## Addendum (2026-11-24): a quote is never promoted
+
+A person's exact words kept as a memory (`quote` evidence, up to 2,000 characters of their message) were high trust and
+verified, so the nightly promotion pasted them whole as one bullet of an agent's instructions. `isPromotable` now skips
+quotes: they stay memory, read with the agent's title. It also skips an agent's facts (`kind = 'fact'` with an
+`agent_id`): a fact about the work is memory, not how the agent behaves. Workspace facts still go to the org context.
+
+## Addendum (2026-11-25): the text a person wrote or agreed to
+
+Keeping the person's whole message after outside content saved the wrong thing when they answered an agent's proposal:
+"sim, pode guardar" became the memory instead of the text the agent proposed. `remember` and `update_memory` now look
+for the text first (`vouchedText` in `context/tools.ts`, words compared without case, accents, punctuation or markdown):
+
+- in the person's message, as whole sentences (a part of one could drop a "não" before it): only that text is kept,
+  still as their quote;
+- in the agent's message they answered (the one they quoted, else its message right before theirs, a thread's root
+  included): the proposed text
+  is kept, high trust, not a quote, since they agreed to it;
+- neither, after a quote reply to the agent or in a message with fewer words than the text: refused, and the agent is
+  told to copy their words or show them the exact text first;
+- otherwise their whole message is kept, as before.
+
+The address check (`unaskedDestination`) still runs first, so a proposal cannot carry an address no person wrote.

@@ -219,6 +219,32 @@ export function SkeletonList({
 }
 
 /**
+ * A list kept on screen while its next tab or filter loads (`busy`: the query's `isPlaceholderData`): after 150 ms what
+ * it held dims and a bar runs along its top, so the switch answers at once and nothing moves when the rows land. Every
+ * tabbed or filtered list loads this way; its first load is a skeleton of its rows.
+ */
+export function Refreshing({
+  busy,
+  label,
+  className,
+  children,
+}: {
+  busy: boolean;
+  /** Read out while it loads ("Carregando…"). */
+  label: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  const shown = useDelayed(busy);
+  return (
+    <div className={cx("ac-refreshing", className)} aria-busy={busy || undefined} data-busy={shown || undefined}>
+      {shown && <span className="ac-refreshing__bar" role="progressbar" aria-label={label} />}
+      {children}
+    </div>
+  );
+}
+
+/**
  * Inline spinner (buttons, long actions): the pixel orbit, neutral. Decorative:
  * the control says what's happening. Under 16 it is the 14px orbit.
  */

@@ -1,0 +1,1 @@
+ALTER TABLE "instance_telemetry" ADD COLUMN "client_vitals" jsonb;

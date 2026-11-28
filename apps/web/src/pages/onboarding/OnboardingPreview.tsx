@@ -31,6 +31,7 @@ export function OnboardingPreview({
   agents,
   person,
   personal,
+  teamAhead,
 }: {
   org: string;
   logo: string | null;
@@ -41,6 +42,11 @@ export function OnboardingPreview({
   person: Pick<User, "name" | "image">;
   /** A personal workspace has no team (ADR 0159): its empty place speaks of its agents. */
   personal: boolean;
+  /**
+   * The team step is still to come: an empty place says where the team will show. Once it was left with no agents, the
+   * sidebar is what the workspace has, as its count says.
+   */
+  teamAhead: boolean;
 }) {
   const { t } = useTranslation();
   const made = useQuery({ ...channelsQuery(useApi(), orgId ?? ""), enabled: orgId !== null }).data;
@@ -112,7 +118,7 @@ export function OnboardingPreview({
                     </span>
                   </span>
                 ))}
-                {team === 0 && (
+                {team === 0 && teamAhead && (
                   <span className="onb-preview__ghost">
                     {t(personal ? "onboarding.flow.preview.ghostPersonal" : "onboarding.flow.preview.ghost")}
                   </span>

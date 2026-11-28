@@ -38,16 +38,18 @@ async function mentioned(state = seedState()) {
   return { api, state, issue, at, marked };
 }
 
-const tasksRow = () => document.querySelector<HTMLElement>(".sidebar__item[href$='/issues']") as HTMLElement;
+/** Tarefas' tile in the tool column (ADR 0260): a dot, red for a mention of me, ink for something unread. */
+const tasksRow = () => document.querySelector<HTMLElement>(".sidebar__tile[href$='/issues']") as HTMLElement;
 const mentionsIn = (el: Element | null) => el?.querySelector('[aria-label="1 menção a você"]')?.textContent ?? null;
 
 describe("mentions of me in a task's conversation (ADR 0145)", () => {
-  test("Tarefas in the sidebar, the task's card and its row in the list carry the red count", async () => {
+  test("Tarefas' tile carries the red dot, the task's card and its row in the list the red count", async () => {
     const state = seedState();
     const { api } = await mentioned(state);
     await renderApp(`/org/${ORG_ID}/issues`, { api });
     await settle(8);
-    expect(mentionsIn(tasksRow())).toBe("1");
+    expect(tasksRow().dataset.dot).toBe("you");
+    expect(tasksRow().getAttribute("aria-label")).toBe("Tarefas, algo para você");
     // Beside the conversation's count, among the card's facts.
     expect(mentionsIn(document.querySelector('[data-card="131"] .issue-card__facts'))).toBe("1");
     expect(mentionsIn(document.querySelector('[data-card="132"]'))).toBeNull();
@@ -59,21 +61,20 @@ describe("mentions of me in a task's conversation (ADR 0145)", () => {
     expect(mentionsIn(document.querySelector('.issue-list__row[data-card="131"] .issue-card__facts'))).toBe("1");
   });
 
-  test("a plain reply I haven't read in a task's conversation makes Tarefas bold, as a channel, with no red count", async () => {
+  test("a plain reply I haven't read in a task's conversation puts an ink dot on Tarefas, not the red one", async () => {
     const state = seedState();
     const { api } = await mentioned(state);
     const [first] = state.unreadTasks ?? [];
     state.unreadTasks = first ? [{ ...first, mentions: 0 }] : [];
     await renderApp(`/org/${ORG_ID}/issues`, { api });
     await settle(8);
-    expect(tasksRow().dataset.unread).toBe("true");
-    expect(mentionsIn(tasksRow())).toBeNull();
+    expect(tasksRow().dataset.dot).toBe("unread");
     cleanup();
 
     state.unreadTasks = [];
     await renderApp(`/org/${ORG_ID}/issues`, { api });
     await settle(8);
-    expect(tasksRow().dataset.unread).toBe("false");
+    expect(tasksRow().dataset.dot).toBeUndefined();
   });
 
   test("Conversa on the task's page lights up with it; read there, every mark goes", async () => {
@@ -104,7 +105,9 @@ test("what ships floats every side pane 10px in from the window's top, right and
       .filter(([p]) => p === property)
       .at(-1)?.[1];
   expect(last(".thread-panel", "position")).toBe("fixed");
-  for (const edge of ["top", "right", "bottom"]) expect(last(".thread-panel", edge)).toBe("10px");
+  for (const edge of ["right", "bottom"]) expect(last(".thread-panel", edge)).toBe("10px");
+  // Its top clears the Mac app's window buttons too (`--window-top`, 0 in a browser).
+  expect(last(".thread-panel", "top")).toBe("calc(10px + var(--window-top))");
   expect(last(".thread-panel", "border-radius")).toBe("var(--radius-section)");
   // The task's page has no layout of its own for its conversation any more.
   expect(css).not.toContain(".issue-page--talk");

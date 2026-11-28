@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { MACHINE_PROTOCOL_VERSION, typingTopic } from "@agenteschat/adapters";
+import { MACHINE_PROTOCOL_VERSION } from "@agenteschat/adapters";
 import { asc, eq, schema } from "@agenteschat/db";
 import { createAnthropicProvider, type ModelMessage, type ModelRequest, systemText } from "@agenteschat/providers";
 import {
@@ -16,7 +16,6 @@ import {
   drainOutbox,
   EVERY_TOOL,
   flattenContent,
-  getMessage,
   grantScopes,
   historyStart,
   insertMessage,
@@ -29,7 +28,6 @@ import {
   type ToolContext,
   toTurns,
 } from "../src";
-import { TYPING_GRACE_MS, typingLogFor, waitForBurst } from "../src/burst";
 import {
   compactToolResults,
   cutOldToolSteps,
@@ -508,17 +506,17 @@ test("B12: expand reopens a cut call from an earlier run of the same computer se
   expect(await expand(other)).toMatchObject({ isError: true, content: "Not found." });
 });
 
-test("B10: during the quiet window the first call's prompt is pre-warmed: the same request with no output", async () => {
+test("B10: while the person is still typing, the first call's prompt is pre-warmed: the same request with no output", async () => {
   f = await setup({
     contextTools: true,
     react: true,
-    // Long enough that the run reaches its window while it is still open on a machine busy with other test files:
-    // with 300 ms the run sometimes got there after it, and then there is rightly no pre-warm (the test below).
-    quietMs: 2000,
+    // The hold ends four windows from the message: long enough to be reached on a machine busy with other test files.
+    quietMs: 600,
     reply: (r) => (r.maxTokens === 0 ? { chunks: [], usage: { outputTokens: 0 } } : { chunks: ["Oi!"] }),
   });
   const handlers = createJobHandlers({ ...f.jobDeps, prewarm: true });
   await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body: "@dev oi" });
+  await publishTyping(f.pubsub, { channelId: f.general.id, threadId: null, userId: f.owner.id });
   await drainOutbox(f.db, handlers);
   const [warm, real] = f.provider.calls.map((c) => c.request);
   expect(warm?.maxTokens).toBe(0);
@@ -534,7 +532,7 @@ test("B10: during the quiet window the first call's prompt is pre-warmed: the sa
   expect(body.stream).toBe(false);
 });
 
-test("B10: no pre-warm when the quiet window is already over: it would only delay the first call", async () => {
+test("B10: no pre-warm when nobody is typing: it would only delay the first call", async () => {
   f = await setup({
     contextTools: true,
     react: true,
@@ -543,67 +541,9 @@ test("B10: no pre-warm when the quiet window is already over: it would only dela
   });
   const handlers = createJobHandlers({ ...f.jobDeps, prewarm: true });
   await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body: "@dev oi" });
-  // The run starts after its window (a busy worker, a slow context).
-  await Bun.sleep(400);
   await drainOutbox(f.db, handlers);
   expect(f.provider.calls.map((c) => c.request.maxTokens > 0)).toEqual([true]);
 });
-
-test("B11: the quiet window ends early when the person isn't typing, and lasts while they are", async () => {
-  f = await setup({ contextTools: true });
-  const log = typingLogFor(f.pubsub);
-  const sent = async (body: string) => {
-    const posted = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
-      body,
-    });
-    const m = await getMessage(f.db, f.org.id, posted.id);
-    if (!m) throw new Error("not posted");
-    return m;
-  };
-  const typed = () =>
-    f.pubsub.publish(typingTopic, {
-      type: "user.typing",
-      channelId: f.general.id,
-      threadId: null,
-      userId: f.owner.id,
-      ttlMs: 6000,
-    });
-  // Typing for the message itself, before it was sent, is no sign of another.
-  await typed();
-  await Bun.sleep(5);
-  const alone = await sent("@dev oi");
-  await waitForBurst(f.db, alone, 2500, undefined, log);
-  const quiet = Date.now() - alone.createdAt.getTime();
-  expect(quiet).toBeGreaterThanOrEqual(TYPING_GRACE_MS - 10);
-  expect(quiet).toBeLessThan(2300);
-
-  const typing = await sent("@dev oi");
-  setTimeout(() => void typed(), 300);
-  await waitForBurst(f.db, typing, 2500, undefined, log);
-  expect(Date.now() - typing.createdAt.getTime()).toBeGreaterThanOrEqual(2490);
-
-  // Typed while the run still read its context, before its wait started: still heard.
-  const early = await sent("@dev oi");
-  await Bun.sleep(300);
-  await typed();
-  await Bun.sleep(1100);
-  await waitForBurst(f.db, early, 2500, undefined, log);
-  expect(Date.now() - early.createdAt.getTime()).toBeGreaterThanOrEqual(2490);
-
-  // Sent through a connected AI app (ADR 0119): no typing ever comes from there, so the whole window.
-  const viaApp = await sent("@dev oi");
-  await waitForBurst(f.db, { ...viaApp, meta: { via: { kind: "app", name: "Claude" } } }, 2500, undefined, log);
-  expect(Date.now() - viaApp.createdAt.getTime()).toBeGreaterThanOrEqual(2490);
-
-  // Recording a voice message after it ("gravando áudio…") holds the window as typing does.
-  const recording = await sent("@dev oi");
-  setTimeout(
-    () => void publishTyping(f.pubsub, { channelId: f.general.id, threadId: null, userId: f.owner.id, kind: "voice" }),
-    300,
-  );
-  await waitForBurst(f.db, recording, 2500, undefined, log);
-  expect(Date.now() - recording.createdAt.getTime()).toBeGreaterThanOrEqual(2490);
-}, 25_000);
 
 /**
  * The agent on Claude Code on a paired computer, with a teammate and a second person: three turns, a DM from the
@@ -714,6 +654,7 @@ const ruleLines = (t: BrainTurn) =>
             l &&
             l !== "This conversation" &&
             l !== "Options to pick from" &&
+            l !== "How you work here" &&
             !l.startsWith('"# This turn" and "# This conversation"'),
         ),
     ),
@@ -763,10 +704,11 @@ test("Claude Code: two sessions of one agent list the same tools, every one it h
   // The line before slow work (ADR 0207) is in hand from the first round, never behind a computer brain's tool search.
   const upFront = (JSON.parse(dmTurn.tools) as { name: string; upFront?: boolean }[]).filter((t) => t.upFront);
   expect(upFront.map((t) => t.name)).toEqual(["say_now"]);
-  // "What you can do" names them all, and how to search them.
-  expect(dmTurn.turn.system).toContain("`list_issues`");
-  expect(dmTurn.turn.system).toContain("- Search all your tools by what you need with `find_tools`");
-  expect(dmTurn.turn.system).not.toContain("- On demand:");
+  // "What you can do" names them all, and how to search them, once per session: it follows the run's tools.
+  expect(conversationOf(dmTurn.turn)).toContain("`list_issues`");
+  expect(conversationOf(dmTurn.turn)).toContain("- Search all your tools by what you need with `find_tools`");
+  expect(conversationOf(dmTurn.turn)).not.toContain("- On demand:");
+  expect(dmTurn.turn.system).not.toContain("# What you can do");
 
   // Listed in a run nobody can answer a card in or move to the background: each says why, and what to do instead.
   const [run] = await f.db.select().from(schema.agentRuns).orderBy(asc(schema.agentRuns.createdAt)).limit(1);
@@ -806,7 +748,12 @@ test("Claude Code: the system text is the same in every conversation; what holds
   expect(channelTurn.tools.length + channelTurn.turn.system.length).toBeGreaterThan(30_000);
   for (const t of [dmTurn, channelTurn]) {
     const conversation = conversationOf(t.turn);
-    expect(conversation).toStartWith("# This conversation\n\n## Your team\n");
+    expect(conversation).toStartWith("# This conversation\n\n## How you work here\n- Before work that takes");
+    expect(conversation).toContain("\n\n## What you can do\nYou can:\n");
+    // Its limit counts the computer's own tools, there too.
+    expect(conversation).toContain("Beyond this list and your computer's own tools, you can't.");
+    expect(conversation).not.toContain("Beyond this, you can't.");
+    expect(conversation).toContain("\n\n## Your team\n");
     // Under a heading of its own, not read as part of "## Your team".
     expect(conversation).toContain("\n\n## Options to pick from\n- When you end by asking the person to pick");
     expect(t.turn.system).not.toContain("# Your team");

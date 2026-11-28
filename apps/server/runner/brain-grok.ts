@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { createInterface } from "node:readline";
 import type { CommandProfile } from "@agenteschat/adapters/command-policy";
@@ -19,13 +20,15 @@ import {
 import { ClaudeStreamParser, LIMIT_TEXT } from "./brain";
 import { type CodexBrainEvent, CodexThreads, chatFolder, codexProfileOf, codexThreadKey } from "./brain-codex";
 import { cursorPrompt } from "./brain-cursor";
+import { ConsoleDecoder } from "./console-text";
 import { RunnerError } from "./errors";
 import { killTree } from "./exec";
-import { GROK_BIN, resolveCommand } from "./executors";
+import { cliSpawn, GROK_BIN } from "./executors";
 import { CODEX_MCP_ENV, CODEX_MCP_SERVER, redactDeep } from "./mcp";
 import { resolveForAgent } from "./paths";
 import type { Spawn } from "./scope-gate";
 import { agentSecrets } from "./secrets";
+import { turnZoneEnv } from "./turn-zone";
 
 /**
  * The Grok branch of `brain.turn` (protocol 43, ADR 0142): one agent turn as one run of xAI's Grok Build CLI
@@ -43,6 +46,10 @@ import { agentSecrets } from "./secrets";
  * - ADR 0053 §3: `work` is `--permission-mode bypassPermissions` inside Grok's `workspace` sandbox (writes in the
  *   turn's folder only); `plan` is `dontAsk` (read-only tools and our bridge) with edits denied. Every turn runs in a
  *   sandbox profile, which also keeps it off Grok's shared leader process.
+ * - Windows (protocol 82, ADR 0142 §10): Grok's sandbox is unix-only (`xai-grok-sandbox`'s `apply` is a no-op there),
+ *   so `work` is `dontAsk` too: its edit tools write only in the turn's folder, its shell runs only Grok's read-only
+ *   commands, and every other command goes through our tools (`run_code`). The prompt goes in a file
+ *   (`--prompt-file`): a Windows command line holds 32,767 characters.
  * - `chat` (the team's right hand, ADR 0137 §4): built-in tools down to the MCP meta-tools (`search_tool`, `use_tool`),
  *   every built-in Grok documents also denied, no subagents, web or plan mode, in an empty folder with none of the
  *   agent's secrets. `grokChatBreach` kills the turn on an `init` listing anything else, a server but ours, an answer
@@ -58,6 +65,8 @@ const KILL_GRACE_MS = 5000;
 export interface GrokBrainTurnRequest {
   runId: string;
   kind: "grok";
+  /** The zone of the turn's "Now" (`turnZoneEnv`). */
+  timeZone?: string;
   session: { id: string; resume: boolean };
   cwd?: string;
   model?: string;
@@ -158,6 +167,10 @@ export function writeGrokConfig(home: string, text: string) {
   renameSync(tmp, file);
 }
 
+/** What a Windows `work` turn is told about its own tools there (`--rules`). */
+export const GROK_WINDOWS_RULES =
+  "On this Windows computer your own shell runs only read-only commands and your edit tools write only inside the working folder. Run any other command with the run_code tool.";
+
 /** `--effort`: Grok's canonical levels, `xhigh` and `max` as `high` (a model accepts only the levels its menu has). */
 const grokEffort = (effort?: BrainEffort) => (effort === "xhigh" || effort === "max" ? "high" : effort);
 
@@ -170,12 +183,15 @@ export function grokTurnArgs(input: {
   profile?: CommandProfile;
   /** The team's right hand: the meta-tools alone. */
   locked?: boolean;
+  /** On Windows, where Grok's sandbox holds nothing: `work` keeps to Grok's permission rules. */
+  windows?: boolean;
+  /** The file the prompt was written to, instead of `-p` (Windows). */
+  promptFile?: string;
 }): string[] {
   const ours = `MCPTool(${CODEX_MCP_SERVER}__*)`;
   const effort = grokEffort(input.effort);
   return [
-    "-p",
-    input.prompt,
+    ...(input.promptFile ? ["--prompt-file", input.promptFile] : ["-p", input.prompt]),
     "--output-format",
     "streaming-messages-json",
     "--include-partial-messages",
@@ -197,7 +213,23 @@ export function grokTurnArgs(input: {
         ]
       : input.profile === "plan"
         ? ["--permission-mode", "dontAsk", "--allow", ours, "--deny", "Edit", "--deny", "Write", "--no-plan"]
-        : ["--permission-mode", "bypassPermissions", "--no-plan"]),
+        : input.windows
+          ? [
+              "--permission-mode",
+              "dontAsk",
+              "--allow",
+              ours,
+              "--allow",
+              "Edit(./**)",
+              "--allow",
+              "Write(./**)",
+              "--allow",
+              "WebFetch",
+              "--no-plan",
+              "--rules",
+              GROK_WINDOWS_RULES,
+            ]
+          : ["--permission-mode", "bypassPermissions", "--no-plan"]),
     ...(input.model ? ["--model", input.model] : []),
     ...(effort ? ["--effort", effort] : []),
     ...(input.chat ? ["--resume", input.chat] : []),
@@ -205,6 +237,51 @@ export function grokTurnArgs(input: {
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+const decodeByteArray = (v: unknown): string | null => {
+  if (!Array.isArray(v)) return null;
+  for (const n of v) {
+    if (typeof n !== "number" || !Number.isInteger(n) || n < 0 || n > 255) return null;
+  }
+  return Buffer.from(v).toString("utf8");
+};
+
+/**
+ * Grok Build 1.0.73+ can serialize native shell tool results as JSON envelopes whose `output` (or `stdout`/`stderr`)
+ * is a UTF-8 byte array (`{"type":"Bash","output":[112,114,...],"output_file":...}`). Decode those envelopes to plain
+ * UTF-8 text so the transcript and follow-through judge read the real command output instead of numeric byte arrays.
+ * Skips MCP / bridge tool results and requires Grok's native shell envelope shape so legitimate JSON payloads stay intact.
+ */
+export function decodeGrokToolOutput(raw: string, toolName?: string): string {
+  if (toolName && (toolName.startsWith("mcp__") || toolName === "use_tool" || toolName === "find_tools")) return raw;
+  const trimmed = raw.trimStart();
+  if (!trimmed.startsWith("{")) return raw;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return raw;
+  }
+  if (!isRecord(parsed) || typeof parsed.type !== "string") return raw;
+  const hasOutputFile = "output_file" in parsed;
+  const isShellEnvelope = hasOutputFile || parsed.type === "Bash";
+  const output = hasOutputFile ? decodeByteArray(parsed.output) : null;
+  const stdout = isShellEnvelope ? decodeByteArray(parsed.stdout) : null;
+  const stderr = isShellEnvelope ? decodeByteArray(parsed.stderr) : null;
+  const errText = stderr ?? (typeof parsed.stderr === "string" ? parsed.stderr : "");
+  if (output !== null) {
+    const parts = [output, errText].filter(Boolean);
+    if (parts.length > 0) return parts.join(output.endsWith("\n") ? "" : "\n");
+    return typeof parsed.error === "string" ? parsed.error : "";
+  }
+  if (stdout !== null || stderr !== null) {
+    const outText = stdout ?? (typeof parsed.stdout === "string" ? parsed.stdout : "");
+    const parts = [outText, errText].filter(Boolean);
+    if (parts.length > 0) return parts.join(outText.endsWith("\n") ? "" : "\n");
+    return typeof parsed.error === "string" ? parsed.error : "";
+  }
+  return raw;
+}
 const QUALIFIED = /^[A-Za-z_][\w-]*__[\w-]+$/;
 
 /** A `use_tool` call reaches our bridge alone: every qualified name in its input is ours, and there is one. */
@@ -263,7 +340,7 @@ export function grokChatBreach(ev: Record<string, unknown>, sawInit: boolean): s
 const GROK_LIMIT = /usage limit|rate.?limit|quota|weekly (?:limit|pool)|out of (?:credits|usage)|upgrade your plan/i;
 /** Grok can't authenticate (signed out, a refused token). */
 export const GROK_AUTH =
-  /not (?:authenticated|logged in|signed in)|grok login|unauthori[sz]ed|\b401\b|invalid (?:token|credentials)/i;
+  /not (?:authenticated|logged in|signed in)|grok login|unauthori[sz]ed|\b401\b|invalid (?:token|credentials)|\binvalid_grant\b/i;
 const SESSION_GONE = /session[^\n]*(?:not found|does not exist|no such)|no session/i;
 
 /** How a turn that went wrong ends: `limit` then `plan_limit`, `not_logged_in`, or `grok_failed`. */
@@ -312,9 +389,8 @@ export interface GrokTurnOptions {
 export async function runGrokTurn(input: GrokTurnInput, opts: GrokTurnOptions): Promise<void> {
   const fail = (code: string, message: string, retryable?: boolean) =>
     opts.emit({ type: "error", code, message, ...(retryable ? { retryable } : {}) });
-  if ((opts.platform ?? process.platform) === "win32") {
-    return fail("unsupported", "The Grok brain isn't supported on Windows yet.");
-  }
+  const platform = opts.platform ?? process.platform;
+  const windows = platform === "win32";
   try {
     writeGrokConfig(
       input.account.home,
@@ -332,37 +408,57 @@ export async function runGrokTurn(input: GrokTurnInput, opts: GrokTurnOptions): 
     ...(opts.socketPath ? { [CODEX_MCP_ENV[1]]: opts.socketPath } : {}),
     ...(opts.runnerHome ? { [CODEX_MCP_ENV[2]]: opts.runnerHome } : {}),
   };
-  const env = accountEnv("grok", input.account.home, base);
+  const env = accountEnv("grok", input.account.home, base, platform);
   const clean = (text: string) => (opts.redact ? opts.redact(text) : text);
   const hold = opts.redact ? (opts.redactHold ?? 0) : 0;
 
   // One retry, as a new chat, when Grok can't find the chat it was to resume.
   for (let attempt = 0; ; attempt++) {
     const chat = opts.chats.get(chatKey);
+    const prompt = cursorPrompt(input.system, input.prompt, !chat);
+    let promptDir: string | undefined;
+    try {
+      if (windows) {
+        promptDir = mkdtempSync(path.join(os.tmpdir(), "agentes-grok-"));
+        writeFileSync(path.join(promptDir, "prompt.txt"), prompt, { mode: 0o600 });
+      }
+    } catch (err) {
+      if (promptDir) rmSync(promptDir, { recursive: true, force: true });
+      return fail("grok_failed", `Couldn't hand Grok the prompt: ${(err as Error).message}`, true);
+    }
     const args = grokTurnArgs({
-      prompt: cursorPrompt(input.system, input.prompt, !chat),
+      prompt,
+      ...(promptDir ? { promptFile: path.join(promptDir, "prompt.txt") } : {}),
       ...(chat ? { chat } : {}),
       ...(input.model ? { model: input.model } : {}),
       ...(input.effort ? { effort: input.effort } : {}),
       profile: input.profile ?? "work",
       ...(input.chat ? { locked: true } : {}),
+      ...(windows ? { windows } : {}),
     });
     const parser = new ClaudeStreamParser();
+    parser.formatToolResult = decodeGrokToolOutput;
     parser.beginTurn();
     let child: ChildProcess;
     try {
-      child = (opts.spawn ?? spawn)(resolveCommand(opts.bin ?? GROK_BIN, env.PATH), args, {
+      const run = cliSpawn([opts.bin ?? GROK_BIN], args, env.PATH, platform);
+      child = (opts.spawn ?? spawn)(run.file, run.args, {
         cwd: input.cwd,
-        env,
+        env: run.env ? { ...env, ...run.env } : env,
         stdio: ["ignore", "pipe", "pipe"],
-        detached: true,
+        // Its own process group (posix). On Windows that would open a console window of its own.
+        detached: !windows,
+        windowsHide: true,
+        ...(run.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
       });
     } catch (err) {
+      if (promptDir) rmSync(promptDir, { recursive: true, force: true });
       return fail("grok_failed", err instanceof Error ? err.message : String(err));
     }
     let stderr = "";
+    const stderrText = new ConsoleDecoder();
     child.stderr?.on("data", (c: Buffer) => {
-      stderr = (stderr + c.toString("utf8")).slice(-2000);
+      stderr = (stderr + stderrText.write(c)).slice(-2000);
     });
     let tail = "";
     let streamed = false;
@@ -450,6 +546,7 @@ export async function runGrokTurn(input: GrokTurnInput, opts: GrokTurnOptions): 
     opts.signal.removeEventListener("abort", abort);
     if (killTimer) clearTimeout(killTimer);
     lines.close();
+    if (promptDir) rmSync(promptDir, { recursive: true, force: true });
     if (opts.signal.aborted) return fail("canceled", "The turn was canceled.");
     if (breach) return fail("tools_not_locked", breach);
     if (exit.error) {
@@ -587,7 +684,8 @@ export async function handleGrokBrainTurn(
         signal: scope.signal,
         runnerHome: ctx.runnerHome,
         ...(ctx.mcp ? { mcpCommand: ctx.mcp.command, socketPath: ctx.mcp.socketPath } : {}),
-        ...(secrets ? { env: secrets.env, redact: secrets.redact, redactHold: secrets.hold } : {}),
+        env: { ...secrets?.env, ...turnZoneEnv(req.timeZone) },
+        ...(secrets ? { redact: secrets.redact, redactHold: secrets.hold } : {}),
         ...(ctx.bin ? { bin: ctx.bin } : {}),
         ...(ctx.spawn ? { spawn: ctx.spawn } : {}),
       },

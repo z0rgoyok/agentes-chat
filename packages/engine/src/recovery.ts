@@ -1,5 +1,5 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, asc, type Database, desc, type Executor, eq, inArray, rowsOf, schema, sql } from "@agenteschat/db";
+import { and, asc, type Database, desc, type Executor, eq, inArray, or, rowsOf, schema, sql } from "@agenteschat/db";
 import { textOf } from "@agenteschat/providers";
 import { announceAgentStatus } from "./agent-status";
 import { publishApproval } from "./approvals";
@@ -8,6 +8,7 @@ import { onConsultedRunFinished } from "./consultations";
 import { ValidationError } from "./errors";
 import { publishChannelEvent, publishMessageCreated } from "./events";
 import type { Transcript } from "./executor";
+import type { Judge } from "./judge";
 import { queueLiveActivityRun } from "./live-activity-queue";
 import { getMessage, insertMessage, messageView } from "./messages";
 import { enqueue, jobsOfRun } from "./outbox";
@@ -53,6 +54,9 @@ const lastBeat = sql`coalesce(${agentRuns.heartbeatAt}, ${agentRuns.startedAt}, 
 /** The sweep's clock: a run whose last beat is older than `cutoff` has no live worker. */
 type SweepTime = { now: Date; cutoff: Date };
 
+/** What the sweep needs; `judge`: whether an agent whose colleague's run it ends goes on (`reportHandOffs`). */
+type RecoveryDeps = { db: Database; pubsub?: PubSub; judge?: Judge | null };
+
 /**
  * Finds runs whose worker died (a deploy or a crash: no heartbeat for
  * `RUN_STALE_MS`) and recovers them. Called on boot and every minute.
@@ -68,7 +72,7 @@ type SweepTime = { now: Date; cutoff: Date };
  * never one this process executes: two sweeps never both take a run, nor a sweep one whose worker beats.
  */
 export async function recoverStaleRuns(
-  deps: { db: Database; pubsub?: PubSub },
+  deps: RecoveryDeps,
   options: { now?: Date; staleMs?: number; onError?: (runId: string, error: unknown) => void } = {},
 ): Promise<{ resumed: string[]; failed: string[]; requeued: string[] }> {
   const { db } = deps;
@@ -144,8 +148,9 @@ export async function recoverStaleRuns(
     });
     out.requeued.push(run.id);
   }
-  // Waiting on its plan or budget past its time with no job left to wake it (that job failed or was lost): it would
-  // wait forever, and Rotinas and the agent's status would say so. Woken now; still limited, it parks again.
+  // Waiting on its plan or budget past its time, or for room on a busy computer, with no job left to wake it (that job
+  // failed or was lost): it would wait forever, and Rotinas and the agent's status would say so. Woken now; still
+  // limited or busy, it parks again with a new job.
   const overdue = await db
     .select({
       id: agentRuns.id,
@@ -156,9 +161,17 @@ export async function recoverStaleRuns(
     .where(
       and(
         eq(agentRuns.status, "waiting_input"),
-        inArray(sql<string>`${runState}->'waitingForBrain'->>'code'`, [...USAGE_WAIT_CODES]),
         sql`${runState}->'waitingForBrain'->>'waitId' is not null`,
-        sql`(${runState}->'waitingForBrain'->>'until')::timestamptz < ${cutoff.toISOString()}::timestamptz`,
+        or(
+          and(
+            inArray(sql<string>`${runState}->'waitingForBrain'->>'code'`, [...USAGE_WAIT_CODES]),
+            sql`(${runState}->'waitingForBrain'->>'until')::timestamptz < ${cutoff.toISOString()}::timestamptz`,
+          ),
+          and(
+            sql`${runState}->'waitingForBrain'->>'code' = 'busy'`,
+            sql`${agentRuns.updatedAt} < ${cutoff.toISOString()}::timestamptz`,
+          ),
+        ),
         sql`not ${liveJob}`,
       ),
     )
@@ -263,7 +276,7 @@ async function resume(db: Database, run: AgentRun, at: SweepTime, ran: string[])
 }
 
 /** Ends the run as failed, keeps what it wrote, and tells the channel (so the live row goes away). */
-async function failInterrupted(deps: { db: Database; pubsub?: PubSub }, run: AgentRun, at: SweepTime) {
+async function failInterrupted(deps: RecoveryDeps, run: AgentRun, at: SweepTime) {
   const { db } = deps;
   const threadId = replyThreadOf(run);
   const t = (run.transcript ?? {}) as StoredTranscript;
@@ -370,8 +383,14 @@ async function failInterrupted(deps: { db: Database; pubsub?: PubSub }, run: Age
     const [ended] = await db.select().from(agentRuns).where(eq(agentRuns.id, run.id));
     if (ended) await endWork(deps, ended, "failed").catch(() => null);
   }
-  // It was answering another agent: the asker hears it now instead of waiting for the question to expire.
-  await onConsultedRunFinished({ db, pubsub: deps.pubsub }, run, "failed", INTERRUPTED_BY_RESTART).catch(() => {});
+  // It was answering another agent: the asker hears it now instead of waiting for the question to expire, and with
+  // the judge it may go on with its own step (`reportHandOffs`).
+  await onConsultedRunFinished(
+    { db, pubsub: deps.pubsub, judge: deps.judge },
+    run,
+    "failed",
+    INTERRUPTED_BY_RESTART,
+  ).catch(() => {});
   // What was sent to it and not read gets a run of its own.
   await releaseInbox(db, deps.pubsub, run, { reason: "interrupted" }).catch(() => null);
   return true;

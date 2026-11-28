@@ -37,11 +37,12 @@ export const placeAfter = (
 /**
  * SQL: `userId` asked the run `r`: they wrote the message its conversation started from (`thread_root_id`). For a run
  * that answers in the channel itself that is its trigger; for one that answers under a message of the main timeline
- * (ADR 0214) it is that message, however the run went on from it.
+ * (ADR 0214) it is that message, however the run went on from it. Under the agent's own first message (ADR 0261) it is
+ * who asked for that turn, kept on the message.
  */
 export const askedBy = (r: SQL, userId: string | null) =>
   sql`exists (select 1 from messages ja where ja.org_id = ${r}.org_id and ja.id = ${r}.thread_root_id
-    and ja.author_user_id = ${userId})`;
+    and coalesce(ja.author_user_id, ja.meta->'turnThread'->>'askedBy') = ${userId})`;
 
 /** Where a message reaches an agent's runs from (`joinsRun`). */
 export type Arrival =

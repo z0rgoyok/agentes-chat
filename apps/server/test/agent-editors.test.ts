@@ -93,7 +93,7 @@ test('"Who can edit" is saved with PATCH and audited; each viewer reads what the
     expect((await patch(eva, json)).status).toBe(403);
 });
 
-test('a member with "Edit agents" outside a private agent reads its public card and changes nothing of it', async () => {
+test('a member with "Edit agents" outside a private agent reads its facts and changes nothing of it', async () => {
   const { owner, eva, lara, org, agentId, ids, listed, patch } = await start();
   const kept = await patch(owner, {
     audience: { mode: "owner", userIds: [] },
@@ -109,12 +109,14 @@ test('a member with "Edit agents" outside a private agent reads its public card 
     instructions: "",
     editors: { userIds: [], roleIds: [] },
   });
+  // Its page shows its facts, who edits it among them.
   expect(await (await lara(`${org}/agents/${agentId}`)).json()).toMatchObject({
     seesDetails: false,
+    factsOnly: true,
     canManage: false,
     canEdit: false,
     canManageRoutines: false,
-    editors: { userIds: [], roleIds: [] },
+    editors: { userIds: [ids.eva], roleIds: [] },
   });
   for (const json of [{ role: "QA" }, { monthlyBudgetUsd: 10 }, { editors: { userIds: [ids.lara], roleIds: [] } }])
     expect((await patch(lara, json)).status).toBe(403);

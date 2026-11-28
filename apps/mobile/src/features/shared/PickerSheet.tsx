@@ -85,10 +85,11 @@ type Pending = PickAsk & { mode: "pick" | "actions"; done: (key: string | null) 
 let present: ((ask: Pending) => void) | null = null;
 
 /**
- * One choice in the app's own sheet (never the system's alert list): the title in the sheet's bar with its × (the
- * task sheets' `SheetBar`), an optional line under it, then a grouped list where each option shows who or what it is
- * (a face, a photo, a tile), a quieter line, and the check on the one in use; a search field when the list is long.
- * Resolves with the chosen key, or null when the person cancels (×, the scrim, a flick down). The row's value changes
+ * One choice in the app's own sheet (never the system's alert list): the title in the sheet's bar (the task sheets'
+ * `SheetBar`, no ×: the sheet goes with a pull down or a tap outside), an optional line under it, then a grouped list
+ * where each option shows who or what it is (a face, a photo, a tile), a quieter line, and the check on the one in use;
+ * a search field when the list is long. Resolves with the chosen key, or null when the person cancels (the scrim, a
+ * flick down). The row's value changes
  * at once: the promise resolves on the pick while the sheet slides away.
  */
 export function pickOne(ask: PickAsk): Promise<string | null> {
@@ -195,7 +196,8 @@ export function PickerHost() {
   const bar =
     ask?.mode === "pick" ? (
       <View>
-        <SheetBar title={ask.title} onClose={() => finish(null)} />
+        {/* No ×: a pick goes with a pull down or a tap outside, as the system's sheets (the scrim still cancels). */}
+        <SheetBar title={ask.title} />
         {ask.note ? (
           <Text variant="footnote" tone="muted" style={styles.note} numberOfLines={2}>
             {ask.note}

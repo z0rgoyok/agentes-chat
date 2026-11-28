@@ -51,6 +51,7 @@ export const DESKTOP_CLOSE = {
   normal: 1000,
   forbidden: 4403,
   notFound: 4404,
+  late: 4408,
   hidden: 4409,
   controlEnded: 4410,
   tooMany: 4429,
@@ -105,6 +106,41 @@ function closeState(code: number, reason: string): { state: DesktopViewState; re
     default:
       return { state: "connecting", retry: "later" };
   }
+}
+
+/**
+ * Why the screen isn't open yet, said under its cover with Tentar de novo: the last try's close (`desktopOpenWhy`), or
+ * `slow` once it took `DESKTOP_SLOW_MS` with no try failed.
+ */
+export type DesktopOpenWhy = "slow" | "late" | "dropped" | "offline" | "refused";
+
+/** How long the screen may take to open before its cover says so: a desktop that starts takes up to 90 s. */
+export const DESKTOP_SLOW_MS = 30_000;
+/** Still not open this long after it began, a failed try stops the retries: only Tentar de novo opens it again. */
+export const DESKTOP_GIVE_UP_MS = 120_000;
+
+/**
+ * A try to open the screen that failed (a close `desktopCloseState` retries while it shows opening or offline): its cause
+ * for the cover, and whether it stops trying by itself, the screen opening since `since`. Null for any other close
+ * (control changing hands, a state with its own cover).
+ */
+export function desktopOpenFailed(
+  code: number,
+  reason: string,
+  since: number,
+  now = Date.now(),
+): { why: Exclude<DesktopOpenWhy, "slow">; gaveUp: boolean } | null {
+  const next = closeState(code, reason);
+  if (next.retry !== "later" || (next.state !== "connecting" && next.state !== "offline")) return null;
+  const why =
+    code === DESKTOP_CLOSE.late
+      ? "late"
+      : code === DESKTOP_CLOSE.unreachable
+        ? "offline"
+        : code === DESKTOP_CLOSE.refused
+          ? "refused"
+          : "dropped";
+  return { why, gaveUp: now - since >= DESKTOP_GIVE_UP_MS };
 }
 
 /** What `GET …/desktop`'s `reason` means for the screen. */

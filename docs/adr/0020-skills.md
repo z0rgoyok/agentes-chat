@@ -1,6 +1,6 @@
 # 0020. Skills in Markdown (SKILL.md), loaded on demand, no code execution
 
-- Status: Accepted. Amended 2026-10-30: Import (a GitHub link is read from the repository's archive, and a link that holds several skills lists them to pick from). Amended 2026-10-31: Import (a private repository is read through the workspace's GitHub). Amended 2026-11-03: updates from the link, agents improving skills, and the choice between the link's version and the agents'
+- Status: Accepted. Amended 2026-10-30: Import (a GitHub link is read from the repository's archive, and a link that holds several skills lists them to pick from). Amended 2026-10-31: Import (a private repository is read through the workspace's GitHub). Amended 2026-11-03: updates from the link, agents improving skills, and the choice between the link's version and the agents' Amended 2026-11-25: the library as people read it (its own page, names and use, teaching in words, the agent's tab), copies in one repository, a .zip of several skills with no cap of 100, and `create_skill` after outside content.
 - Date: 2026-10-14
 
 ## Decision
@@ -41,6 +41,75 @@ Importing a skill whose name already exists in the org makes a new version; re-i
 *Amended 2026-11-14:* GitHub's secondary limit can answer a request without credentials with a bare 403 (no `retry-after`, no `x-ratelimit-remaining`), and a server's address is shared with others, so without a token any 403 is `github.limited`; with a token a 403 still means the token can't read it. A public read GitHub limits goes on to the workspace's tokens as a 404 does, since they are on limits of their own, and so does the page check of an agent import whose public read answered 404. What a token reads this way keeps no `source_via`: the limit says nothing about who may read the repository, so a public repository keeps updating without credentials first and without the token, and a private one still reaches its token through the 404. When no token could be tried (none, the App on other accounts only, or a connection whose refresh GitHub refused) the refusal is the limit, never `github.repo_missing`.
 
 *Amended 2026-11-14 (personal skills):* a skill is the team's or one person's, the Vault's split (ADR 0144). `skills.owner_user_id` (migration 0274, cascades with the person) marks a personal skill; names are unique among the team's skills and among each person's (two partial unique indexes). Any member installs a personal skill (GitHub link, .zip or written; `personal: true` on `POST …/skills` and `…/skills/import`), reading public repositories only unless they manage agents, so the workspace's GitHub can't copy a private repository into one person's skill. A new personal skill goes on for its person's own agents. Only its person reads, edits, updates or turns it on for an agent; who manages agents sees its name, person and agents (`GET …/skills` lists everyone else's with no text) and may remove it or turn it off for an agent, never read it. At run time (`enabledSkills`, `agentSkillByName`) a personal skill counts only when the Vault's person of the run (`vaultPersonOfRun`: who asked, else the routine's creator, the right hand only in their own DM) is its person, and then it wins over a team skill of the same name. A skill an agent makes because a person asked (`create_skill`) is that person's, and one promoted from how-tos learned only in one person's DMs is theirs; in a workspace of one person both stay the team's and Skills shows no split. An agent's change to a personal skill that would wait for a review is refused instead, since a proposal shows its text to others; its notices go to its person alone. Workspace exports leave personal skills out.
+
+*Amended 2026-11-25 (the library as people read it):* Skills was a card in Settings listing each skill by its `name` with
+its source, version and flags, installed through tabs that start from the format (a GitHub link, a .zip, Markdown), and
+an agent's tab was the whole library as checkbox pills with the area's level on top. People couldn't tell what a skill
+did, whether an agent used it, or where to begin without a skill already written. So:
+
+- **A page of its own** (`/org/{orgId}/skills`, a sidebar item `skills`; Settings › Skills redirects there, a skill's
+  notice to its page `/skills/{id}`). Each row: the skill's name, when to use it, the agents that have it
+  on and how many times agents loaded it in the last 7 days; a state only when it asks something of a person (a
+  waiting update). Filters (all, learned by agents, only mine) replace the team and personal tabs. "For" an agent turns
+  each row into "knows it" or a one-click teach (`PUT …/agents/{id}/skills`). Skills installed from one GitHub
+  repository are grouped under one line (`owner/repo · N skills`) that opens to them.
+- **Its own name, and a line for people.** A skill keeps the name it came with: an installed one is shown by its
+  `name`, the one its authors gave it. `skills.title` is set only by a person, renaming it (`title_by_person`, kept
+  through versions; emptied, the name shows again) or in the draft of a skill taught in words, which has no name of
+  its own. `summary` and `icon` (one of the app's icons) are written by the workspace's summary model through the
+  Model Gateway (job `skills.describe`, queued when a skill is installed, made or its name or "when to use" changes;
+  `described_hash`), in the language of who installed it. Without the summary model (no key) nothing is written and
+  the apps show the first line of its description; the job never retries for that.
+- **Use.** Every `load_skill` of a skill that is the agent's own records a row in `skill_uses` (agent, run,
+  conversation, the message that started the run). The library sums the week; a skill's page lists the last five,
+  opening the conversation at that message, with the place and words left out where the viewer isn't in it.
+- **Teaching in words** (`POST …/skills/draft`): the person says how the work is done; the summary model writes the
+  skill (kebab-case name, title, line, when to use, steps) and names which of the workspace's apps it uses, and the
+  server says which chosen agent doesn't have each (`hasApp`). Nothing is saved until `POST …/skills/drafted`, which
+  saves it as written (a new name if it is taken) and turns it on for the agents chosen. "Adjust" sends the draft and
+  the change back. A link or a .zip are still there, as one way in each, without the format tabs.
+- **A change asked in words** (`POST …/skills/{id}/rewrite`): the summary model rewrites the skill as asked (on behalf
+  of an agent that has it, else the right hand), checked as a person's own text (no credential, no permission rule),
+  applied at once as a new version with Undo (`last_update.byUserId`, `undoSkillUpdate`), recorded `skill.rewritten`
+  with what was asked and both texts.
+- **A skill's page** shows its steps, who knows it, its last uses and its history: people's installs, edits and asked
+  changes from the audit log, agents' changes from their receipts, each with its diff opened in place (unchanged runs
+  folded) and Undo on the newest. When its link and the agents both changed it, the two changes show side by side
+  with the choice on one line. Editing the text, renaming, updating from its link, "update by itself", default for new
+  agents, agents improving it, a .zip of its folder (`GET …/skills/{id}/download`; files that run only for who may
+  change it) and removing it are in its menu.
+- **An agent's tab** lists what it knows (each with its uses this week), what it could learn (`GET
+  …/agents/{id}/skill-suggestions`: the summary model picks at most three of the library's skills from what people
+  asked it in the last week, each with why, kept on the agent for a day) and **learns on its own**
+  (`agents.learns_skills`, `PUT …/agents/{id}/learns-skills`): off, its how-tos aren't promoted to skills and it
+  changes a skill only when a person asks. The area's level moves to Tools and access with the other areas. The skills
+  an agent made move from its Memory tab to this one.
+
+*Amended 2026-11-25 (copies in one repository):* a repository may hold the same skill in two folders (a plugin's
+folder with a copy of its skills). Folders whose `SKILL.md` and file list (paths and sizes) are the same are offered
+once, from the folder nearest the root, so picking all of them no longer names one skill twice. Two different skills
+of one name are both offered, marked `sameName`, each with its folder; the app lets one of them be picked, and the
+server answers `skill.picked_twice` (with the name) when both are.
+
+*Amended 2026-11-25 (a .zip of several skills, no cap of 100):* a .zip may hold several skills' folders, as a
+repository does: it is read as a link's archive is (the same search below its root, copies offered once, those that
+can't be installed apart) and answers with them to pick, nothing installed; the picks come back with the .zip again
+(`POST …/skills/import` with `zipBase64` and `paths`), so nothing is kept on the server between the two. A .zip of one
+skill's folder installs at once, as before. The cap of 100 skills a link may hold is gone: past it people met a
+refusal for collections they meant to use. What bounds the work is the archive's own cap and a ceiling of 1,000 skills
+(`SKILLS_PER_ARCHIVE`, `skill.too_many_skills` for a link and `skill.zip_too_many_skills` for a .zip), far past any
+collection published, only so a small archive of thousands of one-line `SKILL.md` files can't make the server list
+and look up every one. The phone's install screen says to pick a .zip's skills on a computer, for now.
+
+*Amended 2026-11-26 (a .zip sent in a conversation):* a person who sends a skill's .zip in a conversation and asks to
+install it gets the install card, as with a GitHub link: `offer_install_skill` takes `file` (the .zip's Drive id) in
+place of `url`, read as the agent reads it, and posts a card only for a .zip with a `SKILL.md` in it, naming the skills
+those files name (`params.skills`, what the card counts as done once they are all in the library). The card opens the
+install with the .zip already read on the server (`POST …/skills/import` with `fileId`, `list` and then `paths`, read
+as the installer reads the file, never sent through the app and back), its skills listed to pick and on for the card's
+agent, on the web and the phone. It installs whole, files and scripts with it, so an agent never rewrites a skill it
+was sent with `create_skill`, which keeps only text and goes through a review a sent skill shouldn't need. A .zip
+already installed is said so, never offered again. A .zip past the install's size is `skill.zip_too_big`.
 
 ## Consequences
 

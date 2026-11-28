@@ -14,6 +14,17 @@ export interface ErrorReporter {
   flush(timeoutMs: number): Promise<boolean>;
 }
 
+/**
+ * What an error may carry for its report besides its message: the group it goes in (`fingerprint`, instead of its
+ * stack), its level (a slow turn is a `warning`), and contexts of numbers and codes (a turn's timings), which the
+ * scrubber keeps where it drops `extra`.
+ */
+export interface ReportedError extends Error {
+  fingerprint?: string[];
+  level?: "error" | "warning" | "info";
+  contexts?: Record<string, Record<string, unknown>>;
+}
+
 export const noErrorReports: ErrorReporter = { capture: () => undefined, flush: async () => true };
 
 export interface ErrorReportsOptions {
@@ -77,6 +88,10 @@ export async function createErrorReporter(
       for (const [name, value] of Object.entries(tags)) {
         if (value !== undefined && value !== null && value !== "") scope.setTag(name, String(value));
       }
+      const told = (error ?? {}) as Partial<ReportedError>;
+      if (Array.isArray(told.fingerprint)) scope.setFingerprint(told.fingerprint);
+      if (told.level) scope.setLevel(told.level);
+      for (const [name, context] of Object.entries(told.contexts ?? {})) scope.setContext(name, context);
       return scope.captureException(error, { data: { mechanism: { type: "generic", handled: !unhandled } } });
     },
     flush: async (timeoutMs) => client.flush(timeoutMs),

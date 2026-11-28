@@ -146,8 +146,8 @@ describe("search filters (ADR 0123)", () => {
     await typeIn("zebra");
     await act(async () => fireEvent.click(screen().getByRole("link", { name: /zebra na resposta/ })));
     await settle(4);
-    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/threads/m-1`);
-    expect(router.state.location.search).toEqual({ m: "m-reply" });
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
+    expect(router.state.location.search).toEqual({ m: "m-1", thread: "m-1", tm: "m-reply" });
   });
 
   test("a removed scope chip stays removed when the channel list refetches", async () => {

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import {
   BRAIN_PROTOCOL,
   brainTopic,
@@ -23,6 +23,7 @@ import {
   type SteerMessage,
   type SteerReply,
 } from "../src";
+import * as burst from "../src/burst";
 import { deliverLive, listenLiveSteering } from "../src/live-steer";
 import { takeInbox } from "../src/run-inbox";
 import { addRunStep } from "../src/runs";
@@ -198,8 +199,6 @@ test("a message during a computer turn is handed to it live; read ones join it, 
 });
 
 test("a burst before the first computer turn (ADR 0112): one turn whose prompt has all of it, as conversation lines", async () => {
-  // The window is measured from the message's own time, and a run claimed after it ends skips it: it has to outlast
-  // the claim on a loaded runner, or the follow-ups come after a turn already over.
   f = await setup({ quietMs: 2000 });
   const fx = f;
   await computerAgent(fx);
@@ -216,20 +215,33 @@ test("a burst before the first computer turn (ADR 0112): one turn whose prompt h
     brains: { claude_code: () => brain },
     machines: { status: async (id) => statusOf(id) },
   });
-  await post(fx, "@dev oi");
-  const drained = drainOutbox(fx.db, handlers);
-  const start = Date.now();
-  for (;;) {
-    const status = (await fx.db.select().from(schema.agentRuns))[0]?.status;
-    if (status === "running") break;
-    if (status === "done") throw new Error("the run was claimed after its quiet window and answered alone");
-    if (Date.now() - start > 15000) throw new Error("the run never started");
-    await new Promise((r) => setTimeout(r, 5));
+  // Held just before its first turn until the follow-ups are in, however slow the machine.
+  let open = () => {};
+  const opened = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  let reached = () => {};
+  const there = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  const real = burst.waitWhileTyping;
+  const hold = spyOn(burst, "waitWhileTyping").mockImplementation(async (...args) => {
+    reached();
+    await opened;
+    return real(...args);
+  });
+  try {
+    await post(fx, "@dev oi");
+    const drained = drainOutbox(fx.db, handlers);
+    await there;
+    // No @ needed: the same person's follow-ups go to the agent still answering them (the floor).
+    await post(fx, "preciso de uma coisa");
+    await post(fx, "olha o relatório de ontem e me diz se bate com o quadro");
+    open();
+    await drained;
+  } finally {
+    hold.mockRestore();
   }
-  // No @ needed: the same person's follow-ups go to the agent still answering them (the floor).
-  await post(fx, "preciso de uma coisa");
-  await post(fx, "olha o relatório de ontem e me diz se bate com o quadro");
-  await drained;
   await drainOutbox(fx.db, handlers);
   expect(seen).toHaveLength(1);
   expect(seen[0]?.trigger).toContain("@dev oi");

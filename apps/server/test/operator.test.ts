@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { orgTopic } from "@agenteschat/adapters";
 import { testConfig } from "@agenteschat/config";
-import { desc, eq, schema, sql } from "@agenteschat/db";
+import { desc, eq, inArray, schema, sql } from "@agenteschat/db";
 import {
   countComposio,
   countToolCall,
@@ -105,6 +105,8 @@ test("401 without the right bearer token, on every path under the prefix", async
     ["/health", `Basic ${TOKEN}`],
     ["/health", TOKEN],
     ["/orgs", `${BEARER}x`],
+    ["/storage", null],
+    ["/storage", "Bearer wrong"],
     ["/openapi.json", null],
     ["/nope", null],
   ] as const) {
@@ -137,6 +139,7 @@ test("the read-only token: GET and HEAD outside /review; 403 for a write or a re
     `/orgs/${acme.orgId}`,
     `/users/${acme.ownerId}`,
     "/events",
+    "/storage",
     "/openapi.json",
   ]) {
     expect({ path, status: (await as(READ, path)).status }).toEqual({ path, status: 200 });
@@ -887,6 +890,73 @@ test("the workspace's computer's agents waiting for their way out: said, kept an
   expect((await waiting(machineId, { waiting: "yes" })).status).toBe(400);
 });
 
+test("the workspace's computer moving to another server: said, kept and taken back, only for it", async () => {
+  const { orgId } = acme;
+  const NONE = "0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b";
+  const issue = await createOperatorApp(deps, TOKEN).request(`/api/operator/v1/orgs/${orgId}/machines`, {
+    method: "POST",
+    headers: { authorization: BEARER, "content-type": "application/json" },
+    body: "{}",
+  });
+  const { machineId } = await body<{ machineId: string }>(issue);
+  const moving = (id: string, json: unknown, org = orgId) => put(`/orgs/${org}/machines/${id}/moving`, json);
+  const row = async () => (await t.db.select().from(schema.machines).where(eq(schema.machines.id, machineId)))[0];
+
+  expect(await body(await moving(machineId, { moving: true }))).toEqual({ moving: true });
+  expect((await row())?.movingAt).toBeInstanceOf(Date);
+  expect(await body(await moving(machineId, { moving: false }))).toEqual({ moving: false });
+  expect((await row())?.movingAt).toBeNull();
+  const listed = await body<{ machines: { id: string; name: string }[] }>(await op(`/orgs/${orgId}/machines`));
+  const mac = listed.machines.find((m) => m.name === "Mac");
+  for (const [id, org] of [
+    [mac?.id ?? NONE, orgId],
+    [NONE, orgId],
+    [machineId, NONE],
+  ] as const) {
+    expect((await moving(id, { moving: true }, org)).status).toBe(404);
+  }
+  expect((await moving(machineId, {})).status).toBe(400);
+});
+
+test("what is done to the workspace's computer: said with its time and step, keeps its start, ended", async () => {
+  const { orgId } = acme;
+  const issue = await createOperatorApp(deps, TOKEN).request(`/api/operator/v1/orgs/${orgId}/machines`, {
+    method: "POST",
+    headers: { authorization: BEARER, "content-type": "application/json" },
+    body: "{}",
+  });
+  const { machineId } = await body<{ machineId: string }>(issue);
+  const say = (json: unknown) => put(`/orgs/${orgId}/machines/${machineId}/maintenance`, json);
+  type Said = { maintenance: { kind: string; since: string; eta: string | null; detail: string | null } | null };
+  const eta = new Date(Date.now() + 40 * 60_000).toISOString();
+
+  const copying = await body<Said>(await say({ kind: "moving", eta, detail: "copying" }));
+  expect(copying.maintenance).toEqual({ kind: "moving", since: expect.any(String), eta, detail: "copying" });
+  const handover = await body<Said>(await say({ kind: "moving", detail: "handover" }));
+  expect(handover.maintenance).toEqual({ ...copying.maintenance, eta: null, detail: "handover" } as never);
+  // Another kind starts again.
+  const restart = await body<Said>(await say({ kind: "restarting", detail: "unresponsive" }));
+  expect(restart.maintenance?.kind).toBe("restarting");
+  expect(Date.parse(restart.maintenance?.since ?? "")).toBeGreaterThanOrEqual(
+    Date.parse(copying.maintenance?.since ?? ""),
+  );
+  expect(await body(await say({ kind: null }))).toEqual({ maintenance: null });
+  const [row] = await t.db.select().from(schema.machines).where(eq(schema.machines.id, machineId));
+  expect([row?.movingAt, row?.maintenance]).toEqual([null, null]);
+
+  for (const bad of [
+    {},
+    { kind: "sleeping" },
+    { kind: "restarting", detail: "sleep" },
+    { kind: "moving", eta: "soon" },
+  ]) {
+    expect({ bad, status: (await say(bad)).status }).toEqual({ bad, status: 400 });
+  }
+  expect(
+    (await put(`/orgs/${orgId}/machines/0b0b0b0b-0b0b-4b0b-8b0b-0b0b0b0b0b0b/maintenance`, { kind: null })).status,
+  ).toBe(404);
+});
+
 test("billing holds: put on, changed and lifted, never over a hold set through /standing", async () => {
   const [org] = await t.db.insert(schema.organizations).values({ name: "Billing Co" }).returning();
   if (!org) throw new Error("no org");
@@ -979,6 +1049,82 @@ test("limits: set them all, read back with what the workspace uses; any standing
   });
   expect(heard).toEqual([{ type: "org.limits", orgId }]);
   await body(await put(`/orgs/${orgId}/billing-hold`, { hold: null }));
+});
+
+test("the instance's stored bytes: zeros while no workspace keeps a file", async () => {
+  expect(await body(await op("/storage"))).toEqual({ storageBytes: 0, workspaces: 0, ownStorageWorkspaces: 0 });
+});
+
+test("the instance's stored bytes: the sum of the workspaces' meters, the trash and a workspace with its own bucket left out", async () => {
+  const { organizations, artifacts, artifactVersions, storageConfigs } = schema;
+  const made = await t.db
+    .insert(organizations)
+    .values(["Files A", "Files B", "Own bucket", "No files"].map((name) => ({ name })))
+    .returning({ id: organizations.id });
+  const ids = made.map((org) => org.id);
+  const [a = "", b = "", own = ""] = ids;
+  try {
+    const by = { type: "person", id: acme.ownerId };
+    /** A file of the Drive, one version of `size` bytes: on this server's storage unless written to `bucket`. */
+    const file = async (orgId: string, size: number, at: { trashed?: boolean; bucket?: string } = {}) => {
+      const [artifact] = await t.db
+        .insert(artifacts)
+        .values({
+          orgId,
+          kind: "file",
+          title: "report.pdf",
+          createdByType: by.type,
+          createdById: by.id,
+          updatedByType: by.type,
+          updatedById: by.id,
+          deletedAt: at.trashed ? new Date() : null,
+        })
+        .returning({ id: artifacts.id });
+      await t.db.insert(artifactVersions).values({
+        orgId,
+        artifactId: artifact?.id ?? "",
+        version: 1,
+        storageConfigId: at.bucket ?? null,
+        blobKey: `files/${artifact?.id}`,
+        contentType: "application/pdf",
+        size,
+        sha256: "",
+        authorType: by.type,
+        authorId: by.id,
+      });
+    };
+    await file(a, 3000);
+    await file(a, 5000);
+    await file(a, 7000, { trashed: true });
+    await file(b, 11_000);
+    // One file from before its bucket, still on this server, and one written to the bucket.
+    await file(own, 2000);
+    const [bucket] = await t.db
+      .insert(storageConfigs)
+      .values({ orgId: own, kind: "s3", options: {}, fingerprint: "test", status: "active" })
+      .returning({ id: storageConfigs.id });
+    await file(own, 6000, { bucket: bucket?.id });
+
+    const meters = await Promise.all(
+      ids.map(async (id) => {
+        const org = await body<{ meters: { storageBytes: number; ownStorage: boolean } }>(await op(`/orgs/${id}`));
+        return [org.meters.storageBytes, org.meters.ownStorage];
+      }),
+    );
+    expect(meters).toEqual([
+      [8000, false],
+      [11_000, false],
+      [2000, true],
+      [0, false],
+    ]);
+    expect(await body(await op("/storage"))).toEqual({
+      storageBytes: 8000 + 11_000,
+      workspaces: 2,
+      ownStorageWorkspaces: 1,
+    });
+  } finally {
+    await t.db.delete(organizations).where(inArray(organizations.id, ids));
+  }
 });
 
 test("outside collaborators (ADR 0191): asked for here, answered in the workspace, never counted, ended here", async () => {

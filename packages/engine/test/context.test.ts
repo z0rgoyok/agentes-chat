@@ -3,9 +3,14 @@ import { eq, schema } from "@agenteschat/db";
 import { systemText } from "@agenteschat/providers";
 import {
   type AgentRun,
+  agentSystemText,
   buildRunContext,
+  CODE_SESSION_LINE,
   CONTINUE_THE_CONVERSATION,
+  changedForSession,
+  conversationText,
   createAgent,
+  deviceRoster,
   forComputerBrain,
   type HandOff,
   handOffsBlock,
@@ -15,7 +20,11 @@ import {
   openAgentDm,
   PLAIN_WORDS_LINE,
   postPersonMessage,
+  SAY_NOW_LINE,
+  sessionPartsKey,
   toTurns,
+  WORK_IN_BACKGROUND_LINE,
+  zonesElsewhere,
 } from "../src";
 import { type Fixture, setup } from "./fixtures";
 
@@ -29,6 +38,24 @@ test("nowLine: the person's local time with its zone and how long since the prev
   );
   // A bad zone falls back to UTC; no person (an agent asked) and nothing before.
   expect(nowLine("Mars/Olympus", null, null, now)).toBe("# Now\nWed, Oct 21, 2026, 10:40 (UTC).");
+});
+
+test("nowLine: people here in other zones are named, with whose zone a date is in", () => {
+  const now = new Date("2026-03-18T01:15:00Z");
+  const members = [
+    { userId: "u1", userName: "Ana", userZone: "America/Sao_Paulo" },
+    { userId: "u2", userName: "Rui", userZone: "Europe/Lisbon" },
+    { userId: "u3", userName: "Kai", userZone: null },
+    { userId: null, userName: null, userZone: null },
+  ];
+  // Kai has no zone of their own: the workspace's, here the same as Ana's.
+  const elsewhere = zonesElsewhere(members, "America/Sao_Paulo", "America/Sao_Paulo", "u1");
+  expect(elsewhere).toEqual(["Rui (Europe/Lisbon)"]);
+  expect(nowLine("America/Sao_Paulo", "Ana", null, now, elsewhere)).toBe(
+    '# Now\nTue, Mar 17, 2026, 22:15 for Ana (America/Sao_Paulo).\nOthers here live in other zones: Rui (Europe/Lisbon). "Today" and any time you write are in America/Sao_Paulo: name the zone beside them.',
+  );
+  // Everyone in one zone: nothing more.
+  expect(zonesElsewhere(members.slice(0, 1), "America/Sao_Paulo", "UTC", "u1")).toEqual([]);
 });
 
 test("toTurns: own messages are assistant turns, others are prefixed user turns, merged and user-bounded", () => {
@@ -422,4 +449,94 @@ test("the person's app language is a line of the turn", async () => {
   expect(rules).toContain(
     "- Reply in the language of the person you work for (their messages, else their app language, else the organization's), approvals and questions too. Other agents, notices and tools never change it.",
   );
+});
+
+test("a computer brain's system text is the agent's: what a run gets by its tools and its asker is in its conversation", async () => {
+  const trigger = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+    body: "@dev oi",
+  });
+  const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, trigger.id));
+  if (!run) throw new Error("no run");
+  // Two runs of the agent: one a person reads as it goes, with the Calendar loaded; one another agent started.
+  const asked = await buildRunContext(f.db, run, f.agent, {
+    maxMessages: 10,
+    toolsAvailable: true,
+    sayNow: true,
+    codeSessions: true,
+    work: true,
+    capabilities: Promise.resolve("# What you can do\n- Calendar: `list_events`"),
+  });
+  const handed = await buildRunContext(f.db, run, f.agent, {
+    maxMessages: 10,
+    toolsAvailable: true,
+    capabilities: Promise.resolve("# What you can do\n- Issues: `list_issues`"),
+  });
+  // The CLI a computer started with the agent's last text is the one the next conversation's turn takes.
+  expect(agentSystemText(asked.system)).toBe(agentSystemText(handed.system));
+  expect(agentSystemText(asked.system)).toContain("# How you work");
+  const conversation = conversationText(asked.system);
+  for (const line of [SAY_NOW_LINE, CODE_SESSION_LINE, WORK_IN_BACKGROUND_LINE])
+    expect(agentSystemText(asked.system)).not.toContain(line);
+  expect(conversation).toContain(
+    `## How you work here\n${SAY_NOW_LINE}\n${CODE_SESSION_LINE}\n${WORK_IN_BACKGROUND_LINE}`,
+  );
+  expect(conversation).toContain("## What you can do\n- Calendar: `list_events`");
+  expect(conversationText(handed.system)).not.toContain("## How you work here");
+  // The model brain reads every block where it always was: the lines stay in "How you work".
+  expect(systemText(asked.system)).toContain(`\n${SAY_NOW_LINE}\n${CODE_SESSION_LINE}\n${WORK_IN_BACKGROUND_LINE}`);
+  // Nor does the session's key follow them: the same session goes on, and reads them again (`changedForSession`).
+  expect(asked.sessionPrompt).toEqual(handed.sessionPrompt);
+});
+
+test("a resumed session reads what it can do and how it works here again only when they changed", () => {
+  const how = (lines: string) => ({ text: `# How you work\n- Be brief.${lines}` });
+  const can = (tools: string) => ({ conversation: true, refresh: true, text: `# What you can do\n- ${tools}` });
+  const team = (who: string) => ({ conversation: true, text: `# Your team\n- ${who}` });
+  const lines = how(`\n${SAY_NOW_LINE}`);
+  const calendar = can("Calendar: `list_events`");
+  const before = [lines, calendar, team("@ops")];
+  const read = sessionPartsKey(before);
+
+  // Only the team differs (it follows the requester, read once per session as before): nothing again.
+  expect(changedForSession([lines, calendar, team("@qa")], read)).toBe("");
+  // Another tool here: both parts again, under the turn, replacing what the session read.
+  const more = changedForSession([lines, can("Calendar: `list_events`, `create_event`"), team("@ops")], read);
+  expect(more).toContain("# This conversation, now");
+  expect(more).toContain(`### How you work here\n${SAY_NOW_LINE}`);
+  expect(more).toContain("### What you can do\n- Calendar: `list_events`, `create_event`");
+  expect(more).not.toContain("@ops");
+  // A line gone: said so, or the session would go on with it.
+  expect(changedForSession([how(""), calendar, team("@ops")], read)).toContain(
+    "### How you work here\nNo lines of its own now",
+  );
+  // Nothing kept from the run before: everything again.
+  expect(changedForSession(before, null)).toContain("### What you can do");
+  // The blocks the session read: only their lines that changed, and a block gone is said gone.
+  const wiki = { conversation: true, refresh: true, text: "# Writing to the wiki\n- Only when asked." };
+  const diff = changedForSession(
+    [lines, can("Calendar: `list_events`, `create_event`"), team("@ops")],
+    sessionPartsKey([...before, wiki]),
+    [calendar.text, wiki.text],
+  );
+  expect(diff).toContain(
+    "### What you can do (changed lines)\nNew or changed:\n- Calendar: `list_events`, `create_event`\nNo longer holds:\n- Calendar: `list_events`",
+  );
+  expect(diff).toContain("### Writing to the wiki\nNo longer holds here.");
+  expect(diff).not.toContain("Only when asked");
+});
+
+test("the devices in an agent's system text keep their order when a computer's row changes", async () => {
+  const at = (s: number) => new Date(Date.UTC(2026, 10, 1, 0, 0, s));
+  // Rows land where there is room, not in the order they were made.
+  const [laptop] = await f.db
+    .insert(schema.machines)
+    .values({ orgId: f.org.id, name: "Laptop", createdAt: at(2) })
+    .returning();
+  await f.db.insert(schema.machines).values({ orgId: f.org.id, name: "Studio", createdAt: at(1) });
+  if (!laptop) throw new Error("no machine");
+  const names = async () => (await deviceRoster(f.db, f.org.id)).computers.map((c) => c.name);
+  expect(await names()).toEqual(["Studio", "Laptop"]);
+  // A computer's row is written all the time (it was seen, it slept): the list reads the same after.
+  await f.db.update(schema.machines).set({ updatedAt: new Date() }).where(eq(schema.machines.id, laptop.id));
+  expect(await names()).toEqual(["Studio", "Laptop"]);
 });

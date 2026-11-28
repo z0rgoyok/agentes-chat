@@ -3,8 +3,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ConnectingPage } from "@/pages/ConnectingPage";
 
 /**
- * `/conectando?kind=claude_code`: what a sign-in's popup shows from the click until the computer gives the provider's
- * address (`lib/popup.ts`). No session needed: it reads nothing.
+ * `/conectando?kind=claude_code`: what a sign-in's tab shows from the click until the computer gives the provider's
+ * address (`lib/sign-in-tab.ts`). No session needed: it reads nothing.
  */
 export const Route = createFileRoute("/conectando")({
   validateSearch: (search: Record<string, unknown>): { kind?: (typeof ACCOUNT_KINDS)[number] } => {

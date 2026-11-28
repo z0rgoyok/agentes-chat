@@ -53,7 +53,14 @@ import {
  * - Mid-stream failures carry what was received (`ProviderError.partial`).
  */
 export function createOpenAIProvider(
-  options: { baseURL?: string; maxRetries?: number /** Tests only: scripted transport. */; fetch?: typeof fetch } = {},
+  options: {
+    baseURL?: string;
+    maxRetries?: number;
+    /** Ask reasoning models for their reasoning summaries (`reasoning.summary: "auto"`), sent to `onNote`. Default on. */
+    progressNotes?: boolean;
+    /** Tests only: scripted transport. */
+    fetch?: typeof fetch;
+  } = {},
 ): ModelProvider {
   const client = (apiKey: string, organization?: string, project?: string) =>
     new OpenAI({
@@ -67,7 +74,7 @@ export function createOpenAIProvider(
 
   return {
     id: "openai",
-    async stream(input, { apiKey, organization, project, onDelta }): Promise<ModelResult> {
+    async stream(input, { apiKey, organization, project, onDelta, onNote }): Promise<ModelResult> {
       const request = laidOut(input);
       const partial: PartialUsage = {
         inputTokens: null,
@@ -78,7 +85,7 @@ export function createOpenAIProvider(
       };
       const info = MODEL_CATALOG[request.model];
       const effort = request.effort === "none" && info?.leastThinking !== "off" ? "low" : effortWithin(request.effort);
-      try {
+      const call = async (summary: boolean) => {
         const stream = client(apiKey, organization, project).responses.stream(
           {
             model: request.model,
@@ -100,7 +107,9 @@ export function createOpenAIProvider(
                   },
                 }
               : {}),
-            ...(info?.reasoning && effort ? { reasoning: { effort } } : {}),
+            ...(info?.reasoning && effort
+              ? { reasoning: { effort, ...(summary ? { summary: "auto" as const } : {}) } }
+              : {}),
           },
           { signal: request.signal },
         );
@@ -110,6 +119,8 @@ export function createOpenAIProvider(
             onDelta(event.delta);
           } else if (event.type === "response.function_call_arguments.delta") {
             partial.outputChars += event.delta.length;
+          } else if (event.type === "response.reasoning_summary_text.done" && event.text.trim()) {
+            onNote?.(event.text.trim());
           }
         });
         const response = await stream.finalResponse();
@@ -118,6 +129,17 @@ export function createOpenAIProvider(
           throw new OpenAI.APIError(undefined, response.error ?? undefined, response.error?.message, undefined);
         }
         return fromResponse(response as unknown as Response);
+      };
+      // A model reasoning not at all (`none`) has nothing to summarize.
+      const summary = options.progressNotes !== false && Boolean(info?.reasoning && effort) && effort !== "none";
+      try {
+        try {
+          return await call(summary);
+        } catch (error) {
+          // An organization OpenAI hasn't verified is refused reasoning summaries: the same call goes without them.
+          if (!summary || !refusesSummary(error) || partial.outputChars > 0) throw error;
+          return await call(false);
+        }
       } catch (error) {
         const mapped = openAIError(error);
         if (partial.outputChars > 0) mapped.partial = partial;
@@ -128,6 +150,10 @@ export function createOpenAIProvider(
       openAIImages(client(apiKey, organization, project), request),
   };
 }
+
+/** A 400 about reasoning summaries (an organization not verified for them): worth the call without them. */
+const refusesSummary = (error: unknown) =>
+  error instanceof OpenAI.BadRequestError && /summar|verif/i.test(error.message);
 
 /** A picture GPT Image refused to make: its moderation, in the API's codes or words. */
 const IMAGE_REFUSED =

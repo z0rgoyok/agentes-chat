@@ -436,16 +436,64 @@ describe("the model picker: the agent's AI changed in place", () => {
       ["opencode", true],
       ["api:anthropic", false],
     ]);
-    // Someone else's account isn't the owner's to pick; the computer's own sign-in is. The most room first.
-    expect(tiles[0]?.accounts.map((a) => a.id)).toEqual([null, "acc-claude"]);
-    // A CLI there (Gemini's, coming with its first sign-in) with no sign-in of the computer's own: no tile to pick
-    // a model that couldn't run.
-    const gemini = { kind: "antigravity" as const, available: true, models: [], defaultModel: null };
-    expect(
-      modelPickerTiles(t, { ...view, options: [claudeCode, gemini] }, "u1", api, "auto", MODELS, row).map((x) => x.key),
-    ).not.toContain("gemini");
+    // Someone else's account isn't the owner's to pick; active connected accounts beat an unmeasured computer sign-in.
+    expect(tiles[0]?.accounts.map((a) => a.id)).toEqual(["acc-claude", null]);
     // Before the computer's row is in, no own sign-in either: only accounts.
     expect(modelPickerTiles(t, view, "u1", api, "auto", MODELS)[0]?.accounts.map((a) => a.id)).toEqual(["acc-claude"]);
+    // When the computer's own sign-in has measured usage with more room, it still ranks first.
+    const measuredOwn = {
+      ...view,
+      ownUsage: {
+        claude_code: { windows: [{ kind: "five_hour" as const, usedPercent: 0 }], source: "probe" as const, at },
+      },
+    };
+    expect(modelPickerTiles(t, measuredOwn, "u1", api, "auto", MODELS, row)[0]?.accounts.map((a) => a.id)).toEqual([
+      null,
+      "acc-claude",
+    ]);
+    // Account-only brains (Antigravity / Gemini, Grok) never offer the computer's own sign-in (`id: null`),
+    // even if a computer row reports them in `own` or the agent currently holds `account: null`.
+    const geminiOpt: BrainOption = {
+      kind: "antigravity",
+      available: true,
+      models: [{ value: "gemini-4-neon-high", label: "Gemini 4 Neon (High)" }],
+      defaultModel: null,
+    };
+    const grokOpt: BrainOption = {
+      kind: "grok",
+      available: true,
+      models: [{ value: "grok-4.7", label: "Grok 4.7" }],
+      defaultModel: null,
+    };
+    const geminiAcc = {
+      ...otherClaude,
+      id: "acc-gemini",
+      kind: "antigravity" as const,
+      label: "Gemini",
+      usage: { windows: [{ kind: "five_hour" as const, usedPercent: 15 }], source: "probe" as const, at },
+    };
+    const allOwnRow = { own: { claude_code: {}, antigravity: {}, grok: {} } };
+    const geminiTiles = modelPickerTiles(
+      t,
+      { ...view, options: [claudeCode, geminiOpt, grokOpt], accounts: [go, otherClaude, geminiAcc] },
+      "u1",
+      api,
+      "auto",
+      MODELS,
+      allOwnRow,
+    );
+    expect(geminiTiles.find((x) => x.key === "gemini")?.accounts.map((a) => a.id)).toEqual(["acc-gemini"]);
+    expect(geminiTiles.find((x) => x.key === "grok")).toBeUndefined();
+    const brokenGemini = modelPickerTiles(
+      t,
+      { ...view, brain: "antigravity", account: null, options: [geminiOpt], accounts: [geminiAcc] },
+      "u1",
+      api,
+      "auto",
+      MODELS,
+      allOwnRow,
+    );
+    expect(brokenGemini.find((x) => x.key === "gemini")?.accounts.map((a) => a.id)).toEqual(["acc-gemini"]);
     // Without a computer brain that runs, no plan tile.
     expect(
       modelPickerTiles(
@@ -471,9 +519,19 @@ describe("the model picker: the agent's AI changed in place", () => {
     // Another tile: nothing checked there.
     const claudeTile = tiles.find((x) => x.key === "claude");
     if (!claudeTile) throw new Error("no Claude tile");
-    const claude = modelPickerModels(t, "pt-BR", view, claudeTile, claudeTile.accounts[1], api, "auto");
+    const claude = modelPickerModels(t, "pt-BR", view, claudeTile, claudeTile.accounts[0], api, "auto");
     expect(claude.map((r) => r.label)).toEqual(["brain.auto.label", "Opus", "Sonnet", "Haiku"]);
     expect(claude.some((r) => r.checked)).toBe(false);
+    // Claude Fable stays checked as Fable (never downgraded to Sonnet).
+    const withFable: BrainOption = {
+      ...claudeCode,
+      models: [{ value: "fable", label: "Fable 5.2" }, ...claudeCode.models],
+    };
+    const fableView = { ...view, options: [withFable], account: "acc-claude", model: "fable", effectiveModel: "fable" };
+    const fableTile = modelPickerTiles(t, fableView, "u1", api, "auto", MODELS).find((x) => x.key === "claude");
+    if (!fableTile) throw new Error("no Fable Claude tile");
+    const fableRows = modelPickerModels(t, "pt-BR", fableView, fableTile, fableTile.accounts[0], api, "auto");
+    expect(fableRows.find((r) => r.checked)?.value).toBe("fable");
     const keys = tiles.find((x) => x.key === "api:anthropic");
     if (!keys) throw new Error("no key tile");
     expect(modelPickerModels(t, "pt-BR", view, keys, undefined, api, "auto").map((r) => r.value)).toEqual([
@@ -492,10 +550,10 @@ describe("the model picker: the agent's AI changed in place", () => {
     expect(modelPickerSave(view, goTile, goTile.accounts[0], "auto")).toEqual({
       brain: { brain: "claude_code", model: "auto", effort: "auto" },
     });
-    expect(modelPickerSave(view, claudeTile, claudeTile.accounts[1], "opus")).toEqual({
+    expect(modelPickerSave(view, claudeTile, claudeTile.accounts[0], "opus")).toEqual({
       brain: { brain: "claude_code", account: "acc-claude", model: "opus" },
     });
-    expect(modelPickerSave(view, claudeTile, claudeTile.accounts[0], "auto")).toEqual({
+    expect(modelPickerSave(view, claudeTile, claudeTile.accounts[1], "auto")).toEqual({
       brain: { brain: "claude_code", account: null, model: "auto", effort: "auto" },
     });
     expect(modelPickerSave(view, keys, undefined, "claude-sonnet-5-5")).toEqual({

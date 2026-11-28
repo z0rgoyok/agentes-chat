@@ -255,7 +255,8 @@ html:not([data-pointer]) .brw-site button:focus-visible {
   gap: 10px;
   padding: 10px 16px;
   border-radius: 14px;
-  background: var(--glass);
+  /* Opaque: the sky's pixels and the picture under the cover never show through its words. */
+  background: var(--raised);
   box-shadow: var(--e2);
   font-weight: 600;
   font-size: 14px;
@@ -1438,7 +1439,7 @@ html:not([data-pointer]) .brw-trail__ext:focus-visible {
 /* Full screen (the browser's own, or the card filling the window): the page takes all the room left. */
 .brw-ac.is-full {
   position: fixed;
-  inset: 0;
+  inset: var(--window-top) 0 0;
   z-index: var(--z-dialog);
   display: flex;
   flex-direction: column;

@@ -7,6 +7,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statfsSync,
   statSync,
   writeFileSync,
 } from "node:fs";
@@ -21,6 +22,8 @@ import { agentId8 } from "./paths";
 import {
   AGENT_DISK_TMP_ROOT,
   AGENT_RAM_ROOT,
+  AGENT_TMP_POOL,
+  AGENT_TMP_POOL_SHARE,
   AGENT_TMP_ROOT,
   agentCategorySlice,
   agentSlice,
@@ -68,31 +71,57 @@ export interface Launcher {
 const TMPFS = 'mount -t tmpfs -o mode=0700,size=50%,nr_inodes=1m agentes-runner-tmp "$1"';
 
 /**
- * Root, under the lock, at an agent's first launch after a boot with its /tmp on disk (`$1` its tmpfs, `$2`
- * `AGENT_DISK_TMP_ROOT`, `$3` its uid). The agents' /tmp is a filesystem of their own, `fs` there, made anew at the
- * boot's first such launch from a sparse `image` of half what the disk has free: agents can't take the system's
- * inodes or more than half its room, and each boot starts empty. A new file, never the old one rewritten: an agent
- * still bound into an earlier one keeps it. No journal, since nothing in it outlives the boot.
+ * Root, under the lock, at an agent's first launch after a boot (`$1` its tmpfs, `$2` its uid, `$3` `AGENT_TMP_POOL`,
+ * with `tmpOnDisk` `$4` `AGENT_DISK_TMP_ROOT`): its tmpfs, for its /dev/shm, /run/lock and runtime dir, and its /tmp
+ * bound into it from its folder in one filesystem all agents' /tmp share. On disk (`tmpOnDisk`), that is `fs` there,
+ * made anew at the boot's first such launch from a sparse `image` of half what the disk has free: agents can't take the
+ * system's inodes or more than half its room, and each boot starts empty. A new file, never the old one rewritten: an
+ * agent still bound into an earlier one keeps it. No journal, since nothing in it outlives the boot. Where it can't be
+ * made (no loop devices, no mkfs.ext4), or in memory, it is the pool: one tmpfs of `AGENT_TMP_POOL_SHARE`% of the RAM
+ * for all agents, so what they leave in /tmp fills that and fails there, never the computer's memory.
  */
-const DISK_TMP = [
-  'mountpoint -q "$1" && exit',
-  'mkdir -p "$2/fs"',
-  'chmod 0700 "$2"',
-  'mountpoint -q "$2/fs" || { rm -f "$2/image"; truncate -s $(($(findmnt -bno AVAIL -T "$2") / 2)) "$2/image"; /usr/sbin/mkfs.ext4 -q -F -m 0 -i 4096 -O ^has_journal "$2/image"; mount -o loop,discard,nosuid,nodev "$2/image" "$2/fs"; }',
-  'mkdir -p "$2/fs/$3"',
-  TMPFS,
-  'mkdir "$1/tmp"',
-  'mount --bind "$2/fs/$3" "$1/tmp"',
-].join("; ");
+const tmpStep = (tmpOnDisk: boolean) =>
+  [
+    'mountpoint -q "$1" && exit',
+    't="$3"',
+    ...(tmpOnDisk
+      ? [
+          'if { mkdir -p "$4/fs" && chmod 0700 "$4" && { mountpoint -q "$4/fs" || { rm -f "$4/image" && truncate -s $(($(findmnt -bno AVAIL -T "$4") / 2)) "$4/image" && /usr/sbin/mkfs.ext4 -q -F -m 0 -i 4096 -O ^has_journal "$4/image" && mount -o loop,discard,nosuid,nodev "$4/image" "$4/fs"; }; }; } 2>/dev/null; then t="$4/fs"; fi',
+        ]
+      : []),
+    `[ "$t" != "$3" ] || mountpoint -q "$3" || { mkdir -p "$3"; mount -t tmpfs -o mode=0700,size=${AGENT_TMP_POOL_SHARE}%,nr_inodes=1m agentes-runner-tmp "$3"; }`,
+    'mkdir -p "$t/$2"',
+    TMPFS,
+    'mkdir "$1/tmp"',
+    'mount --bind "$t/$2" "$1/tmp"',
+  ].join("; ");
 
 /**
- * Runs as root on the computer, before the agent's own mount namespace (`$1` its uid): the agent's tmpfs, so its
- * /tmp, /dev/shm and /run/lock are in memory as the computer's are, each with its own room, or (`tmpOnDisk`) its /tmp
- * on the system disk, bound into that tmpfs (`DISK_TMP`). Made at its first launch after the computer starts, under a
- * lock (two first launches at once would stack two mounts), and kept until the next boot: whatever a later launch
- * says, all of the agent's processes see one /tmp.
+ * Runs as root on the computer, before the agent's own mount namespace (`$1` its uid): its tmpfs and /tmp
+ * (`tmpStep`). Made at its first launch after the computer starts, under a lock (two first launches at once would
+ * stack two mounts), and kept until the next boot: whatever a later launch says, all of the agent's processes see one
+ * /tmp.
  */
 const agentRam = (tmpOnDisk: boolean) =>
+  [
+    "set -e",
+    `r=${AGENT_RAM_ROOT}`,
+    'mkdir -p "$r"',
+    'chmod 0700 "$r"',
+    'd="$r/$1"',
+    'u="$1"',
+    "shift",
+    'mkdir -p "$d"',
+    `flock "$r/.lock" sh -ec '${tmpStep(tmpOnDisk)}' sh "$d" "$u" ${AGENT_TMP_POOL}${tmpOnDisk ? ` ${AGENT_DISK_TMP_ROOT}` : ""}`,
+    'exec "$@"',
+  ].join("\n");
+
+/**
+ * `agentRam` as it was before the pool (ADR 0185), which names the step in the containers service's hash
+ * (`ensureContainers`): the step acts only at the agent's first launch after a boot, so a running service has nothing
+ * to restart for when it changes, and restarting would stop its containers.
+ */
+const hashedRamStep = (tmpOnDisk: boolean) =>
   [
     "set -e",
     `r=${AGENT_RAM_ROOT}`,
@@ -103,10 +132,65 @@ const agentRam = (tmpOnDisk: boolean) =>
     "shift",
     'mkdir -p "$d"',
     tmpOnDisk
-      ? `flock "$r/.lock" sh -ec '${DISK_TMP}' sh "$d" ${AGENT_DISK_TMP_ROOT} "$u"`
+      ? `flock "$r/.lock" sh -ec '${[
+          'mountpoint -q "$1" && exit',
+          'mkdir -p "$2/fs"',
+          'chmod 0700 "$2"',
+          'mountpoint -q "$2/fs" || { rm -f "$2/image"; truncate -s $(($(findmnt -bno AVAIL -T "$2") / 2)) "$2/image"; /usr/sbin/mkfs.ext4 -q -F -m 0 -i 4096 -O ^has_journal "$2/image"; mount -o loop,discard,nosuid,nodev "$2/image" "$2/fs"; }',
+          'mkdir -p "$2/fs/$3"',
+          TMPFS,
+          'mkdir "$1/tmp"',
+          'mount --bind "$2/fs/$3" "$1/tmp"',
+        ].join("; ")}' sh "$d" ${AGENT_DISK_TMP_ROOT} "$u"`
       : `flock "$r/.lock" sh -c 'mountpoint -q "$1" || ${TMPFS}' sh "$d"`,
     'exec "$@"',
   ].join("\n");
+
+/**
+ * What the agents' temporary folders hold in memory (bytes): the pool and each agent's own tmpfs (its /tmp too, for
+ * one mounted before the pool), each filesystem once. A folder that isn't a mount point is its parent's filesystem,
+ * never counted. 0 where there are none.
+ */
+export function agentTmpMemoryBytes(
+  root = AGENT_RAM_ROOT,
+  pool = AGENT_TMP_POOL,
+  fs: {
+    stat: (p: string) => { dev: number };
+    statfs: (p: string) => { blocks: number; bfree: number; bsize: number };
+  } = {
+    stat: statSync,
+    statfs: statfsSync,
+  },
+): number {
+  let names: string[] = [];
+  try {
+    names = readdirSync(root).filter((n) => /^\d+$/.test(n));
+  } catch {
+    // no agent launched since the boot
+  }
+  const seen = new Set<number>();
+  let total = 0;
+  for (const dir of [pool, ...names.map((n) => path.join(root, n))]) {
+    try {
+      const { dev } = fs.stat(dir);
+      if (dev === fs.stat(path.dirname(dir)).dev || seen.has(dev)) continue;
+      seen.add(dev);
+      const s = fs.statfs(dir);
+      total += (s.blocks - s.bfree) * s.bsize;
+    } catch {
+      // gone meanwhile
+    }
+  }
+  return total;
+}
+
+/**
+ * systemd-tmpfiles' lines (`--clean`) for agents with nothing running (ADR 0243): what their work left in /tmp and
+ * /dev/shm and nobody touched for 6 hours goes, long before the 10 days of `AGENT_TMP_CLEANUP`, which an agent at work
+ * keeps. tmpfiles never follows a link an agent put there, nor removes a socket in use.
+ */
+export const idleTmpLines = (uids: readonly number[]) =>
+  uids.flatMap((uid) => ["tmp", "shm"].map((f) => `e ${AGENT_RAM_ROOT}/${uid}/${f} - - - 6h\n`)).join("");
 
 /**
  * Runs as root in the agent's new mount namespace, before it becomes the agent (`$1` its uid): its own temporary
@@ -135,7 +219,19 @@ const PRIVATE_TMP_STEPS = [
   "mkdir -m 1777 /tmp/.X11-unix 2>/dev/null || :",
   "mkdir -m 1777 /tmp/.ICE-unix 2>/dev/null || :",
 ];
-const PRIVATE_TMP = [...PRIVATE_TMP_STEPS, 'exec "$@"'].join("\n");
+
+/**
+ * Root, last in a launch's view: every mount under the agents' root-only temp roots taken out of its namespace, the
+ * agent's own /tmp included, which stays bound at /tmp alone. Codex's sandbox masks its daemon folder in /tmp at every
+ * place mountinfo shows the same filesystem folder, and bwrap, as the agent, can't make a mask under a root-only
+ * folder ("Can't mkdir parents for /run/agentes-runner-tmp/<uid>/tmp/codex-daemon-<uid>"). The binds made from them
+ * (/tmp, /dev/shm, the runtime dir) keep their filesystems.
+ */
+export const HIDE_TMP_SOURCES = [
+  "for p in $(cut -d ' ' -f 5 /proc/self/mountinfo); do",
+  `  case $p in ${AGENT_RAM_ROOT}/*|${AGENT_TMP_POOL}|${AGENT_DISK_TMP_ROOT}/*) umount -l "$p" 2>/dev/null || : ;; esac`,
+  "done",
+];
 
 /**
  * Rootless containers for the agents (ADR 0169): Podman, and the set-user-ID helpers that map an agent's own ids
@@ -311,7 +407,8 @@ const GRADLE_OPTS = "-Dorg.gradle.daemon.idletimeout=300000";
 
 const USER_NAME = /^ag-[a-z0-9]{8}$/;
 const AGENT_SHELL = "/bin/bash";
-const AGENT_PATH = "/usr/local/bin:/usr/bin:/bin";
+/** The PATH every agent shares (its own `~/.local/bin` comes after it), and the sign-ins' users' whole PATH. */
+export const AGENT_PATH = "/usr/local/bin:/usr/bin:/bin";
 
 export const agentUserName = (agentId: string) => `ag-${agentId8(agentId)}`;
 export const agentHome = (user: string) => `/home/${user}`;
@@ -589,7 +686,7 @@ export function ensureSubids(user: Pick<AgentUser, "user" | "uid">, etc = "/etc"
 /**
  * Runs a command as the agent's user inside its slice (whose limits then
  * hold), with its own temporary folders (`agentRam`, its /tmp on disk with
- * `tmpOnDisk`, and `PRIVATE_TMP`), or with `asAgent` alone where systemd isn't
+ * `tmpOnDisk`, `PRIVATE_TMP_STEPS` and `HIDE_TMP_SOURCES`), or with `asAgent` alone where systemd isn't
  * PID 1 (a container). Absolute paths: root never looks these up on a PATH.
  * `--collect`: a scope the OOM killer ended doesn't stay behind as a failed
  * unit. `OOMPolicy=continue` (`oomPolicy`): a process the kernel stops for
@@ -638,7 +735,7 @@ export function systemLauncher(
       "--",
       "/bin/sh",
       "-c",
-      agentView(u, containers ? RUNTIME_DIR : []),
+      agentView(u, containers ? RUNTIME_DIR : [], true),
       "sh",
       String(u.uid),
       ...command,
@@ -669,9 +766,12 @@ function agentEnv(u: AgentUser, containers: boolean): Record<string, string> {
   };
 }
 
-/** Root's steps in the agent's new mount namespace (`PRIVATE_TMP`, with `more` before it becomes the agent). */
-function agentView(u: AgentUser, more: string[]) {
-  const view = more.length > 0 ? [...PRIVATE_TMP_STEPS, ...more, 'exec "$@"'].join("\n") : PRIVATE_TMP;
+/**
+ * Root's steps in the agent's new mount namespace (`PRIVATE_TMP_STEPS`, then `more` before it becomes the agent, then
+ * `HIDE_TMP_SOURCES` with `hide`).
+ */
+function agentView(u: AgentUser, more: string[], hide = false) {
+  const view = [...PRIVATE_TMP_STEPS, ...more, ...(hide ? HIDE_TMP_SOURCES : []), 'exec "$@"'].join("\n");
   // A configured isolation policy gets a fresh private proc instance, never a host remount.
   return u.networkLauncher || u.networkMark || u.networkRevision
     ? `set -e\n/usr/bin/mount -t proc -o nosuid,nodev,noexec,hidepid=2 proc /proc\n${view}`
@@ -692,20 +792,23 @@ function agentView(u: AgentUser, more: string[]) {
  * only itself. A service's command line is its ExecStart=, unlike a scope's: systemd expands `$` in it, and writes it
  * to the unit's file under /run/systemd/transient with every `$` doubled, which is what runs after any daemon-reload.
  * So `--expand-environment=no` (`literal`, systemd 254 and later), which keeps it as it is in both; before 254 there is
- * no such switch, and every `$` goes doubled, which it reads as one.
+ * no such switch, and every `$` goes doubled, which it reads as one. Its view keeps the temp roots' mounts
+ * (`HIDE_TMP_SOURCES` is the launches'): `CGROUP_BACK` binds the kept cgroup2 from there after the hook, and a new
+ * command would restart every agent's containers.
  */
 export function containersCommand(
   u: AgentUser,
   literal = installedSystemd() >= 254,
   tmpOnDisk = agentTmpOnDisk(),
   docker = rootlessDocker(),
+  ramStep = agentRam,
 ): string[] {
   const env = Object.entries(agentEnv(u, true)).map(([name, value]) => `${name}=${value}`);
   const hook = networkPrefix(u);
   const command = [
     "/bin/sh",
     "-c",
-    agentRam(tmpOnDisk),
+    ramStep(tmpOnDisk),
     "sh",
     String(u.uid),
     "/usr/bin/unshare",
@@ -757,14 +860,17 @@ export function containersCommand(
 /**
  * The agent's containers service running as `containersCommand` says now: started when it isn't, and started again
  * when what it would run changed (its network hook above all: a namespace's containers live where the agent's other
- * processes do), which stops its containers. Its description carries that command's hash. One its start limit stopped
+ * processes do), which stops its containers. Its description carries that command's hash, its first step as
+ * `hashedRamStep` names it. One its start limit stopped
  * stays down for that same command, which would fail the same way: started again once the command changes, the
  * computer restarts, or someone runs `systemctl reset-failed` on it. Returns why it doesn't run, or null.
  */
 export function ensureContainers(u: AgentUser, run: RunCommand = runSync): string | null {
-  const [file = "", ...args] = containersCommand(u);
+  const tmpOnDisk = agentTmpOnDisk();
+  const [file = "", ...args] = containersCommand(u, undefined, tmpOnDisk);
+  const named = containersCommand(u, undefined, tmpOnDisk, undefined, hashedRamStep);
   const description = `agentes.chat containers ${createHash("sha256")
-    .update([file, ...args].join("\0"))
+    .update(named.join("\0"))
     .digest("hex")
     .slice(0, 16)}`;
   const unit = containersUnit(u.uid);
@@ -898,7 +1004,7 @@ export function ensureGitCacheUser(run: RunCommand = runSync): { uid: number; gi
  * computer's egress rules can route them (and nothing else of root) like the agents' traffic. Nobody is a member.
  */
 export const AUTH_EGRESS_GROUP = "agentes-auth";
-const SETPRIV = "/usr/bin/setpriv";
+export const SETPRIV = "/usr/bin/setpriv";
 
 /**
  * Becomes the agent's user: its own group and its groups. Never `runuser` or `su`, whose PAM session may load
@@ -984,7 +1090,7 @@ export const underMaskedRoot = (p: string) => ACCOUNT_MASKED_ROOTS.some((root) =
 
 /**
  * Runs as root in the CLI's new mount namespace (`$1` the sign-in, `$2` its room under `run/`, `$3` the path the CLI
- * should see as its cwd, empty for its room). The temporary folders are new and in memory: unlike `PRIVATE_TMP`'s,
+ * should see as its cwd, empty for its room). The temporary folders are new and in memory: unlike a launch's,
  * nothing an agent wrote is in them. The masks hide every agent's data; the sign-in's own folders come back through a
  * bind taken before its parent is masked. The cwd is a new path in a mask, so no link an agent planted is followed,
  * with this room's empty folder bound on it: nothing an agent can write lies above or below the CLI.

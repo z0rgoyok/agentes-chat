@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import type { ControlBrowser, ControlJob, ControlStatus } from "@agenteschat/adapters/runner-control";
 import {
+  APP_BUSY_MS,
+  appUsesOf,
   browserBadgeOf,
   browserRowState,
   browsersOf,
@@ -88,5 +90,19 @@ describe("notifications", () => {
     expect(fresh.map((r) => r.agentId)).toEqual(["a1"]);
     const after = helpRequestKeys([status([asking])]);
     expect(newHelpRequests(after, [status([asking])])).toEqual([]);
+  });
+});
+
+describe("an agent using the person's apps (ADR 0258)", () => {
+  const now = Date.parse("2026-11-26T12:00:00Z");
+  const use = (ago: number) => ({ agentId: "a1", app: "Mail", actedAt: new Date(now - ago).toISOString() });
+  test("a row while it acts, gone once it stopped a while ago", () => {
+    expect(appUsesOf(status([], { apps: [use(1000)] }), now)).toEqual([use(1000)]);
+    expect(appUsesOf(status([], { apps: [use(APP_BUSY_MS)] }), now)).toEqual([]);
+    expect(appUsesOf(status([]), now)).toEqual([]);
+  });
+  test("the menu bar icon wears the ring meanwhile", () => {
+    expect(browserBadgeOf([status([], { apps: [use(1000)] })], now)).toBe("browsing");
+    expect(browserBadgeOf([status([], { apps: [use(APP_BUSY_MS)] })], now)).toBeNull();
   });
 });

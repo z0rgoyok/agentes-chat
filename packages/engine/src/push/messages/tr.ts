@@ -65,6 +65,8 @@ export const strings: Partial<PushStrings> = {
   deviceJoinRequestBody: "Katılmasına izin vermek ya da reddetmek için dokunun.",
   waitingTitle: "Sizi bekleyen bir şey var",
   openBody: "Açmak için dokunun.",
+  cutBody: "Bitirmeden durdu. Devam etmek için yeniden sorun.",
+  movedBody: "Bu biraz sürecek, o yüzden arka planda devam ediyorum.",
   sentGif: "Bir GIF gönderdi",
   sentSticker: "Bir çıkartma gönderdi",
   sentVoice: "Bir sesli mesaj gönderdi",
@@ -91,11 +93,13 @@ export const strings: Partial<PushStrings> = {
     f ? `${a}, ${d} cihazınızda ${f} istiyor` : `${a}, ${d} cihazınızda bir klasör istiyor`,
   deviceFolderBody: "O bilgisayardaki uygulamadan izin verin.",
   adminAskTitle: (a, what, l) =>
-    what === "channel_agent"
-      ? `${a}, #${l} kanalına bir ajan eklemenizi istiyor`
-      : what === "create_agents"
-        ? `${a}, ajan oluşturabilmek istiyor`
-        : `${a}, rutinler için ${l} webhook'unu kurmanızı istiyor`,
+    what === "voice"
+      ? `${a}, sesli mesajları açmanızı istiyor`
+      : what === "channel_agent"
+        ? `${a}, #${l} kanalına bir ajan eklemenizi istiyor`
+        : what === "create_agents"
+          ? `${a}, ajan oluşturabilmek istiyor`
+          : `${a}, rutinler için ${l} webhook'unu kurmanızı istiyor`,
   deviceWaitingTitle: (p, d) => `${p} için çalışan ajan ${d} cihazınızı bekliyor`,
   deviceWaitingBody: "Cihaz geri geldiğinde başlar.",
   teamWeekReady: "Ekibinin haftası hazır",

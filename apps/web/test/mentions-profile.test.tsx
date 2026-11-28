@@ -105,7 +105,9 @@ describe("@mention autocomplete", () => {
       GENERAL_ID,
       { agentId: ATLAS_ID },
     ]);
-    expect(screen().getByText("Atlas entrou no canal.")).toBeTruthy();
+    // No toast: the conversation's own line says who joined, for everyone.
+    expect(screen().queryByText("Atlas entrou no canal.")).toBeNull();
+    expect(screen().queryByText("Atlas não está no canal e não vai ver a menção.")).toBeNull();
   });
 
   test("in a DM the list has no channel note or sections, and picking an agent outside it offers nothing to add", async () => {

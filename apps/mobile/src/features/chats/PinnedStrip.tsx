@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { TAB_BADGE } from "@/lib/nav";
 import { Count, LineIcon, PixelOrbit, PressScale, SCREEN_X, SideScroll, Text, weights } from "@/ui";
-import type { RowAction } from "../categories/menus";
+import type { RowAction } from "../channel-sectors/menus";
 import { WaitMark } from "../chat/WaitMark";
 import { AgentFace, Face } from "../shared/Face";
 import { useColors } from "../shared/hooks";
@@ -41,7 +41,8 @@ export interface PinnedStripProps {
 }
 
 /**
- * Fixados, under Início's widgets: what the person pinned (the web sidebar's pins: their own agents until they choose),
+ * Favoritos, under Início's widgets: what the person keeps there (the web sidebar's Favoritos, ADR 0260: their own agents
+ * until they choose),
  * side by side on a strip that scrolls sideways. Each is the app's own face for it: an agent's living body (at work,
  * dozing while it waits for its offline computer, its presence on the corner), a person's photo, a channel's tile; its
  * name under it on one line, after the mark its row's second line would carry (the orbit at work, the amber square for
@@ -54,7 +55,12 @@ export function PinnedStrip({ items, collapsed, onToggle, onStart, onHold, holdA
   const { t } = useTranslation();
   if (items.length === 0) return null;
   return (
-    <CollapsibleSection title={t("mobile.chats.pinned")} count={items.length} collapsed={collapsed} onToggle={onToggle}>
+    <CollapsibleSection
+      title={t("mobile.chats.favorites")}
+      count={items.length}
+      collapsed={collapsed}
+      onToggle={onToggle}
+    >
       {/* A fade at the edge where more pinned faces wait past it. */}
       <SideScroll contentContainerStyle={styles.strip}>
         {items.map((it) => (
@@ -90,17 +96,20 @@ const PinnedFace = memo(function PinnedFace({
   const { t } = useTranslation();
   const c = useColors();
   const name = r.kind === "channel" ? r.name : r.kind === "dm" ? r.with.name : r.title;
+  // At work, an agent's face wears the orbit, as its row's does; the mark before the name then says nothing more.
+  const ringed = r.kind === "dm" && r.with.type === "agent" && facts.face === "run";
   const face =
     r.kind === "dm" ? (
       r.with.type === "agent" ? (
-        <AgentFace agentId={r.with.id} size={FACE - 2} mode={facts.face} live={live} presence />
+        <AgentFace agentId={r.with.id} size={FACE - 2} mode={facts.face} live={live} presence orbit={ringed} />
       ) : (
         <Face who={{ type: r.with.type, id: r.with.id }} size={FACE} live={false} presence />
       )
     ) : (
       <Tile icon="hash" size={FACE} />
     );
-  const mark = faceMark(facts.line);
+  const lineMark = faceMark(facts.line);
+  const mark = ringed && lineMark === "orbit" ? null : lineMark;
   const unread = r.unread > 0;
   const a11y = [
     name,
@@ -175,10 +184,12 @@ const PinnedFace = memo(function PinnedFace({
 });
 
 const styles = StyleSheet.create({
-  // The screen's sides, and room above for a badge standing over a face's corner.
-  strip: { paddingHorizontal: SCREEN_X, gap: GAP, paddingTop: 6, paddingBottom: 4 },
+  // The screen's sides, and room above for a badge standing over a face's corner and for the orbit's tip: a ring turned
+  // upright reaches 0.24 of the face past it (13 points here), and the strip scrolls, so it clips what passes its top.
+  strip: { paddingHorizontal: SCREEN_X, gap: GAP, paddingTop: 9, paddingBottom: 4 },
   item: { width: ITEM },
-  itemIn: { alignItems: "center", gap: 6, paddingVertical: 4 },
+  // The name far enough under the face that the upright ring's tip stays above its letters.
+  itemIn: { alignItems: "center", gap: 10, paddingVertical: 4 },
   badge: { position: "absolute", top: -6, right: -8, padding: 2, borderRadius: 999 },
   name: { flexDirection: "row", alignItems: "center", gap: 4, maxWidth: ITEM },
   shrink: { flexShrink: 1 },

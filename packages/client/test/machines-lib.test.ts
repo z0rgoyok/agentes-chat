@@ -12,16 +12,22 @@ import {
   brainTool,
   browserNoAnswerMessage,
   browserOffMessage,
+  CLI_GIT_MISSING,
   CLI_HOME_ONLY,
   cliCommandWayOut,
   cliInstallCommand,
   cliInstallFailure,
   cliOneClick,
+  codexSandboxNote,
   commandInReason,
   computerKind,
   computerState,
+  computerStorage,
   desktopTargetOf,
   downloadHref,
+  egressOfflineText,
+  egressViaParts,
+  egressViaText,
   folderName,
   foldersOfAgent,
   formatUserCode,
@@ -439,7 +445,7 @@ describe("connected computers helpers (ADR 0036)", () => {
   });
 });
 
-test("an observed exit address updates live and is cleared across connection changes", () => {
+test("an observed exit address updates live, its country left to the server, and is cleared across connection changes", () => {
   const qc = new QueryClient();
   const list = keys.machines("o1");
   qc.setQueryData(list, [{ id: "m1", kind: "managed", online: true, egress: null }]);
@@ -448,7 +454,9 @@ test("an observed exit address updates live and is cleared across connection cha
   const current = () => qc.getQueryData<Machine[]>(list)?.[0]?.egress;
   const first = { ip: "8.8.8.8", country: "US", at: "2026-11-01T12:00:00Z" };
   event({ egress: first });
-  expect(current()).toEqual(first);
+  // The event can't tell whether it was seen on the route the agents take now: no flag until the list says.
+  expect(current()).toEqual({ ip: "8.8.8.8", at: first.at });
+  expect(qc.getQueryState(list)?.isInvalidated).toBe(true);
   event({ egress: { ip: "1.1.1.1", country: 42, at: first.at } });
   expect(current()).toEqual({ ip: "1.1.1.1", at: first.at });
   event({ egress: { ip: "<bad>", at: first.at } });
@@ -521,6 +529,31 @@ describe("the shared folder (ADR 0115)", () => {
       'machines.shared.size{"size":"3.2 GB"} · machines.shared.free{"free":"43 GB"}',
     );
     expect(sharedFolderFacts(t, "en", null)).toBe("machines.shared.measuring");
+  });
+
+  test("a computer's storage: its size, what is in use, what takes it by kind with the rest as Other, and when it fills up", () => {
+    const parts = { projects: 20, apps: 10, agents: 30, caches: 8, system: 0 };
+    const s = computerStorage({ freeGb: 20, use: 0.8, sharedGb: null, sizeGb: 100, parts });
+    expect(s).toMatchObject({ sizeGb: 100, usedGb: 80, freeGb: 20, full: false });
+    // A kind that takes nothing draws nothing; what no kind covers is Other, in its gray.
+    expect(s?.parts.map((p) => [p.key, p.gb])).toEqual([
+      ["projects", 20],
+      ["apps", 10],
+      ["agents", 30],
+      ["caches", 8],
+      ["other", 12],
+    ]);
+    expect(s?.parts.at(-1)).toMatchObject({ light: "#9a9a94", dark: "#6f6f6a" });
+    expect(new Set(s?.parts.map((p) => p.light)).size).toBe(5);
+    expect(computerStorage({ freeGb: 10, use: 0.9, sharedGb: null, sizeGb: 100, parts })?.full).toBe(true);
+    // Counted over what df says is used (rounding): no negative Other.
+    expect(computerStorage({ freeGb: 40, use: 0.6, sharedGb: null, sizeGb: 100, parts })?.parts.at(-1)?.key).toBe(
+      "caches",
+    );
+    // An older runner: the size from what is free and the share in use, no parts yet.
+    expect(computerStorage({ freeGb: 25, use: 0.75, sharedGb: null })).toMatchObject({ sizeGb: 100, parts: [] });
+    expect(computerStorage({ freeGb: 25, use: null, sharedGb: null })).toBeNull();
+    expect(computerStorage(null)).toBeNull();
   });
 
   test("why a sign-in ended: a line per code, the CLI's words under three of them, none when canceled", () => {
@@ -622,6 +655,11 @@ describe("one click where a tool is off (ADR 0036 §8)", () => {
     expect(cliOneClick(pc, "u-bia", "codex")).toBeNull();
     expect(cliOneClick({ ...pc, os: "darwin" }, "u-bia", "codex")).toEqual({ kind: "allow" });
     expect(cliOneClick({ ...pc, os: "linux", mode: "system" }, "u-bia", "claude")).toBeNull();
+    // A system-mode runner that installs its own copy for all of its agents' users: the same button.
+    const agents = { ...pc, os: "linux", mode: "system" as const, cliFetchable: ["claude", "codex"] };
+    expect(cliOneClick(agents, "u-bia", "codex")).toEqual({ kind: "allow" });
+    expect(cliOneClick(agents, "u-caio", "claude")).toEqual({ kind: "ask", ownerId: "u-bia", ownerName: "Bia Rocha" });
+    expect(cliOneClick({ ...agents, cliFetchable: ["claude"] }, "u-bia", "codex")).toBeNull();
     expect(cliOneClick({ ...pc, kind: "managed" }, "u-bia", "claude")).toBeNull();
     expect(installableCli("claude_code")).toBe("claude");
     const words = { program: "Claude Code", computer: "PC" };
@@ -635,6 +673,61 @@ describe("one click where a tool is off (ADR 0036 §8)", () => {
       'connectAi.cli.failed {"computer":"PC","message":"curl: (6)"}',
     );
     expect(installableCli("cursor")).toBeNull();
+  });
+
+  test("Codex on Windows: its own sandbox where MXC is missing, or nothing at all, in words for the computer's ⓘ", async () => {
+    const { resources } = await import("@agenteschat/i18n");
+    const i18next = (await import("i18next")).default;
+    const instance = i18next.createInstance();
+    void instance.init({ lng: "pt-BR", fallbackLng: "en", resources, initAsync: false });
+    const t = instance.t;
+    const desk = { name: "Estudio-PC" };
+    for (const codexSandbox of ["mxc", null, undefined] as const)
+      expect(codexSandboxNote(t, { ...desk, codexSandbox })).toBeNull();
+    expect(codexSandboxNote(t, { ...desk, codexSandbox: "unelevated" })).toBe(t("brain.sandboxPartial"));
+    const none = t("brain.reasons.windows_sandbox", { computer: "Estudio-PC", program: "Codex" });
+    expect(codexSandboxNote(t, { ...desk, codexSandbox: "none" })).toBe(none);
+    expect(none).toBe(
+      "O Windows do Estudio-PC não consegue isolar os comandos do Codex. Escolha o Claude ou uma chave de API, ou atualize esse computador para o Windows\u00a011\u00a024H2 ou mais novo, com as atualizações em dia.",
+    );
+    // The same words where a person picks Codex for an agent there, on the web and the phone (`gateLine`).
+    expect(
+      gateLine(t, {
+        gate: { state: "unsupported", reason: "windows_sandbox" },
+        edition: "selfhost",
+        kind: "codex",
+        computer: "Estudio-PC",
+      })?.text,
+    ).toBe(none);
+    // On the Cloud's own computers (Linux) it never happens: its line is the "on our side" one.
+    expect(
+      gateLine(t, {
+        gate: { state: "unsupported", reason: "windows_sandbox" },
+        edition: "cloud",
+        kind: "codex",
+        computer: "Computador da Acme",
+      })?.text,
+    ).toBe(t("aiAccounts.connect.needsCloud.stuck", { computer: "Computador da Acme", program: "Codex" }));
+  });
+
+  test("Devin on a Windows computer: the plan's line says why it doesn't run there, and the way out", async () => {
+    const { resources } = await import("@agenteschat/i18n");
+    const i18next = (await import("i18next")).default;
+    const instance = i18next.createInstance();
+    void instance.init({ lng: "pt-BR", fallbackLng: "en", resources, initAsync: false });
+    const t = instance.t;
+    const line = (kind: "devin" | "grok", os: string) =>
+      gateLine(t, {
+        gate: { state: "unsupported", reason: "system", os },
+        edition: "selfhost",
+        kind,
+        computer: "Estudio-PC",
+      })?.text;
+    expect(line("devin", "windows")).toBe(
+      "O Estudio-PC usa Windows, onde o Devin ainda não roda: lá a CLI dele não consegue manter separado o login de cada conta. Use o Devin num computador Mac ou Linux, ou escolha outra IA.",
+    );
+    // Any other plan off its system keeps the plain line.
+    expect(line("grok", "windows")).toBe(t("brain.reasons.system", { computer: "Estudio-PC", program: "Grok Build" }));
   });
 
   test("a CLI the apps don't install: the line to run there, for every agent's user in system mode", async () => {
@@ -660,10 +753,14 @@ describe("one click where a tool is off (ADR 0036 §8)", () => {
     for (const no of [
       cliInstallCommand("claude_code", server),
       cliInstallCommand("opencode", server),
-      cliInstallCommand("grok", { ...server, os: "windows" }),
+      cliInstallCommand("antigravity", { ...server, os: "windows" }),
       cliInstallCommand("grok", { ...server, kind: "managed" }),
     ])
       expect(no).toBeNull();
+    // xAI's PowerShell installer, in a line cmd runs too.
+    expect(cliInstallCommand("grok", { ...server, os: "windows" })).toBe(
+      'powershell -ExecutionPolicy Bypass -Command "irm https://x.ai/cli/install.ps1 | iex"',
+    );
 
     const words = { program: "Antigravity CLI", computer: "srv-1" };
     expect(cliCommandWayOut(t, "antigravity", server, "not_installed", "srv-1")?.text).toBe(
@@ -689,6 +786,41 @@ describe("one click where a tool is off (ADR 0036 §8)", () => {
         machine: rootOnly,
       })?.text,
     ).toBe(t("brain.reasons.home_only", words));
+  });
+
+  test("a CLI there that won't start says the CLI's own words, and Gemini on Windows says why it can't", async () => {
+    const { resources } = await import("@agenteschat/i18n");
+    const i18next = (await import("i18next")).default;
+    const instance = i18next.createInstance();
+    void instance.init({
+      lng: "pt-BR",
+      fallbackLng: "en",
+      resources,
+      initAsync: false,
+      // As the apps: React escapes.
+      interpolation: { escapeValue: false },
+    });
+    const t = instance.t;
+    const pc = { kind: "connected", os: "windows", mode: "single" } as const;
+    const cantStart = { state: "unsupported", reason: "cant_start" } as const;
+    const line = (
+      kind: "opencode" | "claude_code" | "antigravity",
+      machine: Parameters<typeof gateLine>[1]["machine"],
+      gate: Parameters<typeof gateLine>[1]["gate"] = cantStart,
+    ) => gateLine(t, { gate, edition: "selfhost", kind, computer: "PC da Bia", machine })?.text;
+    const said = "Error: Cannot find module 'opencode-windows-x64/package.json'";
+    expect(line("opencode", { ...pc, cliErrors: { opencode: said } })).toBe(
+      `O OpenCode está no PC da Bia, mas não abre: ${said}`,
+    );
+    // Claude Code's error is kept under its command's name; Git for Windows missing is a code, said in words.
+    expect(line("claude_code", { ...pc, cliErrors: { claude: "spawn EPERM" } })).toBe(
+      "O Claude Code está no PC da Bia, mas não abre: spawn EPERM",
+    );
+    expect(line("claude_code", { ...pc, cliErrors: { claude: CLI_GIT_MISSING } })).toBe(
+      t("connectAi.cli.gitMissing", { program: "Claude Code", computer: "PC da Bia" }),
+    );
+    // No words from the runner (an older one): the plain line.
+    expect(line("opencode", pc)).toBe(t("brain.reasons.cant_start", { program: "OpenCode", computer: "PC da Bia" }));
   });
 
   test("Prefiro no Terminal: the same switches as one command, only for who turns them on, where there may be no app", () => {
@@ -750,4 +882,38 @@ describe("one click where a tool is off (ADR 0036 §8)", () => {
     expect(browserNoAnswerMessage("the computer Desk did not answer within 120 s")).toBe(false);
     expect(browserNoAnswerMessage(null)).toBe(false);
   });
+});
+
+test("whose internet a borrowing computer uses: the computer in the line, who connected it on its name's tip", () => {
+  const t = ((key: string, o?: Record<string, unknown>) => `${key}${o ? JSON.stringify(o) : ""}`) as never;
+  const via = { machineId: "m-ana", name: "Ana's iMac", userName: "Ana" };
+  expect(egressViaText(t, { kind: "managed", online: true, egressVia: via })).toBe(
+    'machines.egress.via{"name":"Ana\'s iMac"}',
+  );
+  const words = ((key: string, o?: Record<string, string>) =>
+    key === "machines.egress.via" ? `Agents use the internet of ${o?.name}` : `Connected by ${o?.name}`) as never;
+  expect(egressViaParts(words, { kind: "managed", online: true, egressVia: via })).toEqual({
+    before: "Agents use the internet of ",
+    name: "Ana's iMac",
+    after: "",
+    by: "Connected by Ana",
+  });
+  expect(
+    egressViaParts(words, { kind: "managed", online: true, egressVia: { ...via, userName: null } })?.by,
+  ).toBeNull();
+  expect(egressViaParts(words, { kind: "managed", online: false, egressVia: via })).toBeNull();
+  expect(egressViaText(t, { kind: "managed", online: false, egressVia: via })).toBeNull();
+  // A self-hosted server's own computer, or one marked the workspace's, borrows too (the server sends it only then).
+  expect(egressViaText(t, { kind: "host", online: true, egressVia: via })).toBe(
+    'machines.egress.via{"name":"Ana\'s iMac"}',
+  );
+  expect(egressViaParts(words, { kind: "host", online: true, egressVia: via })?.name).toBe("Ana's iMac");
+  expect(egressViaText(t, { kind: "connected", online: true, egressVia: null })).toBeNull();
+  // Lent "only" and that computer offline: the workspace's computer says its agents have no internet, and whose.
+  expect(egressOfflineText(t, { kind: "managed", egressOffline: via })).toBe(
+    'machines.egress.offline{"name":"Ana\'s iMac"}',
+  );
+  expect(egressOfflineText(t, { kind: "managed", egressOffline: null })).toBeNull();
+  expect(egressOfflineText(t, { kind: "managed" })).toBeNull();
+  expect(egressViaText(t, { kind: "managed", online: true, egressVia: null })).toBeNull();
 });

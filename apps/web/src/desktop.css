@@ -6,7 +6,7 @@
 :root {
   /*
    * The app sets --app-zoom with ⌘+/⌘− (main_window.rs `fit_page`): the bar stays 48pt and the room for the
-   * window's buttons stays theirs, which don't zoom. 48: the ⌘K field (32) with 8 over it and 8 under it.
+   * window's buttons stays theirs, which don't zoom. 48: a 32px button with 8 over it and 8 under it.
    */
   --titlebar-h: calc(48px / var(--app-zoom, 1));
   /* The window's close, minimize and zoom buttons. */
@@ -28,18 +28,39 @@ html[data-desktop-renderer="cpu"] *::after {
   /* biome-ignore lint/complexity/noImportantStyles: painting on the CPU must beat every component's own loop */
   animation-iteration-count: 1 !important;
 }
+/* Nobody sees the app (`data-sight`, packages/ui/src/sight.ts, ADR 0228: hidden, or another window in front with the
+   pointer elsewhere): an endless loop (typing dots, pulses, shimmers) ends its round and waits, here and in a browser
+   tab. The desktop window keeps running its page out of sight, where each loop kept the GPU drawing for nobody. Only
+   loops: what plays once (a message fading in) still plays. Not when merely `idle`: someone reading while an agent
+   works still sees it working. */
+html[data-sight="away"] *,
+html[data-sight="away"] *::before,
+html[data-sight="away"] *::after,
+html[data-sight="hidden"] *,
+html[data-sight="hidden"] *::before,
+html[data-sight="hidden"] *::after {
+  /* biome-ignore lint/complexity/noImportantStyles: with nobody looking, no component's loop may keep going */
+  animation-iteration-count: 1 !important;
+}
 /* Full screen: the buttons hide, so does their room. Windows and Linux keep the system's own title bar. */
 html[data-fullscreen],
 html[data-desktop="windows"],
 html[data-desktop="linux"] {
   --titlebar-lights: 12px;
 }
+/* The kit's `--window-top` (layers.css): on a Mac whose window shows its buttons, dialogs, sheets and full-window
+   overlays start under the bar they are drawn over, never with their head behind them. An element the engine put in
+   full screen has the screen to itself. */
+html[data-desktop="mac"]:not([data-fullscreen], :fullscreen) {
+  --window-top: var(--titlebar-h);
+}
+:fullscreen {
+  --window-top: 0px;
+}
 
 .titlebar {
   position: relative;
   isolation: isolate;
-  /* Its width, for the search field's centring (below). */
-  container-type: inline-size;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -52,13 +73,22 @@ html[data-desktop="linux"] {
 }
 /* With the work as a sheet on the sidebar's paper (layout.css `.shell__work`), the bar and that paper are one
    surface: no hairline under the bar. A narrow window keeps it, its work being flat under the bar. The bar is the
-   sheet's room on top, so the sheet's own 8px there goes: the ⌘K field stands 8px under the window's edge and 8px
+   sheet's room on top, so the sheet's own 8px there goes: the bar's buttons stand 8px under the window's edge and 8px
    over the sheet, as far from both. */
 @media (min-width: 761px) {
   html[data-desktop] .titlebar {
     border-bottom: 0;
   }
   html[data-desktop] .shell__work {
+    padding-top: 0;
+  }
+  /* The bar is the sidebar's room on top too: its workspace header starts on the sheet's top line, beside the page's
+     head, not 16px under it. */
+  html[data-desktop] .shell .sidebar {
+    padding-top: 0;
+  }
+  /* A team's sidebar has no padding of its own: its tool column and its list carry it (ADR 0260). */
+  html[data-desktop] .shell .sidebar :is(.sidebar__col, .sidebar__main) {
     padding-top: 0;
   }
 }
@@ -69,75 +99,21 @@ html[data-desktop="linux"] {
   bottom: -1px;
   width: 272px;
 }
-/* Agora at the bar's end, a bare icon as the nav's. */
-.titlebar__agora.ac-btn {
-  flex: none;
-}
 /* Over the icon rail (68px, its hairline left free). */
 .workspace-sky--bar.workspace-sky--rail {
   width: 67px;
+}
+/* A team's sidebar is its tool column and its list (ADR 0260): 320px, the column's 64 alone when collapsed. */
+:root:has(.sidebar[data-layout="column"]) .workspace-sky--bar {
+  width: 320px;
+}
+:root:has(.sidebar[data-layout="column"]) .workspace-sky--bar.workspace-sky--rail {
+  width: 63px;
 }
 .titlebar__nav {
   display: flex;
   gap: var(--space-2);
 }
-/*
- * The sidebar's ⌘K field (.sidebar__jump): a small field of the ruler (32, r10), centred in the bar. Centred on the
- * window, not on what's left after the buttons: it moves back by half the room the window's buttons and the nav take
- * (`--titlebar-nav`: three 32px buttons and their two 8px gaps) less what
- * Agora takes at the bar's end (`--titlebar-end`: its 32 and the gap before it), but never past the free room on its
- * left, so in a narrow window it stops beside the nav instead of sliding over it.
- */
-.titlebar__search {
-  --titlebar-nav: calc(3 * var(--control-h-sm) + 2 * var(--space-2));
-  --titlebar-end: calc(var(--control-h-sm) + 12px);
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 0 1 460px;
-  min-width: 0;
-  height: var(--control-h-sm);
-  margin: 0 auto;
-  --titlebar-half: calc((var(--titlebar-lights) + var(--titlebar-nav) - var(--titlebar-end)) / 2);
-  --titlebar-room: max(0px, (100cqw - var(--titlebar-nav) - 12px - var(--titlebar-end) - 460px) / 2);
-  transform: translateX(calc(-1 * min(var(--titlebar-half), var(--titlebar-room))));
-  padding: 0 8px 0 10px;
-  border: 0;
-  border-radius: var(--control-r-sm);
-  background: var(--field-bg);
-  box-shadow: inset 0 0 0 1px var(--field-line);
-  font: inherit;
-  font-size: var(--control-fs-sm);
-  line-height: normal;
-  color: var(--faint);
-  cursor: pointer;
-}
-.titlebar__search > .ac-icon {
-  width: var(--control-icon-sm);
-  height: var(--control-icon-sm);
-}
-.titlebar__search-label {
-  flex: 1;
-  min-width: 0;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.titlebar__search .ac-kbd {
-  min-width: 20px;
-  height: 20px;
-  border-radius: 6px;
-}
-.titlebar__search:hover {
-  box-shadow: inset 0 0 0 1px var(--line-strong);
-  color: var(--muted);
-}
-html:not([data-pointer]) .titlebar__search:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-
 .titlebar-strip {
   position: fixed;
   inset: 0 0 auto;
@@ -151,14 +127,14 @@ html:is([data-fullscreen], [data-desktop="windows"], [data-desktop="linux"]) .ti
   display: none;
 }
 
-/* The workspace sits under the bar; ⌘K, Agora and the sidebar toggle live in the bar, so the sidebar's row goes, and
-   in a personal workspace (ADR 0159) its Go to… row, Agora and the collapse beside the person. */
+/* The workspace sits under the bar. The sidebar toggle lives in the bar, so the sidebar's own collapse goes (beside ⌘K,
+   and beside the person in a personal workspace, ADR 0159); ⌘K and Agora stay in the sidebar, as on the web. */
 html[data-desktop] .shell {
   height: calc(100vh - var(--titlebar-h));
   /* biome-ignore lint/suspicious/noDuplicateProperties: dvh with a vh fallback for older browsers */
   height: calc(100dvh - var(--titlebar-h));
 }
-html[data-desktop] :is(.sidebar__jump-row, .sidebar__head-collapse, .sidebar__org--person .sidebar__agora) {
+html[data-desktop] :is(.sidebar__collapse, .sidebar__head-collapse) {
   display: none;
 }
 /* Sign-in: the logo clears the window's buttons. */

@@ -610,6 +610,8 @@ export const vaultHref = {
   envReview: "/settings/vault-env-review",
   itemAccess: (id: string) => `/settings/vault-access?${param("id", id)}`,
   connectionAccess: (id: string) => `/settings/vault-access?${param("connection", id)}`,
+  /** One access for the items chosen on the list (the ids reach it in `openBulkAccess`, never in the link). */
+  bulkAccess: "/settings/vault-access?bulk=1",
   connect: (kind: string) => `/settings/vault-connect?${param("kind", kind)}`,
   reconnect: (kind: string, connectionId: string) =>
     `/settings/vault-connect?${param("kind", kind)}&${param("connection", connectionId)}`,

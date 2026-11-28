@@ -10,7 +10,8 @@ import type {
   TaskWait,
 } from "../api/types";
 import { type Activity, toolActivity } from "./activity";
-import { durationText } from "./computer-queue";
+import { LEGACY_MOVE, maintenanceLine, maintenanceOf } from "./computer-maintenance";
+import { durationText } from "./format";
 import { agentGrammar } from "./grammar";
 import { stopperOf } from "./notices";
 import { usageWhenShort } from "./plan-usage";
@@ -108,6 +109,8 @@ export function taskWaitWords(
         return { state: s("taskManager.wait.workLine"), next: s("taskManager.wait.workLineNext") };
       if (w && !COMPUTER_GONE.has(w.code))
         return { state: s("taskManager.wait.computerWait"), next: s("taskManager.wait.computerWaitNext") };
+      if (w?.moving)
+        return { state: s("taskManager.wait.computerWait"), next: maintenanceLine(t, maintenanceOf(w) ?? LEGACY_MOVE) };
       return { state: s(waitKey(reason)), next: s("taskManager.wait.computerOfflineNext") };
     case "budget": {
       if (!paused && w?.code !== "budget") return { state: s(waitKey(reason)), next: null };
@@ -353,6 +356,8 @@ function programOf(now: TaskNow | null): TaskProgram | null {
     case "runningSkillScript":
     case "runningSkillScriptAny":
     case "cloningRepo":
+    case "listingRepos":
+    case "updatingCode":
     case "pcFiles":
       return { kind: "terminal", activity, detail };
     case "consulting":

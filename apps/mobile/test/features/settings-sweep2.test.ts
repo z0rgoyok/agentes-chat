@@ -32,10 +32,10 @@ describe("the settings and Você page frames", () => {
 });
 
 describe("no field takes the keyboard as its screen opens", () => {
-  test("renaming a computer, a new category, suggesting someone, an invitation's note, a server's address", () => {
+  test("renaming a computer, a channel's sector, suggesting someone, an invitation's note, a server's address", () => {
     for (const file of [
       "features/settings/MachineScreen.tsx",
-      "features/categories/CategoryScreens.tsx",
+      "features/channel-sectors/PickSectorScreen.tsx",
       "features/members/SuggestPerson.tsx",
       "features/members/InvitePickers.tsx",
       "features/server/ServerAddress.tsx",
@@ -109,13 +109,12 @@ describe("a connection's screen", () => {
 });
 
 describe("lists read again on a pull, and searches make room for the keyboard", () => {
-  test("Skills, the audit, invitations, devices, categories and workspaces pull to read again", () => {
+  test("Skills, the audit, invitations, devices and workspaces pull to read again", () => {
     for (const file of [
       "features/settings/SkillsScreen.tsx",
       "features/settings/AuditScreen.tsx",
       "features/members/InvitesScreen.tsx",
       "features/devices/DevicesScreen.tsx",
-      "features/categories/CategoryScreens.tsx",
       "features/me/WorkspacesPages.tsx",
     ])
       expect({ file, pull: src(file).includes("onRefresh") }).toEqual({ file, pull: true });
@@ -141,13 +140,9 @@ describe("lists read again on a pull, and searches make room for the keyboard", 
     expect(tools).not.toContain("<PushedHeader");
   });
 
-  test("a profile's live view and a channel's category show their shape while they load", () => {
+  test("a profile's live view and a channel's sector show their shape while they load", () => {
     expect(src("features/browser/ProfileLoginScreen.tsx")).toContain("<SkeletonList rows={2} />");
-    const pick = src("features/categories/CategoryScreens.tsx");
-    const screen = pick.slice(
-      pick.indexOf("export function PickCategoryScreen"),
-      pick.indexOf("export function NewCategoryScreen"),
-    );
+    const screen = src("features/channel-sectors/PickSectorScreen.tsx");
     expect(screen).toContain("<SkeletonList rows={3} />");
     expect(screen).toContain("<LoadFailed");
   });

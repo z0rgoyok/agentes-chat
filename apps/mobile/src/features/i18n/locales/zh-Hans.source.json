@@ -5,53 +5,32 @@
   "app.send": {
     "value": "Send"
   },
-  "categories.title": {
-    "value": "Categories"
-  },
-  "categories.where": {
-    "value": "Where #{{channel}} shows"
-  },
-  "categories.whereHelp": {
-    "value": "Changes for everyone. Who takes part in the channel stays the same."
-  },
-  "categories.create": {
-    "value": "Create"
-  },
-  "categories.endOfList": {
-    "value": "Goes to the end of the list for everyone."
-  },
-  "categories.channelCount": {
-    "value": {
-      "one": "{{count}} channel",
-      "other": "{{count}} channels"
-    }
-  },
-  "categories.none": {
-    "value": "No categories yet."
-  },
-  "categories.manageHint": {
-    "value": "Order, names and delete"
-  },
-  "categories.deleteTitle": {
-    "value": "Delete {{name}}?"
-  },
-  "categories.order": {
-    "value": "Place in the list"
-  },
   "categories.up": {
     "value": "Move up"
   },
   "categories.down": {
     "value": "Move down"
   },
-  "categories.position": {
-    "value": "{{at}} of {{count}}."
-  },
   "categories.channelPosition": {
     "value": "{{at}} of {{count}}."
   },
-  "categories.itsChannels": {
-    "value": "Channels"
+  "sections.title": {
+    "value": "Section"
+  },
+  "sections.where": {
+    "value": "Where #{{channel}} sits for you"
+  },
+  "sections.whereHelp": {
+    "value": "Only your list changes. Each person arranges their own sections."
+  },
+  "sections.none": {
+    "value": "No section"
+  },
+  "sections.order": {
+    "value": "Place in the section"
+  },
+  "sections.tooLong": {
+    "value": "Use 40 characters or fewer."
   },
   "blocks.send": {
     "value": "Send"
@@ -178,6 +157,33 @@
   },
   "code.gone": {
     "value": "This code is no longer open."
+  },
+  "table.label": {
+    "value": {
+      "one": "Table · {{count}} row",
+      "other": "Table · {{count}} rows"
+    }
+  },
+  "table.title": {
+    "value": "Table"
+  },
+  "table.rows": {
+    "value": {
+      "one": "{{count}} row",
+      "other": "{{count}} rows"
+    }
+  },
+  "table.copy": {
+    "value": "Copy the table"
+  },
+  "table.copied": {
+    "value": "Table copied"
+  },
+  "table.more": {
+    "value": "See all {{count}} rows"
+  },
+  "table.gone": {
+    "value": "This table is no longer open."
   },
   "time.today": {
     "value": "Today"
@@ -452,8 +458,8 @@
   "chats.serverError.kept": {
     "value": "Showing what was already in the app."
   },
-  "chats.pinned": {
-    "value": "Pinned"
+  "chats.favorites": {
+    "value": "Favorites"
   },
   "chats.recent": {
     "value": "Recent"
@@ -461,8 +467,8 @@
   "chats.view.title": {
     "value": "Show chats"
   },
-  "chats.view.sectors": {
-    "value": "Sectors"
+  "chats.view.sections": {
+    "value": "Sections"
   },
   "chats.view.dms": {
     "value": "Direct messages"
@@ -2017,6 +2023,9 @@
   "agent.talk": {
     "value": "Chat"
   },
+  "agent.responsible": {
+    "value": "Owner"
+  },
   "agent.task": {
     "value": "Task"
   },
@@ -2231,6 +2240,9 @@
   "activity.kind.admin_ask_webhook": {
     "value": "{{names}} asks you to set up the {{service}} webhook for routines"
   },
+  "activity.kind.admin_ask_voice": {
+    "value": "{{names}} asks you to turn on voice messages"
+  },
   "activity.kind.routine_paused": {
     "value": {
       "one": "Routine paused",
@@ -2429,6 +2441,18 @@
     "value": {
       "one": "A computer needs Google Chrome. Get it at google.com/chrome",
       "other": "Computers need Google Chrome. Get it at google.com/chrome"
+    }
+  },
+  "activity.kind.computer_down": {
+    "value": {
+      "one": "A computer isn't answering",
+      "other": "A computer isn't answering"
+    }
+  },
+  "activity.kind.computer_back": {
+    "value": {
+      "one": "A computer is back",
+      "other": "A computer is back"
     }
   },
   "activity.kind.app_created": {
@@ -3743,6 +3767,21 @@
   },
   "coding.next.mergeLocal": {
     "value": "Ready to merge into {{base}}"
+  },
+  "coding.terminal.keys": {
+    "value": "Terminal keys"
+  },
+  "coding.terminal.keyboard": {
+    "value": "Keyboard"
+  },
+  "coding.terminal.pasteHint": {
+    "value": "Paste what you copied into the terminal"
+  },
+  "coding.terminal.key.CtrlC": {
+    "value": "Control-C, interrupt"
+  },
+  "coding.terminal.key.CtrlD": {
+    "value": "Control-D, end of input"
   },
   "taskManager.loadFailed": {
     "value": "Couldn't load the tasks."
@@ -5162,6 +5201,9 @@
   },
   "devices.notice.folder_request": {
     "value": "{{names}} asks for the folder {{path}} on your {{device}}"
+  },
+  "devices.notice.internet_shared": {
+    "value": "Agents now open websites through the internet of {{device}}"
   },
   "devices.notice.allowOnce": {
     "value": "Allow once"
@@ -6877,9 +6919,6 @@
   "dashboards.formatAuto": {
     "value": "{{name}} picks the best one"
   },
-  "dashboards.newWidget.alerts": {
-    "value": "Alerts"
-  },
   "dashboards.newWidget.realData": {
     "value": "Real data"
   },
@@ -6889,8 +6928,14 @@
   "dashboards.newWidget.asked": {
     "value": "“{{ask}}”"
   },
-  "dashboards.newWidget.autoFormat": {
-    "value": "Auto format"
+  "dashboards.newWidget.testReal": {
+    "value": "Test with real data"
+  },
+  "dashboards.newWidget.addHome": {
+    "value": "Add to Home"
+  },
+  "dashboards.newWidget.addTo": {
+    "value": "Add to {{where}}"
   },
   "dashboards.agentPick.search": {
     "value": "Search agents"
@@ -7899,6 +7944,9 @@
   },
   "aiHub.choice.api": {
     "value": "API"
+  },
+  "aiHub.choice.asksMove": {
+    "value": "{{agent}} stops using it."
   },
   "aiHub.missionAi": {
     "value": "AI"

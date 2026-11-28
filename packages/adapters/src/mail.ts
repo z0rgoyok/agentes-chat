@@ -276,6 +276,17 @@ export interface ComposioClient {
    * `FileTooLargeError` without reading the rest.
    */
   fetchFile(url: string, maxBytes?: number): Promise<Uint8Array>;
+  /**
+   * Puts a file where an action reads it (an argument Composio marks `file_uploadable`): asks Composio where, sends
+   * the bytes there, and returns the argument the action takes.
+   */
+  uploadFile(input: {
+    toolkit: string;
+    slug: string;
+    name: string;
+    mimetype: string;
+    data: Uint8Array;
+  }): Promise<ComposioUploadedFile>;
   /** A "new message" trigger on the account; `query` is a Gmail search (Outlook: filtered on our side). */
   createMailTrigger(input: {
     toolkit: ComposioMailToolkit;
@@ -286,6 +297,13 @@ export interface ComposioClient {
   deleteTrigger(triggerId: string): Promise<void>;
   /** Checks a webhook's signature (Standard Webhooks HMAC) and parses it. */
   verifyWebhook(headers: Headers, rawBody: string): ComposioWebhookEvent;
+}
+
+/** A file Composio holds for an action: what goes in its `file_uploadable` argument. */
+export interface ComposioUploadedFile {
+  name: string;
+  mimetype: string;
+  s3key: string;
 }
 
 export type ComposioWebhookEvent =

@@ -75,3 +75,10 @@ its starter and its apps.
 ## Amendment (2026-11-17): the phone's Conversas has no line back to the card (§6)
 
 Conversas lists conversations only. The line back to the first-run card ("… is setting up the team · 2 of 5") is gone from the phone: the card stays in the right hand's conversation, which is in the list like any other. Início on the web keeps its line.
+
+## Amendment (2026-11-25): the profile's checklist closes (§2)
+
+On the agent's page the checklist has a × after its count: whoever may change the agent (its owner or who manages
+agents) closes it whatever is left, and the page shows it no more on any device. `agents.setup.closed` keeps that
+(`PATCH …/agents/{id}/setup` with `{ closed: true }`; no migration, the column is jsonb). The checklist in its chat
+stays: it is the conversation's first message, and its steps still confirm there.

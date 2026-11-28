@@ -1,7 +1,7 @@
-import { useApi, useLivePeers, useLiveSelector, useRetryImages } from "@agenteschat/client";
+import { useApi, useFileFonts, useLivePeers, useLiveSelector, useRetryImages } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { LOCAL } from "@agenteschat/live";
+import { type FontWeight, groupMembersOf, LOCAL, outermostGroup } from "@agenteschat/live";
 import type { Peer, PeerUser } from "@agenteschat/live/awareness";
 import {
   type ArrowEnd,
@@ -17,6 +17,7 @@ import {
   moveShapes,
   type NewShape,
   type Point,
+  readCanvasGroups,
   rectsIntersect,
   resizeShape,
   SHAPE_TYPES,
@@ -25,6 +26,7 @@ import {
   setCanvasBackground,
   setParent,
   shapeBounds,
+  shapeTextFragment,
   snapLines,
   strokePath,
   union,
@@ -54,7 +56,11 @@ import { usePrefersReducedMotion } from "@/hooks/usePrefersReducedMotion";
 import { copyImage as copyPicture, type MenuEntry, openContextMenu } from "@/lib/context-menu";
 import { useToast } from "@/lib/toast";
 import type { LiveEditorProps } from "../editor";
+import { FontAssetUrl } from "../fonts";
+import { capsWholeText, setWholeParagraphs, typeWholeText } from "../rich";
 import { useFileAgentHere } from "../talk";
+import { useFontFromDrive } from "../type/FileFonts";
+import type { FontChoices } from "../type/FontPicker";
 import { type Anchor, type BarAction, BarSpot, CropBar, SelectionBar, SizeTag, sizeOf } from "./bars";
 import {
   type Camera,
@@ -194,6 +200,8 @@ type Gesture =
       alt: boolean;
       /** It was chosen before this press (a click then narrows the selection to it, or Shift takes it out). */
       wasSelected: boolean;
+      /** What the press picks: the shape, or its whole group (ADR 0220 §3). */
+      pick: string[];
     }
   | { kind: "move"; ids: string[]; startWorld: Point; applied: Point; bounds: Box | null; targets: Box[] }
   | { kind: "marquee"; startWorld: Point; base: string[] }
@@ -282,6 +290,14 @@ function CanvasEditor({
   const doc = room.doc;
   const { store, snapshot } = useCanvasShapes(room);
   const { list, byId } = snapshot;
+  // The font list (ADR 0220 §8): the fonts the canvas already uses first, then the file's own and the catalog.
+  const ownFonts = useFileFonts(orgId, fileId);
+  const usedFonts = useMemo(() => [...new Set(list.flatMap((s) => (s.style?.font ? [s.style.font] : [])))], [list]);
+  const fontChoices = useMemo<FontChoices>(
+    () => ({ kind: "canvas", own: ownFonts.data ?? [], used: usedFonts }),
+    [ownFonts.data, usedFonts],
+  );
+  const fontFromDrive = useFontFromDrive(orgId, fileId);
   const peers = useLivePeers(room);
   const bg = useLiveSelector(room, canvasBackground) ?? "dots";
   const fileAgent = useFileAgentHere();
@@ -1250,7 +1266,16 @@ function CanvasEditor({
     }
     const wasSelected = sel.includes(hit.id);
     const frameRoom = hit.part === "frameInside" && !wasSelected;
-    if (!wasSelected && !frameRoom) setSelected(e.shiftKey ? [...sel, hit.id] : [hit.id]);
+    // A press picks the shape's whole group (ADR 0220 §3); a double click goes inside it.
+    const pick = (() => {
+      const group = store.now().byId.get(hit.id)?.group;
+      if (!group) return [hit.id];
+      const groups = readCanvasGroups(doc);
+      if (!groups.some((g) => g.id === group)) return [hit.id];
+      const members = groupMembersOf(store.now().list, groups, outermostGroup(groups, group));
+      return members.includes(hit.id) ? [hit.id, ...members.filter((m) => m !== hit.id)] : [hit.id];
+    })();
+    if (!wasSelected && !frameRoom) setSelected(e.shiftKey ? [...sel, ...pick.filter((p) => !sel.includes(p))] : pick);
     gesture.current = {
       kind: "press",
       startScreen: screen,
@@ -1259,6 +1284,7 @@ function CanvasEditor({
       shift: e.shiftKey,
       alt: e.altKey,
       wasSelected,
+      pick,
     };
   };
 
@@ -1303,9 +1329,7 @@ function CanvasEditor({
           onPointerMove(e);
           return;
         }
-        let ids = topLevelOf(sel.includes(g.hit.id) ? sel : [g.hit.id], now.list).filter(
-          (id) => !now.byId.get(id)?.locked,
-        );
+        let ids = topLevelOf(sel.includes(g.hit.id) ? sel : g.pick, now.list).filter((id) => !now.byId.get(id)?.locked);
         if (!ids.length) {
           gesture.current = null;
           return;
@@ -1904,6 +1928,22 @@ function CanvasEditor({
       }
     }, LOCAL);
 
+  /** A text style on each chosen text whole, with its words' own marks of that kind taken away so it shows. */
+  const typeEach = (
+    ids: readonly string[],
+    style: (now: NonNullable<ShapeView["style"]>) => NonNullable<ShapeView["style"]>,
+    words: (fragment: NonNullable<ReturnType<typeof shapeTextFragment>>) => void,
+  ) =>
+    doc.transact(() => {
+      for (const id of ids) {
+        const s = byId.get(id);
+        if (s?.type !== "text") continue;
+        safely(() => updateShape(doc, id, { style: style(s.style ?? {}) }, LOCAL));
+        const fragment = shapeTextFragment(doc, id);
+        if (fragment) words(fragment);
+      }
+    }, LOCAL);
+
   const barAction = (action: BarAction) => {
     const ids = sel;
     const single = selShapes.length === 1 ? selShapes[0] : undefined;
@@ -1953,6 +1993,53 @@ function CanvasEditor({
       case "size":
         patchEach(ids, ["text"], (s) => ({ style: { ...s.style, size: action.size } }));
         break;
+      case "font":
+        typeEach(
+          ids,
+          (style) => ({ ...style, font: action.font }),
+          (f) => typeWholeText(f, "font", null, LOCAL),
+        );
+        break;
+      case "type": {
+        const p = action.patch;
+        typeEach(
+          ids,
+          (style) => {
+            const next = { ...style };
+            if (p.weight !== undefined) next.weight = p.weight as FontWeight;
+            if (p.tracking !== undefined) {
+              if (p.tracking) next.tracking = p.tracking;
+              else delete next.tracking;
+            }
+            if (p.lineHeight !== undefined) next.lineHeight = p.lineHeight;
+            if (p.caps !== undefined) {
+              if (p.caps) next.caps = true;
+              else delete next.caps;
+            }
+            return next;
+          },
+          (f) => {
+            if (p.weight !== undefined) typeWholeText(f, "weight", null, LOCAL);
+            if (p.tracking !== undefined) typeWholeText(f, "tracking", null, LOCAL);
+            if (p.caps !== undefined) capsWholeText(f, false, LOCAL);
+            if (p.lineHeight !== undefined) setWholeParagraphs(f, { lineHeight: null }, LOCAL);
+          },
+        );
+        break;
+      }
+      case "effects": {
+        const p = action.patch;
+        patchEach(ids, ["shape"], () => ({
+          ...(p.shadow !== undefined ? { shadow: p.shadow } : {}),
+          ...(p.gradient !== undefined ? { gradient: p.gradient } : {}),
+          ...(p.dash !== undefined ? { dash: p.dash === "solid" ? null : p.dash } : {}),
+        }));
+        break;
+      }
+      case "bringFont":
+        // The font brought goes on the texts chosen now.
+        fontFromDrive.open((font) => barAction({ kind: "font", font }));
+        return;
       case "shapeKind":
         patchEach(ids, ["shape"], () => ({ kind: action.shapeKind }));
         break;
@@ -2177,267 +2264,280 @@ function CanvasEditor({
 
   return (
     <CanvasContext.Provider value={env}>
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the canvas's keys and clipboard, for whatever in it has focus */}
-      <div
-        ref={rootRef}
-        className="cnv"
-        data-readonly={readOnly || undefined}
-        onKeyDown={onKeyDown}
-        onKeyUp={onKeyUp}
-        onCopy={onCopy}
-        onCut={onCut}
-        onPaste={onPaste}
-      >
-        <div className="cnv__main">
-          <div
-            ref={planeRef}
-            className="cnv__plane"
-            role="application"
-            aria-label={t("live.canvas.label")}
-            aria-roledescription={t("live.canvas.roledescription")}
-            // biome-ignore lint/a11y/noNoninteractiveTabindex: the plane takes the keys (tools, delete, arrows, zoom)
-            tabIndex={0}
-            data-bg={bg}
-            data-tool={tool}
-            data-panning={panning || undefined}
-            data-space={space || undefined}
-            data-dropping={dropping || undefined}
-            style={planeStyle}
-            onPointerDown={onPointerDown}
-            onPointerMove={onPointerMove}
-            onPointerUp={(e) => onPointerEnd(e)}
-            onPointerCancel={(e) => onPointerEnd(e, true)}
-            onPointerLeave={() => {
-              pointerWorld.current = null;
-              sendCursor(null);
-              if (hover) setHover(null);
-            }}
-            onDoubleClick={onDoubleClick}
-            onContextMenu={onContextMenu}
-            onDragOver={onDragOver}
-            onDragLeave={onDragLeave}
-            onDrop={onDrop}
-          >
-            <div className="cnv__world" style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})` }}>
-              {drawn.map((s) =>
-                s.type === "arrow" ? (
-                  <ArrowOf
-                    key={s.id}
-                    arrow={s}
-                    byId={byId}
-                    editingLabel={naming?.kind === "label" && naming.id === s.id}
+      <FontAssetUrl.Provider value={assetUrl}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: the canvas's keys and clipboard, for whatever in it has focus */}
+        <div
+          ref={rootRef}
+          className="cnv"
+          data-readonly={readOnly || undefined}
+          onKeyDown={onKeyDown}
+          onKeyUp={onKeyUp}
+          onCopy={onCopy}
+          onCut={onCut}
+          onPaste={onPaste}
+        >
+          <div className="cnv__main">
+            <div
+              ref={planeRef}
+              className="cnv__plane"
+              role="application"
+              aria-label={t("live.canvas.label")}
+              aria-roledescription={t("live.canvas.roledescription")}
+              // biome-ignore lint/a11y/noNoninteractiveTabindex: the plane takes the keys (tools, delete, arrows, zoom)
+              tabIndex={0}
+              data-bg={bg}
+              data-tool={tool}
+              data-panning={panning || undefined}
+              data-space={space || undefined}
+              data-dropping={dropping || undefined}
+              style={planeStyle}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={(e) => onPointerEnd(e)}
+              onPointerCancel={(e) => onPointerEnd(e, true)}
+              onPointerLeave={() => {
+                pointerWorld.current = null;
+                sendCursor(null);
+                if (hover) setHover(null);
+              }}
+              onDoubleClick={onDoubleClick}
+              onContextMenu={onContextMenu}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+            >
+              <div className="cnv__world" style={{ transform: `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})` }}>
+                {drawn.map((s) =>
+                  s.type === "arrow" ? (
+                    <ArrowOf
+                      key={s.id}
+                      arrow={s}
+                      byId={byId}
+                      editingLabel={naming?.kind === "label" && naming.id === s.id}
+                    />
+                  ) : (
+                    <ShapeBody
+                      key={s.id}
+                      shape={s}
+                      editing={editing === s.id}
+                      interacting={interacting === s.id}
+                      fresh={s.type === "image" && wasPending.current.has(s.id)}
+                    />
+                  ),
+                )}
+                {uploads.map((u) => (
+                  <div
+                    key={u.key}
+                    className="cnv-upload"
+                    role="status"
+                    aria-label={t("live.canvas.uploading")}
+                    style={{ left: u.box.x, top: u.box.y, width: u.box.w, height: u.box.h }}
                   />
-                ) : (
-                  <ShapeBody
-                    key={s.id}
-                    shape={s}
-                    editing={editing === s.id}
-                    interacting={interacting === s.id}
-                    fresh={s.type === "image" && wasPending.current.has(s.id)}
-                  />
-                ),
-              )}
-              {uploads.map((u) => (
-                <div
-                  key={u.key}
-                  className="cnv-upload"
-                  role="status"
-                  aria-label={t("live.canvas.uploading")}
-                  style={{ left: u.box.x, top: u.box.y, width: u.box.w, height: u.box.h }}
-                />
-              ))}
-              {inking && (
-                <svg
-                  className="cnv-draw cnv-draw--ink"
-                  data-tool={inking.tool}
-                  style={strokeStyle(inking.color, PEN_WIDTHS[inking.tool][inking.size])}
-                  aria-hidden="true"
-                >
-                  <path ref={inkPath} />
-                </svg>
-              )}
-            </div>
-            <Overlay
-              cam={cam}
-              stage={stage}
-              shapes={list}
-              byId={byId}
-              selected={cropping ? [] : sel}
-              hover={hover}
-              draft={draft}
-              peers={peers}
-              readOnly={readOnly}
-              naming={naming}
-              onName={onName}
-              busy={busy}
-            />
-            <CommentPins artifact={artifact} cam={cam} stage={stage} onOpen={openMessage} />
-            {cropping && cropShape?.asset && (
-              <CropOverlay
-                shape={cropShape}
-                rect={cropping.rect}
+                ))}
+                {inking && (
+                  <svg
+                    className="cnv-draw cnv-draw--ink"
+                    data-tool={inking.tool}
+                    style={strokeStyle(inking.color, PEN_WIDTHS[inking.tool][inking.size])}
+                    aria-hidden="true"
+                  >
+                    <path ref={inkPath} />
+                  </svg>
+                )}
+              </div>
+              <Overlay
                 cam={cam}
-                src={assetUrl(cropShape.asset)}
-                onChange={(rect) => setCropping({ id: cropping.id, rect })}
+                stage={stage}
+                shapes={list}
+                byId={byId}
+                selected={cropping ? [] : sel}
+                hover={hover}
+                draft={draft}
+                peers={peers}
+                readOnly={readOnly}
+                naming={naming}
+                onName={onName}
+                busy={busy}
+              />
+              <CommentPins artifact={artifact} cam={cam} stage={stage} onOpen={openMessage} />
+              {cropping && cropShape?.asset && (
+                <CropOverlay
+                  shape={cropShape}
+                  rect={cropping.rect}
+                  cam={cam}
+                  src={assetUrl(cropShape.asset)}
+                  onChange={(rect) => setCropping({ id: cropping.id, rect })}
+                />
+              )}
+              {empty && (
+                <div className="cnv__empty">
+                  <EmptyState
+                    size="panel"
+                    title={t("live.canvas.empty.title")}
+                    actions={
+                      readOnly ? undefined : (
+                        <>
+                          <button
+                            type="button"
+                            className="ac-btn ac-btn--sm"
+                            onClick={() => createAt("note", viewCenter())}
+                          >
+                            {t("live.canvas.empty.note")}
+                          </button>
+                          <button
+                            type="button"
+                            className="ac-btn ac-btn--sm"
+                            onClick={() => fileInput.current?.click()}
+                          >
+                            {t("live.canvas.empty.upload")}
+                          </button>
+                          {onAsk && fileAgent && (
+                            <button type="button" className="ac-btn ac-btn--agent ac-btn--sm" onClick={() => onAsk()}>
+                              {t("live.conversation.ask", agentGrammar(fileAgent.name))}
+                            </button>
+                          )}
+                        </>
+                      )
+                    }
+                  >
+                    {readOnly ? t("live.canvas.empty.readOnly") : t("live.canvas.empty.text")}
+                  </EmptyState>
+                </div>
+              )}
+              {dropping && (
+                <div className="cnv__drop" aria-hidden="true">
+                  <span className="cnv__drop-words">{t("live.canvas.dropHere")}</span>
+                </div>
+              )}
+            </div>
+            {selAnchor && sized && (
+              <SizeTag anchor={selAnchor} stage={stage} w={Math.round(sized.w)} h={Math.round(sized.h)} />
+            )}
+            {cropping && cropSize && (
+              <SizeTag
+                anchor={toAnchor(cropping.rect)}
+                stage={stage}
+                w={Math.round(cropSize.w)}
+                h={Math.round(cropSize.h)}
               />
             )}
-            {empty && (
-              <div className="cnv__empty">
-                <EmptyState
-                  size="panel"
-                  title={t("live.canvas.empty.title")}
-                  actions={
-                    readOnly ? undefined : (
-                      <>
-                        <button
-                          type="button"
-                          className="ac-btn ac-btn--sm"
-                          onClick={() => createAt("note", viewCenter())}
-                        >
-                          {t("live.canvas.empty.note")}
-                        </button>
-                        <button type="button" className="ac-btn ac-btn--sm" onClick={() => fileInput.current?.click()}>
-                          {t("live.canvas.empty.upload")}
-                        </button>
-                        {onAsk && fileAgent && (
-                          <button type="button" className="ac-btn ac-btn--agent ac-btn--sm" onClick={() => onAsk()}>
-                            {t("live.conversation.ask", agentGrammar(fileAgent.name))}
-                          </button>
-                        )}
-                      </>
-                    )
-                  }
-                >
-                  {readOnly ? t("live.canvas.empty.readOnly") : t("live.canvas.empty.text")}
-                </EmptyState>
-              </div>
+            {!readOnly && selAnchor && (
+              <BarSpot anchor={selAnchor} stage={stage} left={barLeft}>
+                <SelectionBar
+                  shapes={selShapes}
+                  agent={fileAgent}
+                  canAsk={!!onAsk}
+                  fonts={fontChoices}
+                  onAction={barAction}
+                />
+              </BarSpot>
             )}
-            {dropping && (
-              <div className="cnv__drop" aria-hidden="true">
-                <span className="cnv__drop-words">{t("live.canvas.dropHere")}</span>
-              </div>
+            {cropping && (
+              <BarSpot anchor={toAnchor(cropping.rect)} stage={stage} left={barLeft}>
+                <CropBar onApply={applyCrop} onCancel={cancelCrop} />
+              </BarSpot>
             )}
-          </div>
-          {selAnchor && sized && (
-            <SizeTag anchor={selAnchor} stage={stage} w={Math.round(sized.w)} h={Math.round(sized.h)} />
-          )}
-          {cropping && cropSize && (
-            <SizeTag
-              anchor={toAnchor(cropping.rect)}
-              stage={stage}
-              w={Math.round(cropSize.w)}
-              h={Math.round(cropSize.h)}
-            />
-          )}
-          {!readOnly && selAnchor && (
-            <BarSpot anchor={selAnchor} stage={stage} left={barLeft}>
-              <SelectionBar shapes={selShapes} agent={fileAgent} canAsk={!!onAsk} onAction={barAction} />
-            </BarSpot>
-          )}
-          {cropping && (
-            <BarSpot anchor={toAnchor(cropping.rect)} stage={stage} left={barLeft}>
-              <CropBar onApply={applyCrop} onCancel={cancelCrop} />
-            </BarSpot>
-          )}
-          {layersOpen && (
-            <LayersPanel
-              shapes={list}
-              selected={sel}
-              readOnly={readOnly}
-              onPick={pickLayer}
-              onHide={hideShape}
-              onClose={() => setLayersOpen(false)}
-            />
-          )}
-          <div className="cnv__bottom">
-            {tool === "draw" && <PenBar pen={pen} onPen={setPen} />}
-            <Dock
-              tool={tool}
-              shapeKind={shapeKind}
-              route={route}
-              readOnly={readOnly}
-              canComment={!!onAsk}
-              agent={fileAgent}
-              onTool={pickTool}
-              onShape={pickShape}
-              onRoute={pickRoute}
-              onImage={() => fileInput.current?.click()}
-              onAsk={() => onAsk?.()}
-            />
-          </div>
-          <ZoomIsland
-            zoom={cam.z}
-            layers={layersOpen}
-            onLayers={() => setLayersOpen((open) => !open)}
-            onStep={zoomStep}
-            onActual={zoomActual}
-            onFit={fitAll}
-            onFitSelection={fitSelection}
-            canFit={list.length > 0}
-            hasSelection={sel.length > 0}
-          />
-          <input
-            ref={replaceInput}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            hidden
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              const id = replacing.current;
-              e.target.value = "";
-              replacing.current = null;
-              if (file && id) void replaceImage(id, file);
-            }}
-          />
-          <input
-            ref={fileInput}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,image/gif"
-            multiple
-            hidden
-            onChange={(e) => {
-              const files = [...(e.target.files ?? [])];
-              e.target.value = "";
-              if (files.length) void placeFiles(files, viewCenter());
-            }}
-          />
-        </div>
-        {inspected && (
-          <ImageInspector
-            shape={inspected}
-            readOnly={readOnly}
-            assetUrl={assetUrl}
-            onDownload={() => downloadImage(inspected)}
-            onCopy={() => copyImage(inspected)}
-            onOpen={() => setZoomed(inspected)}
-            onClose={() => setDetails(null)}
-          />
-        )}
-        {zoomed?.asset && (
-          <DetailsDialog
-            open
-            size="xl"
-            fill
-            className="artifact-sheet artifact-sheet--image"
-            title={
-              zoomed.gen?.prompt ? (
-                <span className="cnv-zoomed__title">{zoomed.gen.prompt}</span>
-              ) : (
-                t("live.canvas.kinds.image")
-              )
-            }
-            closeLabel={t("live.canvas.inspector.close")}
-            onOpenChange={(open) => !open && setZoomed(null)}
-          >
-            <div className="file-view file-view--image">
-              <ImageZoom
-                src={assetUrl(zoomed.asset)}
-                alt={zoomed.alt ?? zoomed.gen?.prompt ?? t("live.canvas.kinds.image")}
+            {layersOpen && (
+              <LayersPanel
+                shapes={list}
+                selected={sel}
+                readOnly={readOnly}
+                onPick={pickLayer}
+                onHide={hideShape}
+                onClose={() => setLayersOpen(false)}
+              />
+            )}
+            <div className="cnv__bottom">
+              {tool === "draw" && <PenBar pen={pen} onPen={setPen} />}
+              <Dock
+                tool={tool}
+                shapeKind={shapeKind}
+                route={route}
+                readOnly={readOnly}
+                canComment={!!onAsk}
+                agent={fileAgent}
+                onTool={pickTool}
+                onShape={pickShape}
+                onRoute={pickRoute}
+                onImage={() => fileInput.current?.click()}
+                onAsk={() => onAsk?.()}
               />
             </div>
-          </DetailsDialog>
-        )}
-      </div>
+            <ZoomIsland
+              zoom={cam.z}
+              layers={layersOpen}
+              onLayers={() => setLayersOpen((open) => !open)}
+              onStep={zoomStep}
+              onActual={zoomActual}
+              onFit={fitAll}
+              onFitSelection={fitSelection}
+              canFit={list.length > 0}
+              hasSelection={sel.length > 0}
+            />
+            <input
+              ref={replaceInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                const id = replacing.current;
+                e.target.value = "";
+                replacing.current = null;
+                if (file && id) void replaceImage(id, file);
+              }}
+            />
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = [...(e.target.files ?? [])];
+                e.target.value = "";
+                if (files.length) void placeFiles(files, viewCenter());
+              }}
+            />
+          </div>
+          {inspected && (
+            <ImageInspector
+              shape={inspected}
+              readOnly={readOnly}
+              assetUrl={assetUrl}
+              onDownload={() => downloadImage(inspected)}
+              onCopy={() => copyImage(inspected)}
+              onOpen={() => setZoomed(inspected)}
+              onClose={() => setDetails(null)}
+            />
+          )}
+          {zoomed?.asset && (
+            <DetailsDialog
+              open
+              size="xl"
+              fill
+              className="artifact-sheet artifact-sheet--image"
+              title={
+                zoomed.gen?.prompt ? (
+                  <span className="cnv-zoomed__title">{zoomed.gen.prompt}</span>
+                ) : (
+                  t("live.canvas.kinds.image")
+                )
+              }
+              closeLabel={t("live.canvas.inspector.close")}
+              onOpenChange={(open) => !open && setZoomed(null)}
+            >
+              <div className="file-view file-view--image">
+                <ImageZoom
+                  src={assetUrl(zoomed.asset)}
+                  alt={zoomed.alt ?? zoomed.gen?.prompt ?? t("live.canvas.kinds.image")}
+                />
+              </div>
+            </DetailsDialog>
+          )}
+          {fontFromDrive.picker}
+        </div>
+      </FontAssetUrl.Provider>
     </CanvasContext.Provider>
   );
 }

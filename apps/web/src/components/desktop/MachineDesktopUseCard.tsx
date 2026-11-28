@@ -10,26 +10,20 @@ import "../browser/browser.css";
 const TURN_ON = "agentes-runner tools enable desktop && agentes-runner tools enable commands";
 
 /**
- * Apps on the agents' desktops, on a computer's page (ADR 0062): whether agents can use apps on their own
- * desktops there; when not, on Linux the computer's own words on what is missing (each agent its own user,
- * packages) with the command in them, elsewhere that it takes a Linux computer; or the two switches to turn on.
- * What the card is for is its title's ⓘ. Not on the workspace's own computer.
+ * Each agent's own screen, on a Linux computer's page (ADR 0062): whether agents can use apps on their own
+ * desktops there; when not, the computer's own words on what is missing (each agent its own user, packages) with the
+ * command in them; or the two switches to turn on. What the card is for, and why Linux alone, is its title's ⓘ. Not
+ * on a Mac or Windows computer, where it can't apply, nor on the workspace's own computer.
  */
 export function MachineDesktopUseCard({ machine: m }: { machine: Machine }) {
   const { t } = useTranslation();
   const oneClick = useToolOneClick(m);
   const use = m.desktopUse;
-  if (!use) return null;
+  if (!use || m.os !== "linux") return null;
   const off = use.available && !(m.access?.tools.desktop && m.access.tools.commands);
   const missing = (["desktop", "commands"] as const).filter((tool) => m.access?.tools[tool] !== true);
-  // A Mac or Windows has nothing to install for it: said in the app's words, not the runner's English.
-  const linux = m.os === "linux";
-  const reason = use.available
-    ? null
-    : linux
-      ? machineReasonText(t, use, "desktop_use_install")
-      : t("desktop.use.linuxOnly");
-  const command = linux && !use.available ? commandInReason(use.reason) : null;
+  const reason = use.available ? null : machineReasonText(t, use, "desktop_use_install");
+  const command = use.available ? null : commandInReason(use.reason);
   return (
     <Card aria-labelledby="sec-machine-desktop-use">
       <CardHeader
@@ -40,7 +34,7 @@ export function MachineDesktopUseCard({ machine: m }: { machine: Machine }) {
       />
       <div className="brw-status">
         {!use.available ? (
-          <Chip icon="alert">{t("desktop.use.unavailable")}</Chip>
+          <Chip icon="dash">{t("desktop.use.unavailable")}</Chip>
         ) : off ? (
           <Chip icon="dash">{t("desktop.use.off")}</Chip>
         ) : (

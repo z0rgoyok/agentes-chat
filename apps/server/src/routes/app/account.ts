@@ -5,6 +5,7 @@ import {
   acceptInvitation,
   accountDeletionPlan,
   addHostComputer,
+  adoptDeviceZone,
   announceMembers,
   announceProfile,
   avatarFile,
@@ -28,6 +29,7 @@ import {
   INVITE_CHOICES_MAX,
   invitationLogoFile,
   invitationState,
+  invitedOrgId,
   isAgentesCloud,
   isEmailVerified,
   isValidTimeZone,
@@ -81,6 +83,7 @@ import {
   updateOrganization,
   updateOrgSettings,
   WORKSPACE_MODES,
+  waitingInvitations,
   wallpaperPhotoFile,
   workspaceContents,
   workspaceDeletions,
@@ -158,6 +161,14 @@ const INVITE_LOGO_PER_IP = { limit: 60, windowMs: 60_000 };
 const Name = z.string().trim().min(1).max(100);
 const Context = z.string().max(20_000).openapi({ description: "Shared with every agent of the organization." });
 
+/**
+ * A computer's own install (the desktop app's server, or one from the terminal) at an address only that computer
+ * answers: no link it hands out (a phone's code, an invitation) opens anywhere else. Development servers keep theirs.
+ */
+const localOnly = (config: AppDeps["config"]) =>
+  isLoopback(new URL(config.PUBLIC_URL).origin) &&
+  (config.INSTALL_MODE === "desktop" || config.INSTALL_MODE === "native");
+
 /** `GET /me`: the signed-in person and their workspaces, also in the answers that finish a workspace's onboarding. */
 const Me = z
   .object({
@@ -176,6 +187,10 @@ const Me = z
       emailConfirmation: z.enum(["required", "reminder"]).nullable().openapi({
         description:
           "On a server that sends email, an address never confirmed (ADR 0006, addendum 2026-11-22): `required` while the account is in no workspace, which then makes none (403 `org.create_unconfirmed`) until the link is opened, so the apps show only “check your inbox”; `reminder` for one already in a workspace, which keeps working under a line that asks for it. Null otherwise.",
+      }),
+      emailUndelivered: z.enum(["suppressed", "rejected"]).nullable().openapi({
+        description:
+          "The last confirmation or reset email to the address could never be delivered: `suppressed`, the mail provider stopped mailing it after an earlier bounce (a new link asks the provider to mail it again first); `rejected`, the address was refused. Null once one goes, or when nothing says so.",
       }),
       confirmsOnThisMac: z.boolean().openapi({
         description:
@@ -207,6 +222,13 @@ const Me = z
         }),
     }),
     organizations: z.array(Organization),
+    invitations: z
+      .array(z.object({ orgId: z.uuid(), orgName: z.string(), token: z.string() }))
+      .optional()
+      .openapi({
+        description:
+          "Email invitations that wait for a confirmed address, newest first, each with the token its page (`/invite/{token}`) accepts: the apps open one instead of making a first workspace, and offer it from a workspace. Absent when none waits or the address isn't confirmed.",
+      }),
   })
   .openapi("Me");
 
@@ -232,7 +254,7 @@ export function accountRoutes(deps: AppDeps) {
   });
   /** `GET /me`'s body; null once the account is deleted. */
   const meBody = async (user: { id: string; name: string; email: string }): Promise<z.infer<typeof Me> | null> => {
-    const [memberships, password, verified, creates, unfinished, account, onThisMac] = await Promise.all([
+    const [memberships, password, verified, creates, unfinished, account, onThisMac, invited] = await Promise.all([
       listMemberships(db, user.id),
       hasPassword(db, user.id),
       isEmailVerified(db, user.id),
@@ -240,6 +262,7 @@ export function accountRoutes(deps: AppDeps) {
       unfinishedWorkspaces(db, user.id),
       myAccount(db, user.id),
       confirmsOnThisMac(proofDeps(), user.id),
+      waitingInvitations(db, config.AGENTES_SECRET, user),
     ]);
     if (verified === null) return null;
     const onboardingOf = (orgId: string) => unfinished.find((u) => u.organization.id === orgId);
@@ -261,6 +284,7 @@ export function accountRoutes(deps: AppDeps) {
           verified,
           workspaces: memberships.length,
         }),
+        emailUndelivered: account.emailUndelivered,
         confirmsOnThisMac: onThisMac,
         locale: account.locale,
         localeAuto: account.localeAuto,
@@ -310,6 +334,7 @@ export function accountRoutes(deps: AppDeps) {
             : {}),
         };
       }),
+      ...(verified && invited.length > 0 ? { invitations: invited } : {}),
     };
   };
   /** What finishing a workspace's onboarding answers: where it opens (its right hand's DM) and `/me` as it is now. */
@@ -427,6 +452,10 @@ export function accountRoutes(deps: AppDeps) {
                 description:
                   "The same for the phone app (`SENTRY_MOBILE_DSN`, else `SENTRY_WEB_DSN`); `release` is the server's, the app files its reports under its own.",
               }),
+            localOnly: z.boolean().openapi({
+              description:
+                "A computer's own install (`INSTALL_MODE` desktop or native) whose `PUBLIC_URL` only that computer answers: invitation links and other links it hands out open nowhere else, so the apps say so where people invite.",
+            }),
             surface: z.boolean().openapi({
               description:
                 "An outside chat surface is bridged (`SURFACE_BRIDGE_TOKEN`, ADR 0187). Whether this account may link it is `GET /api/app/me/surface-links`'s `allowed`.",
@@ -435,10 +464,10 @@ export function accountRoutes(deps: AppDeps) {
               .object({
                 name: z.string(),
                 accent: z.string().nullable().openapi({ description: "`#rrggbb`; null: the default." }),
-                logoUrl: z
-                  .string()
-                  .nullable()
-                  .openapi({ description: "Its logo (`GET /api/host-look/logo`); null: none." }),
+                logoUrl: z.string().nullable().openapi({
+                  description:
+                    "Its logo (`GET /api/host-look/logo`), ending with `#ink=light` when its ink is light; null: none.",
+                }),
                 poweredBy: z.boolean().openapi({ description: "Its pages end with the powered-by line." }),
               })
               .nullable()
@@ -472,6 +501,7 @@ export function accountRoutes(deps: AppDeps) {
           errorReports: reportsTo(config.SENTRY_WEB_DSN),
           mobileErrorReports: reportsTo(config.SENTRY_MOBILE_DSN ?? config.SENTRY_WEB_DSN),
           surface: surfaceOn() !== null,
+          localOnly: localOnly(config),
           host: look && {
             name: look.name,
             accent: look.accent,
@@ -661,6 +691,14 @@ export function accountRoutes(deps: AppDeps) {
                       "The latest request for their address through a link, with its answer; always null while " +
                       "the address isn't confirmed.",
                   }),
+                invitation: z
+                  .string()
+                  .optional()
+                  .openapi({
+                    description:
+                      "Approved with an email invitation that still waits: its token (`/invite/{token}`), which this " +
+                      "account accepts as it is.",
+                  }),
               })
               .optional()
               .openapi({
@@ -678,8 +716,17 @@ export function accountRoutes(deps: AppDeps) {
       if (!invitation) return apiError(c, 404, "not_found", "Invitation not found or expired");
       const user = invitation.kind === "link" ? await sessionUser(deps.auth, c.req.raw.headers) : null;
       const status = user ? await joinStatus(db, user, token) : null;
+      // Approved with an invitation (an account that was already there): the page opens it instead of saying
+      // "check your email".
+      const linkOrg =
+        user && status?.request?.status === "approved" && !status.member ? await invitedOrgId(db, token) : null;
+      const waiting = user && linkOrg ? await waitingInvitations(db, config.AGENTES_SECRET, user) : [];
+      const invited = waiting.find((w) => w.orgId === linkOrg)?.token;
       // A link that no longer works still tells a member they're in; anyone else hears only that it doesn't work.
-      const you = "closed" in invitation && !status?.member ? null : status;
+      const you =
+        "closed" in invitation && !status?.member
+          ? null
+          : status && { ...status, ...(invited ? { invitation: invited } : {}) };
       return c.json({ ...invitation, ...(you ? { you } : {}) }, 200);
     },
   );
@@ -961,9 +1008,7 @@ export function accountRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const server = new URL(config.PUBLIC_URL).origin;
-      // A computer's own install (the desktop app's server, or one from the terminal) at an address only that computer
-      // answers: a code would open nothing on the phone. Development servers keep theirs (a simulator reaches them).
-      if (isLoopback(server) && (config.INSTALL_MODE === "desktop" || config.INSTALL_MODE === "native")) {
+      if (localOnly(config)) {
         return apiError(c, 409, "phone.local_only", "This server answers only on its own computer");
       }
       const current = await sessionOf(deps.auth, c.req.raw.headers);
@@ -2079,6 +2124,24 @@ export function accountRoutes(deps: AppDeps) {
                 "as confirmed. A copied link has none.",
             }),
         }),
+        body: {
+          required: false,
+          content: {
+            "application/json": {
+              schema: z.object({
+                timeZone: z
+                  .string()
+                  .max(64)
+                  .optional()
+                  .openapi({
+                    description:
+                      "The IANA zone of the device accepting: the person's zone in the workspace while they have none " +
+                      "of their own. An unknown one is ignored.",
+                  }),
+              }),
+            },
+          },
+        },
       },
       responses: { 200: json(z.object({ orgId: z.uuid() })), ...errors },
     }),
@@ -2086,6 +2149,7 @@ export function accountRoutes(deps: AppDeps) {
       const user = c.get("user");
       const mail = { secret: config.AGENTES_SECRET, proof: c.req.valid("query").mail };
       const joined = await acceptInvitation(db, user, c.req.valid("param").token, new Date(), mail);
+      await adoptDeviceZone(db, joined.orgId, user.id, c.req.valid("json")?.timeZone);
       await announceMembers(deps.adapters.pubsub, joined.orgId, joined.agents);
       // A request to join they had waiting closed as they joined: the admins' notice goes with the last one.
       await settleJoinRequests({ db, pubsub: deps.adapters.pubsub }, joined.orgId);

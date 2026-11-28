@@ -16,16 +16,14 @@ import {
   pasteEvents,
 } from "@agenteschat/client";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { openRefusalKey, siteName } from "@agenteschat/client/lib/sites";
+import { openRefusalKey } from "@agenteschat/client/lib/sites";
 import { type AgentColorName, gradientOf, mixHex } from "@agenteschat/ui/agent/engine";
 import * as Clipboard from "expo-clipboard";
-import { Image as SiteImage } from "expo-image";
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import {
   Image,
   type LayoutChangeEvent,
-  Text as RNText,
   type StyleProp,
   StyleSheet,
   TextInput,
@@ -391,43 +389,7 @@ export function AddressBar({
   );
 }
 
-/** A site's paper and letter, the same in both themes (the web's `--site-paper`, `--site-ink`). */
-export const SITE_PAPER = "#ffffff";
-const SITE_INK = "#111111";
-/** A plain host ("example.com", "localhost:3000"): only those get their icon asked for. */
-const PLAIN_HOST = /^[a-z0-9.-]+(:\d+)?$/i;
-
-/**
- * A site's own icon (its `/favicon.ico`), or its first letter when it has none or `letterOnly` (an app on the desktop):
- * one 18-point tile either way, so the line never shifts (the web's `SiteIcon`). Decorative: the words beside name it.
- */
-export function SiteIcon({ host, letterOnly = false }: { host: string; letterOnly?: boolean }) {
-  const c = useColors();
-  // Keyed by the host it failed for: a new site gets a new try with nothing to reset.
-  const [failed, setFailed] = useState<string | null>(null);
-  const letter = siteName(host).charAt(0);
-  const plain = letterOnly || failed === host || !PLAIN_HOST.test(host);
-  return (
-    <View
-      style={[styles.siteIcon, { borderColor: c.line2 }]}
-      accessibilityElementsHidden
-      importantForAccessibility="no-hide-descendants"
-    >
-      {plain ? (
-        <RNText style={styles.siteLetter} allowFontScaling={false}>
-          {letter}
-        </RNText>
-      ) : (
-        <SiteImage
-          source={{ uri: `https://${host}/favicon.ico` }}
-          style={styles.favicon}
-          contentFit="contain"
-          onError={() => setFailed(host)}
-        />
-      )}
-    </View>
-  );
-}
+export { SITE_PAPER, SiteIcon } from "../shared/SiteIcon";
 
 /**
  * The agent's frame closed into its top (the web's `brw-mf-end`): a light band of the agent's color, the size of the
@@ -628,18 +590,6 @@ const styles = StyleSheet.create({
   keys: { flexDirection: "row", gap: 6, justifyContent: "flex-end" },
   keyCap: { borderRadius: 10 },
   keyCapIn: { minWidth: 44, alignItems: "center", paddingVertical: 8, paddingHorizontal: 8 },
-  siteIcon: {
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    borderWidth: StyleSheet.hairlineWidth,
-    backgroundColor: SITE_PAPER,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  favicon: { width: 14, height: 14 },
-  siteLetter: { color: SITE_INK, fontSize: 10, lineHeight: 12, fontWeight: "700", textTransform: "uppercase" },
   band: {
     borderWidth: StyleSheet.hairlineWidth,
     borderTopLeftRadius: BAND.radius,

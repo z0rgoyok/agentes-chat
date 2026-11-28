@@ -24,6 +24,8 @@ export interface KpiWidgetSpec {
   delta?: { text: string; up: boolean };
   note?: string;
   spark?: number[];
+  /** One per `spark` number: its date, mostly. */
+  sparkLabels?: string[];
 }
 export interface GoalWidgetSpec {
   kind: "goal";

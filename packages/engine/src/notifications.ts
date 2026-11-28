@@ -154,6 +154,15 @@ export const NOTIFICATION_KINDS = [
    */
   "computer_no_chrome",
   /**
+   * A computer the workspace's agents work on has been away `DOWN_NOTICE_MS` (ADR 0241): who configures the workspace
+   * (and who connected one they brought) hears it once per outage. `source.machineId` and its name in `source.label`,
+   * `latest.since` when the outage began, `latest.runs` the runs waiting for it and `latest.calls` the webhook calls
+   * its agents' routines took since. Never for standby or a move. Inbox only (no category, no push, no email).
+   */
+  "computer_down",
+  /** The same computer is back (ADR 0241): only to who heard it was down, with the same fields, then. Inbox only. */
+  "computer_back",
+  /**
    * Someone other than the agent's owner took control of its desktop (ADR 0059 §8): its owner, once a day per agent,
    * the person as actor, `source.agentId` and its name in `source.label`. Inbox only (no category, no push).
    */
@@ -295,6 +304,13 @@ export const NOTIFICATION_KINDS = [
    */
   "device.folder_request",
   /**
+   * A computer paired before agents could use a person's internet lends its own now (ADR 0237, migration 0351): its
+   * owner, else who configures the workspace (one marked the workspace's, or whose owner left), once per computer
+   * (`device-internet:<machineId>`), the computer in `source.machineId` with its name in `source.label`. Inbox only,
+   * with "Turn off"; done once it is off.
+   */
+  "device.internet_shared",
+  /**
    * "Pedir a um admin" (`POST …/admin-asks`, `admin-asks.ts`): to whoever may do it, the asker as actor, what in
    * `latest.reason` (`channel_agent`, `create_agents`, `webhook` with the service in `latest.title`). `channel_agent`
    * names `source.channelId` (its name in `label`) and `agentId`, waits, and is done once the agent is added.
@@ -416,8 +432,10 @@ export interface NotificationLatest {
   suggestedBy?: string;
   /** `join_request` for an outside collaborator (ADR 0191): who they work for, so a row of one says so. */
   outsideOf?: string;
-  /** `composio_limit`: the calls a month allows. */
+  /** `composio_limit`: the calls a month allows; `computer_down`, `computer_back`: the webhook calls that waited. */
   calls?: number;
+  /** `computer_down`, `computer_back`: when the outage began (ISO). */
+  since?: string;
   /** `computer_disk_full`: the share of the disk in use (0 to 1) and the GB left. */
   diskUse?: number;
   diskFreeGb?: number;
@@ -441,6 +459,7 @@ export interface NotificationLatest {
   limitUsd?: number;
   raiseToUsd?: number;
   limitFrom?: string;
+  /** `usage_limit`: this month's requests; `computer_down`, `computer_back`: the runs that waited for the computer. */
   runs?: number;
   /** `usage_limit`: the share of the requests made with the agent in `title`. */
   share?: number;
@@ -732,9 +751,17 @@ async function upsertOne(deps: NotificationDeps, input: NotifyInput, userId: str
 export async function resolveNotifications(
   deps: NotificationDeps,
   orgId: string,
-  match: { groupKey?: string; groupKeyPrefix?: string; ids?: string[]; userIds?: string[]; kind?: NotificationKind },
+  match: {
+    groupKey?: string;
+    groupKeyPrefix?: string;
+    ids?: string[];
+    userIds?: string[];
+    kind?: NotificationKind;
+    /** Rows about this conversation (`source.channelId`, and `source.threadId` when given), whatever their group. */
+    place?: { channelId: string; threadId?: string };
+  },
 ): Promise<number> {
-  if (!match.groupKey && !match.groupKeyPrefix && !match.ids?.length) return 0;
+  if (!match.groupKey && !match.groupKeyPrefix && !match.ids?.length && !match.place) return 0;
   if (match.userIds && match.userIds.length === 0) return 0;
   const rows = await deps.db
     .update(notifications)
@@ -748,6 +775,8 @@ export async function resolveNotifications(
         match.ids ? inArray(notifications.id, match.ids) : undefined,
         match.userIds ? inArray(notifications.userId, match.userIds) : undefined,
         match.kind ? eq(notifications.kind, match.kind) : undefined,
+        match.place ? sql`${notifications.source}->>'channelId' = ${match.place.channelId}` : undefined,
+        match.place?.threadId ? sql`${notifications.source}->>'threadId' = ${match.place.threadId}` : undefined,
       ),
     )
     .returning({ id: notifications.id, userId: notifications.userId });
@@ -757,6 +786,56 @@ export async function resolveNotifications(
     await publishUserEvent(deps.pubsub, orgId, r.userId, { type: "notification.removed", id: r.id });
   }
   for (const userId of users) await publishCounts(deps, orgId, userId);
+  return rows.length;
+}
+
+/** What people (or an agent on its own) said to me in a conversation, read there like in the inbox. */
+const SAID_HERE: NotificationKind[] = ["dm", "mention", "reaction"];
+
+/**
+ * Reading a conversation reads what was said to me there: a channel or DM (`threadId` unset) its DMs, mentions and
+ * reactions outside threads, a thread its replies and those inside it. Read, not done: they stay in the inbox, out of
+ * the unread count, as "Marcar como lido" leaves them. Only what landed by `at`, so a message arriving after the read
+ * stays unread. Their group keys hold a message or thread id, so the match is on `source`, not a key prefix.
+ */
+export async function readConversationNotifications(
+  deps: NotificationDeps,
+  orgId: string,
+  userId: string,
+  place: { channelId: string; threadId?: string },
+  at: Date,
+): Promise<number> {
+  const threadId = sql`${notifications.source}->>'threadId'`;
+  const rows = await deps.db
+    .update(notifications)
+    .set({ readAt: at })
+    .where(
+      and(
+        eq(notifications.orgId, orgId),
+        eq(notifications.userId, userId),
+        isNull(notifications.doneAt),
+        isNull(notifications.readAt),
+        lte(notifications.updatedAt, at),
+        sql`${notifications.source}->>'channelId' = ${place.channelId}`,
+        // A task's mention carries the task's home channel, not the conversation it was said in.
+        sql`${notifications.source}->>'issueId' is null`,
+        place.threadId
+          ? or(
+              and(inArray(notifications.kind, SAID_HERE), sql`${threadId} = ${place.threadId}`),
+              and(eq(notifications.kind, "thread_reply"), eq(notifications.groupKey, `thread:${place.threadId}`)),
+            )
+          : and(inArray(notifications.kind, SAID_HERE), sql`${threadId} is null`),
+      ),
+    )
+    .returning();
+  for (const r of rows) {
+    await publishUserEvent(deps.pubsub, orgId, userId, {
+      type: "notification.upserted",
+      notification: notificationView(r),
+      alert: false,
+    });
+  }
+  if (rows.length) await publishCounts(deps, orgId, userId);
   return rows.length;
 }
 

@@ -19,7 +19,8 @@ test("each field's limit is the number its route takes", () => {
   has(routes("agents.ts"), /instructions: z\.string\(\)\.max\(([\d_]+)\)/g, FIELD_LIMITS.instructions);
   has(routes("memory.ts"), /text: z\.string\(\)\.min\(1\)\.max\(([\d_]+)\)/g, FIELD_LIMITS.memory);
   has(routes("account.ts"), /const Context = z\.string\(\)\.max\(([\d_]+)\)/g, FIELD_LIMITS.workspaceContext);
-  has(routes("routines.ts"), /prompt: z\.string\(\)\.min\(1\)\.max\(([\d_]+)\)/g, FIELD_LIMITS.routinePrompt);
+  has(read("packages/tokens/src/routines.ts"), /ROUTINE_PROMPT_MAX = ([\d_]+)/g, FIELD_LIMITS.routinePrompt);
+  expect(routes("routines.ts")).toContain("prompt: z.string().min(1).max(ROUTINE_PROMPT_MAX)");
   has(routes("calendar.ts"), /description: z\.string\(\)\.max\(([\d_]+)\)/g, FIELD_LIMITS.eventDescription);
   has(routes("issues.ts"), /description: z\.string\(\)\.max\(([\d_]+)\)/g, FIELD_LIMITS.issueDescription);
   has(read("packages/engine/src/right-hand-approvals.ts"), /guidanceChars: ([\d_]+)/g, FIELD_LIMITS.rightHandGuidance);

@@ -1,5 +1,5 @@
 import { type AgentBrainInput, type BrainKind, type BrainScope, keys, useApi } from "@agenteschat/client";
-import { type EffortLevel, effortLevelsOf, effortTextOf } from "@agenteschat/client/lib/brain-advanced";
+import { type EffortLevel, effortTextOf, shownEffort } from "@agenteschat/client/lib/brain-advanced";
 import { AUTO } from "@agenteschat/client/lib/providers";
 import { bodyTones } from "@agenteschat/ui/agent/engine";
 import { Canvas, Fill, Shader, Skia } from "@shopify/react-native-skia";
@@ -15,10 +15,13 @@ import { useOrg } from "@/providers/org";
 import { useDrawingClock } from "@/sky/clock";
 import { rgba } from "@/sky/math";
 import { EFFORT_SHADER } from "@/sky/shaders";
-import { haptics, Text, useReducedMotion, useTheme, useToast } from "@/ui";
+import { GroupedRow, haptics, Text, useReducedMotion, useTheme, useToast } from "@/ui";
+import { pickOne } from "../shared/PickerSheet";
 import { effortReach, effortStep } from "./effort";
 
 const HEIGHT = 46;
+/** Up to this many levels the effort is the ramp; more is a list. */
+const RAMP_MAX = 4;
 const CELL = 3;
 /** The fill settling on its step after a drag or a tap: 300 ms, a touch of give and no real bounce. */
 const FILL_SPRING = { duration: 300, dampingRatio: 0.8 };
@@ -36,26 +39,64 @@ function effortEffect() {
   return effect;
 }
 
+type RampProps = {
+  value: EffortLevel | null;
+  onChange: (level: EffortLevel) => void;
+  color: Parameters<typeof bodyTones>[0];
+  /** The levels the model takes (`effortLevelsFor`), lowest first. */
+  levels: readonly EffortLevel[];
+  kind?: BrainKind;
+  disabled?: boolean;
+};
+
+/** The effort as the model takes it: the ramp up to four levels, a list past that; nothing for a model with none. */
+export function EffortRamp(props: RampProps) {
+  if (props.levels.length === 0) return null;
+  // A stored level the model doesn't take runs as its highest one under it, which saves when picked: a pick is held
+  // against what is stored, not what shows.
+  const shown = {
+    ...props,
+    value: props.value && shownEffort(props.value, props.levels),
+    onChange: (level: EffortLevel) => {
+      if (level !== props.value) props.onChange(level);
+    },
+  };
+  return props.levels.length > RAMP_MAX ? <EffortPick {...shown} /> : <Ramp {...shown} />;
+}
+
+/** Past four levels: one row with the level's name, opening the levels in the app's sheet. */
+function EffortPick({ value, onChange, levels, kind, disabled = false }: RampProps) {
+  const { t } = useTranslation();
+  const label = t("agentPage.work.brain.effort");
+  const name = (e: EffortLevel | null) => t(`agentPage.work.brain.efforts.${e ?? "none"}`);
+  const open = async () => {
+    const picked = await pickOne({
+      title: label,
+      options: levels.map((e) => ({ key: e, label: name(e) })),
+      value,
+      lit: true,
+    });
+    if (picked !== null) onChange(picked as EffortLevel);
+  };
+  return (
+    <GroupedRow
+      label={label}
+      value={name(value)}
+      sub={t(`agentPage.work.brain.effortText.${effortTextOf(kind, value)}`)}
+      menu
+      disabled={disabled}
+      onPress={() => void open()}
+    />
+  );
+}
+
 /**
  * How much an agent thinks, the web's pixel ramp (`EffortPixels`) on the phone: bars in the agent's color fill up to
  * the chosen step, under the finger and on the UI thread, with a tick at each step; the step's name and what it means
  * follow. Drag or tap the ramp, or tap a name; it says the choice when let go. Still with reduced motion. `kind`: what
  * the agent thinks with (an API key takes fewer levels); `value` null: none chosen, the ramp stays empty.
  */
-export function EffortRamp({
-  value,
-  onChange,
-  color,
-  kind,
-  disabled = false,
-}: {
-  value: EffortLevel | null;
-  onChange: (level: EffortLevel) => void;
-  color: Parameters<typeof bodyTones>[0];
-  kind?: BrainKind;
-  disabled?: boolean;
-}) {
-  const levels = effortLevelsOf(kind);
+function Ramp({ value, onChange, color, levels, kind, disabled = false }: RampProps) {
   const STEPS = levels.length;
   const { t } = useTranslation();
   const { colors } = useTheme();
@@ -87,7 +128,7 @@ export function EffortRamp({
     setShown(to);
     land(to);
     const level = levels[to];
-    if (level && level !== value) onChange(level);
+    if (level) onChange(level);
   };
   const follow = (x: number) => {
     "worklet";

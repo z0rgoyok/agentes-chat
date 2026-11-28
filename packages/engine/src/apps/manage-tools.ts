@@ -1,4 +1,5 @@
 import { and, eq, gte, schema, sql } from "@agenteschat/db";
+import { ROUTINE_PROMPT_MAX } from "@agenteschat/tokens/routines";
 import { z } from "zod";
 import {
   type Agent,
@@ -476,7 +477,7 @@ export function registerManageTools(deps: AppsToolDeps, p: AppPrincipal, tool: R
       input: z
         .object({
           agent: AGENT_REF,
-          instructions: z.string().min(1).max(10_000).describe("What the agent does each time"),
+          instructions: z.string().min(1).max(ROUTINE_PROMPT_MAX).describe("What the agent does each time"),
           schedule: z.string().min(1).max(200).describe("When it runs, as a phrase"),
           name: z.string().max(120).optional().describe("A short name; the first line of instructions when left out"),
           channel_id: z.uuid().optional().describe("The channel it posts in (from list_channels)"),

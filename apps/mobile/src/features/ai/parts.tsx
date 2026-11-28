@@ -162,7 +162,7 @@ export function PlanReplies({
   agent: string;
   /** The plan's owner's first name, to anyone else (an admin); absent: the viewer's own plan. */
   owner?: string;
-  brain: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+  brain: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
   /** The account's plan as the CLI says it (`max`, `team`…): a seat has its own words. */
   plan?: string | null;
   /** A coding plan, named by the line, its maker's words behind the ⓘ. */

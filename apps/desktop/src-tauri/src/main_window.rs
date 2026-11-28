@@ -235,7 +235,7 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
         // ADR 0154), that it takes the person's app icon (`appIcon`, ADR 0179) and how this computer draws
         // (`renderer`, and Linux's `system` facts: graphics.rs); nothing else.
         .initialization_script(format!(
-            "window.__agentesDesktop = Object.freeze({{ version: {version:?}, platform: {PLATFORM:?}, servers: true, files: true, connectorReturn: true, workspaces: true, appIcon: true, renderer: {renderer:?}, system: {system} }});",
+            "window.__agentesDesktop = Object.freeze({{ version: {version:?}, platform: {PLATFORM:?}, servers: true, files: true, connectorReturn: true, signedInLink: true, workspaces: true, appIcon: true, renderer: {renderer:?}, system: {system} }});",
             renderer = crate::graphics::renderer(),
             system = serde_json::to_string(&crate::graphics::system()).unwrap_or_else(|_| "null".into()),
         ))
@@ -270,7 +270,7 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
         })
         // A whole page loading again (⌘R, macOS ended it, a full navigation): the cover, never a blank window.
         .on_page_load(move |page, payload| match payload.event() {
-            PageLoadEvent::Started => crate::cover::show(&on_load, Duration::ZERO),
+            PageLoadEvent::Started => crate::cover::show(&on_load),
             // The page's own sizes follow the zoom (desktop.css), and the bar knows about full screen.
             PageLoadEvent::Finished => {
                 page_loaded();
@@ -304,12 +304,15 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
         (Some(x), Some(y)) => builder.position(x, y),
         _ => builder.center(),
     };
+    #[cfg(target_os = "windows")]
+    let builder = builder.zoom_hotkeys_enabled(true);
     #[cfg(target_os = "macos")]
     let builder = builder
         .title_bar_style(tauri::TitleBarStyle::Overlay)
         // The buttons are placed by `place_lights` (on every fit), not with `traffic_light_position`.
         .hidden_title(true);
     let built = builder.build().map_err(|e| e.to_string())?;
+    crate::bench::window_built();
     // Linux's side of lib.rs `on_web_content_process_terminate` (macOS only in Tauri): a web process that died
     // leaves the window blank, so the page loads again.
     #[cfg(target_os = "linux")]
@@ -319,10 +322,17 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
             use webkit2gtk::WebViewExt;
             view.inner().connect_web_process_terminated(move |view, reason| {
                 crate::health::note(&app, &format!("the web process of {LABEL} ended ({reason:?}): loading it again"));
-                crate::cover::show(&app, Duration::ZERO);
+                crate::cover::show(&app);
                 view.reload();
             });
         });
+    }
+    // Windows' side: WebView2 has no reload of its own when the page's renderer ends (a crash, the system out of
+    // memory), it shows its "This page is having a problem" page and keeps it until someone presses Refresh.
+    #[cfg(target_os = "windows")]
+    {
+        let app = app.clone();
+        let _ = built.with_webview(move |view| reload_when_renderer_ends(app, &view));
     }
     // A new window starts with the bundle's icon on Windows and Linux: the person's pick (ADR 0179).
     crate::app_icon::show(app);
@@ -339,6 +349,58 @@ pub fn open(app: &AppHandle, url: Option<Url>) -> Result<(), String> {
     follow_lights(app);
     fit_page(app);
     front(app)
+}
+
+/// The main frame's renderer ended: logged with its exit code (`0x80000003` is the `STATUS_BREAKPOINT` WebView2's page
+/// shows, a crash of the renderer itself), the cover over it and the page loaded again, as on macOS and Linux. Only the
+/// page's own renderer: an iframe's, or one that stopped answering and may come back, leave the page as it is, and
+/// WebView2's browser process ending takes the web view with it, which no reload brings back.
+#[cfg(target_os = "windows")]
+fn reload_when_renderer_ends(app: AppHandle, view: &tauri::webview::PlatformWebview) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::{
+        ICoreWebView2ProcessFailedEventArgs2, COREWEBVIEW2_PROCESS_FAILED_KIND,
+        COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED,
+    };
+    use webview2_com::ProcessFailedEventHandler;
+    use windows::core::Interface;
+
+    // SAFETY: on the main thread (`with_webview`), the controller is this window's live one, and WebView2 calls the
+    // handler on that same thread.
+    unsafe {
+        let Ok(core) = view.controller().CoreWebView2() else { return };
+        let last_reload = std::cell::Cell::new(None::<Instant>);
+        let handler = ProcessFailedEventHandler::create(Box::new(move |sender, args| {
+            let (Some(sender), Some(args)) = (sender, args) else { return Ok(()) };
+            let mut kind = COREWEBVIEW2_PROCESS_FAILED_KIND::default();
+            args.ProcessFailedKind(&mut kind)?;
+            if kind != COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED {
+                return Ok(());
+            }
+            let mut code = 0i32;
+            if let Ok(args) = args.cast::<ICoreWebView2ProcessFailedEventArgs2>() {
+                let _ = args.ExitCode(&mut code);
+            }
+            // A renderer that ends again within a minute of the last reload would only crash again: WebView2's own
+            // page stays, with its Refresh button, instead of a reload loop. Unlike macOS and Linux, where the window
+            // would be left blank, Windows has that page to fall back on.
+            if last_reload.get().is_some_and(|at| at.elapsed() < Duration::from_secs(60)) {
+                crate::health::note(
+                    &app,
+                    &format!("the web process of {LABEL} ended again ({:#010x}): left as it is", code as u32),
+                );
+                return Ok(());
+            }
+            last_reload.set(Some(Instant::now()));
+            crate::health::note(
+                &app,
+                &format!("the web process of {LABEL} ended ({:#010x}): loading it again", code as u32),
+            );
+            crate::cover::show(&app);
+            sender.Reload()
+        }));
+        let mut token = 0i64;
+        let _ = core.add_ProcessFailed(&handler, &mut token);
+    }
 }
 
 /// The window's name for the page's title: the site's own long title (sign-in, the landing) is just the app's.
@@ -760,6 +822,7 @@ fn quarantine(_path: &Path) {}
 
 fn front(app: &AppHandle) -> Result<(), String> {
     let window = app.get_window(LABEL).ok_or("window not found")?;
+    crate::background::showing(app);
     let _ = window.unminimize();
     window.show().map_err(|e| e.to_string())?;
     window.set_focus().map_err(|e| e.to_string())
@@ -770,9 +833,10 @@ fn front(app: &AppHandle) -> Result<(), String> {
 /// code with its own session), reconnecting it (`reconnect`), Preferences on a tab (`prefs`), the menu bar's
 /// access requests (`requests`), the Dock's badge (`badge`), the Go menu's organizations (`orgs`), a
 /// notification while the app is in the background (`notify`), the first run's window to pick another server
-/// (`servers`: the sign-in page's way out, the same window as Servers › Add a server…) and, on the server
-/// here, signing its owner in (`signIn`: the app spends its owner key on a one-time sign-in, which the window
-/// trades itself) and the folder of its files (`files`: Storage's "Show the folder"). Rust checks
+/// (`servers`: the sign-in page's way out, the same window as Servers › Add a server…), the app's own speed numbers
+/// for the site's report (`vitals`: its opening and its web view's memory) and, on the server here, signing its
+/// owner in (`signIn`: the app spends its owner key on a one-time sign-in, which the window trades itself) and the
+/// folder of its files (`files`: Storage's "Show the folder"). Rust checks
 /// each request, rebuilds it from the keys it may have, adds the asking page's own `origin`, whether agents may
 /// work here for it and whether it is the server here (`local`), and relays it: the popover's code owns the
 /// runners (apps/desktop/src/control/this-mac.ts) and answers through `this_mac_reply`. The machine's token
@@ -797,7 +861,9 @@ const LISTEN_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_WAITING: usize = 16;
 /// Organizations in the Go menu (⌘⌥1–9 for the first nine).
 const MAX_ORGS: usize = 20;
-const PREF_TABS: &[&str] = &["folders", "tools", "updates"];
+const PREF_TABS: &[&str] = &["folders", "tools", "updates", "servers"];
+/// The System Settings lists a page may open (control/this-mac.ts `PRIVACY_PANES`): a voice message, Wi-Fi pairing.
+const PRIVACY_PANES: &[&str] = &["microphone", "network"];
 /// A notification's size, as a phone push's (apps/server push-messages.ts).
 const NOTIFY_TITLE_MAX: usize = 80;
 const NOTIFY_BODY_MAX: usize = 180;
@@ -856,6 +922,8 @@ fn checked(request: &Value) -> Result<Value, String> {
         }
         // The folder is the app's to know: the page names none.
         Some("files") => Ok(json!({ "kind": "files" })),
+        // The app's own speed numbers (vitals.rs): the page asks, and says nothing.
+        Some("vitals") => Ok(json!({ "kind": "vitals" })),
         // The app icon (ADR 0179): one of the app's own ids, an agent the site drew (who it is and its two PNGs), or
         // none to read the one kept.
         Some("appIcon") => {
@@ -886,6 +954,11 @@ fn checked(request: &Value) -> Result<Value, String> {
         Some("prefs") => match text("tab") {
             Some(tab) if PREF_TABS.contains(&tab) => Ok(json!({ "kind": "prefs", "tab": tab })),
             _ => Err("unknown tab".into()),
+        },
+        // System Settings on one permission's list: the page's way out where the system refused it something.
+        Some("privacy") => match text("pane") {
+            Some(pane) if PRIVACY_PANES.contains(&pane) => Ok(json!({ "kind": "privacy", "pane": pane })),
+            _ => Err("unknown pane".into()),
         },
         // The Dock's badge: two counts, nothing else.
         Some("badge") => {
@@ -1144,6 +1217,14 @@ pub async fn this_mac(app: AppHandle, webview: tauri::Webview, request: Value) -
     }
     // What the app itself answers (the popover isn't needed).
     match request["kind"].as_str() {
+        // Its opening (once) and its web view's memory, for the site's speed report.
+        Some("vitals") => {
+            let measurer = app.clone();
+            let vitals = tauri::async_runtime::spawn_blocking(move || crate::vitals::for_site(&measurer))
+                .await
+                .map_err(|e| e.to_string())?;
+            return serde_json::to_value(vitals).map_err(|e| e.to_string());
+        }
         Some("badge") => {
             let count = |key: &str| u32::try_from(request[key].as_u64().unwrap_or(0)).unwrap_or(u32::MAX);
             crate::dock::set_badge(&app, count("waiting"), count("unread"));
@@ -1456,6 +1537,8 @@ mod tests {
     #[test]
     fn bridge_requests() {
         assert_eq!(checked(&json!({ "kind": "status", "extra": 1 })), Ok(json!({ "kind": "status" })));
+        // The app's speed numbers: whatever else the page sends is dropped.
+        assert_eq!(checked(&json!({ "kind": "vitals", "pid": 4 })), Ok(json!({ "kind": "vitals" })));
         // The app icon: an id of the app's, or an agent with its two PNGs (ADR 0179).
         assert_eq!(checked(&json!({ "kind": "appIcon", "icon": "moon" })), Ok(json!({ "kind": "appIcon", "icon": "moon" })));
         assert!(checked(&json!({ "kind": "appIcon", "icon": "../x" })).is_err());
@@ -1489,6 +1572,12 @@ mod tests {
         assert!(checked(&json!({ "kind": "connect" })).is_err());
         assert_eq!(checked(&json!({ "kind": "prefs", "tab": "folders" })), Ok(json!({ "kind": "prefs", "tab": "folders" })));
         assert!(checked(&json!({ "kind": "prefs", "tab": "advanced" })).is_err());
+        assert_eq!(checked(&json!({ "kind": "prefs", "tab": "servers" })), Ok(json!({ "kind": "prefs", "tab": "servers" })));
+        assert_eq!(
+            checked(&json!({ "kind": "privacy", "pane": "microphone", "x": 1 })),
+            Ok(json!({ "kind": "privacy", "pane": "microphone" }))
+        );
+        assert!(checked(&json!({ "kind": "privacy", "pane": "screen" })).is_err());
         assert_eq!(checked(&json!({ "kind": "reconnect", "orgId": "o1" })), Ok(json!({ "kind": "reconnect", "orgId": "o1" })));
         assert!(checked(&json!({ "kind": "reconnect" })).is_err());
         assert_eq!(checked(&json!({ "kind": "requests", "x": 1 })), Ok(json!({ "kind": "requests" })));

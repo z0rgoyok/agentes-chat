@@ -126,8 +126,8 @@ that is exactly the line isn't posted again) and sets `answerOwed` in the transc
   stay, and a reply is never emptied unless it is a whole line again. A stopped run's words, a computer turn cut after
   its tools and a run cut by a restart drop it too, reading the lines from the conversation (`linesSaid`), since a
   computer turn's lines reach the transcript only when the turn ends. `closingSummary` (the reply when the last model
-  call wrote nothing) reads only the words that came after the call, but the work called beside the line is work: a
-  run that did it and wrote nothing after closes with "Done." as any other.
+  call wrote nothing) reads only the words that came after the call. A run that wrote nothing after it is asked for its
+  answer, like any other; no closing line is made up for it.
 - **First in its step.** On the API model, `say_now` runs before the other calls of its step, whatever order the
   model wrote them in, so the line goes out before the work it announces; the results go back in the order of the
   calls. The step line shows no words for the call: they would be the line again.
@@ -238,3 +238,31 @@ agent: the run's one line was already spent, and the fast reply (`talker.ts`) ca
 - **The bar keeps the command.** A computer brain's own command is told as it starts (`agent.step`) and its permission
   check a moment later (`agent.tool`), which cleared the step: the bar read "Thinking…" for as long as the command
   ran. The check without words of its own now leaves the step it follows (`streams.ts`).
+
+## Addendum 2026-11-24b: long work says how it goes, and the notes models hide are read
+
+On long work the person had the first line and then only the bar until the reply, sometimes for many minutes. And the
+models that write the most while they work hide it: Claude Opus 5.5, Sonnet 5.5 and Fable 5.x return the notes they
+write between tool calls as progress-update thinking blocks, empty unless asked for, Codex's app-server opted out of
+its reasoning summaries, and OpenAI's reasoning models were never asked for theirs.
+
+- **A progress line on long work.** After its first line, `say_now` posts again when a new phase starts, if the run has
+  worked `PROGRESS_AFTER_MS` (60 s) in this stretch (`workingSince`, else its start), its last line went out
+  `PROGRESS_GAP_MS` (75 s) ago or more, and it posted fewer than `PROGRESS_MAX` (3) progress lines (`progressDue`).
+  The line is marked `meta.sayNow.progress` and is quiet like the first: no push, no notification, no routing, never
+  the reply. Any other call is answered `Already told them`, as before, now with when an update fits. A line for a
+  message taken in (addendum of 2026-11-24) doesn't count against the three. The prompt's line says it in one
+  clause (42 characters), the tool's description is unchanged.
+- **The notes models hide, as narration.** Claude's progress updates are asked for with `thinking.display: "updates"`
+  (beta `thinking-display-updates-2026-08-18`) on the models that hide them (`thinkingUpdates` in the catalog);
+  OpenAI's reasoning models with `reasoning.summary: "auto"` (sent again without it when an organization isn't allowed
+  summaries); Codex's app-server no longer opts out of `item/reasoning/summaryTextDelta`, and `codex exec`'s reasoning
+  items are read too. Each note reaches the engine as a `note` brain event (`StreamOptions.onNote`, the wire's `note`)
+  and is narration exactly as text written before a call is: the call's step line (`holdStepWords`) and the model
+  call's `narration`, never live text and never the reply (ADR 0010 stands: the reply still shows whole, once).
+  Thinking blocks go back unchanged, so replay and preserved thinking don't move; reasoning stays hidden.
+  `MODEL_PROGRESS_NOTES` (default on) turns the asking off. Claude Code's CLI is left as it is: which thinking it
+  asks its API for is the CLI's own setting.
+- **Not the line rejected in §Alternatives.** Nothing is written by the server in the agent's voice (ADR 0131
+  addendum of 2026-11-19): the notes are the model's own words, shown as its narration, and the progress line is a
+  line the agent itself chose to post.

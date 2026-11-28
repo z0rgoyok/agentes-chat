@@ -2,18 +2,13 @@ import {
   archiveChannel,
   CHANNEL_KEYS,
   channelMembersDetail,
-  createChannelCategory,
   deleteChannel,
-  deleteChannelCategory,
   listArchivedChannels,
-  listChannelCategories,
   listChannelOverrides,
   listPins,
   pinMessage,
   placeChannel,
-  placeChannelCategory,
   removeChannelMember,
-  renameChannelCategory,
   requireChannelAccess,
   setChannelAgentAutoReply,
   setChannelOverride,
@@ -33,17 +28,11 @@ import {
   requireSession,
   security,
 } from "./context";
-import { Channel, ChannelCategory, Message } from "./schemas";
+import { Channel, Message } from "./schemas";
 
 const tags = ["Channels"];
 const ChannelParams = OrgParams.extend({ channelId: z.uuid() });
 const PinParams = ChannelParams.extend({ messageId: z.uuid() });
-const CategoryParams = OrgParams.extend({ categoryId: z.uuid() });
-const categoryJson = (r: { id: string; name: string; position: number }) => ({
-  id: r.id,
-  name: r.name,
-  position: r.position,
-});
 const OverrideTarget = z.object({
   type: z.enum(["role", "person"]),
   id: z.string().min(1).openapi({ description: "A role's id (`everyone`, \"Todos\", too) or a person's user id." }),
@@ -254,7 +243,8 @@ export function channelRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/channels/{channelId}",
       tags,
       security,
-      summary: "Rename, change topic, who may join or whether agents reply in threads (creator or admin)",
+      summary:
+        "Change name, topic, who may join, whether agents reply in threads or the responsible agent (creator or admin)",
       request: {
         params: ChannelParams,
         body: body(
@@ -269,6 +259,10 @@ export function channelRoutes(deps: AppDeps) {
             replyInThreads: z.boolean().optional().openapi({
               description:
                 "Agents asked in its main timeline answer in the thread under that message (ADR 0214). Runs already working stay where they are. 400 `channel.reply_in_threads` outside a regular channel.",
+            }),
+            leadAgentId: z.uuid().nullable().optional().openapi({
+              description:
+                "The agent responsible for the channel, one of its member agents; null: none. What a person says to the room goes to it, and it gets the turn when work it didn't hand off ends there. 400 `channel.lead_channel_only` outside a regular channel, `channel.lead_not_member` for an agent that isn't in it.",
             }),
           }),
         ),
@@ -288,9 +282,10 @@ export function channelRoutes(deps: AppDeps) {
           isMember: true,
           createdByUserId: r.createdByUserId,
           createdAt: r.createdAt.toISOString(),
-          categoryId: r.categoryId,
+          groupId: r.groupId,
           position: r.position,
           replyInThreads: r.replyInThreads,
+          leadAgentId: r.leadAgentId,
         },
         200,
       );
@@ -344,102 +339,19 @@ export function channelRoutes(deps: AppDeps) {
     },
   );
 
-  // ── Sidebar categories (ADR 0080): the org's layout, the same for everyone ──
-
+  // Channel categories became sectors (ADR 0240). Phone builds from before still ask for them: none.
   app.openapi(
     createRoute({
       method: "get",
       path: "/organizations/{orgId}/channel-categories",
       tags,
       security,
-      summary: "The sidebar's channel categories, in order",
+      deprecated: true,
+      summary: "Always empty: channels sit in sectors (`groupId`, `GET …/agent-groups`)",
       request: { params: OrgParams },
-      responses: { 200: json(z.object({ categories: z.array(ChannelCategory) })), ...errors },
+      responses: { 200: json(z.object({ categories: z.array(z.object({})).max(0) })), ...errors },
     }),
-    async (c) => {
-      const { orgId } = c.req.valid("param");
-      const rows = await listChannelCategories(db, c.get("user").id, orgId);
-      return c.json({ categories: rows.map(categoryJson) }, 200);
-    },
-  );
-
-  app.openapi(
-    createRoute({
-      method: "post",
-      path: "/organizations/{orgId}/channel-categories",
-      tags,
-      security,
-      summary: "Create a category at the end of the sidebar, optionally with channels (admins)",
-      request: {
-        params: OrgParams,
-        body: body(
-          z.object({
-            name: z.string().min(1).max(40),
-            channelIds: z.array(z.uuid()).max(200).optional().openapi({ description: "Channels it takes, in order." }),
-          }),
-        ),
-      },
-      responses: { 201: json(ChannelCategory, "Created"), ...errors },
-    }),
-    async (c) => {
-      const { orgId } = c.req.valid("param");
-      const r = await createChannelCategory(db, c.get("user").id, orgId, c.req.valid("json"), opts);
-      return c.json(categoryJson(r), 201);
-    },
-  );
-
-  app.openapi(
-    createRoute({
-      method: "patch",
-      path: "/organizations/{orgId}/channel-categories/{categoryId}",
-      tags,
-      security,
-      summary: "Rename a category (admins)",
-      request: { params: CategoryParams, body: body(z.object({ name: z.string().min(1).max(40) })) },
-      responses: { 200: json(ChannelCategory), ...errors },
-    }),
-    async (c) => {
-      const { orgId, categoryId } = c.req.valid("param");
-      const r = await renameChannelCategory(db, c.get("user").id, orgId, categoryId, c.req.valid("json"), opts);
-      return c.json(categoryJson(r), 200);
-    },
-  );
-
-  app.openapi(
-    createRoute({
-      method: "delete",
-      path: "/organizations/{orgId}/channel-categories/{categoryId}",
-      tags,
-      security,
-      summary: "Delete a category; its channels go on top, with none (admins)",
-      request: { params: CategoryParams },
-      responses: { 204: noContent[204], ...errors },
-    }),
-    async (c) => {
-      const { orgId, categoryId } = c.req.valid("param");
-      await deleteChannelCategory(db, c.get("user").id, orgId, categoryId, opts);
-      return c.body(null, 204);
-    },
-  );
-
-  app.openapi(
-    createRoute({
-      method: "put",
-      path: "/organizations/{orgId}/channel-categories/{categoryId}/place",
-      tags,
-      security,
-      summary: "Move a category before another one, or to the end (admins)",
-      request: {
-        params: CategoryParams,
-        body: body(z.object({ beforeCategoryId: z.uuid().nullable().openapi({ description: "Null: to the end." }) })),
-      },
-      responses: { 204: noContent[204], ...errors },
-    }),
-    async (c) => {
-      const { orgId, categoryId } = c.req.valid("param");
-      await placeChannelCategory(db, c.get("user").id, orgId, categoryId, c.req.valid("json"), opts);
-      return c.body(null, 204);
-    },
+    (c) => c.json({ categories: [] }, 200),
   );
 
   app.openapi(
@@ -448,12 +360,15 @@ export function channelRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/channels/{channelId}/place",
       tags,
       security,
-      summary: "Put a channel in a category, before another channel or at its end (creator or admin)",
+      summary: "Put a channel in a sector, before another channel or at its end (its creator or who manages channels)",
       request: {
         params: ChannelParams,
         body: body(
           z.object({
-            categoryId: z.uuid().nullable().openapi({ description: "Null: on top, with no category." }),
+            groupId: z
+              .uuid()
+              .nullable()
+              .openapi({ description: "Its sector (`agent-groups`); null: under Canais, in none." }),
             beforeChannelId: z.uuid().nullable().optional().openapi({ description: "Absent or null: at the end." }),
           }),
         ),

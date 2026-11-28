@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 /**
  * Composio over its REST API v3.1 (`https://backend.composio.dev/api/v3.1`, `x-api-key` header): Gmail and Outlook
  * mailboxes (ADR 0038) and the connectors that go through it (ADR 0107).
@@ -353,6 +354,39 @@ export function createComposioClient(options: ComposioClientOptions): ComposioCl
       const data = await readCapped(res, maxBytes);
       if (!data) throw new FileTooLargeError(maxBytes);
       return data;
+    },
+
+    async uploadFile(input) {
+      const md5 = createHash("md5").update(input.data).digest("hex");
+      const asked = await request("POST", "/files/upload/request", {
+        toolkit_slug: input.toolkit,
+        tool_slug: input.slug,
+        filename: input.name,
+        mimetype: input.mimetype,
+        md5,
+      });
+      const url = str(asked?.new_presigned_url) ?? str(asked?.newPresignedUrl);
+      const key = str(asked?.key);
+      if (!url || !key || !/^https:\/\//i.test(url))
+        throw new MailError("Composio did not say where to upload the file", true);
+      // Azure keeps a file only as a block blob when the upload says so.
+      const azure = str(obj(asked?.metadata).storage_backend) === "azure_blob_storage";
+      let res: Response;
+      try {
+        res = await http(url, {
+          method: "PUT",
+          headers: { "content-type": input.mimetype, ...(azure ? { "x-ms-blob-type": "BlockBlob" } : {}) },
+          body: input.data,
+          redirect: "error",
+        });
+      } catch (error) {
+        throw new MailError(
+          `could not upload the file: ${error instanceof Error ? error.message : String(error)}`,
+          true,
+        );
+      }
+      if (!res.ok) throw new MailError(`could not upload the file (${res.status})`, res.status >= 500);
+      return { name: input.name, mimetype: input.mimetype, s3key: key };
     },
 
     async createConnectLink(input) {

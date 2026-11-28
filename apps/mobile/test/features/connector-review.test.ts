@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ConnectorDef, CustomServer, CustomTool, ToolAccess } from "@agenteschat/client";
+import { instructionsSave, instructionsView } from "@agenteschat/client/lib/custom-tools";
 import { mailActionsChanged, mailActionsFrom, mailReviewTools } from "@agenteschat/client/lib/mail";
 import { type ReviewTool, reviewDecisions, reviewToolsOf } from "@agenteschat/client/lib/tool-review";
 import {
@@ -297,5 +298,60 @@ describe("a mailbox's tools", () => {
     const saved = mailReviewTools(t, chosen);
     expect([named(saved, "delete").level, named(saved, "organize").level]).toEqual(["off", "approval"]);
     expect(mailActionsChanged(chosen, mailActionsFrom(saved, {}))).toBe(false);
+  });
+});
+
+describe("a server's own instructions under its tools", () => {
+  const said = "Call get_ticket before close_ticket.\nAsk the person before delete_customer.";
+  const withText = server(TOOLS, { instructions: { text: said, cut: false, maxChars: 4000 }, useInstructions: true });
+
+  test("on, its size as agents read it; off, faded and said so; cut at the limit, said so", async () => {
+    const t = await translator("pt-BR");
+    expect(instructionsView(t, "pt-BR", withText, true)).toEqual({
+      kind: "shown",
+      title: "Instruções do servidor",
+      hint: "Os agentes que usam estas ferramentas recebem este texto depois das próprias instruções.",
+      status: `${said.length} de 4.000 caracteres`,
+      text: said,
+      faded: false,
+    });
+    expect(instructionsView(t, "pt-BR", withText, false)).toMatchObject({
+      status: "Os agentes não recebem este texto.",
+      text: said,
+      faded: true,
+    });
+    const cut = server(TOOLS, { instructions: { text: "x".repeat(4000), cut: true, maxChars: 4000 } });
+    expect(instructionsView(t, "pt-BR", cut, true)).toMatchObject({ status: "Cortado em 4.000 caracteres" });
+    const en = await translator("en");
+    expect(instructionsView(en, "en", cut, true)).toMatchObject({
+      title: "Server instructions",
+      status: "Cut at 4,000 characters",
+    });
+  });
+
+  test("a server that sends none: one line and no switch; an older server that doesn't say: nothing", async () => {
+    const t = await translator("pt-BR");
+    expect(instructionsView(t, "pt-BR", server(TOOLS, { instructions: null }), true)).toEqual({
+      kind: "none",
+      title: "Instruções do servidor",
+      status: "O servidor não manda instruções.",
+    });
+    expect(instructionsView(t, "pt-BR", server(TOOLS), true)).toEqual({ kind: "hidden" });
+  });
+
+  test("Continuar saves the switch only where it shows, and only once the person moved it", () => {
+    expect(instructionsSave(withText, false, true)).toEqual({ useInstructions: false });
+    expect(instructionsSave(withText, true, false)).toEqual({ useInstructions: true });
+    // Not moved: left out, so another device's choice stays.
+    expect(instructionsSave(withText, true, true)).toEqual({});
+    expect(instructionsSave(server(TOOLS, { instructions: null }), false, true)).toEqual({});
+    expect(instructionsSave(server(TOOLS), false, true)).toEqual({});
+  });
+
+  test("a service through Composio has no `initialize`: nothing to show", async () => {
+    const t = await translator("pt-BR");
+    expect(instructionsView(t, "pt-BR", server(TOOLS, { instructions: null, via: "composio" }), true)).toEqual({
+      kind: "hidden",
+    });
   });
 });

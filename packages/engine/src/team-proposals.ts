@@ -2,6 +2,7 @@ import { holdEvents, type PubSub } from "@agenteschat/adapters";
 import { and, type Database, eq, inArray, isNull, schema, sql } from "@agenteschat/db";
 import { serverText } from "@agenteschat/i18n";
 import type { AppLocale } from "@agenteschat/i18n/locale";
+import { ROUTINE_PROMPT_MAX } from "@agenteschat/tokens/routines";
 import {
   agentsLike,
   agentsLikeText,
@@ -949,7 +950,7 @@ function teamSchema(personal: boolean): JsonSchema {
                     maxLength: 300,
                     description: "5-field cron in the person's time zone: '0 9 * * 1-5' is weekdays at 9.",
                   },
-                  prompt: { type: "string", minLength: 1, maxLength: 10_000 },
+                  prompt: { type: "string", minLength: 1, maxLength: ROUTINE_PROMPT_MAX },
                   title: { type: "string", maxLength: 120, description: "What it does, short, in their language." },
                 },
                 required: ["schedule", "prompt", "title"],

@@ -21,6 +21,7 @@ import {
   reportMentionReplies,
   roomGate,
   roomHead,
+  roomIsClear,
   STRETCH,
   sendNote,
   stopOrgWork,
@@ -149,6 +150,87 @@ describe("the computer's line", () => {
     const parked = await inLine(f.agent.id, machineId, { roomAsked: true, roomOrderSince: Date.now() - 120_000 }, 0);
     expect((await roomHead(f.db, machineId))?.id).toBe(parked.id);
     expect(asked.status).toBe("waiting_input");
+  });
+
+  test("agents' turns are spaced only where the computer's memory is tight or unread: clear headroom or an open CLI goes at once", async () => {
+    f = await setup();
+    const rio = await agentOf("Rio", "rio");
+    const machineId = await computerFor(f.agent.id, rio.id);
+    // Another agent's turn asked this computer just now.
+    const id = Bun.randomUUIDv7();
+    await f.db.insert(agentRuns).values({
+      orgId: f.org.id,
+      agentId: rio.id,
+      channelId: f.general.id,
+      threadRootId: id,
+      triggerMessageId: id,
+      trigger: "mention",
+      hop: 2,
+      status: "running",
+      heartbeatAt: new Date(),
+      transcript: { roomAsk: { machineId, at: Date.now() } },
+    });
+    const freeGb = (gb: number | null) =>
+      f.db
+        .update(schema.machines)
+        .set({
+          size: {
+            cpus: 8,
+            memoryGb: 16,
+            diskGb: 100,
+            ...(gb === null ? {} : { room: { more: 4, freeGb: gb, cpuBusy: false, pushHarder: false } }),
+          },
+        })
+        .where(eq(schema.machines.id, machineId));
+    const ask = (warmOn?: string) =>
+      roomGate(f.db, { id: Bun.randomUUIDv7(), orgId: f.org.id }, machineId, {
+        rank: 2,
+        since: Date.now(),
+        ...(warmOn ? { warmOn } : {}),
+      });
+
+    // No reading of its memory: the spacing holds.
+    await freeGb(null);
+    expect((await ask())?.cause).toBe("spacing");
+    // Near its floor: the spacing holds, but a turn on a CLI already open starts no process and goes.
+    await freeGb(2);
+    expect((await ask())?.cause).toBe("spacing");
+    // Open on another computer (the run moved since it warmed): this one would start a process, so it is spaced.
+    expect((await ask(Bun.randomUUIDv7()))?.cause).toBe("spacing");
+    expect(await ask(machineId)).toBeNull();
+
+    // Clear headroom: it goes at once, and whoever waits in line is asked now, not after the spacing.
+    await f.db.delete(agentRuns).where(eq(agentRuns.status, "running"));
+    const waiting = await inLine(rio.id, machineId);
+    await f.db.insert(agentRuns).values({
+      orgId: f.org.id,
+      agentId: rio.id,
+      channelId: f.general.id,
+      threadRootId: id,
+      triggerMessageId: id,
+      trigger: "mention",
+      hop: 2,
+      status: "running",
+      heartbeatAt: new Date(),
+      transcript: { roomAsk: { machineId, at: Date.now() } },
+    });
+    await freeGb(8);
+    expect(
+      await roomGate(f.db, { id: Bun.randomUUIDv7(), orgId: f.org.id }, machineId, { rank: 0, since: Date.now() }),
+    ).toBeNull();
+    const kick = (await jobsOf("agent_run.execute")).find((j) => j.payload.runId === waiting.id);
+    expect(kick?.dedupeKey).toEndWith(":freed");
+    expect(kick?.nextAttemptAt.getTime()).toBeLessThanOrEqual(Date.now());
+    await done(waiting.id);
+    expect(await ask()).toBeNull();
+  });
+
+  test("clear headroom: one more turn above the agents' floor once each turn asked lately has grown", () => {
+    expect(roomIsClear(null, 0)).toBe(false);
+    expect(roomIsClear(2, 0)).toBe(false);
+    expect(roomIsClear(3, 0)).toBe(true);
+    expect(roomIsClear(6.2, 6)).toBe(true);
+    expect(roomIsClear(6.2, 8)).toBe(false);
   });
 
   test("a stretch a person opened lately is asked work; an agent's own or an old one isn't", async () => {

@@ -76,7 +76,7 @@ export function DriveCard({
         {...menu.props}
         {...(dragging ? dragOut(() => dragging(a)) : {})}
       >
-        <DrivePreview artifact={a} />
+        <DrivePreview artifact={a} player />
         <span className="drive-card__kind">
           <Icon name={itemIcon(a)} size={14} />
           <span>

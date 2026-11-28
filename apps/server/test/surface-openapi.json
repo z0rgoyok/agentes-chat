@@ -197,7 +197,7 @@
           "forwarded": {
             "type": "string",
             "enum": ["true"],
-            "description": "Forwarded from another chat: the agent reads it as quoted text, not a request."
+            "description": "Forwarded from another chat: the agent reads it as quoted text, not a request. Set it when any part of the post (a grouped file's caption too) wasn't written by the sender: anything unmarked counts as the sender's own words, which may keep a rule or a memory in their name."
           },
           "replyTo": {
             "type": "string",
@@ -247,8 +247,8 @@
           },
           "kind": {
             "type": "string",
-            "enum": ["reply", "linked"],
-            "description": "`linked`: say in your own words that the link is active."
+            "enum": ["reply", "linked", "nudge"],
+            "description": "`linked`: say in your own words that the link is active. `nudge` (only with `nudges=true`): tell the person something waits unread in the app, by `nudge`'s counts."
           },
           "linkId": {
             "type": "string",
@@ -364,6 +364,21 @@
               "type": "string"
             },
             "description": "A question's choices, to list in words."
+          },
+          "nudge": {
+            "type": ["object", "null"],
+            "properties": {
+              "unread": {
+                "type": "integer",
+                "description": "What waits unread in `orgName` now."
+              },
+              "waiting": {
+                "type": "integer",
+                "description": "Of those, what blocks someone: an approval, a question."
+              }
+            },
+            "required": ["unread", "waiting"],
+            "description": "A nudge's counts; null for every other kind. Core already checked the person's settings, quiet hours, the day's one nudge and their phone's pushes: send it or report it unsent, never in-app."
           }
         },
         "required": [
@@ -381,7 +396,8 @@
           "files",
           "media",
           "card",
-          "choices"
+          "choices",
+          "nudge"
         ]
       },
       "SurfaceTakenAnswer": {
@@ -692,6 +708,18 @@
             },
             "required": false,
             "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["true", "false"],
+              "default": "false",
+              "description": "`true`: list `nudge` deliveries too (ADR 0234). Without it none is listed."
+            },
+            "required": false,
+            "description": "`true`: list `nudge` deliveries too (ADR 0234). Without it none is listed.",
+            "name": "nudges",
             "in": "query"
           }
         ],

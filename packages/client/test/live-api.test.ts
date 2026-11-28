@@ -68,6 +68,14 @@ describe("live API", () => {
     ]);
   });
 
+  test("a file's own fonts: its route, and the list out of the answer (ADR 0220 §2)", async () => {
+    const font = { id: "a1", family: "Brand Sans", style: "Regular", weight: 400, italic: false };
+    const { calls, request } = recorder(() => ({ fonts: [font] }));
+    const api = createLiveApi(request);
+    expect(await api.fileFonts(ORG, "f1")).toEqual([font]);
+    expect(calls.map((c) => c.path)).toEqual([`${BASE}/artifacts/f1/fonts`]);
+  });
+
   test("presence: asked in batches the route takes, merged, and only entries that read right", async () => {
     const { calls, request } = recorder((_path, options) => {
       const ids = String(options.query?.ids ?? "").split(",");

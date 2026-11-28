@@ -45,3 +45,11 @@ Connecting a second account of an MCP server replaced the first one's sign-in: t
 - Only Stripe names its accounts for now: other presets get numbered names until their account tool is checked.
 - A connection made before this keeps the label it was given, in the language of whoever connected it.
 - No prompt rule asks agents which account a person means. Add one if agents act on the wrong account.
+
+## Addendum (2026-11-24): a git host as one's own
+
+GitHub, GitLab, Bitbucket and a git server may be connected as a person's own too (ADR 0227 §5), which GitHub
+couldn't before. Such a connection is unlike the others: it has no tools, is put on no agent and asks for nothing in
+a chat. It is the person's account in their code sessions, where the commits, the push and the pull request of what
+they ask go out as them. The workspace's connection to that host stays the team's, and is the only one the git
+proxy, the repository lists and the agents' tools read.

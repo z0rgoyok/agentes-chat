@@ -3,6 +3,7 @@ import {
   type Message,
   type MessageConsultation,
   type RunConsultation,
+  useChannelName,
   useConsultationConversation,
   useConsultations,
 } from "@agenteschat/client";
@@ -11,7 +12,6 @@ import {
   type ConsultLineState,
   type ConsultNoticeFold,
   type ConsultPairItem,
-  type ConsultRow,
   consultAskedKey,
   consultBlocksNearEnd,
   consultLineKey,
@@ -21,14 +21,16 @@ import {
   groupsByRun,
   openableConsultation,
   pairItemOf,
+  type RelayedAnswer,
+  relayedAnswers,
 } from "@agenteschat/client/lib/consult-group";
 import { consultSubject, consultTimeText, previewOf, withoutRelayLine } from "@agenteschat/client/lib/consultations";
 import { joinNames, namesText } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { cx, Icon, Tip } from "@agenteschat/ui";
+import { cx, Icon, Tip, useMorph } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useContext, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { MessageBody } from "@/chat/MessageBody";
 import { AgentAvatar, withAgentFace } from "@/components/AgentAvatar";
@@ -55,6 +57,10 @@ export interface ConsultGroups {
   open: string | null;
   /** By the consulted agent's run: the question it answers, so its cards here say whom it helps. */
   helping: ReadonlyMap<string, RunConsultation>;
+  /** By the asking agent's message: the consulted agent's words it passes on, quoted at its top (`relayedAnswers`). */
+  relays: ReadonlyMap<string, RelayedAnswer<Message>>;
+  /** The consulted agents' messages those quotes stand for: no row of their own. */
+  relayed: ReadonlySet<string>;
 }
 
 const EMPTY: ConsultGroups = {
@@ -65,6 +71,8 @@ const EMPTY: ConsultGroups = {
   live: new Set(),
   open: null,
   helping: new Map(),
+  relays: new Map(),
+  relayed: new Set(),
 };
 const ConsultGroupsContext = createContext<ConsultGroups>(EMPTY);
 export const ConsultGroupsProvider = ConsultGroupsContext.Provider;
@@ -82,7 +90,7 @@ const RELOAD_ON = new Set(["agent.consulting", "agent.consulted", "agent.consult
  */
 export function useConsultGroups(
   channelId: string,
-  rows: readonly ConsultRow[],
+  rows: readonly Message[],
   live: ReadonlySet<string>,
   open: string | null = null,
 ): ConsultGroups {
@@ -113,6 +121,8 @@ export function useConsultGroups(
       live,
       open,
       helping,
+      // From the list as the server sends it (latest first), not the exchanges: each consulted run's own question.
+      ...relayedAnswers(rows, list.data ?? []),
     };
   }, [list.data, rows, live, open, helping]);
 }
@@ -170,7 +180,22 @@ export function useConsultById(channelId: string, id: string | undefined): RunCo
  * same row stands for an answer whose reply is farther up or not here, and for a hand-off by direct message on a
  * reach line.
  */
-export function ConsultPairRow({ askerId, items }: { askerId: string; items: readonly ConsultPairItem[] }) {
+export function ConsultPairRow({
+  askerId,
+  items,
+  handed = false,
+  askedIn = null,
+}: {
+  askerId: string;
+  items: readonly ConsultPairItem[];
+  /**
+   * Another agent's request in the DM of the agent it went to (`handOffOf`): "Atlas pediu à Ada por você" in place of
+   * ⇄, and nothing about its state until it ends (the agent's working line already says it).
+   */
+  handed?: boolean;
+  /** Handed: the channel where the person asked ("em #eng"). */
+  askedIn?: string | null;
+}) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
@@ -178,6 +203,7 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
   const dialog = actions?.openConsultation;
   const openId = useOpenConsultation();
   const [open, setOpen] = useState(false);
+  const where = useChannelName(org.id, askedIn);
   const live = items.some((c) => c.status === "open");
   const now = useNow(live);
   // The consulted agent's card here waits on me: the row says so (amber) before the list hears the run park, and a
@@ -185,8 +211,9 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
   const asks = usePendingAsks();
   const only = items.length === 1 && items[0]?.status === "open" ? items[0] : undefined;
   const mine = only ? askOf(asks, only.consultedAgentId, only.consultedRunId) : null;
-  const pair = consultPair(items, now, askerId, mine?.on ?? null);
-  if (!pair) return null;
+  const found = consultPair(items, now, askerId, handed ? null : (mine?.on ?? null));
+  if (!found) return null;
+  const pair = handed && live ? { ...found, word: null, seconds: null, tone: null } : found;
   // An old reply's question with no id of its own has no conversation to open: it opens in place.
   const openConsultation = openableConsultation(pair.opens) ? dialog : undefined;
   const seeCard = mine && actions?.seeRequest ? () => actions.seeRequest?.(mine.ask.id) : undefined;
@@ -207,14 +234,23 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
       <Tip button look="ac-msg__tip tm-tip" tip={rowTip(title, question ? [question] : [])}>
         <button
           type="button"
-          className={cx("consult-pair__row", pair.tone && `consult-pair__row--${pair.tone}`)}
+          className={cx(
+            "consult-pair__row",
+            pair.tone && `consult-pair__row--${pair.tone}`,
+            handed && "consult-pair__row--handed",
+          )}
           aria-description={question || undefined}
-          {...(seeCard
+          {...(seeCard && !handed
             ? { onClick: seeCard }
             : openConsultation
               ? {
                   "aria-pressed": items.some((c) => c.id === openId),
-                  onClick: () => openConsultation(pair.opens, items),
+                  // An answer's notice names no asker of its own: the row's tells the dialog who asked.
+                  onClick: () =>
+                    openConsultation(
+                      pair.opens,
+                      items.map((i) => ({ ...i, agentId: i.agentId ?? askerId })),
+                    ),
                 }
               : { "aria-expanded": open, onClick: () => setOpen((o) => !o) })}
         >
@@ -223,7 +259,11 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
               <AgentAvatar agentId={askerId} size="xs" name={from} state="idle" />
               <span className="consult-pair__name">{from}</span>
             </span>
-            {pair.tone === "you" ? (
+            {handed ? (
+              <span className="consult-pair__asked">
+                {t("chat.consultPair.askedHere", { context: agentGrammar(names[0] ?? "").context })}
+              </span>
+            ) : pair.tone === "you" ? (
               <span className="consult-pair__swap consult-pair__wait">
                 <WaitMark />
               </span>
@@ -245,6 +285,7 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
               </span>
               <span className="consult-pair__name">{names.length === 1 ? names[0] : namesText(t, names, 1)}</span>
             </span>
+            {handed && <span className="consult-pair__for">{t("chat.consultPair.forYou")}</span>}
           </span>
           {/* The subject carries its own ·: when it has no room left, the dot goes with it. */}
           {subject && (
@@ -255,8 +296,16 @@ export function ConsultPairRow({ askerId, items }: { askerId: string; items: rea
               {subject}
             </span>
           )}{" "}
+          {handed && where && (
+            <span className="consult-pair__where">
+              <span className="consult-pair__sep" aria-hidden="true">
+                ·
+              </span>
+              {t("chat.consultPair.askedIn", { channel: `#${where}` })}
+            </span>
+          )}{" "}
           {(pair.word || pair.seconds !== null) && (
-            <span className="consult-pair__sep" aria-hidden="true">
+            <span className="consult-pair__sep consult-pair__how" aria-hidden="true">
               ·
             </span>
           )}{" "}
@@ -296,8 +345,11 @@ function ConsultInPlace({
   const from = agentGrammar(dir.agentById.get(askedBy)?.name ?? t("channel.unknownAgent"));
   const to = agentGrammar(dir.agentById.get(c.consultedAgentId)?.name ?? t("channel.unknownAgent"));
   const state = consultLineState(c, now);
+  // Its answer arriving: the waiting line fades out over it as the box glides to the answer's height.
+  const box = useRef<HTMLDivElement>(null);
+  useMorph(box, { live: state !== "answered" });
   return (
-    <div className="ac-consult__body ac-consult__body--inline">
+    <div ref={box} className="ac-consult__body ac-consult__body--inline">
       <small>{withAgentFace(t(consultAskedKey(c), { name: from.name }), from.name, askedBy)}</small>
       <div className="ac-consult__text ac-consult__text--q">
         <MessageBody
@@ -338,6 +390,37 @@ export function ConsultAnswerLine({
     <div data-message-id={message.id}>
       <ConsultPairRow askerId={c.agentId} items={[c]} />
     </div>
+  );
+}
+
+/**
+ * At the top of an agent's message that passes on what another agent answered it (`relayedAnswers`): that agent's
+ * face, @name and the start of its words, as a reply quotes the message it answers. Opens the two agents'
+ * conversation over the channel, where those words stay whole.
+ */
+export function RelayQuote({ relay }: { relay: RelayedAnswer<Message> }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const actions = useChannelActions();
+  const { message: m, consultation: c } = relay;
+  const name = dir.agentById.get(m.author.id ?? "")?.name ?? t("channel.unknownAgent");
+  const excerpt = previewOf(m.body);
+  return (
+    <button
+      type="button"
+      className="msg-quote"
+      aria-label={t("chat.consultPanel.relay", { name, excerpt })}
+      onClick={() => actions?.openConsultation?.(c.id)}
+    >
+      <AgentAvatar agentId={m.author.id ?? undefined} name={name} size="xs" />
+      <span className="msg-quote__who" aria-hidden="true">
+        @{name}
+      </span>
+      <span className="msg-quote__excerpt" aria-hidden="true">
+        {excerpt}
+      </span>
+    </button>
   );
 }
 

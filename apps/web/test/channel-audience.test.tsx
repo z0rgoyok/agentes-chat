@@ -39,7 +39,7 @@ describe("a channel for departments or roles (ADR 0125)", () => {
   test("Criar canal: the third choice asks for a role, then creates it private and limited to the roles ticked", async () => {
     const state = await go(GENERAL_ID);
     const nav = screen().getByRole("navigation", { name: "Navegação do workspace" });
-    const plus = within(nav).getByRole("button", { name: "Novo canal ou categoria" });
+    const plus = within(nav).getByRole("button", { name: "Novo canal" });
     await act(async () => {
       fireEvent.keyDown(plus, { key: "Enter" });
       fireEvent.keyUp(plus, { key: "Enter" });

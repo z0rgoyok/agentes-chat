@@ -29,12 +29,12 @@ import {
 import { type ReactNode, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, StyleSheet, TextInput, View } from "react-native";
-import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
 import Animated, { FadeIn } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Button,
   fieldText,
+  GROUPED_ROW,
+  GroupedField,
   GroupedFooter,
   GroupedList,
   GroupedRow,
@@ -43,6 +43,7 @@ import {
   LineIcon,
   Locked,
   PressScale,
+  Segmented,
   systemText,
   Text,
   useTheme,
@@ -51,10 +52,10 @@ import {
 import { router } from "@/ui/navigation";
 import { boardHref } from "../links/logic";
 import { useFailed } from "../routines/hooks";
-import { useUnsavedGuard } from "../settings/parts";
+import { SettingsPage, useUnsavedGuard } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
 import { useDirectory, useNow, useOrgId } from "../shared/hooks";
-import { goBack, PushedHeader, successHaptic, tapHaptic } from "../shared/parts";
+import { goBack, successHaptic } from "../shared/parts";
 import { closeAgentPick, openAgentPick } from "./agent-pick";
 import { useAgentLook, useWidgetAiWay, useWidgetWords } from "./hooks";
 import {
@@ -62,7 +63,7 @@ import {
   confirmTitle,
   destinationsOf,
   HOME,
-  newWidgetBarLabel,
+  newWidgetBarLabel as newWidgetAction,
   previewKind,
   realBoardId,
   sizeFor,
@@ -77,25 +78,25 @@ import { BuildingSweep, WidgetBody, WidgetCard } from "./WidgetView";
 /** The longest ask and alert condition the server takes (ADR 0135). */
 const PROMPT_MAX = 2000;
 const CONDITION_MAX = 200;
-/** Between a focused field and the keyboard when the page scrolls it into view (the settings' pages' room). */
-const FIELD_CLEARANCE = 24;
+/** The size's P · M · G at the end of its row: room for three finger-wide segments. */
+const SIZE_CHOICE = 156;
 
 /**
- * "New widget", pushed (never a sheet; ADR 0135). The card is the form: the ask is typed inside the card, with the
- * agent's suggestions under it while it is empty; the card's header holds its title, a bell that turns the alert on
- * (and its condition, in the card) and the size; its footer says who looks after it (a pushed screen to change) and
- * how often it updates (a pick menu). "Test" in the bar has the agent build a draft with real data in place; then the
- * ask folds into one line that opens it again, and "Create" confirms the draft. While it builds the card says the step
- * its agent is in and for how long, and Stop ends the build with the ask as it was typed. Changing the ask, the agent or the
- * format after a test marks it stale (Test again); a failed test says why, with Try again. Where it goes sits under the
- * card. Testing again or leaving deletes the draft; leaving with an ask typed asks first. The page scrolls a focused field
- * clear of the keyboard on both systems, and no field takes the focus as it opens (the ask does when its folded line is
- * tapped). `dashboardId`: the board it starts on (`home` for My Home).
+ * "New widget", pushed (never a sheet; ADR 0135). The card is the preview and holds only what it shows: its title and
+ * the ask, typed inside it with the agent's suggestions under it while it is empty. Everything else is a row of the
+ * list under the card, each a finger's target: who looks after it (a pushed screen), the format and how often it
+ * updates (pick menus), the size (P · M · G), the alert (a switch, and its condition when on) and where it goes (when
+ * there is a choice). The action sits at the screen's foot, over the keyboard: "Test with real data" has the
+ * agent build a draft with real data in the card; then the ask folds into one line that opens it again, and "Add to
+ * Home" (or "Add to <board>") confirms the draft. While it builds the card says the step its agent is in
+ * and for how long, and Stop ends the build with the ask as it was typed. Changing the ask, the agent or the format
+ * after a test marks it stale (Test again); a failed test says why, with Try again. Testing again or leaving deletes
+ * the draft; leaving with an ask typed asks first. No field takes the focus as it opens (the ask does when its folded
+ * line is tapped). `dashboardId`: the board it starts on (`home` for My Home).
  */
 export function NewWidgetScreen({ dashboardId }: { dashboardId: string }) {
   const { t } = useTranslation();
   const { colors: c } = useTheme();
-  const insets = useSafeAreaInsets();
   const orgId = useOrgId();
   const toast = useToast();
   const failed = useFailed();
@@ -175,7 +176,7 @@ export function NewWidgetScreen({ dashboardId }: { dashboardId: string }) {
   const retested = useRef(false);
   const currentKey = testKeyOf(text, agentId, format);
   const phase = testPhase({ pending: sending, draft, testedKey: tested?.key ?? null, currentKey });
-  const barLabel = newWidgetBarLabel(phase);
+  const action = newWidgetAction(phase);
   const asking = asksInCard(phase, editing);
   // Once tested, the size follows what the agent built (unless one was picked).
   const kind = phase === "ok" && draft?.kind ? draft.kind : previewKind(format, picked?.kind ?? null);
@@ -352,25 +353,8 @@ export function NewWidgetScreen({ dashboardId }: { dashboardId: string }) {
     );
 
   const suggestionList = suggestions.data?.suggestions ?? [];
-  const formatWord = format === "auto" ? t("mobile.dashboards.newWidget.autoFormat") : t(`widgets.kinds.${format}`);
-  const formatPick = (
-    <Pressable
-      onPress={openFormats}
-      disabled={phase === "testing"}
-      accessibilityRole="button"
-      accessibilityLabel={`${t("dashboards.newWidget.format")}: ${formatWord}`}
-      hitSlop={8}
-      style={({ pressed }) => [styles.pickBox, { borderColor: c.line2 }, pressed && styles.pressed]}
-    >
-      <KindGlyph kind={format} size={13} color={c.muted} />
-      <Text variant="footnote" numberOfLines={1} style={[styles.semibold, { color: c.ink2 }]}>
-        {formatWord}
-      </Text>
-      <Icon name="down" size={13} color={c.muted} />
-    </Pressable>
-  );
 
-  // ── The card's header: the agent's face, the title, the check of a good test, the bell and the size.
+  // ── The card's header: the agent's face, the title, the check of a good test.
   const titleValue = title ?? draft?.title ?? "";
   const head = (
     <Locked when={busy} style={styles.head}>
@@ -394,72 +378,25 @@ export function NewWidgetScreen({ dashboardId }: { dashboardId: string }) {
           <Icon name="check" size={13} color={c.ink2} />
         </View>
       ) : null}
-      <Pressable
-        onPress={() => {
-          tapHaptic();
-          setAlert((v) => !v);
-        }}
-        accessibilityRole="switch"
-        accessibilityLabel={t("widgets.alert.label")}
-        accessibilityState={{ checked: alert }}
-        hitSlop={8}
-        style={({ pressed }) => [styles.bell, alert ? { backgroundColor: c.plate } : null, pressed && styles.pressed]}
-      >
-        <Icon name="bell" size={16} color={alert ? c.ink : c.muted} />
-        {alert ? (
-          <Text variant="caption" style={[styles.semibold, { color: c.ink }]}>
-            {t("mobile.dashboards.newWidget.alerts")}
-          </Text>
-        ) : null}
-      </Pressable>
-      <View style={[styles.sizes, { backgroundColor: c.sunken }]} accessibilityRole="radiogroup">
-        {WIDGET_SIZES.map((s) => {
-          const on = s === sized;
-          return (
-            <Pressable
-              key={s}
-              onPress={() => setSize(s)}
-              accessibilityRole="radio"
-              accessibilityLabel={`${t("widgets.sizes.label")}: ${t(`widgets.sizes.${s}`)}`}
-              accessibilityHint={t(`mobile.dashboards.sizeHint.${s}`)}
-              accessibilityState={{ selected: on }}
-              // 44 tall to the finger; across, the segments touch.
-              hitSlop={{ top: 10, bottom: 10 }}
-              style={({ pressed }) => [
-                styles.size,
-                on ? { backgroundColor: c.raised } : null,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Text variant="caption" style={[styles.semibold, { color: on ? c.ink : c.muted }]}>
-                {t(`widgets.sizes.${s}`)}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
     </Locked>
   );
 
-  // ── Between the header and the data, after a test: the ask folded into a line, and the format.
+  // ── Between the header and the data, after a test: the ask folded into a line that opens it again.
   const above = asking ? null : (
     <Locked when={busy} style={styles.gap8}>
-      <View style={styles.askedRow}>
-        <Pressable
-          onPress={() => setEditing(true)}
-          accessibilityRole="button"
-          accessibilityLabel={t("mobile.dashboards.newWidget.editAsk")}
-          accessibilityHint={text.trim()}
-          disabled={phase === "testing"}
-          style={({ pressed }) => [styles.asked, pressed && styles.pressed]}
-        >
-          <Text variant="footnote" tone="muted" numberOfLines={1} style={styles.shrink}>
-            {t("mobile.dashboards.newWidget.asked", { ask: text.trim() })}
-          </Text>
-          <Icon name="pen" size={13} color={c.muted} />
-        </Pressable>
-        {formatPick}
-      </View>
+      <Pressable
+        onPress={() => setEditing(true)}
+        accessibilityRole="button"
+        accessibilityLabel={t("mobile.dashboards.newWidget.editAsk")}
+        accessibilityHint={text.trim()}
+        disabled={phase === "testing"}
+        style={({ pressed }) => [styles.asked, pressed && styles.pressed]}
+      >
+        <Text variant="footnote" tone="muted" numberOfLines={1} style={styles.shrink}>
+          {t("mobile.dashboards.newWidget.asked", { ask: text.trim() })}
+        </Text>
+        <Icon name="pen" size={13} color={c.muted} />
+      </Pressable>
       {phase === "stale" ? (
         <Text variant="caption" style={[styles.semibold, { color: c.warn }]}>
           {t("dashboards.newWidget.stale")}
@@ -505,7 +442,6 @@ export function NewWidgetScreen({ dashboardId }: { dashboardId: string }) {
             ))}
           </View>
         ) : null}
-        <View style={styles.formatRow}>{formatPick}</View>
         {editing && draft?.spec ? (
           <View style={phase === "stale" ? styles.staleData : null}>
             <WidgetBody spec={draft.spec} status={draft.status} agentId={draft.agentId} big={sized === "l"} />
@@ -569,127 +505,140 @@ export function NewWidgetScreen({ dashboardId }: { dashboardId: string }) {
   }
   // Else (a good test): undefined, so the card draws the draft itself (its trend edge to edge).
 
-  // ── The footer: the alert's condition when the bell is on, then who looks after it and how often.
-  const footer = (
-    <Locked when={busy} style={styles.gap10}>
-      {alert ? (
-        <View style={[styles.condition, { backgroundColor: c.sunken }]}>
-          <Icon name="bell" size={13} color={c.muted} />
-          <Text variant="footnote" tone="muted" style={styles.semibold}>
-            {t("widgets.alert.condition")}
-          </Text>
-          <TextInput
-            value={condition}
-            onChangeText={setCondition}
-            placeholder={t("widgets.alert.placeholder")}
-            placeholderTextColor={c.faint}
-            accessibilityLabel={t("widgets.alert.condition")}
-            accessibilityHint={t("widgets.alert.hint")}
-            maxLength={CONDITION_MAX}
-            returnKeyType="done"
-            style={[styles.conditionInput, { color: c.ink }]}
-          />
-        </View>
-      ) : null}
-      <View style={styles.foot}>
-        <Pressable
-          onPress={openAgents}
-          disabled={agents.length === 0 || phase === "testing"}
-          accessibilityRole="button"
-          accessibilityLabel={`${t("dashboards.newWidget.who")}: ${look.name}`}
-          hitSlop={FOOT_SLOP}
-          style={({ pressed }) => [styles.footPick, pressed && styles.pressed]}
-        >
-          <Text variant="footnote" numberOfLines={1} style={[styles.semibold, { color: c.ink2 }]}>
-            {look.name || t("dashboards.newWidget.theAgent")}
-          </Text>
-          <Icon name="down" size={13} color={c.muted} />
-        </Pressable>
-        <Text variant="footnote" tone="faint">
-          {"·"}
-        </Text>
-        <Pressable
-          onPress={openSchedules}
-          accessibilityRole="button"
-          accessibilityLabel={`${t("dashboards.newWidget.updates")}: ${t(`widgets.schedules.${schedule}`)}`}
-          hitSlop={FOOT_SLOP}
-          style={({ pressed }) => [styles.footPick, styles.shrink, pressed && styles.pressed]}
-        >
-          <Icon name="clock" size={13} color={c.muted} />
-          <Text variant="footnote" numberOfLines={1} style={[styles.shrink, { color: c.ink2 }]}>
-            {t(`widgets.schedulesInline.${schedule}`)}
-          </Text>
-          <Icon name="down" size={13} color={c.muted} />
-        </Pressable>
-      </View>
-    </Locked>
+  // ── At the foot, over the keyboard: test with real data, test again, or add the tested draft where it goes.
+  const adding = action === "create";
+  const actionLabel = adding
+    ? destination?.home
+      ? t("mobile.dashboards.newWidget.addHome")
+      : t("mobile.dashboards.newWidget.addTo", { where })
+    : phase === "testing"
+      ? t("dashboards.newWidget.testingShort")
+      : action === "test"
+        ? t("mobile.dashboards.newWidget.testReal")
+        : t("dashboards.newWidget.testAgain");
+  const bottom = (
+    <Button
+      variant="primary"
+      wide
+      label={actionLabel}
+      loading={confirm.isPending}
+      disabled={adding ? busy || !target : !ready}
+      onPress={adding ? create : runTest}
+    />
   );
 
   return (
-    <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader
-        title={t("dashboards.newWidget.title")}
-        solid={false}
-        grouped
-        action={
-          barLabel === "create"
-            ? { label: t("mobile.dashboards.create"), disabled: busy || !target, onPress: create }
-            : { label: t(`dashboards.newWidget.${barLabel}`), disabled: !ready, onPress: runTest }
-        }
+    <SettingsPage title={t("dashboards.newWidget.title")} bottom={bottom}>
+      <WidgetCard
+        big={sized === "l"}
+        widget={{
+          title: titleValue,
+          kind: draft?.kind ?? kind,
+          spec: draft?.spec ?? null,
+          status: draft?.status ?? "ok",
+          agentId: agentId ?? "",
+          refreshedAt: draft?.refreshedAt ?? null,
+          schedule,
+          w: 2,
+          h: layout.h,
+        }}
+        head={head}
+        above={above}
+        body={body}
+        footer={null}
       />
-      <KeyboardAwareScrollView
-        style={styles.screen}
-        contentInsetAdjustmentBehavior="automatic"
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="interactive"
-        bottomOffset={FIELD_CLEARANCE}
-        contentContainerStyle={[styles.in, { paddingBottom: 24 + insets.bottom }]}
-      >
-        <WidgetCard
-          big={sized === "l"}
-          widget={{
-            title: titleValue,
-            kind: draft?.kind ?? kind,
-            spec: draft?.spec ?? null,
-            status: draft?.status ?? "ok",
-            agentId: agentId ?? "",
-            refreshedAt: draft?.refreshedAt ?? null,
-            schedule,
-            w: 2,
-            h: layout.h,
-          }}
-          head={head}
-          above={above}
-          body={body}
-          footer={footer}
-        />
-        {phase === "ok" && draft ? (
-          <Text variant="caption" tone="faint" style={styles.caption}>
-            {t("dashboards.newWidget.tested", {
-              when: draft.refreshedAt ? widgetWords.ago(draft.refreshedAt) : "",
-            })}
-          </Text>
-        ) : null}
-        {agents.length === 0 && !dir.loading ? (
-          <GroupedFooter>{t("dashboards.newWidget.noAgents")}</GroupedFooter>
-        ) : null}
+      {phase === "ok" && draft ? (
+        <Text variant="caption" tone="faint" style={styles.caption}>
+          {t("dashboards.newWidget.tested", {
+            when: draft.refreshedAt ? widgetWords.ago(draft.refreshedAt) : "",
+          })}
+        </Text>
+      ) : null}
+      {agents.length === 0 && !dir.loading ? <GroupedFooter>{t("dashboards.newWidget.noAgents")}</GroupedFooter> : null}
 
-        {/* Only when there is a choice: with My Home alone, nothing to pick. */}
-        {destinations.length > 1 ? (
-          <>
-            <View style={styles.gap} />
-            <GroupedList>
-              <GroupedRow
-                icon="chart"
-                label={t("dashboards.newWidget.destination")}
-                value={where}
-                chevron
-                onPress={openDestinations}
+      {/* What the card doesn't show, one row each: who looks after it and its format stay while it builds. */}
+      <View style={styles.gap} />
+      <Locked when={busy}>
+        <GroupedList>
+          <GroupedRow
+            key="who"
+            {...(agentId ? { leading: <AgentFace agentId={agentId} size={30} live={false} /> } : {})}
+            label={t("dashboards.newWidget.who")}
+            value={look.name || t("dashboards.newWidget.theAgent")}
+            chevron
+            disabled={agents.length === 0 || phase === "testing"}
+            onPress={openAgents}
+          />
+          <GroupedRow
+            key="format"
+            label={t("dashboards.newWidget.format")}
+            value={t(`widgets.kinds.${format}`)}
+            menu
+            disabled={phase === "testing"}
+            onPress={openFormats}
+          />
+          <SizeRow key="size" value={sized} onChange={setSize} />
+          <GroupedRow
+            key="updates"
+            label={t("dashboards.newWidget.updates")}
+            value={t(`widgets.schedules.${schedule}`)}
+            menu
+            onPress={openSchedules}
+          />
+          <GroupedRow
+            key="alert"
+            label={t("widgets.alert.label")}
+            labelLines={2}
+            toggle={alert}
+            onPress={() => setAlert((v) => !v)}
+          />
+          {alert ? (
+            <GroupedField key="condition" label={t("widgets.alert.condition")}>
+              <TextInput
+                value={condition}
+                onChangeText={setCondition}
+                placeholder={t("widgets.alert.placeholder")}
+                placeholderTextColor={c.faint}
+                accessibilityLabel={t("widgets.alert.condition")}
+                accessibilityHint={t("widgets.alert.hint")}
+                maxLength={CONDITION_MAX}
+                returnKeyType="done"
+                style={[styles.conditionInput, { color: c.ink }]}
               />
-            </GroupedList>
-          </>
-        ) : null}
-      </KeyboardAwareScrollView>
+            </GroupedField>
+          ) : null}
+          {/* Only when there is a choice: with My Home alone, nothing to pick. */}
+          {destinations.length > 1 ? (
+            <GroupedRow
+              key="destination"
+              label={t("dashboards.newWidget.destination")}
+              value={where}
+              chevron
+              onPress={openDestinations}
+            />
+          ) : null}
+        </GroupedList>
+      </Locked>
+    </SettingsPage>
+  );
+}
+
+/** The size as a row of the list: its name, and P · M · G at its end. */
+function SizeRow({ value, onChange }: { value: WidgetSize; onChange: (size: WidgetSize) => void }) {
+  const { t } = useTranslation();
+  return (
+    <View style={styles.sizeRow}>
+      <Text variant="body" numberOfLines={1} style={styles.grow}>
+        {t("widgets.sizes.label")}
+      </Text>
+      <View style={styles.sizeChoice}>
+        <Segmented
+          wide
+          items={WIDGET_SIZES.map((s) => ({ key: s, label: t(`widgets.sizes.${s}`) }))}
+          value={value}
+          onChange={(k) => onChange(k as WidgetSize)}
+        />
+      </View>
     </View>
   );
 }
@@ -720,28 +669,10 @@ function BuildClock({ since, onStop, waiting }: { since: number; onStop: () => v
   );
 }
 
-/** The footer's two picks: 44 tall to the finger, across only as far as the dot between them. */
-const FOOT_SLOP = { top: 9, bottom: 9, left: 4, right: 4 };
-/** The size switch: its corner, and its segments' inside it (concentric, 2 in from its edge). */
-const SIZES_R = 10;
-const SIZES_PAD = 2;
-
 const styles = StyleSheet.create({
-  screen: { flex: 1 },
-  in: { paddingHorizontal: 16, paddingTop: 8 },
   head: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
   titleInput: { flex: 1, minWidth: 0, paddingVertical: 4, ...fieldText("footnote", "600") },
   okBadge: { width: 22, height: 22, borderRadius: 6, alignItems: "center", justifyContent: "center" },
-  bell: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    minHeight: 28,
-    paddingHorizontal: 6,
-    borderRadius: 10,
-  },
-  sizes: { flexDirection: "row", padding: SIZES_PAD, borderRadius: SIZES_R },
-  size: { minWidth: 26, height: 24, borderRadius: SIZES_R - SIZES_PAD, alignItems: "center", justifyContent: "center" },
   ask: { minHeight: 56, paddingTop: 4, paddingBottom: 2, ...systemText("body", "500") },
   suggestions: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   suggestionWrap: { maxWidth: "100%" },
@@ -754,34 +685,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     borderRadius: 15,
   },
-  formatRow: { flexDirection: "row" },
-  pickBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    minHeight: 28,
-    paddingHorizontal: 8,
-    borderRadius: 10,
-    borderWidth: StyleSheet.hairlineWidth,
-    flexShrink: 0,
-  },
-  askedRow: { flexDirection: "row", alignItems: "center", gap: 8, minWidth: 0 },
-  asked: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 4 },
+  asked: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0, paddingVertical: 4 },
   staleData: { opacity: 0.38 },
   failed: { gap: 10, alignItems: "flex-start" },
   failedLine: { flexDirection: "row", alignItems: "flex-start", gap: 8, alignSelf: "stretch" },
-  condition: {
+  conditionInput: { flex: 1, minWidth: 0, paddingVertical: 12, ...fieldText("callout") },
+  sizeRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    minHeight: 40,
-    paddingHorizontal: 10,
-    borderRadius: 10,
+    gap: 12,
+    minHeight: GROUPED_ROW.minHeight,
+    paddingHorizontal: GROUPED_ROW.padX,
+    paddingVertical: 6,
   },
-  conditionInput: { flex: 1, minWidth: 0, paddingVertical: 8, ...fieldText("footnote") },
-  foot: { flexDirection: "row", alignItems: "center", gap: 6, minWidth: 0 },
+  sizeChoice: { width: SIZE_CHOICE },
   buildFoot: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  footPick: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4 },
   caption: { textAlign: "center", paddingTop: 8 },
   semibold: { fontWeight: "600", flexShrink: 1 },
   shrink: { flexShrink: 1, minWidth: 0 },

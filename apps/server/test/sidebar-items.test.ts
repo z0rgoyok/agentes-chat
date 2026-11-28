@@ -66,7 +66,8 @@ test("a saved layout holding a removed tool and an unknown one reads as the tool
 });
 
 test("a stored sidebar view is never trusted as is: known orders only, each pin once, five at most", () => {
-  expect(sidebarViewOf(undefined)).toEqual({ agentSort: "workspace", showAllAgents: false, pins: null });
+  const none = { favorites: null, sections: null, dms: "all" as const };
+  expect(sidebarViewOf(undefined)).toEqual({ agentSort: "workspace", showAllAgents: false, pins: null, ...none });
   expect(
     sidebarViewOf({
       agentSort: "nope",
@@ -77,6 +78,7 @@ test("a stored sidebar view is never trusted as is: known orders only, each pin 
     agentSort: "workspace",
     showAllAgents: false,
     pins: { agents: ["a", "b"], channels: ["1", "2", "3", "4", "5"], people: [] },
+    ...none,
   });
 });
 
@@ -248,6 +250,7 @@ test("the tools' order: each person's own, per workspace, every tool once, besid
     "routines",
     "calendar",
     "team",
+    "skills",
     "dashboards",
     "code",
     "taskManager",
@@ -298,12 +301,14 @@ test("the sidebar view: each person's own, per workspace, beside the tools' plac
   const put = (json: unknown, b = owner) => b(`${sidebar}/view`, { method: "PUT", json });
 
   // Never saved: no pins yet, so the apps pin the person's own agents.
-  expect(await view()).toEqual({ agentSort: "workspace", showAllAgents: false, pins: null });
+  const none = { favorites: null, sections: null, dms: "all" as const };
+  expect(await view()).toEqual({ agentSort: "workspace", showAllAgents: false, pins: null, ...none });
   await owner(sidebar, { method: "PATCH", json: { item: "wiki", place: "always" } });
   const mine = {
     agentSort: "mine",
     showAllAgents: true,
     pins: { agents: ["agent-1"], channels: ["channel-1", "channel-2"], people: [] },
+    ...none,
   };
   const saved = await put({ view: mine });
   expect(saved.status).toBe(200);
@@ -321,7 +326,7 @@ test("the sidebar view: each person's own, per workspace, beside the tools' plac
 
   // Someone else keeps their own.
   const member = await joinByInvitation(t, owner, orgId, "member@example.com");
-  expect(await view(member)).toEqual({ agentSort: "workspace", showAllAgents: false, pins: null });
+  expect(await view(member)).toEqual({ agentSort: "workspace", showAllAgents: false, pins: null, ...none });
 });
 
 test("a personal workspace reads its own default orders (ADR 0159); a saved order stays, the team's included", async () => {
@@ -350,4 +355,29 @@ test("a personal workspace reads its own default orders (ADR 0159); a saved orde
   expect((await setMode("team")).status).toBe(200);
   expect(await read(`${sidebar}/order`)).toEqual([...SIDEBAR_SECTIONS]);
   expect(await read(`${sidebar}/tools`)).toEqual([...SIDEBAR_ITEMS]);
+});
+
+test("Favoritos and channel sections: each person's own, and a view sent without them keeps them", async () => {
+  t = await createTestServer();
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const orgId = await workspace(owner, "Acme");
+  const path = `/api/app/organizations/${orgId}/me/sidebar/view`;
+  const view = async (b = owner) => ((await (await b(path)).json()) as { view: Record<string, unknown> }).view;
+  expect(await view()).toMatchObject({ favorites: null, sections: null, dms: "all" });
+
+  const sections = [{ id: "s1", name: "Lançamento v3", channelIds: ["c1", "c2"] }];
+  const put = await owner(path, {
+    method: "PUT",
+    json: { view: { agentSort: "workspace", showAllAgents: false, pins: null, favorites: ["person:u1"], sections } },
+  });
+  expect(put.status).toBe(200);
+  // An older app's view, with none of the new fields: they stay.
+  await owner(path, { method: "PUT", json: { view: { agentSort: "mine", showAllAgents: false, pins: null } } });
+  expect(await view()).toMatchObject({ agentSort: "mine", favorites: ["person:u1"], sections, dms: "all" });
+
+  const member = await joinByInvitation(t, owner, orgId, "member@example.com");
+  expect(await view(member)).toMatchObject({ favorites: null, sections: null });
+  const bad = { agentSort: "workspace", showAllAgents: false, pins: null, dms: "some" };
+  expect((await owner(path, { method: "PUT", json: { view: bad } })).status).toBe(400);
 });

@@ -634,6 +634,27 @@ export const words: EmailWords = {
       why: (surface) => `Je krijgt deze e-mail omdat ${surface} aan je agentes.chat-account gekoppeld was.`,
       picture: "Je assistent, niet meer op je telefoon",
     },
+    pinReset: {
+      subject: (surface) => `Kies je ${surface}-pincode`,
+      preheader: "Kies de pincode waarmee je acties via je chat-app goedkeurt.",
+      headline: (surface) => `Kies je ${surface}-pincode`,
+      body: (surface) =>
+        `Iemand vroeg om een link om de pincode te kiezen waarmee je acties via ${surface} goedkeurt. Was jij het? Kies hem dan op de pagina die deze knop opent.`,
+      button: "Mijn pincode kiezen",
+      small: "De link werkt één keer, een uur lang. Was jij het niet? Negeer deze e-mail. Er verandert niets.",
+      why: (surface) => `Je krijgt deze e-mail omdat ${surface} aan je agentes.chat-account gekoppeld is.`,
+    },
+    pinLocked: {
+      subject: (surface) => `Je ${surface}-pincode is geblokkeerd`,
+      preheader: "Drie keer achter elkaar een verkeerde pincode. Goedkeuren via je chat-app is voorlopig gepauzeerd.",
+      headline: (surface) => `Je ${surface}-pincode is geblokkeerd`,
+      body: (surface, time) =>
+        `Iemand typte drie keer achter elkaar een verkeerde pincode om een actie via ${surface} goed te keuren. Goedkeuren via ${surface} is ${time} gepauzeerd.`,
+      lockedFor: ["15 minuten", "1 uur", "24 uur"],
+      small: (surface) =>
+        `Was jij het? Probeer het later opnieuw. Zo niet, ontkoppel ${surface} in je meldingsinstellingen, zodat niemand er nog mee kan goedkeuren.`,
+      button: "Meldingsinstellingen openen",
+    },
   },
   supportReply: {
     subject: "Een antwoord op je hulpvraag",

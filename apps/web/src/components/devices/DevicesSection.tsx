@@ -12,6 +12,7 @@ import {
   iphoneOverWifi,
   joinFacts,
   phoneLine,
+  powerChoice,
   statusDetail,
 } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
@@ -19,6 +20,7 @@ import { computerKind } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
   Button,
+  Card,
   ComputerPortrait,
   EmptyState,
   List,
@@ -27,6 +29,7 @@ import {
   MenuSeparator,
   SearchField,
   Segmented,
+  Switch,
   Tip,
   Toolbar,
 } from "@agenteschat/ui";
@@ -37,6 +40,8 @@ import { AgentComputersCard } from "@/components/AgentComputer";
 import { HelpLink } from "@/components/HelpLink";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { HostComputerCard } from "@/components/Machines";
+import { MaintenanceHint } from "@/components/machine-bits";
+import { PrefRow } from "@/components/NoticePrefs";
 import { useOrg } from "@/components/org-context";
 import { useComputerEdition, WorkspaceComputerCard } from "@/components/WorkspaceComputer";
 import { useToast } from "@/lib/toast";
@@ -47,7 +52,9 @@ import {
   useDenyRequest,
   useDevices,
   useForgetPhone,
+  usePowerPhone,
   useRemoveComputer,
+  useSetDevicesHelp,
   useStopPhone,
   useUpdateComputer,
   useUpdatePhone,
@@ -74,6 +81,9 @@ export function DevicesSection({ start }: { start?: ConnectStart | null }) {
   const [renaming, setRenaming] = useState<Target | null>(null);
   const [removing, setRemoving] = useState<Target | null>(null);
   const canConnect = can(org, "pair_computers");
+  const admin = can(org, "configure");
+  const help = useSetDevicesHelp(org.id);
+  const toast = useToast();
   const list = devices.data?.devices ?? [];
   const counts = deviceCounts(list);
   const rows = deviceRows(list, filter, query);
@@ -164,6 +174,28 @@ export function DevicesSection({ start }: { start?: ConnectStart | null }) {
             )}
           </EmptyState>
         ))}
+      {/* The workspace's switch over every computer's help: an admin's. */}
+      {admin && devices.isSuccess && (
+        <Card aria-label={t("devices.helpWorkspace")}>
+          <div className="settings-rows">
+            <PrefRow
+              id="dv-help"
+              icon="bolt"
+              label={t("devices.helpWorkspace")}
+              hint={t("devices.helpWorkspaceHint")}
+              control={
+                <Switch
+                  id="dv-help-switch"
+                  checked={devices.data.devicesHelp !== false}
+                  onCheckedChange={(on) =>
+                    help.mutate(on, { onError: (err) => toast.show(errorText(t, err), "error") })
+                  }
+                />
+              }
+            />
+          </div>
+        </Card>
+      )}
       {edition === "selfhost" && (
         <>
           <HostComputerCard onlyOff />
@@ -239,16 +271,24 @@ export function DeviceRowView({
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const stop = useStopPhone(org.id);
+  const power = usePowerAction();
   const toast = useToast();
   const navigate = useNavigate();
   const d = row.device;
   const host = row.kind === "phone" ? row.host : null;
-  const detail = statusDetail(t, i18n.language, d.status, { host: host?.name, hostOs: host?.os, ios: iosOf(d) });
+  const maintenance = row.kind === "computer" ? (row.device.maintenance ?? null) : null;
+  const detail = statusDetail(t, i18n.language, d.status, {
+    host: host?.name,
+    hostOs: host?.os,
+    ios: iosOf(d),
+    maintenance,
+  });
   const target: Target =
     row.kind === "computer" ? { kind: "computer", device: row.device } : { kind: "phone", device: row.device };
   const label = t("devices.menu", { name: d.name });
   const canStop = row.kind === "phone" && d.status.kind === "in_use" && (d.mayManage || d.status.userId === me.user.id);
   const managed = row.kind === "computer" && row.device.machineKind === "managed";
+  const powers = row.kind === "phone" ? powerChoice(row.device) : null;
   return (
     // biome-ignore lint/a11y/useSemanticElements: a grid row of the kit's list (a div), named for screen readers
     <div
@@ -302,7 +342,10 @@ export function DeviceRowView({
                   {detail}
                 </button>
               ) : (
-                <span className="dv-row__detail">{detail}</span>
+                <span className={maintenance ? "dv-row__detail ac-hintline" : "dv-row__detail"}>
+                  {detail}
+                  {maintenance && <MaintenanceHint maintenance={maintenance} />}
+                </span>
               ))}
           </>
         )}
@@ -312,7 +355,7 @@ export function DeviceRowView({
         <WhoLine device={d} host={host} />
       </span>
       <span className="dv-row__end">
-        {!managed && (d.mayManage || canStop) && (
+        {!managed && (d.mayManage || canStop || powers) && (
           <Menu
             align="end"
             label={label}
@@ -334,6 +377,15 @@ export function DeviceRowView({
             >
               {t("devices.settings")}
             </MenuItem>
+            {powers && (
+              <MenuItem
+                icon={powers === "start" ? "play" : "power"}
+                disabled={power.pending}
+                onSelect={() => power.run(d, powers === "start")}
+              >
+                {t(powers === "start" ? "devices.power.start" : "devices.power.stop")}
+              </MenuItem>
+            )}
             {d.mayManage && (
               <MenuItem icon="edit" onSelect={() => onRename(target)}>
                 {t("devices.rename")}
@@ -373,6 +425,23 @@ export function DeviceRowView({
       </span>
     </div>
   );
+}
+
+/** Ligar or Desligar, with the toast that says how it went: a row's menu and the phone's page. */
+export function usePowerAction() {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const toast = useToast();
+  const power = usePowerPhone(org.id);
+  const run = (phone: { id: string; name: string }, on: boolean) =>
+    power.mutate(
+      { id: phone.id, on },
+      {
+        onSuccess: () => toast.show(t(on ? "devices.power.starting" : "devices.power.stopped", { name: phone.name })),
+        onError: (err) => toast.show(errorText(t, err), "error"),
+      },
+    );
+  return { run, pending: power.isPending };
 }
 
 /**

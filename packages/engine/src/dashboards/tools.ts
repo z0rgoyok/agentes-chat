@@ -203,6 +203,14 @@ async function briefOf(ctx: ToolContext) {
   return routineBriefOf(m?.meta);
 }
 
+/** Why a failed widget fails, as its card says: the agent's own words, else the code (`widgets.failure.*`). */
+function failingWords(w: { failureCode: string | null; failureDetail: string | null }) {
+  const stopped = w.failureCode === "failing";
+  const code = stopped ? null : w.failureCode;
+  const why = w.failureDetail ? `: «${w.failureDetail.slice(0, 200)}»` : code ? ` (${code})` : "";
+  return `, failing${why}${stopped ? "; stopped after failing in a row, until a person clicks Resolve" : ""}`;
+}
+
 const SCHEDULE_WORDS: Record<WidgetSchedule, string> = {
   half: "every 30 minutes",
   hour: "every hour",
@@ -261,6 +269,8 @@ export function createDashboardToolSource(deps: DashboardDeps): ToolSource {
                 title: dashboardWidgets.title,
                 schedule: dashboardWidgets.schedule,
                 status: dashboardWidgets.status,
+                failureCode: dashboardWidgets.failureCode,
+                failureDetail: dashboardWidgets.failureDetail,
               })
               .from(dashboardWidgets)
               // A person's draft (a test not created yet) is on no board (ADR 0135 §16).
@@ -285,7 +295,7 @@ export function createDashboardToolSource(deps: DashboardDeps): ToolSource {
         const pending = b.proposal ? `; waiting on ${person.name} to publish it wider` : "";
         const each = own.map((w) => {
           const when = SCHEDULE_WORDS[w.schedule as WidgetSchedule] ?? w.schedule;
-          return `${w.title} (${when}${w.status === "failed" ? ", failing" : ""})`;
+          return `${w.title} (${when}${w.status === "failed" ? failingWords(w) : ""})`;
         });
         const list = own.length === 0 ? "no widgets yet" : `${own.length} widgets: ${each.join("; ")}`;
         lines.push(`${b.id} — ${name}: seen by ${who}${editors}${pending}; ${list}`);

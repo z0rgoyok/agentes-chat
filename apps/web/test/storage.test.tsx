@@ -5,7 +5,7 @@ setupDom();
 
 import { keys, type StoragePlatform } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { createFakeApi, type FakeState, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
+import { createFakeApi, type FakeState, fakeMachinesOf, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { createMockStorage } from "./fakes/storage";
 import { renderApp, screen, settle } from "./render";
 
@@ -129,6 +129,67 @@ describe("Configurações → Armazenamento", () => {
       "Armazenamento do agentes.chatSeus arquivos ficam no nosso armazenamento, separados por workspace.Nenhum arquivo",
     );
     expect(section().textContent).not.toContain("Este servidor");
+  });
+
+  test("the workspace computer's disk: a bar by what takes it, each kind named with its amount, then what is free", async () => {
+    const api = createFakeApi(withRightHand(seedState()));
+    const machines = fakeMachinesOf.get(api);
+    const parts = { projects: 40, apps: 15, agents: 60, caches: 12.5, system: 0 };
+    machines?.setSetup({ state: "ready", machineId: "machine_1" });
+    const m = machines?.pair({
+      name: "Computador da Acme",
+      kind: "managed",
+      os: "other",
+      disk: { freeGb: 50, use: 0.75, sharedGb: 2, sizeGb: 200, parts },
+    });
+    await renderApp(`/org/${ORG_ID}/settings/storage`, { api });
+    await settle(5);
+    const card = screen().getByRole("region", { name: "Computador do workspace" });
+    expect(text(card.querySelector(".ac-card__head"))).toContain("150 GB de 200 GB em uso");
+    const bar = within(card).getByRole("meter", { name: "Disco do computador do workspace" });
+    // A kind that takes nothing draws nothing; what no kind covers is Other, its piece last.
+    expect(bar.querySelectorAll(".ac-meter__seg")).toHaveLength(5);
+    expect([...card.querySelectorAll(".plan-legend__item")].map(text)).toEqual([
+      "Projetos e código 40 GB",
+      "Apps e ferramentas 15 GB",
+      "Arquivos dos agentes 60 GB",
+      "Caches e temporários 13 GB",
+      "Outros 23 GB",
+      "Livre 50 GB",
+    ]);
+    // Room to spare: no warning.
+    expect(card.querySelector(".ac-setnote")).toBeNull();
+
+    // Filling up: what is left and the way out, an agent asked to clear caches.
+    cleanup();
+    if (m) machines?.patch(m.id, { disk: { freeGb: 16, use: 0.92, sharedGb: 2, sizeGb: 200, parts } });
+    await renderApp(`/org/${ORG_ID}/settings/storage`, { api });
+    await settle(5);
+    const full = screen().getByRole("region", { name: "Computador do workspace" });
+    expect(text(full.querySelector(".ac-setnote"))).toBe(
+      "Quase cheio, restam 16 GB. Um agente pode limpar caches e arquivos temporários e apagar o que ninguém usa mais.",
+    );
+    await click(within(full).getByRole("button", { name: "Peça ao Lodi" }));
+    await settle(4);
+    expect(document.body.textContent).toContain(
+      "Libere espaço no computador do workspace: limpe caches e arquivos temporários",
+    );
+  });
+
+  test("the workspace computer before it measured its disk: its use, and that what takes it is being measured", async () => {
+    const api = createFakeApi(seedState());
+    fakeMachinesOf.get(api)?.pair({
+      name: "Computador da Acme",
+      kind: "managed",
+      os: "other",
+      disk: { freeGb: 150, use: 0.25, sharedGb: null },
+    });
+    await renderApp(`/org/${ORG_ID}/settings/storage`, { api });
+    await settle(5);
+    const card = screen().getByRole("region", { name: "Computador do workspace" });
+    expect(text(card)).toContain("50 GB de 200 GB em uso");
+    expect(text(card)).toContain("Medindo o que ocupa o espaço.");
+    expect(card.querySelectorAll(".ac-meter__seg")).toHaveLength(0);
   });
 
   test("the option in use says what its files take: on this server's disk with what is free, in its database or bucket, on the Cloud", async () => {
@@ -272,7 +333,7 @@ describe("Configurações → Armazenamento", () => {
     await go();
     await openConnect();
     const list = dialog("Onde fica o seu armazenamento?");
-    expect([...list.querySelectorAll(".storage-pick__name")].map((n) => n.textContent)).toEqual([
+    expect([...list.querySelectorAll(".storage-pick .ac-optrow__hit")].map((n) => n.textContent)).toEqual([
       "Cloudflare R2",
       "Amazon S3",
       "Backblaze B2",

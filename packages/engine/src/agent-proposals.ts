@@ -13,13 +13,14 @@ import {
   sql,
 } from "@agenteschat/db";
 import { AUTO_MODEL } from "@agenteschat/providers";
+import { ROUTINE_PROMPT_MAX } from "@agenteschat/tokens/routines";
 import { orgToolCatalog, setAgentAccess } from "./access";
 import { type Agent, createAgent, getAgent, HANDLE_PATTERN, NEW_AGENT_DEFAULTS, takenHandles } from "./agents";
 import { type AiStatusDeps, agentAiState } from "./ai-status";
 import { type AgentAppearance, setAgentAppearance, validateAppearance } from "./appearance";
 import { reachesAgent } from "./audience";
 import { setAgentBrain } from "./brain-settings";
-import { requireChannelAccess } from "./channels";
+import { namesChannel, requireChannelAccess, typedChannelName } from "./channels";
 import { CONNECTOR_CATALOG } from "./connectors/catalog";
 import { prefixService, toolPrefixOf, toolPrefixOfConnection } from "./connectors/connections";
 import { customScope, isCustom } from "./connectors/custom";
@@ -73,7 +74,7 @@ export const AGENT_PROPOSAL_CARD = "agent_proposal";
 export type SuggestedAi =
   | {
       kind: "account";
-      brain: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+      brain: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
       machineId: string;
       accountId: string;
       label: string;
@@ -406,7 +407,7 @@ export async function checkRoutine(
   }
   return {
     name: str(r.title).slice(0, 120) || prompt.split("\n")[0]?.slice(0, 60) || "Routine",
-    prompt: prompt.slice(0, 10_000),
+    prompt: prompt.slice(0, ROUTINE_PROMPT_MAX),
     schedule,
     rule: read.rule,
     cron: read.cron,
@@ -501,8 +502,8 @@ export async function checkAgentDraft(
   const appearance = input.look && typeof input.look === "object" ? validateAppearance(input.look) : null;
 
   const offer = await offerOf(db, { ...at, orgId });
-  const wanted = [...new Set(list(input.channels).map((c) => str(c).replace(/^#/, "").toLowerCase()))].filter(Boolean);
-  const unknownChannels = wanted.filter((n) => !offer.channels.some((c) => c.name === n));
+  const wanted = [...new Set(list(input.channels).map((c) => typedChannelName(str(c))))].filter(Boolean);
+  const unknownChannels = wanted.filter((n) => !offer.channels.some((c) => namesChannel(c.name, n)));
   if (unknownChannels.length > 0) {
     throw new ValidationError(
       `No channel ${unknownChannels.map((n) => `#${n}`).join(", ")} you can name here. ${offerText(offer)}`,
@@ -547,7 +548,7 @@ export async function checkAgentDraft(
   }
   const hello = str(input.hello).slice(0, SETUP_HELLO_MAX);
   const routine = input.routine ? await checkRoutine(deps, at, input.routine) : null;
-  const channelIds = offer.channels.filter((c) => wanted.includes(c.name)).map((c) => c.id);
+  const channelIds = offer.channels.filter((c) => wanted.some((n) => namesChannel(c.name, n))).map((c) => c.id);
   // Its routine reports in this conversation: the agent is in it.
   if (routine && offer.here && !channelIds.includes(offer.here.id)) channelIds.push(offer.here.id);
 
@@ -596,7 +597,7 @@ export async function suggestAgentAi(
           eq(machineAccounts.orgId, orgId),
           eq(machineAccounts.createdBy, userId),
           eq(machineAccounts.status, "active"),
-          inArray(machineAccounts.kind, ["claude_code", "codex", "cursor", "opencode", "grok", "antigravity"]),
+          inArray(machineAccounts.kind, ["claude_code", "codex", "cursor", "opencode", "grok", "antigravity", "devin"]),
           notInArray(machineAccounts.id, used),
         ),
       )

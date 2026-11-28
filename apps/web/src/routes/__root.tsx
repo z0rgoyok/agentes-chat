@@ -1,22 +1,21 @@
 import { useApi, useMe } from "@agenteschat/client";
-import { Button, EmptyState } from "@agenteschat/ui";
-import { createRootRouteWithContext, Link, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
+import { createRootRouteWithContext, Outlet, useRouter, useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
-import { useTranslation } from "react-i18next";
 import type { RouterContext } from "@/app/router-context";
 import { DesktopDragStrip } from "@/components/DesktopDragStrip";
 import { ContextMenuHost } from "@/components/DesktopMenus";
-import { ErrorScreen } from "@/components/ErrorScreen";
+import { ErrorScreen, NotFoundScreen } from "@/components/ErrorScreen";
 import { AccountDeletingScreen } from "@/components/Standing";
 import { useBackCloses } from "@/hooks/useBackCloses";
 import { switchAccount } from "@/lib/accounts";
-import { askForPhone, asksForPhone, inDesktopApp, pageReadyAfterPaint, routeNewWindowLinks } from "@/lib/desktop";
+import { askForPhone, asksForPhone, inDesktopApp, routeNewWindowLinks } from "@/lib/desktop";
 import { dispatchPushOpen } from "@/lib/push-open";
+import { firstScreenPainted } from "@/lib/vitals";
 import { listenForPushOpens } from "@/lib/web-push";
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   component: Root,
-  notFoundComponent: NotFound,
+  notFoundComponent: NotFoundScreen,
   errorComponent: ErrorScreen,
 });
 
@@ -29,8 +28,8 @@ function Root() {
   const api = useApi();
   const myId = me?.user.id ?? null;
   useBackCloses();
-  // In the app: once this first screen is on the glass, the app's cover over the window goes.
-  useEffect(pageReadyAfterPaint, []);
+  // Once this first screen is on the glass: the opening's time, and in the app, the cover over the window goes.
+  useEffect(firstScreenPainted, []);
   // In the app: a link to another site opens in the browser, one to this server in the window (main_window.rs).
   useEffect(() => (inDesktopApp() ? routeNewWindowLinks() : undefined), []);
   // The app opens a page of the site that is already open (the tray, a notification, ⌘-click) without
@@ -67,26 +66,5 @@ function Root() {
       <ContextMenuHost />
       {deletion ? <AccountDeletingScreen dueAt={deletion.dueAt} /> : <Outlet />}
     </>
-  );
-}
-
-function NotFound() {
-  const { t } = useTranslation();
-  return (
-    <div className="page page--mid">
-      <header className="page__header">
-        <h1 className="page-title">{t("empty.notFoundTitle")}</h1>
-      </header>
-      <EmptyState
-        icon="search"
-        actions={
-          <Button asChild>
-            <Link to="/">{t("empty.goHome")}</Link>
-          </Button>
-        }
-      >
-        {t("empty.notFoundText")}
-      </EmptyState>
-    </div>
   );
 }

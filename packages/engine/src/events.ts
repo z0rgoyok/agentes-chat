@@ -7,6 +7,7 @@ import type { ApprovalView } from "./approvals";
 import type { ArtifactView } from "./artifacts";
 import type { BlockStateView } from "./block-state";
 import type { ChoicesView, PollView } from "./blocks";
+import type { BrainPhase } from "./brains/types";
 import type { BrowserHandoffView } from "./browser/handoff";
 import type { CalendarEventView, CalendarProposalView } from "./calendar";
 import type { CliProgress, CliToolSummary } from "./cli-tools";
@@ -191,7 +192,8 @@ export type ChannelEvent =
     }
   /**
    * An agent's question to another agent (`ask_agent`, ADR 0034), or the work it handed it (`kind` `note`), came
-   * back: `status` answered, expired or failed.
+   * back: `status` answered, expired or failed. `goesOn: false`: work handed off whose result woke nobody (ADR 0095),
+   * so the agent that handed it isn't writing; `stillOutAgentId`: a colleague still at work on another part it handed.
    */
   | {
       type: "agent.consulted";
@@ -202,6 +204,8 @@ export type ChannelEvent =
       consultedAgentId: string;
       status: "answered" | "expired" | "failed";
       kind?: "note";
+      goesOn?: false;
+      stillOutAgentId?: string;
     }
   /**
    * A question or hand-off still out changed without closing: the consulted agent stopped on a person (an approval,
@@ -309,6 +313,18 @@ export type ChannelEvent =
       agentId: string;
       text: string;
     }
+  /**
+   * A step before the model has the turn that is taking a while (`phaseTeller`): the bar says it instead of
+   * "Pensando…" (`code`: the agent's checkouts are being updated). `phase: null` once it is over. Never stored.
+   */
+  | {
+      type: "agent.phase";
+      channelId: string;
+      threadId: string | null;
+      runId: string;
+      agentId: string;
+      phase: BrainPhase | null;
+    }
   /** What a computer command prints while it runs (throttled, ≤ 64 KB per call). */
   | {
       type: "agent.tool.output";
@@ -397,6 +413,8 @@ export type ChannelEvent =
       computer?: "queued" | "away" | "line";
       /** Into a run waiting on its plan's limit or its budget. */
       usage?: "plan" | "budget";
+      /** Into a run parked on an outage (`outageParkedSql`): it retries by itself. */
+      outage?: true;
     }
   /** The run read these messages sent while it worked (they are in its conversation now): "Ada leu". */
   | {
@@ -533,7 +551,7 @@ export type ChannelEvent =
       status: "done" | "failed" | "waiting_approval" | "waiting_input" | "canceled";
       /** `no_ai`: the agent has no AI to think with. */
       reason?: string;
-      /** `failed`: why, for the app to word (`runErrorDetail`). */
+      /** `failed`: why, for the app to word (`runErrorDetail`); with `no_ai`, why it had none (`noAiDetail`). */
       errorCode?: string;
       errorParams?: Record<string, string>;
       /** `waiting_input` parked on a provider outage. */
@@ -804,7 +822,7 @@ export interface ActivityLine {
   counts: boolean;
   /** Its line, when it may be the last one: a channel's top-level message, any of a DM's. Absent: a routine's call. */
   last?: {
-    authorType: "person" | "agent";
+    authorType: "person" | "agent" | "app";
     authorId: string | null;
     /** As a channel's row has it, at most `CHANNEL_PREVIEW_LENGTH` chars. */
     preview: string;
@@ -846,7 +864,10 @@ export function activityLine(message: MessageView): ActivityLine | null {
   return Buffer.byteLength(JSON.stringify(line)) <= ACTIVITY_LINE_LIMIT ? line : null;
 }
 
-export async function publishMessageCreated(pubsub: PubSub, message: MessageView) {
+export async function publishMessageCreated(pubsub: PubSub, posted: MessageView) {
+  // The parts of a long agent text written ahead of this one go out first, each as the message it is.
+  const { before, ...message } = posted;
+  for (const part of before ?? []) await publishMessageCreated(pubsub, part);
   const inline = Buffer.byteLength(JSON.stringify(message)) <= INLINE_LIMIT;
   const authorUserId = message.author.type === "person" ? message.author.id : null;
   await publishChannelEvent(pubsub, {

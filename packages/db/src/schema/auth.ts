@@ -34,6 +34,12 @@ export const users = pgTable("users", {
   deletionDueAt: timestamp({ withTimezone: true }),
   deletionRequestedAt: timestamp({ withTimezone: true }),
   /**
+   * The last confirmation or reset email to the account's address could never be delivered (`suppressed`: the mail
+   * provider stopped mailing it after a bounce; `rejected`: the address was refused); null once one goes. Set by the
+   * `email.send` job. Not a Better Auth field.
+   */
+  emailUndelivered: text().$type<"suppressed" | "rejected">(),
+  /**
    * The person's own area, asked once during the onboarding: an id of `WORK_AREAS`
    * (`@agenteschat/client/lib/work-area`) or `skipped`; null until asked. About the person, not a workspace, read by
    * the operator API's account (which kinds of people stay). Not a Better Auth field.

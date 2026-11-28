@@ -1,7 +1,7 @@
 import { isRichColor, isRichHref, type RichDoc, type RichRun } from "@agenteschat/live/rich";
 import { cx } from "@agenteschat/ui";
 import type { CSSProperties, ReactNode } from "react";
-import { listNumbers, paragraphDomAttrs } from "./schema";
+import { listNumbers, paragraphDomAttrs, typeMarkCss } from "./schema";
 import "./rich.css";
 
 /**
@@ -64,12 +64,25 @@ function domProps(attrs: Record<string, string>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(attrs)) {
     if (key === "class") out.className = value;
-    else if (key === "style") {
-      const align = /text-align:\s*(\w+)/.exec(value)?.[1];
-      if (align) out.style = { textAlign: align };
-    } else out[key] = value;
+    else if (key === "style") out.style = cssObject(value);
+    else out[key] = value;
   }
   return out;
+}
+
+/** "a: b; c: d" as React's style object (only what the schema writes). */
+function cssObject(css: string): CSSProperties {
+  const out: Record<string, string> = {};
+  for (const part of css.split(";")) {
+    const i = part.indexOf(":");
+    if (i <= 0) continue;
+    const prop = part
+      .slice(0, i)
+      .trim()
+      .replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
+    out[prop] = part.slice(i + 1).trim();
+  }
+  return out as CSSProperties;
 }
 
 function Run({ run }: { run: RichRun }) {
@@ -82,7 +95,20 @@ function Run({ run }: { run: RichRun }) {
     </span>
   ));
   if (parts.length === 1) node = run.text;
-  // The editor's order, innermost last: bold, italic, underline, strike, color, link.
+  // The editor's order, innermost last: bold, italic, underline, strike, color, link, then the type marks.
+  const marks = [
+    ["caps", run.caps],
+    ["tracking", run.tracking],
+    ["highlight", run.highlight],
+    ["weight", run.weight],
+    ["size", run.size],
+    ["font", run.font],
+  ] as const;
+  for (const [name, value] of marks) {
+    if (value === undefined) continue;
+    const css = typeMarkCss(name, value);
+    if (css) node = <span style={cssObject(css)}>{node}</span>;
+  }
   if (run.link && isRichHref(run.link)) {
     node = (
       <a href={run.link} rel="noopener noreferrer nofollow" target="_blank">

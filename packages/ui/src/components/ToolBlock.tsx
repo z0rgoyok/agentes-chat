@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { cx } from "../cx";
+import { useMorph } from "../motion";
 import type { AgentColor } from "./AgentLook";
 import { PixelDone, PixelFail, PixelStop } from "./PixelMarks";
 import { PixelSpinner } from "./PixelSpinner";
@@ -80,6 +81,9 @@ export function ToolBlock({
   one?: boolean;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  // Its work finishing (a head that changes, lines that come and go): the block glides to its new height.
+  const box = useRef<HTMLElement>(null);
+  useMorph(box);
   // Its lines stay once opened, so closing folds them away smoothly.
   const [shown, setShown] = useState(defaultOpen);
   const id = useId();
@@ -100,7 +104,7 @@ export function ToolBlock({
         only.line.detail
       );
     return (
-      <section className={cx("ac-tools ac-tools--one", className)} aria-label={label}>
+      <section ref={box} className={cx("ac-tools ac-tools--one", className)} aria-label={label}>
         <ol className="ac-tools__lines" aria-live="polite">
           <Line line={{ ...only.line, detail }} color={color} onToggle={onToggle} />
         </ol>
@@ -108,7 +112,7 @@ export function ToolBlock({
     );
   }
   return (
-    <section className={cx("ac-tools", className)} aria-label={label}>
+    <section ref={box} className={cx("ac-tools", className)} aria-label={label}>
       <button
         type="button"
         className="ac-tools__head"

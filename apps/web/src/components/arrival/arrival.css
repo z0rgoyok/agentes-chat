@@ -86,6 +86,14 @@
   background: none;
   box-shadow: none;
 }
+/* The empty place at the trail's end while an AI is being chosen: the sky is blue in either theme, so it is white. */
+.team-scene__mark--slot {
+  background: rgb(255 255 255 / 0.16);
+  box-shadow: none;
+  outline: 2px dashed rgb(255 255 255 / 0.8);
+  outline-offset: -2px;
+  color: #fff;
+}
 .team-scene__trail {
   display: flex;
   gap: 5px;
@@ -179,16 +187,17 @@
   flex: none;
   height: 172px;
 }
-/* On the sky: white, whatever the theme. */
+/* On the sky: white on a soft dark plate, whatever the theme and the hour (a day sky is light under it). */
 .arrival-hero__close {
   position: absolute;
   top: 12px;
   right: 12px;
   z-index: 1;
+  background: #00000038;
   color: #fff;
 }
 .arrival-hero__close:hover {
-  background: #ffffff2e;
+  background: #00000059;
   color: #fff;
 }
 .arrival-lede {
@@ -481,10 +490,6 @@
   margin-inline-start: auto;
   font-size: 13.5px;
 }
-/* A plan that asks for one login per agent there: said at its card's end, quietly. */
-.arrival-opts__tag--quiet {
-  color: var(--ink-muted);
-}
 /* Whom of them: one row each, a long name whole (it wraps, never cut; ADR 0160 addendum) with the box and the face on
    its first line. No box of its own: the dialog's body scrolls it, only when the window can't hold it, the foot in
    sight. */
@@ -624,7 +629,7 @@
 .arrival-have__row {
   position: relative;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr) auto;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
   column-gap: 12px;
   align-items: start;
   padding: 12px 14px;
@@ -699,22 +704,34 @@ html:not([data-pointer]) button.arrival-have__row:focus-visible {
 html:not([data-pointer]) button.arrival-have__row[data-state="checked"]:focus-visible {
   box-shadow: var(--have-chosen), var(--field-ring);
 }
-.arrival-have__row > .ac-brand,
-.arrival-have__mark {
-  width: 20px;
-  height: 20px;
-}
-/* A key's glyph drawn 16px inside the marks' 20px box: its icon is sized 20 (`ConnectHave`), the padding takes 2. */
-.arrival-have__mark {
-  padding: 2px;
-  box-sizing: border-box;
-  color: var(--ink);
-}
 .arrival-have__text {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
+}
+/* Beside its maker's tile only the name's line (centred on it, with how full the plan is); the lines under it take
+   the row's whole width, so the tile never owns a column beside three lines. */
+.arrival-have__row:has(> .ac-brand) {
+  align-items: center;
+  row-gap: 2px;
+}
+.arrival-have__row:has(> .ac-brand) > .arrival-have__text {
+  display: contents;
+}
+.arrival-have__row:has(> .ac-brand) > .ac-brand,
+.arrival-have__row:has(> .ac-brand) .arrival-have__head {
+  grid-row: 1;
+}
+.arrival-have__row:has(> .ac-brand) .arrival-have__head {
+  grid-column: 2;
+}
+.arrival-have__row:has(> .ac-brand) :is(.arrival-have__line, .arrival-have__why) {
+  grid-column: 1 / -1;
+}
+.arrival-have__row:has(> .ac-brand) > .arrival-have__room {
+  grid-row: 1;
+  grid-column: 3;
 }
 /* What tells one account from the next (its name, its email, whose it is) wraps whole, never cut. */
 .arrival-have__title,
@@ -731,12 +748,14 @@ html:not([data-pointer]) button.arrival-have__row[data-state="checked"]:focus-vi
   font-size: 13px;
   line-height: 18px;
 }
-/* The title and, after it, the pencil that names the account (ADR 0059 §4): one line. */
+/* The title and, after it, the pencil that names the account (ADR 0059 §4): one line, in the title's size. */
 .arrival-have__head {
   display: flex;
   align-items: center;
   gap: 4px;
   min-width: 0;
+  font-size: 15px;
+  line-height: 20px;
 }
 /* "Unnamed account": quieter than a name or an email, until its owner names it. */
 .arrival-have__title[data-unnamed] {
@@ -764,19 +783,9 @@ html:not([data-pointer]) .arrival-have__edit:focus-visible {
   outline: none;
   box-shadow: var(--field-ring);
 }
-/* The row while its name changes: the field and Save where the title stood. */
+/* The row while its name changes: the name itself is the field (the kit's InlineName), nothing else moves. */
 .arrival-have__row[data-renaming] {
   cursor: default;
-}
-.arrival-have__rename {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 4px;
-}
-.arrival-have__rename > :first-child {
-  flex: 1;
-  min-width: 0;
 }
 /* The state is the words; the colour only follows them. */
 .arrival-have__line[data-plan="almost"] {
@@ -932,41 +941,6 @@ html:not([data-pointer]) .arrival-have__link:focus-visible {
   font-weight: 600;
   line-height: 24px;
 }
-/*
- * A tile beside a title and its one line: the two lines as a block on the tile's middle, and what ends the card (the
- * chevron, "No subscription") on the same middle, so the three share one centre. Each card holds only these, never a
- * list ("Another plan" opens into cards of their own).
- */
-.arrival-opts .ac-option {
-  align-items: center;
-  width: 100%;
-}
-.arrival-opts .ac-option > .ac-option__text {
-  flex: 1;
-}
-/* One line under each title, so every card is the same height: a long list of plans ends in an ellipsis. */
-.arrival-opts .ac-option__text {
-  min-width: 0;
-}
-.arrival-opts .ac-option__desc {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-/* What ends a card stays on its middle, beside both lines. */
-.arrival-opts__end {
-  flex: none;
-  align-self: center;
-  color: var(--faint);
-}
-.arrival-opts__tag {
-  flex: none;
-  align-self: center;
-  color: var(--ok);
-  font-size: 12.5px;
-  font-weight: 600;
-  white-space: nowrap;
-}
 .arrival-opts__tile {
   display: grid;
   place-items: center;
@@ -1075,8 +1049,6 @@ html:not([data-pointer]) .arrival-have__link:focus-visible {
   overflow: hidden;
   max-width: 100%;
   margin: 0;
-  padding-left: 12px;
-  border-left: 2px solid var(--line2);
   color: var(--ink2);
   font-size: 14px;
   line-height: 20px;
@@ -1216,12 +1188,142 @@ html:not([data-pointer]) .arrival-have__link:focus-visible {
   }
 }
 
+/* ---------- right after paying: the team wakes, the computer turns on, a hello ---------- */
+.paid-scene .team-scene__row {
+  gap: var(--space-3);
+  padding-inline: var(--space-3);
+}
+.paid-scene .ac-computer {
+  flex: none;
+}
+/* The hello comes once the team is up: faded in, never popped. It gives way first on a narrow band: a long first name
+   ends in "…" (the sky is decorative, the words beside it say it all). */
+.paid-scene__hello {
+  flex: 0 1 auto;
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--out);
+}
+.paid-scene__hello[data-on] {
+  opacity: 1;
+}
+/* A phone: two faces, so the computer and the hello keep their room. */
+@media (max-width: 520px) {
+  .paid-scene .team-scene__agent:nth-child(3) {
+    display: none;
+  }
+}
+/* In full: a larger sky, the team drawn larger on it. */
+.arrival-paid .arrival-hero {
+  height: 216px;
+}
+.arrival-paid .team-scene__row {
+  bottom: var(--space-6);
+}
+.arrival-paid .team-scene__agent .ac-avatar {
+  width: 52px;
+  height: 52px;
+}
+.arrival-paid .team-scene__agent[data-lead] .ac-avatar {
+  width: 72px;
+  height: 72px;
+}
+/* The computer as it is now: the orbit while it gets ready, a check once it is on. */
+.paid-computer {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 20px;
+  text-wrap: pretty;
+}
+/* A button whose words come from data (a right hand's long name) ends in "…", its title saying it whole. */
+.paid-go {
+  max-width: 100%;
+}
+.paid-go .ac-btn__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The lighter form: a card in the window's corner, over the page and under every dialog, leaving the page as it is. */
+.paid-card {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: var(--z-docked);
+  display: flex;
+  flex-direction: column;
+  width: min(360px, calc(100% - 2 * var(--space-4)));
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  background: var(--raised);
+  box-shadow: var(--e3);
+  animation: arrival-in var(--dur-base) var(--out) both;
+}
+.paid-card__band {
+  position: relative;
+  height: 112px;
+}
+.paid-card__band .team-scene__row {
+  bottom: var(--space-3);
+}
+.paid-card__band .team-scene__agent .ac-avatar {
+  width: 36px;
+  height: 36px;
+}
+.paid-card__band .team-scene__agent[data-lead] .ac-avatar {
+  width: 44px;
+  height: 44px;
+}
+.paid-card__band .arrival-hero__close {
+  top: var(--space-2);
+  right: var(--space-2);
+}
+.paid-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4);
+}
+.paid-card__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 22px;
+  text-wrap: balance;
+}
+.paid-card__line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 20px;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+.paid-card__go {
+  align-self: flex-start;
+  margin-top: var(--space-2);
+}
+@media (max-width: 520px) {
+  .paid-card {
+    bottom: calc(env(safe-area-inset-bottom, 0px) + var(--space-4));
+  }
+  /* A card's lone primary button fills it on a phone. */
+  .paid-card__go {
+    align-self: stretch;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .team-scene__cast[data-awake] .team-scene__agent,
   .team-scene__trail i,
   .team-scene__mark,
-  .arrival-envelope {
+  .arrival-envelope,
+  .paid-card {
     animation: none;
+  }
+  .paid-scene__hello {
+    transition: none;
   }
   .arrival-envelope[data-sent] {
     display: none;

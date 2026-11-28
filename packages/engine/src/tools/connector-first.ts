@@ -1,6 +1,7 @@
 import { and, desc, eq, gt, isNull, or, schema, sql } from "@agenteschat/db";
 import { type ConnectorState, connectorStates, type ServerCatalog } from "../connectors/listing";
 import { connectorsForUrl } from "../connectors/sites";
+import { ownTypedSql } from "../message-origin";
 import { ownerOnlyPerson } from "../personal-use";
 import { secretSite } from "../secret-request-tool";
 import { REQUEST_SECRET_TOOL, secretStillHeld } from "../secrets";
@@ -102,7 +103,10 @@ async function holdsKey(ctx: ToolContext, name: string) {
   return saved !== undefined;
 }
 
-/** Whether a person wrote these words here: what an agent says a person told it is checked, never taken on its word. */
+/**
+ * Whether a person typed these words here (`ownTyped`, ADR 0250): what an agent says a person told it is checked, never
+ * taken on its word.
+ */
 async function personSaid(ctx: ToolContext, words: string) {
   const said = squeezed(words);
   if (said.length < 2) return false;
@@ -114,7 +118,7 @@ async function personSaid(ctx: ToolContext, words: string) {
       and(
         eq(messages.orgId, ctx.orgId),
         eq(messages.channelId, ctx.channelId),
-        eq(messages.authorType, "person"),
+        ownTypedSql(),
         isNull(messages.deletedAt),
       ),
     )

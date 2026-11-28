@@ -110,9 +110,9 @@ the chat card's face, the page). On a dark surface it is that surface rising int
 other skies are there: the color near the top and as a glow behind the face, the rest melting into the dark card,
 instead of the light theme's day sky over a gray slab. The agent page's cover follows the same rule.
 
-New agent's empty face in the sidebar is the agents' own: the sidebar's face tokens (`--sidebar-agent-face`, a
-team's message-size face or a personal list's 40, and the rail's `--sidebar-rail-face`), their framed radius and the
-gap to their names.
+New agent's empty face in the sidebar is the agents' own: the sidebar's face tokens (`--sidebar-agent-face`, the
+message-size face in a team's workspace and, since ADR 0159's amendment of 2026-11-26, in a personal one too, and the
+rail's `--sidebar-rail-face`), their framed radius and the gap to their names.
 
 ### 6. What stays
 

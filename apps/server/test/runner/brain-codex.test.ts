@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { type MachineRequest, parseBrainEvent } from "@agenteschat/adapters";
+import { type CodexSandbox, type MachineRequest, parseBrainEvent } from "@agenteschat/adapters";
 import {
   CODEX_CHAT_CONFIG,
   CODEX_CHAT_OFF,
@@ -15,7 +15,6 @@ import {
   codexContextOverride,
   codexEffort,
   codexProfileOf,
-  codexRefusal,
   codexRulesNear,
   codexThreadKey,
   codexThreadsFile,
@@ -25,7 +24,8 @@ import {
   shellScript,
   unwrapShell,
 } from "../../runner/brain-codex";
-import { CODEX_WINDOWS_CONFIG, WINDOWS_SANDBOX_MESSAGE } from "../../runner/codex-windows";
+import { WINDOWS_SANDBOX_MESSAGE } from "../../runner/codex-windows";
+import { codexRefusal } from "../../runner/executors";
 import { handleRequest } from "../../runner/handlers";
 import { CODEX_MCP_SERVER } from "../../runner/mcp";
 import { agentWorkspace } from "../../runner/paths";
@@ -149,16 +149,28 @@ test("a command's script is read the way its shell reads it, newlines kept; a tr
   expect(unwrapShell('/bin/zsh -lc "echo $HOME"')).toBe("echo $HOME");
 });
 
-test("Windows: the instructions never go on the command line; a plan or work turn names MXC, a chat turn no sandbox", () => {
+test("Windows: the instructions never go on the command line; a plan or work turn names its sandbox, a chat turn none", () => {
   const base = { cwd: "C:\\w", lastFile: "C:\\t\\last.txt", runId: RUN, instructions: "Be brief. %USERPROFILE%" };
   const work = codexTurnArgs({ ...base, windows: true });
   expect(work.join(" ")).not.toContain("developer_instructions");
   expect(work.join(" ")).not.toContain("Be brief");
-  for (const c of CODEX_WINDOWS_CONFIG) expect(work).toContain(c);
-  // The person's own rules left out (an allow there would run a command outside MXC, unasked), as everywhere.
+  // MXC unless told otherwise: a turn that names none fails closed where MXC is missing.
+  expect(work).toContain('windows.sandbox="mxc"');
+  // The person's own rules left out (an allow there would run a command outside the sandbox, unasked), as everywhere.
   expect(work).toContain("--ignore-rules");
   expect(work).toContain("sandbox_workspace_write.network_access=false");
   expect(codexTurnArgs({ ...base, windows: true, profile: "plan" })).toContain('windows.sandbox="mxc"');
+  // Where MXC is missing, Codex's own sandbox, with every other limit of the turn as it was.
+  const unelevated = codexTurnArgs({ ...base, windows: true, windowsSandbox: "unelevated", writableRoots: ["C:\\d"] });
+  expect(unelevated).toContain('windows.sandbox="unelevated"');
+  expect(unelevated.join(" ")).not.toContain('windows.sandbox="mxc"');
+  expect(unelevated).toContain("--ignore-rules");
+  expect(unelevated).toContain("sandbox_workspace_write.network_access=false");
+  expect(unelevated).toContain('sandbox_workspace_write.writable_roots=["C:\\\\d"]');
+  expect(unelevated[unelevated.indexOf("--sandbox") + 1]).toBe("workspace-write");
+  const plan = codexTurnArgs({ ...base, windows: true, windowsSandbox: "unelevated", profile: "plan" });
+  expect(plan).toContain('windows.sandbox="unelevated"');
+  expect(plan[plan.indexOf("--sandbox") + 1]).toBe("read-only");
   const chat = codexTurnArgs({ ...base, windows: true, chat: true }).join(" ");
   expect(chat).not.toContain("windows.sandbox");
   expect(chat).not.toContain("developer_instructions");
@@ -193,13 +205,16 @@ test("someone's own Codex rules near a turn: its home's, or a trusted project's 
   expect(codexRulesNear(home, path.join(root, "elsewhere"))).toBe(true);
 });
 
-test("Windows: a plan or work turn runs only where MXC holds Codex's commands; a chat turn never asks", async () => {
+test("Windows: a plan or work turn runs only inside the sandbox chosen there, by name; a chat turn never asks", async () => {
   const dir = tempDir("codex-win-turn-");
   dirs.push(dir);
-  const turn = async (mxc: boolean | null, chat = false) => {
+  // A file to start: a turn that gets past the sandbox reaches the start, which records its arguments and fails.
+  const exe = path.join(dir, "codex.exe");
+  writeFileSync(exe, "");
+  const turn = async (sandbox: CodexSandbox | null, chat = false) => {
     const events: CodexBrainEvent[] = [];
     const asked: string[] = [];
-    let spawned = 0;
+    const started: string[][] = [];
     await runCodexTurn(
       {
         runId: RUN,
@@ -217,33 +232,41 @@ test("Windows: a plan or work turn runs only where MXC holds Codex's commands; a
         signal: new AbortController().signal,
         codexVersion: () => "codex-cli 0.170.0",
         platform: "win32",
-        // Not there: a turn that gets past the sandbox ends on the missing CLI, before anything starts.
-        bin: "C:\\nowhere\\codex.exe",
-        spawn: (() => {
-          spawned++;
+        bin: exe,
+        spawn: ((_file: string, args: string[]) => {
+          started.push(args);
           throw new Error("nothing starts here");
         }) as unknown as Spawn,
         windowsSandbox: async (version) => {
           asked.push(version);
-          return mxc;
+          return sandbox;
         },
       },
     );
-    return { events, asked, spawned };
+    return { events, asked, started };
   };
-  const refused = await turn(false);
+  const refused = await turn("none");
   expect(refused.events).toEqual([{ type: "error", code: "windows_sandbox", message: WINDOWS_SANDBOX_MESSAGE }]);
   expect(refused.asked).toEqual(["codex-cli 0.170.0"]);
-  expect((await turn(null)).events).toMatchObject([{ type: "error", code: "codex_failed", retryable: true }]);
-  const held = await turn(true);
-  expect(held.events).toEqual([
-    { type: "error", code: "codex_missing", message: "Codex is not installed on this computer." },
-  ]);
+  expect(refused.started).toEqual([]);
+  const unknown = await turn(null);
+  expect(unknown.events).toMatchObject([{ type: "error", code: "codex_failed", retryable: true }]);
+  expect(unknown.started).toEqual([]);
+  for (const sandbox of ["mxc", "unelevated"] as const) {
+    const held = await turn(sandbox);
+    expect(held.events).toEqual([{ type: "error", code: "codex_failed", message: "nothing starts here" }]);
+    expect(held.started).toHaveLength(1);
+    const args = held.started[0] ?? [];
+    expect(args).toContain(`windows.sandbox="${sandbox}"`);
+    expect(args.filter((a) => a.startsWith("windows.sandbox="))).toHaveLength(1);
+    expect(args).toContain("--ignore-rules");
+    expect(args).toContain("sandbox_workspace_write.network_access=false");
+  }
   // The right hand: Codex refuses its own commands there with no sandbox, and the turn stops at the first anyway.
-  const chat = await turn(false, true);
+  const chat = await turn("none", true);
   expect(chat.asked).toEqual([]);
-  expect(chat.events).toMatchObject([{ type: "error", code: "codex_missing" }]);
-  expect(refused.spawned + held.spawned + chat.spawned).toBe(0);
+  expect(chat.started).toHaveLength(1);
+  expect((chat.started[0] ?? []).join(" ")).not.toContain("windows.sandbox");
 });
 
 test("MCP bridge overrides: stdio by run with the token through env_vars, or HTTP with a bearer from the env", () => {
@@ -300,11 +323,28 @@ test("events: commands and edits are executed tool calls, our bridge's calls are
   ).toMatchObject([{ executed: { content: "Not allowed by Codex's sandbox.", isError: true } }]);
 });
 
+test("reasoning: its summary is a note (masked), the server keeps it; an empty one is nothing", () => {
+  const m = new CodexEventMapper({ cwd: "/w", redact: (s) => s.replaceAll("sk-fake-123", "[key]") });
+  const notes = m.line(
+    '{"type":"item.completed","item":{"id":"r1","type":"reasoning","text":"Reading the config with sk-fake-123 first."}}',
+  );
+  expect(notes).toEqual([{ type: "note", text: "Reading the config with [key] first." }]);
+  expect(notes.map((e) => parseBrainEvent(e))).toEqual(notes);
+  expect(m.line('{"type":"item.completed","item":{"id":"r2","type":"reasoning","text":"  "}}')).toEqual([]);
+});
+
 test("turn end: failed turns, usage limits, a stream error with a bad exit, last.txt as the fallback answer", () => {
   const failed = new CodexEventMapper();
   failed.line('{"type":"turn.failed","error":{"message":"model overloaded"}}');
   expect(failed.finish({ exitCode: 1, sessionId: SESSION })).toEqual([
     { type: "error", code: "codex_failed", message: "model overloaded" },
+  ]);
+  // A failed turn with no message of its own: the error the CLI printed before it says why.
+  const bare = new CodexEventMapper();
+  bare.line('{"type":"error","message":"stream disconnected before completion"}');
+  bare.line('{"type":"turn.failed","error":{}}');
+  expect(bare.finish({ exitCode: 1, sessionId: SESSION })).toEqual([
+    { type: "error", code: "codex_failed", message: "stream disconnected before completion" },
   ]);
   const limited = new CodexEventMapper();
   limited.line('{"type":"error","message":"Reconnecting... 1/5"}');

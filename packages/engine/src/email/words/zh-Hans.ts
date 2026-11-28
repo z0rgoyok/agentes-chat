@@ -543,6 +543,27 @@ export const words: EmailWords = {
       why: (surface) => `你收到这封邮件，是因为 ${surface} 曾关联到你的 agentes.chat 账号。`,
       picture: "你的助手，已不在你的手机上",
     },
+    pinReset: {
+      subject: (surface) => `设置你的 ${surface} PIN`,
+      preheader: "设置用于在聊天应用中批准操作的 PIN。",
+      headline: (surface) => `设置你的 ${surface} PIN`,
+      body: (surface) =>
+        `有人请求了一个链接，用于设置你在 ${surface} 上批准操作时使用的 PIN。如果是你本人，请在此按钮打开的页面上设置。`,
+      button: "设置我的 PIN",
+      small: "此链接一小时内只能使用一次。如果不是你本人操作，请忽略这封邮件。什么都不会改变。",
+      why: (surface) => `你收到这封邮件，是因为 ${surface} 已关联到你的 agentes.chat 账号。`,
+    },
+    pinLocked: {
+      subject: (surface) => `你的 ${surface} PIN 已锁定`,
+      preheader: "连续三次输入了错误的 PIN。通过聊天应用批准已暂停。",
+      headline: (surface) => `你的 ${surface} PIN 已锁定`,
+      body: (surface, time) =>
+        `有人为了在 ${surface} 上批准一项操作，连续三次输入了错误的 PIN。通过 ${surface} 批准已暂停 ${time}。`,
+      lockedFor: ["15 分钟", "1 小时", "24 小时"],
+      small: (surface) =>
+        `如果是你本人，请稍后再试。如果不是，请在通知设置中取消关联 ${surface}，这样就没有人能通过它批准操作。`,
+      button: "打开通知设置",
+    },
   },
   supportReply: {
     subject: "你的求助有了回复",

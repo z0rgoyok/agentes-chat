@@ -49,6 +49,30 @@ function trustedList(proxies: readonly string[]) {
   return list;
 }
 
+function isTrusted(ip: string, trustedProxies: readonly string[] | undefined): boolean {
+  const family = isIP(ip);
+  return (
+    !!trustedProxies?.length && family !== 0 && trustedList(trustedProxies).check(ip, family === 6 ? "ipv6" : "ipv4")
+  );
+}
+
+/**
+ * Forwarding headers count only from the peer that connected to this server when it is a proxy that may write
+ * them: an internal address (the reverse proxy beside the app) or one of `TRUSTED_PROXIES`. From any other peer
+ * they are whatever the client wrote, so its own address replaces them before a route or Better Auth reads them.
+ */
+export function trustPeer(
+  headers: Headers,
+  peer: string | undefined,
+  trustedProxies: readonly string[] | undefined,
+): void {
+  if (!peer) return;
+  const address = peer.replace(/^::ffff:(?=\d+\.\d+\.\d+\.\d+$)/i, "");
+  if (isInternal(address) || isTrusted(address, trustedProxies)) return;
+  headers.set("x-forwarded-for", address);
+  headers.delete("x-real-ip");
+}
+
 /**
  * The client's address: walking `x-forwarded-for` from the right (what
  * proxies appended), the first one that is neither internal nor one of
@@ -68,15 +92,10 @@ export function clientIp(
     .split(",")
     .map((h) => h.trim())
     .filter(Boolean);
-  const trusted = trustedProxies?.length ? trustedList(trustedProxies) : null;
-  const isTrusted = (hop: string) => {
-    const family = isIP(hop);
-    return trusted !== null && family !== 0 && trusted.check(hop, family === 6 ? "ipv6" : "ipv4");
-  };
   let nearest: string | undefined;
   for (let i = hops.length - 1; i >= 0; i--) {
     const hop = hops[i] as string;
-    if (isTrusted(hop)) continue;
+    if (isTrusted(hop, trustedProxies)) continue;
     if (!isInternal(hop)) return hop;
     nearest ??= hop;
   }

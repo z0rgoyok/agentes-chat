@@ -114,6 +114,18 @@ const Notification = z
         .openapi({ description: "`join_request`: the first two people who asked, in the order they asked." }),
       diskUse: z.number().optional().openapi({ description: "`computer_disk_full`: the share of the disk in use." }),
       diskFreeGb: z.number().optional().openapi({ description: "`computer_disk_full`: the GB left on it." }),
+      since: z
+        .string()
+        .optional()
+        .openapi({ description: "`computer_down`, `computer_back`: when the outage began (ISO)." }),
+      runs: z
+        .number()
+        .int()
+        .optional()
+        .openapi({ description: "`computer_down`, `computer_back`: the runs that waited for the computer." }),
+      calls: z.number().int().optional().openapi({
+        description: "`computer_down`, `computer_back`: the webhook calls its agents' routines took meanwhile.",
+      }),
       failures: z
         .array(
           z.object({
@@ -365,7 +377,7 @@ export function notificationRoutes(deps: AppDeps) {
       security,
       summary: '"Pedir a um admin": an inbox row for whoever may do it, which does it or opens where it is done',
       description:
-        "`channel_agent` (`channelId`, `agentId`): who manages channels, an Adicionar on the row, done once the agent is added. `create_agents`: who gives roles. `webhook` (`provider`): who sets up connectors. Refused: `admin_ask.self` (409) to someone who may do it.",
+        "`channel_agent` (`channelId`, `agentId`): who manages channels, an Adicionar on the row, done once the agent is added. `create_agents`: who gives roles. `webhook` (`provider`): who sets up connectors. `voice`: the server's owner, to choose what turns voice into text (Settings › Voice). Refused: `admin_ask.self` (409) to someone who may do it.",
       request: {
         params: OrgParams,
         body: body(
@@ -373,6 +385,7 @@ export function notificationRoutes(deps: AppDeps) {
             z.object({ what: z.literal("channel_agent"), channelId: z.uuid(), agentId: z.uuid() }),
             z.object({ what: z.literal("create_agents") }),
             z.object({ what: z.literal("webhook"), provider: z.enum(["github", "sentry"]) }),
+            z.object({ what: z.literal("voice") }),
           ]),
         ),
       },

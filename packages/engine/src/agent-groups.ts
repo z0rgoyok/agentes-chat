@@ -1,13 +1,27 @@
 import type { PubSub } from "@agenteschat/adapters";
-import { and, asc, type Database, type Executor, eq, inArray, isNotNull, isNull, schema, sql } from "@agenteschat/db";
+import {
+  and,
+  asc,
+  type Database,
+  type Executor,
+  eq,
+  inArray,
+  isNotNull,
+  isNull,
+  rowsOf,
+  schema,
+  sql,
+} from "@agenteschat/db";
 import { listsAgentSql, listsAllAgents, managesAgent, REACH_COLUMNS } from "./audience";
+import { channelsInSector, writeChannelOrder } from "./channel-sectors";
+import { channelAudienceSql, managesChannel } from "./channels";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishOrgEvent } from "./events";
 import { getMembership, type Membership, requirePermission } from "./organizations";
 import { ROLE_COLORS, ROLE_ICONS } from "./permissions";
 import { forgetTeam } from "./team";
 
-const { agentGroups, agents } = schema;
+const { agentGroups, agents, channelMembers, channels } = schema;
 
 /**
  * A group of agents as every app reads it (ADR 0083): the groups in the workspace's order, each with its agents in
@@ -141,13 +155,52 @@ async function placeAgents(tx: Executor, orgId: string, groupId: string | null, 
 }
 
 /**
+ * `ids`, each a named channel here not archived that `by` may move (`managesChannel`: who manages channels, and its
+ * creator), as for putting it in a sector one at a time.
+ */
+async function requireChannels(
+  db: Database,
+  orgId: string,
+  ids: string[],
+  by: { userId: string; membership: Membership },
+) {
+  const found = await db
+    .select()
+    .from(channels)
+    .where(
+      and(
+        eq(channels.orgId, orgId),
+        inArray(channels.id, ids),
+        eq(channels.kind, "channel"),
+        isNull(channels.archivedAt),
+      ),
+    );
+  if (found.length !== ids.length) throw new NotFoundError("Channel not found");
+  for (const channel of found) {
+    if (!(await managesChannel(db, by.membership, by.userId, channel)))
+      throw new ForbiddenError("Only the channel's creator or who manages channels can move it");
+  }
+}
+
+/** The sectors holding a channel `userId` sees in the sidebar (ADR 0240): public ones, theirs, their roles'. */
+async function sectorsWithChannels(db: Database, userId: string, orgId: string) {
+  const rows = rowsOf<{ group_id: string }>(
+    await db.execute(sql`select distinct c.group_id from ${channels} c
+      left join ${channelMembers} cm on cm.org_id = c.org_id and cm.channel_id = c.id and cm.user_id = ${userId}
+      where c.org_id = ${orgId}::uuid and c.kind = 'channel' and c.archived_at is null and c.group_id is not null
+        and (c.visibility = 'public' or cm.id is not null or ${channelAudienceSql("c", sql`${userId}`)})`),
+  );
+  return new Set(rows.map((r) => r.group_id));
+}
+
+/**
  * Anyone in the workspace reads them, with only the agents their lists name (`listsAgentSql`). Who doesn't list every
- * agent (`listsAllAgents`) gets no group left without one: they don't arrange the groups. Who does keeps the empty
- * ones, but not one that only private agents (`isPrivateAgent`) filled.
+ * agent (`listsAllAgents`) gets no group left without one of those or a channel they see (ADR 0240): they don't
+ * arrange the groups. Who does keeps the empty ones, but not one that only private agents (`isPrivateAgent`) filled.
  */
 export async function listAgentGroups(db: Database, userId: string, orgId: string): Promise<AgentGroupView[]> {
   const membership = await requirePermission(db, userId, orgId, "read");
-  const [groups, rows] = await Promise.all([
+  const [groups, rows, withChannels] = await Promise.all([
     agentGroupViews(db, orgId),
     db
       .select({ id: agents.id })
@@ -159,28 +212,31 @@ export async function listAgentGroups(db: Database, userId: string, orgId: strin
           listsAgentSql("agents", sql`${userId}::text`, membership),
         ),
       ),
+    sectorsWithChannels(db, userId, orgId),
   ]);
   const listed = new Set(rows.map((r) => r.id));
   const all = listsAllAgents(membership);
   return groups
     .map((g) => ({ ...g, agentIds: g.agentIds.filter((id) => listed.has(id)) }))
-    .filter((g, i) => g.agentIds.length > 0 || (all && groups[i]?.agentIds.length === 0));
+    .filter((g, i) => g.agentIds.length > 0 || withChannels.has(g.id) || (all && groups[i]?.agentIds.length === 0));
 }
 
 /**
- * Adds a group after the others, with `agentIds` in it in that order (out of any group they were in). Owners and
- * admins, with agents they manage (`requireAgents`). An import brings its sections of agents in through this too, one
- * call per section.
+ * Adds a group after the others, with `agentIds` in it in that order (out of any group they were in), and `channelIds`
+ * ("Novo setor com #canal", ADR 0240). Owners and admins, with agents they manage (`requireAgents`) and channels they
+ * may move (`requireChannels`). An import brings its sections of agents in through this too, one call per section.
  */
 export async function createAgentGroup(
   deps: AgentGroupDeps,
   userId: string,
   orgId: string,
-  input: { name: string; agentIds?: string[]; color?: string; icon?: string },
+  input: { name: string; agentIds?: string[]; channelIds?: string[]; color?: string; icon?: string },
 ): Promise<AgentGroupView[]> {
   const membership = await requirePermission(deps.db, userId, orgId, "manage_agents");
   const name = cleanName(input.name);
   const ids = [...new Set(input.agentIds ?? [])];
+  const channelIds = [...new Set(input.channelIds ?? [])];
+  if (channelIds.length) await requireChannels(deps.db, orgId, channelIds, { userId, membership });
   const look = await lookOf(deps.db, orgId, { color: input.color, icon: input.icon });
   await deps.db.transaction(async (tx) => {
     const groups = await groupRows(tx, orgId);
@@ -195,6 +251,7 @@ export async function createAgentGroup(
       .values({ orgId, name, position: (groups.at(-1)?.position ?? -1) + 1, ...look })
       .returning({ id: agentGroups.id });
     if (group) await placeAgents(tx, orgId, group.id, ids);
+    if (group && channelIds.length) await writeChannelOrder(tx, orgId, group.id, channelIds);
   });
   return announce(deps, userId, orgId);
 }
@@ -258,6 +315,10 @@ export async function deleteAgentGroup(
       .where(and(eq(agents.orgId, orgId), eq(agents.groupId, group.id)));
     if (inIt.some((a) => !managesAgent(a, userId, membership)))
       throw new ForbiddenError("Only who manages every agent in a group deletes it");
+    // Its channels go to the end of the ones in no sector, in their order.
+    const moving = await channelsInSector(tx, orgId, group.id);
+    if (moving.length)
+      await writeChannelOrder(tx, orgId, null, [...(await channelsInSector(tx, orgId, null)), ...moving]);
     await tx.delete(agentGroups).where(eq(agentGroups.id, group.id));
   });
   return announce(deps, userId, orgId);

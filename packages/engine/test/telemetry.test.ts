@@ -8,6 +8,7 @@ import {
   isAgentesCloud,
   type MachineHub,
   markServerStarted,
+  saveClientVitals,
   saveHostLoad,
   setTelemetryEnabled,
   type TelemetryFacts,
@@ -31,6 +32,7 @@ const FACTS: TelemetryFacts = {
   edition: "selfhost",
   install: "docker",
   os: "linux",
+  osVersion: "6.8.0-45-generic",
   arch: "x64",
   host: { size: { cpus: 2, memoryGb: 4, diskGb: 80 }, container: true },
 };
@@ -260,6 +262,13 @@ async function seed() {
 
 test("the report is exactly its fields, from the seeded data, with no content in it", async () => {
   const s = await seed();
+  await saveClientVitals(f.db, {
+    web: {
+      reports: 3,
+      values: { coldStartMs: { n: 3, sample: [2600, 900, 1400] }, jsLagMaxMs: { n: 3, sample: [40, 900, 60] } },
+    },
+    windows: { reports: 2, values: { webviewBytes: { n: 2, sample: [420_000_000, 380_000_000] } } },
+  });
   const report = await buildTelemetryReport(f.db, FACTS, s.now);
   expect(report).toEqual({
     report: 1,
@@ -268,6 +277,7 @@ test("the report is exactly its fields, from the seeded data, with no content in
     edition: "selfhost",
     install: "docker",
     os: "linux",
+    osVersion: "6.8.0",
     arch: "x64",
     uptimeHours: 26.5,
     host: { size: { cpus: 2, memoryGb: 4, diskGb: 80 }, container: true, load: HOST_LOAD },
@@ -320,6 +330,14 @@ test("the report is exactly its fields, from the seeded data, with no content in
         { provider: "codex", model: "gpt-6-sol", calls: 1, inputTokens: 810, outputTokens: 70 },
         { provider: "moonshot", model: "other", calls: 1, inputTokens: 120, outputTokens: 1 },
       ],
+      clientVitals: {
+        web: {
+          reports: 3,
+          coldStartMs: { n: 3, p50: 1400, p95: 2600 },
+          jsLagMaxMs: { n: 3, p50: 60, p95: 900 },
+        },
+        windows: { reports: 2, webviewBytes: { n: 2, p50: 380_000_000, p95: 420_000_000 } },
+      },
     },
   });
 
@@ -358,6 +376,30 @@ test("an older runner's computer stays size unknown; a load or traffic older tha
     [null, null, null],
     [{ cpus: 4, memoryGb: 8, diskGb: 75 }, null, null],
   ]);
+});
+
+test("the system's version goes as its numbers alone; the apps' day as counts and percentiles of known platforms", async () => {
+  f = await setup();
+  const versionOf = async (osVersion: string) => (await buildTelemetryReport(f.db, { ...FACTS, osVersion })).osVersion;
+  expect(await versionOf("10.0.19045")).toBe("10.0.19045");
+  expect(await versionOf("25.6.0")).toBe("25.6.0");
+  expect(await versionOf("5.15.167.4-microsoft-standard-WSL2")).toBe("5.15.167.4");
+  // A kernel built with its own name after the numbers: the name stays home.
+  expect(await versionOf("6.1.0-quokka-logistics")).toBe("6.1.0");
+  expect(await versionOf("quokka-build")).toBe("other");
+
+  // A uniform sample stands for many more values: the count is theirs, the percentiles the sample's.
+  const sample = Array.from({ length: 200 }, (_, i) => (i + 1) * 10);
+  await saveClientVitals(f.db, {
+    ios: { reports: 5000, values: { coldStartMs: { n: 4800, sample } } },
+    // Only the platforms the server takes: anything else in the row stays out.
+    "quokka-laptop.local": { reports: 1, values: { coldStartMs: { n: 1, sample: [1] } } },
+  });
+  const { lastDay } = await buildTelemetryReport(f.db, FACTS);
+  expect(lastDay.clientVitals).toEqual({ ios: { reports: 5000, coldStartMs: { n: 4800, p50: 1000, p95: 1900 } } });
+  // A new day: nothing yet.
+  await saveClientVitals(f.db, null);
+  expect((await buildTelemetryReport(f.db, FACTS)).lastDay.clientVitals).toEqual({});
 });
 
 test("the instance id is made once and kept; the switch and the Cloud decide what goes out", async () => {
@@ -497,6 +539,18 @@ test("computers alike go as one line with their count, and a report stays under 
       cacheWriteTokens: 0,
       costNanoUsd: 1,
     })),
+  );
+
+  // Every platform's every measure, each sample full of the largest values the server takes.
+  const full = { n: 1e9, sample: Array.from({ length: 200 }, () => 99_999_999_999) };
+  await saveClientVitals(
+    db,
+    Object.fromEntries(
+      schema.CLIENT_PLATFORMS.map((p) => [
+        p,
+        { reports: 1e9, values: Object.fromEntries(schema.CLIENT_VITAL_MEASURES.map((m) => [m, full])) },
+      ]),
+    ),
   );
 
   const report = await buildTelemetryReport(db, FACTS);

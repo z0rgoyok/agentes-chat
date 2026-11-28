@@ -685,6 +685,27 @@ export const words: EmailWords = {
       why: (surface) => `Otrzymujesz tego e-maila, bo ${surface} było połączone z Twoim kontem agentes.chat.`,
       picture: "Twój asystent, już nie w telefonie",
     },
+    pinReset: {
+      subject: (surface) => `Wybierz PIN do ${surface}`,
+      preheader: "Wybierz PIN, którym zatwierdzasz działania z aplikacji czatu.",
+      headline: (surface) => `Wybierz PIN do ${surface}`,
+      body: (surface) =>
+        `Ktoś poprosił o link do wybrania PIN-u, którym zatwierdzasz działania z ${surface}. Jeśli to Ty, wybierz go na stronie, którą otwiera ten przycisk.`,
+      button: "Wybierz mój PIN",
+      small: "Link działa raz, przez godzinę. Jeśli to nie Ty, zignoruj tego e-maila. Nic się nie zmieni.",
+      why: (surface) => `Otrzymujesz tego e-maila, bo ${surface} jest połączone z Twoim kontem agentes.chat.`,
+    },
+    pinLocked: {
+      subject: (surface) => `Twój PIN do ${surface} jest zablokowany`,
+      preheader: "Trzy błędne PIN-y z rzędu. Zatwierdzanie z aplikacji czatu jest na razie wstrzymane.",
+      headline: (surface) => `Twój PIN do ${surface} jest zablokowany`,
+      body: (surface, time) =>
+        `Ktoś trzy razy z rzędu wpisał błędny PIN, aby zatwierdzić działanie z ${surface}. Zatwierdzanie z ${surface} jest wstrzymane na ${time}.`,
+      lockedFor: ["15 minut", "1 godzinę", "24 godziny"],
+      small: (surface) =>
+        `Jeśli to Ty, spróbuj ponownie później. Jeśli nie, odłącz ${surface} w ustawieniach powiadomień, aby nikt nie mógł nic przez nie zatwierdzić.`,
+      button: "Otwórz ustawienia powiadomień",
+    },
   },
   supportReply: {
     subject: "Odpowiedź na twoją prośbę o pomoc",

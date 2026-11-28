@@ -21,7 +21,7 @@ export const readerOf = (authority: RunAuthority): string | null => {
 export async function readerOfMessage(db: Executor, orgId: string, messageId: string): Promise<string | null> {
   const root = await messageRoot(db, orgId, messageId);
   if (root.kind === "person") return root.personId;
-  if (root.kind === "agent") return null;
+  if (root.kind === "agent" || root.kind === "app") return null;
   const creator = (await feedingBrief(db, orgId, root))?.creatorUserId;
   return creator ? `routine:${creator}` : null;
 }

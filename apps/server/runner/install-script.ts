@@ -1250,12 +1250,16 @@ function Install-AgentesRunner {
   Set-Content -Path $Start -Encoding ASCII -Value @("\`$env:AGENTES_RUNNER_HOME = $(Q $RunnerHome)", "& $(Q $Bun) $(Q $Bundle) start")
   $Run = '-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $Start + '"'
   try {
-    $Me = "$env:USERDOMAIN\\$env:USERNAME"
+    # The signed-in account as Windows itself names it: on a workgroup computer USERDOMAIN can hold the workgroup's
+    # name, an account no SID maps to.
+    $Me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
     $Action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $Run
     $Trigger = New-ScheduledTaskTrigger -AtLogOn -User $Me
     $Principal = New-ScheduledTaskPrincipal -UserId $Me -LogonType Interactive -RunLevel Limited
     $Settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable -ExecutionTimeLimit ([TimeSpan]::Zero) -RestartCount 999 -RestartInterval (New-TimeSpan -Minutes 1)
-    Register-ScheduledTask -TaskName $Task -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force | Out-Null
+    # -ErrorAction Stop: the ScheduledTasks module doesn't see this function's $ErrorActionPreference, so a refusal
+    # would otherwise go on past the catch below.
+    Register-ScheduledTask -TaskName $Task -Action $Action -Trigger $Trigger -Principal $Principal -Settings $Settings -Force -ErrorAction Stop | Out-Null
     Start-ScheduledTask -TaskName $Task
     Step "Runs in the background from sign-in (Task Scheduler: $Task)"
   } catch {

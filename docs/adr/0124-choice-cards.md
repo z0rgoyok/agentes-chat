@@ -1,6 +1,6 @@
 # 0124. Choice cards: a decision the person answers with one click
 
-- Status: Accepted
+- Status: Accepted. Amended 2026-11-27: how the apps show the reply (a line per question, see "A click answers").
 - Date: 2026-11-02
 - Extends: ADR 0113 (live blocks and polls), 0053 (`ask_user`), 0121 (owner decisions on long work, below)
 - Code: `packages/engine/src/blocks.ts` (`ask_choices`, `answerChoices`, `getChoices`, `choiceReplyText`), `artifacts.ts` (kind `choices`, `choicesText`, limits), `context.ts` (`ASK_CHOICES_LINE`, `PLAIN_WORDS_LINE`), `tools/run-policy.ts` (`HERE`), `access.ts`, `events.ts` (`choices.updated`); server `routes/app/artifacts.ts` (`GET …/choices/{id}`, `POST …/choices/{id}/answer`); client `lib/choices.ts`, `useChoices`, `useAnswerChoices`; web `components/blocks/ChoicesCard.tsx`; phone `features/blocks/ChoicesCard.tsx`; migration `0178_choice_cards.sql`
@@ -15,7 +15,7 @@ The same review found agents naming their tools in replies ("por um pedido que e
 
 **A card of choices, drawn by the apps.** `ask_choices({ title, questions: [{ question, options: [{ label, description? }] }] })`: 1 to 5 questions, 2 to 6 options each (A to F), a short line of description when it helps. One question shows its options as big rows lettered A, B, C. Several questions go one at a time, with step dots, Back and Next. A close button folds the card for the reader into one line that opens it again.
 
-**A click answers.** On the last open question, the pick is sent at once: `POST …/choices/{id}/answer` with the option of each question. The answer reaches the agent as the person's own message, addressed to the agent in a channel as a block's reply is (`replyAsPerson`, shared with `replyToBlock`): "question label", one line per question, the question there even for one: the agent's history shows its own reply text, not the card it sent, so a bare "Sim" would answer nothing it can see. The apps show that message as one compact line (a check and the pick), and the card turns read-only with what was picked and by whom, for everyone (`choices.updated`).
+**A click answers.** On the last open question, the pick is sent at once: `POST …/choices/{id}/answer` with the option of each question. The answer reaches the agent as the person's own message, addressed to the agent in a channel as a block's reply is (`replyAsPerson`, shared with `replyToBlock`): "question label", one line per question, the question there even for one: the agent's history shows its own reply text, not the card it sent, so a bare "Sim" would answer nothing it can see. The apps show that message as compact lines, not a bubble: the check on the first line, then a line per question with the question quiet and the answer standing out. The pairs ride in `meta.choiceReply.answers` (`{ question, answer }`), so the apps never split the words themselves; a reply without them, or whose words no longer say them, stays one line (`choiceReplyRows`). The card turns read-only with what was picked and by whom, for everyone (`choices.updated`).
 
 **Once.** `choice_answers` holds one row per card (its primary key is the artifact), so the first answer in wins and a second gets 409 `choices.answered`. If posting the message fails, the row is removed and the card stays open.
 

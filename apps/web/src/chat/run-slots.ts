@@ -1,4 +1,4 @@
-import { browserSteps, isQuiet, type LiveRun } from "@agenteschat/client";
+import { browserSteps, type LiveRun } from "@agenteschat/client";
 import { waitsForWords } from "@agenteschat/client/lib/activity";
 import { isMediaAfterReply } from "@agenteschat/client/lib/media";
 import { makingImage } from "@agenteschat/client/lib/work";
@@ -123,9 +123,8 @@ const subagentsShown = (r: LiveRun) => (r.work ?? []).some((w) => w.kind === "ca
 
 /**
  * Its block is in the conversation: it ended badly, or it has something to show while it works (its browser card, the
- * picture it is making, its subagents at work, "sem notícias · Atualizar" on a run gone quiet). Otherwise the bar above
- * the composer speaks for it: its face, what it does now, for how long, and its stop. Its words show whole, once its
- * message is posted.
+ * picture it is making, its subagents at work). Otherwise the bar above the composer speaks for it: its face, what it
+ * does now, for how long, and its stop. Its words show whole, once its message is posted.
  */
-export const rowShows = (r: LiveRun, now: number) =>
-  !waitsForWords(r) || browserSteps(r.work).length > 0 || makingImage(r) || subagentsShown(r) || isQuiet(r, now);
+export const rowShows = (r: LiveRun) =>
+  !waitsForWords(r) || browserSteps(r.work).length > 0 || makingImage(r) || subagentsShown(r);

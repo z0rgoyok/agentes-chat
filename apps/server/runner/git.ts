@@ -10,6 +10,7 @@ import {
   type GitSyncRepo,
   type GitSyncRequest,
   isGitRepoName,
+  isGitRepoPath,
   type MachineReplies,
 } from "@agenteschat/adapters/machine-protocol";
 import { RunnerError } from "./errors";
@@ -69,6 +70,8 @@ export interface GitContext {
   folder: string;
   /** `<runner home>/git`: where the agents' proxy credentials are kept. */
   gitDir: string;
+  /** The address this runner reaches its server at: the git proxy is reached the same way (`proxyBaseAt`). */
+  server?: string;
   agent: AgentScope;
   signal: AbortSignal;
   /** git's progress, when the request asked for it. */
@@ -135,8 +138,25 @@ function remoteFor(proxy: { base: string }, repo: string, tokenFile: string, git
   };
 }
 
+/**
+ * The proxy's address as this computer reaches it. The server names it by its public address, which the computer it
+ * runs on may not resolve (a server on a private network, this server's own computer on `127.0.0.1`): the proxy is
+ * the server, so it is reached at the address this runner already reaches the server at. The path stays the server's.
+ */
+export function proxyBaseAt(base: string, server: string | undefined) {
+  if (!server) return base;
+  try {
+    const at = new URL(server);
+    const given = new URL(base);
+    if (!/^https?:$/.test(at.protocol) || at.origin === given.origin) return base;
+    return `${at.origin}${at.pathname.replace(/\/+$/, "")}${given.pathname}`;
+  } catch {
+    return base;
+  }
+}
+
 /** The proxy URL must be ours: http(s), a `/api/git/` path, no credentials in it. */
-function checkProxy(proxy: GitSyncRequest["proxy"] | undefined) {
+function checkProxy(proxy: GitSyncRequest["proxy"] | undefined, server?: string) {
   if (!proxy || typeof proxy.base !== "string" || typeof proxy.token !== "string") {
     throw new RunnerError("bad_request", "proxy is required");
   }
@@ -150,7 +170,8 @@ function checkProxy(proxy: GitSyncRequest["proxy"] | undefined) {
     throw new RunnerError("bad_request", "proxy.base is not a git proxy URL");
   }
   if (!TOKEN.test(proxy.token)) throw new RunnerError("bad_request", "proxy.token is not a proxy credential");
-  return { base: proxy.base.endsWith("/") ? proxy.base : `${proxy.base}/`, token: proxy.token };
+  const base = proxyBaseAt(proxy.base, server);
+  return { base: base.endsWith("/") ? base : `${base}/`, token: proxy.token };
 }
 
 /**
@@ -296,6 +317,22 @@ async function refuseUnsafeConfig(ctx: GitContext, cwd: string, deadline: number
 
 const trimOut = (r: GitRun) => r.stdout.trim();
 
+/** A `.git/config.lock` older than this was left by a git that died mid-write: no config write takes this long. */
+export const STALE_CONFIG_LOCK_MS = 60_000;
+
+/**
+ * Removes a checkout's `.git/config.lock` left by a git that was killed while writing it (a reboot, a killed turn):
+ * every later `git config` there fails with "could not lock config file" until it is gone.
+ */
+export function clearStaleConfigLock(checkout: string, now = Date.now()) {
+  const lock = path.join(checkout, ".git", "config.lock");
+  try {
+    if (now - statSync(lock).mtimeMs >= STALE_CONFIG_LOCK_MS) rmSync(lock, { force: true });
+  } catch {
+    // None there.
+  }
+}
+
 /** HEAD, the current branch and the remote's default branch of a checkout. */
 async function describeCheckout(ctx: GitContext, cwd: string, deadline: number) {
   const [head, branch, remoteHead] = await Promise.all([
@@ -407,7 +444,7 @@ export const localCloneSlot: CloneSlots = async (onWait) => {
 
 const cacheLocks = new Map<string, Promise<unknown>>();
 
-/** Runs `fn` alone for `key` (one fetch into a cached repository at a time). */
+/** Runs `fn` alone for `key`: one fetch into a cached repository, or one update of a checkout, at a time. */
 function locked<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const next = (cacheLocks.get(key) ?? Promise.resolve()).catch(() => {}).then(fn);
   cacheLocks.set(key, next);
@@ -670,7 +707,7 @@ async function awaitClone(
 
 /** `git.sync`: clones or updates the request's repositories (one at a time, within the deadline). */
 export async function gitSync(ctx: GitContext, req: GitSyncRequest): Promise<MachineReplies["git.sync"]> {
-  const proxy = checkProxy(req.proxy);
+  const proxy = checkProxy(req.proxy, ctx.server);
   const agentId = String(ctx.agent.id);
   if (!AGENT_ID.test(agentId)) throw new RunnerError("bad_request", "agent.id is invalid");
   // Before anything else in the request can refuse it: the agent's own `git fetch` and `git push` through the
@@ -684,7 +721,7 @@ export async function gitSync(ctx: GitContext, req: GitSyncRequest): Promise<Mac
   if (!Array.isArray(req.repos)) throw new RunnerError("bad_request", "repos must be a list");
   const wanted: { repo: string; dir: string; clone: boolean; github?: string }[] = [];
   for (const r of req.repos.slice(0, GIT_SYNC_LIMITS.repos)) {
-    if (!isGitRepoName(r?.repo)) throw new RunnerError("bad_request", "repo must be owner/name");
+    if (!isGitRepoPath(r?.repo)) throw new RunnerError("bad_request", "repo must be a repository's path");
     if (r.github !== undefined && (typeof r.github !== "string" || !GITHUB_APP_TOKEN.test(r.github))) {
       throw new RunnerError("bad_request", "github is not a GitHub App token");
     }
@@ -698,6 +735,10 @@ export async function gitSync(ctx: GitContext, req: GitSyncRequest): Promise<Mac
       if (!seen.has(dir.toLowerCase())) wanted.push({ repo, dir, clone: false });
     }
   }
+  const githubTokenPath = (repo: string) => path.join(ctx.gitDir, "github", agentId, `${repo}.token`);
+  // Every fresh token before the first fetch, not as each checkout's turn comes: the agent's own git in a checkout
+  // reads its file while this sync is still fetching the others, and a clone still going gets it too.
+  for (const w of wanted) if (w.github) writeSecret(githubTokenPath(w.repo), w.github);
   const seconds = Math.max(1, Math.min(GIT_SYNC_LIMITS.maxSeconds, Math.floor(Number(req.timeoutSeconds) || 60)));
   const deadline = Date.now() + seconds * 1000;
   const out: GitSyncRepo[] = [];
@@ -710,9 +751,8 @@ export async function gitSync(ctx: GitContext, req: GitSyncRequest): Promise<Mac
       if (target.rel === "") throw new RunnerError("bad_request", "dir can't be your folder itself");
       base.dir = target.rel;
       base.path = target.abs;
-      // A fresh token also reaches a clone still going (git reads the file when it authenticates).
-      const githubPath = path.join(ctx.gitDir, "github", agentId, `${w.repo}.token`);
-      const githubFile = w.github ? writeSecret(githubPath, w.github) : undefined;
+      const githubPath = githubTokenPath(w.repo);
+      const githubFile = w.github ? githubPath : undefined;
       const remote = remoteFor(proxy, w.repo, tokenFile, githubFile);
       const key = `${agentId}\0${target.abs}`;
       const running = clones.get(key);
@@ -745,25 +785,31 @@ export async function gitSync(ctx: GitContext, req: GitSyncRequest): Promise<Mac
       if (!statSync(target.abs).isDirectory() || !existsSync(path.join(target.abs, ".git"))) {
         throw new Error(`${target.rel} exists and isn't a git checkout`);
       }
-      // An existing checkout's config may have been changed since it was cloned: only safe keys (`git-guard.ts`).
-      await refuseUnsafeConfig(ctx, target.abs, deadline);
-      await configure(ctx, target.abs, { remote, author }, deadline);
-      let warning: string | undefined;
-      let failure: string | undefined;
-      try {
-        warning = await update(ctx, target.abs, remote, deadline);
-      } catch (err) {
-        failure = err instanceof Error ? err.message : String(err);
-      }
-      const d = await describeCheckout(ctx, target.abs, deadline);
-      out.push({
-        ...base,
-        status: failure ? "failed" : "updated",
-        ...(d.branch ? { branch: d.branch } : {}),
-        ...(d.defaultBranch ? { defaultBranch: d.defaultBranch } : {}),
-        ...(d.head ? { head: d.head } : {}),
-        ...((failure ?? warning) ? { message: (failure ?? warning ?? "").slice(0, GIT_SYNC_LIMITS.message) } : {}),
-      });
+      // Two syncs of one checkout at once (two turns of the agent) would fight over its `.git/config`: one at a time.
+      out.push(
+        await locked(`checkout\0${key}`, async () => {
+          clearStaleConfigLock(target.abs);
+          // An existing checkout's config may have been changed since it was cloned: only safe keys (`git-guard.ts`).
+          await refuseUnsafeConfig(ctx, target.abs, deadline);
+          await configure(ctx, target.abs, { remote, author }, deadline);
+          let warning: string | undefined;
+          let failure: string | undefined;
+          try {
+            warning = await update(ctx, target.abs, remote, deadline);
+          } catch (err) {
+            failure = err instanceof Error ? err.message : String(err);
+          }
+          const d = await describeCheckout(ctx, target.abs, deadline);
+          return {
+            ...base,
+            status: failure ? "failed" : "updated",
+            ...(d.branch ? { branch: d.branch } : {}),
+            ...(d.defaultBranch ? { defaultBranch: d.defaultBranch } : {}),
+            ...(d.head ? { head: d.head } : {}),
+            ...((failure ?? warning) ? { message: (failure ?? warning ?? "").slice(0, GIT_SYNC_LIMITS.message) } : {}),
+          } satisfies GitSyncRepo;
+        }),
+      );
     } catch (err) {
       if (err instanceof RunnerError && err.code === "bad_request") throw err;
       out.push({

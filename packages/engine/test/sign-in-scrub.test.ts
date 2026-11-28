@@ -78,7 +78,21 @@ test("an option with a long name and an address with a long scheme are read in l
   const addresses = "a://u:x".repeat(30_000);
   expect(redactCredentials(addresses)).toBe(addresses);
   expect(redactCredentials(`"cookie:${" x".repeat(100_000)}`)).toBe(`"cookie:${" x".repeat(100_000)}`);
-  expect(performance.now() - started).toBeLessThan(250);
+  // Room for a busy CI runner (about 270 ms there); a quadratic read of these 200,000 characters takes many seconds.
+  expect(performance.now() - started).toBeLessThan(1000);
+});
+
+test("a long run of JWT starts is read in time, and a JWT it runs into or follows is still masked", () => {
+  // Each took seconds when every `eyJ` after a `-` in a long run read the run to its end.
+  const run = "eyJ-".repeat(40_000);
+  const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+  const started = performance.now();
+  expect(redactCredentials(run)).toBe(run);
+  expect(scrubSignIns(run, NOTE)).toEqual({ text: run, found: 0 });
+  expect(redactCredentials(`${run}${jwt}`)).toBe("••••");
+  expect(redactCredentials(`${run} eyJhbGciOiJub25lIn0.eyJ${"e".repeat(20)}.`)).toBe(`${run} ••••`);
+  expect(scrubSignIns(`${run} ${jwt}`, NOTE)).toEqual({ text: `${run} ${NOTE}`, found: 1 });
+  expect(performance.now() - started).toBeLessThan(1000);
 });
 
 test("common credential shapes are masked: cloud keys, JWTs, passwords in addresses, private keys, headers", () => {

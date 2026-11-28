@@ -24,6 +24,7 @@ import {
   setupView,
   statusRestatesChip,
   WORKSPACE_COMPUTER_KIND,
+  workspaceComputerOn,
 } from "../src/lib/computer";
 import { errorText, holdText, restrictionLine, supportLineOf } from "../src/lib/errors";
 import { canReduceAccess } from "../src/lib/machines";
@@ -195,6 +196,20 @@ describe("the workspace's own computer (ADR 0056 §10)", () => {
     expect(setupPending(at("waiting"))).toBe(true);
     expect(setupPending(at("ready"))).toBe(false);
     expect(setupPending(null)).toBe(false);
+  });
+
+  test("on now only once ready and online in the list; none of its own where people connect theirs", () => {
+    const at = (state: ComputerSetup["state"]) => setupView(external({ state }));
+    const listed = (online: boolean) => [
+      { kind: "connected" as const, online: true },
+      { kind: "managed" as const, online },
+    ];
+    expect(workspaceComputerOn(at("ready"), listed(true))).toBe(true);
+    expect(workspaceComputerOn(at("ready"), listed(false))).toBe(false);
+    expect(workspaceComputerOn(at("ready"), undefined)).toBe(false);
+    for (const state of ["waiting", "preparing", "problem", null] as const)
+      expect(workspaceComputerOn(at(state), listed(true))).toBe(false);
+    expect(workspaceComputerOn(setupView(external({ mode: "pair", state: null })), listed(true))).toBeNull();
   });
 
   test("beside its chip, its one-line status says nothing more while in line or before a step", () => {

@@ -11,6 +11,7 @@ import {
   postPersonMessage,
   postStandInLine,
   RIGHT_HAND,
+  resumeRunsWaitingForMachine,
   STAND_IN_LINE,
   servingPlanFor,
   servingPlans,
@@ -277,6 +278,58 @@ test("a computer gone a moment ago (a restart) is waited for: its own plan answe
   await drainOutbox(fx.db, handlers);
   const [run] = await fx.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.agentId, agent.id));
   expect(run).toMatchObject({ status: "done", brain: "claude_code" });
+  expect(await lines(dm.id)).toEqual([]);
+});
+
+test("no key, its computer waking from standby past the run's wait: it waits without a word, then answers", async () => {
+  const { fx, laptop, account, lodi, lines, cards } = await world();
+  await fx.db.update(schema.providerCredentials).set({ revokedAt: new Date() });
+  await account(WALTERS, laptop, "Claude Max");
+  await setAgentBrain({ db: fx.db }, fx.owner.id, fx.org.id, (await lodi()).id, {
+    brain: "claude_code",
+    account: WALTERS,
+  });
+  const agent = await lodi();
+  // A cold start: still waking when the run's own wait for it ends.
+  let awake = false;
+  const woke: string[] = [];
+  const machines = {
+    status: async (id: string) =>
+      statusOf(
+        id,
+        awake ? {} : { online: false, standby: true, kind: "managed", lastSeenAt: new Date(0).toISOString() },
+      ),
+    wake: async (id: string) => {
+      woke.push(id);
+    },
+  };
+  const brain: Brain = {
+    kind: "claude_code",
+    async *run() {
+      yield { type: "done", text: "from the plan" };
+    },
+  };
+  const handlers = createJobHandlers({
+    ...fx.jobDeps,
+    brains: { claude_code: () => brain },
+    machines,
+    computerBlipWaitMs: 10,
+    computerWakeWaitMs: 200,
+  });
+  const dm = await openPersonAgentDm(fx.db, fx.org.id, fx.owner.id, agent.id);
+  await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, fx.owner.id, fx.org.id, dm.id, { body: "Hi" });
+  await drainOutbox(fx.db, handlers);
+  let [run] = await fx.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.agentId, agent.id));
+  expect(run).toMatchObject({ status: "waiting_input", waitingMachineId: laptop });
+  expect(woke).toEqual([laptop]);
+  expect(await cards(dm.id)).toEqual([]);
+
+  awake = true;
+  await resumeRunsWaitingForMachine(fx.db, laptop);
+  await drainOutbox(fx.db, handlers);
+  [run] = await fx.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.agentId, agent.id));
+  expect(run).toMatchObject({ status: "done", brain: "claude_code" });
+  expect(await cards(dm.id)).toEqual([]);
   expect(await lines(dm.id)).toEqual([]);
 });
 

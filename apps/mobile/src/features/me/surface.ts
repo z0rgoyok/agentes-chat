@@ -2,6 +2,7 @@ import type { Agent, SurfaceLink, SurfaceLinks } from "@agenteschat/client";
 import { formatTimeLeft } from "@agenteschat/client/lib/actions";
 import { rightHandName } from "@agenteschat/client/lib/right-hand";
 import {
+  hourLabel,
   RENEW_BEFORE_MS,
   type SurfaceRow,
   surfaceMarkUrl,
@@ -91,3 +92,7 @@ export function surfaceTagText(
         mark: surfaceMarkUrl(via.surface),
       };
 }
+
+/** The quiet hours as the nudge row shows them: "22:00 to 8:00" on the reader's clock (ADR 0234). */
+export const quietHoursText = (t: TFunction, locale: string, nudge: SurfaceLink["nudge"]) =>
+  t("surface.nudge.quietRange", { from: hourLabel(locale, nudge.quietFrom), to: hourLabel(locale, nudge.quietTo) });

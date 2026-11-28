@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { LOGO_PLATES } from "@agenteschat/ui/org-logo";
 
 describe("equal side padding", () => {
   test("blocks with visible edges span their column, so no cap leaves the right side wider than the left", async () => {
@@ -55,4 +56,14 @@ describe("switch rows", () => {
     expect(rule(".dk-crow__title")).toContain("font-weight: 600;");
     expect(rule(".dk-crow:has(> .dk-crow__end > .ac-switch) .dk-crow__title")).toContain("font-weight: 400;");
   });
+});
+
+test("an organization's logo shows whole, on the web's plate: only where the surface would hide its ink", async () => {
+  const css = await Bun.file(new URL("../src/styles.css", import.meta.url).pathname).text();
+  const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
+  expect(rule(".dk-org--logo")).toContain("object-fit: contain;");
+  expect(rule(".dk-org--logo")).toContain("background: none;");
+  expect(rule('.dk-org--logo[data-ink="light"]')).toContain(`background: ${LOGO_PLATES.lightInk};`);
+  expect(rule('[data-theme="dark"] .dk-org--logo')).toContain(`background: ${LOGO_PLATES.darkInk};`);
+  expect(rule('[data-theme="dark"] .dk-org--logo[data-ink="light"]')).toContain("background: none;");
 });

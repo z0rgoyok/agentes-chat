@@ -1,26 +1,35 @@
 import {
+  EGRESS_PROXY_PROTOCOL,
   IPHONE_DEV_MODE_PROTOCOL,
   IPHONE_WIFI_PROTOCOL,
+  type PermissionNeed,
   PHONE_SCREEN_PROTOCOL,
   type PhoneHolder,
   type PhonePlatform,
   type PhoneReason,
   type PhoneTarget,
   type PubSub,
+  parsePermissionNeeds,
   type RateLimiter,
   type RunnerPhone,
   STREAM_CLOSE,
   STREAM_LIMITS,
   TASK_LIMIT_PROTOCOL,
+  TASK_ROOM_PROTOCOL,
+  type TaskRoomReport,
 } from "@agenteschat/adapters";
-import { and, type Database, type Executor, eq, gt, inArray, isNull, lt, schema, sql } from "@agenteschat/db";
+import { and, type Database, type Executor, eq, gt, inArray, isNull, lt, rowsOf, schema, sql } from "@agenteschat/db";
 import { AUDIENCE_MODES, type AudienceMode } from "./audience";
 import { recordAudit } from "./audit";
+import { tellBorrowersOnly } from "./egress-share";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishOrgEvent } from "./events";
 import type { MachineCaller, MachineHub } from "./machine-hub";
 import {
+  borrowsInternet,
   cleanMachineName,
+  EGRESS_VIA_SHOWN_MS,
+  egressViaNow,
   getMachine,
   MachineOfflineError,
   type MachineRow,
@@ -29,16 +38,20 @@ import {
   type OfflineCause,
   offlineCause,
   publishMachineUpdated,
+  type ShownMaintenance,
+  serverLending,
+  shownMaintenance,
   shownOnline,
   withTaskLimit,
 } from "./machines";
+import { resolveNotifications } from "./notifications";
 import { can, getMembership, type Membership, requirePermission } from "./organizations";
 import { closedRefusal, OrgDeletingError, orgStanding } from "./standing";
 import type { Stream, StreamInput, StreamTarget } from "./streams";
 
 const { agents, deviceAccessRequests, machineConnectLinks, machineDeviceCodes, machinePhones, machines, users } =
   schema;
-const { organizationMembers, orgRoles } = schema;
+const { organizationMembers, organizationSettings, orgRoles } = schema;
 
 /**
  * Bring your own devices: computers people connect (`machines`) and the phones those reach (`machine_phones`), as
@@ -68,10 +81,16 @@ export type DeviceStatus =
       since: string;
     }
   /** A computer running background tasks: `running` of `max`. */
-  | { kind: "busy"; running: number; max: number }
+  /** `max` null: tasks start on room there (`taskRoom`), no count. */
+  | { kind: "busy"; running: number; max: number | null }
   | { kind: "needs_you"; reason: PhoneReason | string }
   | { kind: "preparing"; reason: PhoneReason | string }
   | { kind: "paused"; until: string | null }
+  /**
+   * The workspace's own computer, away for what we do to it (`shownMaintenance`: a move, a restart, an update…), since
+   * `since`. Named from when only moves were said: `maintenance` says which (absent from servers before ADR 0257).
+   */
+  | { kind: "moving"; since: string; maintenance?: ShownMaintenance }
   /** `withHost`: a phone whose host is offline. `cause`: a computer's, as `offlineCause` reads it. */
   | { kind: "offline"; lastSeenAt: string | null; withHost?: boolean; cause?: OfflineCause }
   | { kind: "unsupported"; reason: PhoneReason | string };
@@ -103,21 +122,49 @@ export interface ComputerDevice {
   arch: string;
   hostname: string;
   cpus: number | null;
+  /** The processor's name (`Apple M4 Pro`), as its runner said it; null: an older runner. */
+  cpuModel: string | null;
+  /** Its physical cores where its runner said them (`cpus` counts threads); null: an older runner, or Windows. */
+  cores: number | null;
+  /** The system and its version (`macOS 26.1`); null: an older runner, or the workspace's own computer. */
+  system: string | null;
   memoryGb: number | null;
   ownerUserId: string | null;
   belongsToWorkspace: boolean;
   /**
-   * Spill-over: while an agent's own computer is full, the replies people wait on may think here. `own`: replies to
-   * whoever connected it; `others`: replies to anyone else (`machines.spill_*`).
+   * "Help when the team's computer is full or away" (`machines.spill_own`, ADR 0233): fresh turns of its owner's
+   * agents (anyone's, on one marked the workspace's) may think here while their own computer is full or away.
    */
-  spill: { own: boolean; others: boolean };
+  spill: {
+    own: boolean;
+    /**
+     * "Use this computer for my agents' work" (`machines.spill_first`): its owner's agents' asks, routines and long
+     * work start here first whenever it is free, a person's reply on their own computer as before.
+     */
+    first: boolean;
+  };
+  /**
+   * ADR 0237, a person's computer in a workspace that has its own computer: whether its owner lends it its internet
+   * (`on`), and whether the workspace's computer goes out through it now (`inUse`). `only` (amendment 2026-11-27 c):
+   * the workspace's agents use only its internet, AI calls included. Null: nothing to lend to.
+   */
+  shareInternet: { on: boolean; inUse: boolean; only: boolean } | null;
+  /** What we do to the workspace's own computer now (`shownMaintenance`), away or working slower; null: nothing. */
+  maintenance: ShownMaintenance | null;
   /** Each agent works as its own OS user there (a server install). */
   systemMode: boolean;
   audience: DeviceAudience;
   status: DeviceStatus;
   /** Background tasks it runs at once, as its runner says (`TASK_LIMIT_PROTOCOL`); null: an older one, which runs 3. */
   maxTasks: number | null;
+  /**
+   * `TASK_ROOM_PROTOCOL`: tasks start on room, not on `maxTasks`: about how many more fit now, the free memory, and
+   * the owner's Push harder. Null: the count decides (an older app, or memory it can't read).
+   */
+  taskRoom: TaskRoomReport | null;
   toolchains: Record<string, string>;
+  /** The OS permissions its agents' work waits on there, each asked in its agentes.chat app (`OS_PERMISSIONS_PROTOCOL`). */
+  permissions: PermissionNeed[];
   /** A Mac whose app opens Xcode and looks at its iPhone again for the iPhone guide (`IPHONE_DEV_MODE_PROTOCOL`). */
   opensXcode: boolean;
   lastSeenAt: string | null;
@@ -268,6 +315,15 @@ export const phoneHolder = (h: Omit<PhoneHolder, "since"> & { since?: string }):
 export interface DevicesList {
   devices: ComputerDevice[];
   requests: JoinRequest[];
+  /** People's computers may help when the workspace's is full or away (`organization_settings.devices_help`). */
+  devicesHelp: boolean;
+  /**
+   * ADR 0237: people's computers here lend their internet (the workspace has its own computer, or this server lends):
+   * the apps say so where a computer joins.
+   */
+  lendsInternet: boolean;
+  /** ADR 0237: this server lends, so a Linux Terminal install that joins borrows instead (`serverBox`). */
+  serverBoxesBorrow: boolean;
 }
 
 /** Background tasks a computer runs at once when its runner doesn't say (before `TASK_LIMIT_PROTOCOL`): its default. */
@@ -301,6 +357,8 @@ export const personalComputer = (m: Pick<MachineRow, "kind" | "pairedByUserId" |
   m.kind === "connected" && m.pairedByUserId !== null && m.executors?.mode !== "system" && !m.belongsToWorkspace;
 
 function computerStatus(m: MachineRow, running: number, now: Date): DeviceStatus {
+  const maintenance = shownMaintenance(m, now);
+  if (maintenance?.away) return { kind: "moving", since: maintenance.since, maintenance };
   // Asleep in standby and waking as it should, it reads ready (ADR 0161).
   if (!shownOnline(m, now)) {
     const cause = offlineCause(m, false);
@@ -308,7 +366,7 @@ function computerStatus(m: MachineRow, running: number, now: Date): DeviceStatus
   }
   const pause = machinePause(m, now);
   if (pause) return { kind: "paused", until: pause.until };
-  if (running > 0) return { kind: "busy", running, max: m.size?.maxTasks ?? DEFAULT_MAX_TASKS };
+  if (running > 0) return { kind: "busy", running, max: m.size?.room ? null : (m.size?.maxTasks ?? DEFAULT_MAX_TASKS) };
   return { kind: "ready" };
 }
 
@@ -419,6 +477,11 @@ export async function listDevices(
     ),
   };
   const busy = new Map(running.map((r) => [r.machineId, Number(r.n)]));
+  const workspaceComputer = rows.find((m) => m.kind === "managed");
+  const lentNow = workspaceComputer ? egressViaNow(workspaceComputer.egressVia, now) : null;
+  const lendsInternet = Boolean(workspaceComputer) || serverLending();
+  const lentLately = (m: MachineRow) =>
+    lentNow === m.id || (m.egressLentAt !== null && now.getTime() - m.egressLentAt.getTime() < EGRESS_VIA_SHOWN_MS);
   const grantedMachines = new Set(grants.filter((g) => !g.phoneId).map((g) => g.machineId));
   const grantedPhones = new Set(grants.map((g) => g.phoneId).filter(Boolean));
 
@@ -437,15 +500,26 @@ export async function listDevices(
       arch: managed ? "" : m.arch,
       hostname: managed ? "" : m.hostname,
       cpus: m.size?.cpus ?? null,
+      cpuModel: m.size?.cpuModel ?? null,
+      cores: m.size?.cores ?? null,
+      system: managed ? null : (m.size?.system ?? null),
       memoryGb: m.size?.memoryGb ?? null,
       ownerUserId: m.pairedByUserId,
       belongsToWorkspace: m.belongsToWorkspace,
-      spill: { own: m.spillOwn, others: m.spillOthers },
+      spill: { own: m.spillOwn, first: m.spillFirst },
+      shareInternet:
+        lendsInternet && m.kind === "connected"
+          ? { on: m.egressShare, inUse: m.egressShare && lentLately(m), only: m.egressShare && m.egressOnly }
+          : null,
       systemMode: m.executors?.mode === "system",
       audience: rule.audience,
       status: computerStatus(m, busy.get(m.id) ?? 0, now),
+      maintenance: shownMaintenance(m, now),
       maxTasks: m.size?.maxTasks ?? null,
+      taskRoom: m.size?.room ?? null,
       toolchains: m.executors?.toolchains ?? {},
+      // Kept in the runner's memory: an offline computer's last list may be over, and nothing there asks now.
+      permissions: online ? parsePermissionNeeds(m.executors?.permissions) : [],
       opensXcode: !managed && m.os === "darwin" && m.protocol >= IPHONE_DEV_MODE_PROTOCOL,
       lastSeenAt: iso(m.lastSeenAt),
       mayUse,
@@ -490,7 +564,13 @@ export async function listDevices(
     )
     .orderBy(machineDeviceCodes.createdAt);
   const requests = asking.filter((r) => admin || r.makerId === viewerUserId).map((r) => joinRequestOf(r.code));
-  return { devices, requests };
+  return {
+    devices,
+    requests,
+    devicesHelp: await devicesHelpOn(db, orgId),
+    lendsInternet,
+    serverBoxesBorrow: serverLending(),
+  };
 }
 
 /** A device code that came with a connect link, as the apps show it. */
@@ -549,23 +629,68 @@ async function deviceOf(db: Database, viewerUserId: string, orgId: string, machi
   return device;
 }
 
+/** The once-only inbox note that a computer paired before ADR 0237 lends its internet (`device.internet_shared`). */
+export const internetSharedGroup = (machineId: string) => `device-internet:${machineId}`;
+
+/**
+ * ADR 0237 on a self-hosted server, once at the start that turns lending on: the owner of each computer that lends
+ * hears it once in the inbox, as migration 0351 told those of workspaces with their own computer (it runs that
+ * insert without asking for one). A computer marked the workspace's, or whose owner left, tells who configures it.
+ */
+export async function noticeLendingComputers(db: Database): Promise<number> {
+  const rows = await db.execute(sql`
+    INSERT INTO "notifications" ("id", "org_id", "user_id", "kind", "group_key", "source", "latest")
+    SELECT gen_random_uuid(), d."org_id", m."user_id", 'device.internet_shared', 'device-internet:' || d."id",
+      jsonb_build_object('machineId', d."id", 'label', d."name"),
+      jsonb_build_object('title', d."name")
+    FROM "machines" d
+    JOIN "organization_members" m ON m."org_id" = d."org_id"
+    WHERE d."kind" = 'connected' AND d."deleted_at" IS NULL AND d."egress_share"
+      AND CASE
+        WHEN NOT d."belongs_to_workspace" AND EXISTS (
+          SELECT 1 FROM "organization_members" o WHERE o."org_id" = d."org_id" AND o."user_id" = d."paired_by_user_id"
+        ) THEN m."user_id" = d."paired_by_user_id"
+        ELSE m."role" = 'owner' OR EXISTS (
+          SELECT 1 FROM "org_roles" r
+          WHERE r."org_id" = m."org_id"
+            AND (r."kind" = 'everyone' OR r."id" IN (
+              SELECT mr."role_id" FROM "organization_member_roles" mr
+              WHERE mr."org_id" = m."org_id" AND mr."user_id" = m."user_id"))
+            AND r."permissions" && array['configure', 'administrator']::text[]
+        )
+      END
+    ON CONFLICT DO NOTHING
+    RETURNING "id"`);
+  return rowsOf(rows).length;
+}
+
 export interface ComputerDeviceInput {
   name?: string;
   audience?: DeviceAudience;
   belongsToWorkspace?: boolean;
-  spill?: { own?: boolean; others?: boolean };
+  spill?: { own?: boolean; first?: boolean };
   /** Background tasks at once (`TASK_LIMIT_BOUNDS`): the computer applies it, so it must be online. */
   maxTasks?: number;
+  /** `TASK_ROOM_PROTOCOL`: tasks may fill memory down to 0.5 GB free, whatever the processor. Online, its owner's. */
+  pushHarder?: boolean;
+  /** ADR 0237: lend its internet to the workspace's own computer; on again (or on once more) picks it first. */
+  shareInternet?: boolean;
+  /**
+   * ADR 0237 amendment 2026-11-27 c, with `shareInternet` on: the workspace's agents use only this computer's
+   * internet, never their usual way. Its owner's to turn on; off with `shareInternet` off.
+   */
+  internetOnly?: boolean;
 }
 
 /**
  * `PATCH …/devices/computers/{machineId}`: its owner changes anything; an admin renames it, marks it the workspace's,
- * and narrows its rule (widens it only on the workspace's own devices). Never the workspace's computer. Spill-over is
- * its owner's to turn on (other people's agents would think on their plan's computer); an admin only turns it off.
+ * and narrows its rule (widens it only on the workspace's own devices). Never the workspace's computer. "Help when the
+ * team's computer is full or away" is its owner's to turn on (agents would think on their computer); an admin only
+ * turns it off.
  * How many tasks it runs at once is its owner's too (their computer's memory), an admin's only on one nobody connected.
  */
 export async function updateComputerDevice(
-  deps: { db: Database; pubsub?: PubSub; hub?: Pick<MachineCaller, "call" | "status"> },
+  deps: { db: Database; pubsub?: PubSub; hub?: Pick<MachineCaller, "call" | "status" | "agentsChanged"> },
   actorId: string,
   orgId: string,
   machineId: string,
@@ -593,23 +718,53 @@ export async function updateComputerDevice(
     Object.assign(set, { audienceMode: next.mode, audienceUserIds: next.userIds, audienceRoleIds: next.roleIds });
   }
   if (input.belongsToWorkspace !== undefined) set.belongsToWorkspace = input.belongsToWorkspace;
-  for (const [key, column] of [
-    ["own", "spillOwn"],
-    ["others", "spillOthers"],
-  ] as const) {
-    const on = input.spill?.[key];
-    if (on === undefined) continue;
-    if (on && !owner) throw new ForbiddenError("Only the device's owner can turn this on", "device.spill_owner_only");
-    set[column] = on;
+  const help = input.spill?.own;
+  const first = input.spill?.first;
+  if ((help || first) && !owner) {
+    throw new ForbiddenError("Only the device's owner can turn this on", "device.spill_owner_only");
   }
-  if (input.maxTasks !== undefined) {
+  // Used first for its owner's agents is a kind of help: on turns help on, help off turns it off.
+  if (help !== undefined) set.spillOwn = help;
+  if (help === false) set.spillFirst = false;
+  if (first !== undefined) set.spillFirst = first;
+  if (first) set.spillOwn = true;
+  // Its owner's connection: only they lend it; an admin may stop it.
+  if (input.shareInternet !== undefined) {
+    if (machine.kind !== "connected") {
+      throw new ForbiddenError("Only a person's own computer lends its internet", "device.share_connected_only");
+    }
+    if (input.shareInternet && !owner) {
+      throw new ForbiddenError("Only the device's owner can lend its internet", "device.share_owner_only");
+    }
+    set.egressShare = input.shareInternet;
+    if (input.shareInternet) set.egressShareAt = new Date();
+    else set.egressOnly = false;
+  }
+  if (input.internetOnly !== undefined) {
+    if (machine.kind !== "connected") {
+      throw new ForbiddenError("Only a person's own computer lends its internet", "device.share_connected_only");
+    }
+    if (input.internetOnly && !owner) {
+      throw new ForbiddenError("Only the device's owner can lend its internet", "device.share_owner_only");
+    }
+    if (input.internetOnly && !(set.egressShare ?? machine.egressShare)) {
+      throw new ValidationError("Turn on lending this computer's internet first", "device.share_off");
+    }
+    if (input.shareInternet !== false) set.egressOnly = input.internetOnly;
+  }
+  if (input.maxTasks !== undefined || input.pushHarder !== undefined) {
     if (!owner && machine.pairedByUserId !== null) {
       throw new ForbiddenError(
         "Only the person who connected this computer can change how many tasks it runs at once",
         "device.tasks_owner_only",
       );
     }
-    if (machine.protocol < TASK_LIMIT_PROTOCOL) {
+    const needs = input.pushHarder !== undefined ? TASK_ROOM_PROTOCOL : TASK_LIMIT_PROTOCOL;
+    // Push harder is a person's own computer's: the Cloud sizes its computers itself.
+    if (input.pushHarder !== undefined && machine.kind !== "connected") {
+      throw new ForbiddenError("This computer's room is set by the Cloud, not here", "device.tasks_cloud");
+    }
+    if (machine.protocol < needs) {
       throw new ValidationError(
         "This computer's app is too old to change this from here. Update it.",
         "machine.outdated",
@@ -618,18 +773,25 @@ export async function updateComputerDevice(
     if (!deps.hub || !(await deps.hub.status(machine.id))?.online) {
       throw new MachineOfflineError(machine.name, machine.kind);
     }
-    const { maxTasks } = await deps.hub.call(machine.id, { op: "limits.set", maxTasks: input.maxTasks });
+    const { maxTasks, room } = await deps.hub.call(machine.id, {
+      op: "limits.set",
+      ...(input.maxTasks !== undefined ? { maxTasks: input.maxTasks } : {}),
+      ...(input.pushHarder !== undefined ? { pushHarder: input.pushHarder } : {}),
+    });
     // Its `runner.state` says the same soon after; the answer below reads the new one already.
     await deps.db
       .update(machines)
-      .set({ size: withTaskLimit(maxTasks), updatedAt: new Date() })
+      .set({ size: withTaskLimit(maxTasks, room), updatedAt: new Date() })
       .where(eq(machines.id, machine.id));
     await recordAudit(deps.db, {
       orgId,
       actor: { type: "person", id: actorId },
       action: "device.updated",
       target: { type: "machine", id: machine.id },
-      details: { maxTasks },
+      details: {
+        ...(input.maxTasks !== undefined ? { maxTasks } : {}),
+        ...(room ? { pushHarder: room.pushHarder } : {}),
+      },
     });
     await publishDevicesChanged(deps.pubsub, orgId);
   }
@@ -646,8 +808,22 @@ export async function updateComputerDevice(
       details: { ...set },
     });
     if (set.name) await publishMachineUpdated(deps.pubsub, orgId, machine.id, { name: set.name });
+    // Marked the workspace's and open to everyone, it may now be the right hand's computer (`workspaceHomeId`).
+    if (set.belongsToWorkspace !== undefined || set.audienceMode !== undefined)
+      await deps.hub?.agentsChanged?.(orgId).catch(() => undefined);
     await publishDevicesChanged(deps.pubsub, orgId);
   }
+  // Its role changed (it lends now, or it is marked the workspace's): its agents' proxy goes on or off at once.
+  const borrows = borrowsInternet({ ...machine, ...set });
+  if (borrows !== borrowsInternet(machine) && machine.protocol >= EGRESS_PROXY_PROTOCOL) {
+    await deps.hub?.call(machine.id, { op: "egress.proxy", on: borrows }, { timeoutMs: 5_000 }).catch(() => undefined);
+  }
+  // The workspace's borrowing computers hear at once whether nothing of theirs goes the usual way now, without the
+  // answer waiting for them (one that misses it hears it in its next `welcome`).
+  if ((set.egressOnly ?? machine.egressOnly) !== machine.egressOnly && deps.hub)
+    void tellBorrowersOnly({ db: deps.db, hub: deps.hub }, orgId).catch(() => undefined);
+  if (input.shareInternet === false)
+    await resolveNotifications(deps, orgId, { groupKey: internetSharedGroup(machine.id) });
   return deviceOf(deps.db, actorId, orgId, machine.id);
 }
 
@@ -1098,4 +1274,41 @@ export async function releaseLeaverDevices(tx: Executor, orgId: string, userId: 
       );
   }
   await tx.update(machinePhones).set({ deletedAt: now, holder: null, updatedAt: now }).where(theirs);
+}
+
+/** Whether the workspace lets devices help when its computer is full or away (`organization_settings.devices_help`). */
+export async function devicesHelpOn(db: Executor, orgId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ on: organizationSettings.devicesHelp })
+    .from(organizationSettings)
+    .where(eq(organizationSettings.orgId, orgId));
+  return row?.on !== false;
+}
+
+/**
+ * `PUT …/devices/help` (admins, `configure`): turns devices' help off, or back on, for the whole workspace. Each
+ * computer's own switch stays as its owner set it. Audited as `devices.help`.
+ */
+export async function setDevicesHelp(
+  deps: { db: Executor; pubsub?: PubSub },
+  userId: string,
+  orgId: string,
+  on: boolean,
+): Promise<boolean> {
+  const { db } = deps;
+  await requirePermission(db, userId, orgId, "configure");
+  if ((await devicesHelpOn(db, orgId)) === on) return on;
+  await db
+    .insert(organizationSettings)
+    .values({ orgId, devicesHelp: on })
+    .onConflictDoUpdate({ target: organizationSettings.orgId, set: { devicesHelp: on } });
+  await recordAudit(db, {
+    orgId,
+    actor: { type: "person", id: userId },
+    action: "devices.help",
+    target: { type: "organization", id: orgId },
+    details: { on },
+  });
+  await publishDevicesChanged(deps.pubsub, orgId);
+  return on;
 }

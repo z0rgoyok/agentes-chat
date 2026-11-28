@@ -1,12 +1,22 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import type { AiAccounts, AiComputer } from "@agenteschat/client";
+import type { AiAccounts, AiComputer, BrainOption } from "@agenteschat/client";
 import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { brainDialog } from "./ai-picker";
-import { ADA_ID, createFakeApi, fakeAgentBrain, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
+import {
+  ADA_ID,
+  createFakeApi,
+  fakeAgentBrain,
+  fakeMachinesOf,
+  LODI_ID,
+  ORG_ID,
+  seedState,
+  withRightHand,
+} from "./fake-api";
+import { hintOf, shownText } from "./hint";
 import { openOrder } from "./plan-rows";
 import { renderApp, screen, settle } from "./render";
 
@@ -29,7 +39,10 @@ async function options(combobox: HTMLElement) {
   await settle(3);
   return screen().getAllByRole("option");
 }
-const name = (o: Element) => o.querySelector(".aa-opt__name")?.textContent ?? o.textContent ?? "";
+/** An option's name: the first line of its row. */
+const name = (o: Element) => o.querySelector(".aa-row > span:first-child")?.textContent ?? o.textContent ?? "";
+/** The line under an option's name: its plan and whose it is. */
+const sub = (o: Element | undefined) => o?.querySelector(".aa-row > .ac-menu__desc");
 
 const MAC: AiComputer = {
   machineId: "machine_1",
@@ -99,19 +112,25 @@ describe("Quem pensa: the one picker", () => {
     expect(conta.querySelector(".aa-opt__name")?.textContent).toBe("Trabalho");
     expect(conta.querySelector(".aa-meta__plan")?.textContent).toBe("Max");
     const rows = await options(conta);
-    expect(rows.map(name)).toEqual(["Trabalho", "Claude do João", "Pessoal da Marina", "Claude da Acme"]);
+    // Ada works on no computer yet: ChatGPT is the MacBook's, the agent moving there with it.
+    expect(rows.map(name)).toEqual(["Trabalho", "ChatGPT", "Claude do João", "Pessoal da Marina", "Claude da Acme"]);
+    expect(sub(rows[1])?.textContent).toBe("Vai para o MacBook");
     expect(
       [...screen().getAllByRole("group")]
         .filter((g) => g.closest(".ac-tz__list"))
         .map((g) => g.getAttribute("aria-label")),
-    ).toEqual(["Suas", "Do time", "Do workspace"]);
-    const marina = rows[2] as HTMLElement;
+    ).toEqual(["Suas contas", "Do time", "Chaves de API"]);
+    const marina = rows[3] as HTMLElement;
     expect(marina.getAttribute("aria-disabled")).toBe("true");
     expect(marina.querySelector(".aa-room")?.textContent).toBe("Só Marina usa");
-    expect(rows[1]?.querySelector(".aa-meta__plan")?.textContent).toBe("Max · de João");
-    // The one in use: its plate and heavier name, no check column.
+    // Two lines: the name over its plan and whose it is.
+    expect(sub(rows[2])?.textContent).toBe("Max · de João");
+    // The one in use: its plate and a check at its end.
     expect(rows[0]?.getAttribute("aria-selected")).toBe("true");
-    expect(document.querySelector(".ac-tz__check")).toBeNull();
+    expect(rows.map((o) => o.querySelector(".ac-tz__check")?.childElementCount ?? 0)).toEqual([1, 0, 0, 0, 0]);
+    // Under the list, whatever is typed: Adicionar conta and Gerenciar contas.
+    expect(screen().getByRole("button", { name: /^Adicionar conta/ })).toBeTruthy();
+    expect(screen().getByRole("button", { name: "Gerenciar contas" })).toBeTruthy();
   });
 
   test("an API agent opens with its dedicated account and model; effort changes only that agent", async () => {
@@ -191,7 +210,72 @@ describe("Quem pensa: the one picker", () => {
     ).toMatchObject({ model: "auto", effort: "auto" });
   });
 
-  test("a long name ends in an ellipsis on one line, whole in its tooltip", async () => {
+  test("Codex on a Windows computer without MXC: what its own sandbox holds there, behind Conta's ⓘ", async () => {
+    const gpt = account("acct_gpt", "ChatGPT do trabalho", { kind: "codex", plan: "plus", provider: "openai" });
+    const open = async (sandbox?: "partial") => {
+      cleanup();
+      const state = seedState();
+      const api = createFakeApi(state);
+      fakeMachinesOf.get(api)?.setAiAccounts({ accounts: [gpt], computers: [MAC] });
+      fakeMachinesOf.get(api)?.pair({ id: "machine_1", name: "MacBook" });
+      api.agents.brain = async (_org, id) => {
+        const view = fakeAgentBrain(id, {
+          brain: "codex",
+          account: "acct_gpt",
+          accounts: [{ ...gpt, usable: true }],
+          computer: { machineId: "machine_1", name: "MacBook", online: true },
+          canUsePlans: true,
+          canEdit: true,
+        });
+        const options = view.options.map((o) => (o.kind === "codex" && sandbox ? { ...o, sandbox } : o));
+        return { ...view, options, machines: view.machines.map((m) => ({ ...m, options })) };
+      };
+      await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api });
+      await settle(8);
+      return brainDialog();
+    };
+    const d = await open("partial");
+    expect(hintOf("Conta", d).text).toBe(
+      "Neste Windows, os comandos do Codex só escrevem nas pastas dos agentes, mas a internet fica bloqueada só em parte para eles. O Windows\u00a011\u00a024H2 ou mais novo, com as atualizações em dia, bloqueia por completo.",
+    );
+    expect(shownText(d)).not.toContain("Neste Windows");
+    // MXC there, or not known yet: nothing new.
+    const mxc = await open();
+    expect(within(mxc).queryByRole("button", { name: "Sobre Conta" })).toBeNull();
+  });
+
+  test("Lodi on a ChatGPT plan of that computer: no ⓘ by Conta, since its turns run no commands", async () => {
+    const gpt = account("acct_gpt", "ChatGPT do trabalho", { kind: "codex", plan: "plus", provider: "openai" });
+    const state = withRightHand(seedState());
+    const api = createFakeApi(state);
+    fakeMachinesOf.get(api)?.setAiAccounts({ accounts: [gpt], computers: [MAC] });
+    fakeMachinesOf.get(api)?.pair({ id: "machine_1", name: "MacBook" });
+    // What the computer says for any agent there: Lodi's options come from that list too.
+    const partial = (o: BrainOption): BrainOption => (o.kind === "codex" ? { ...o, sandbox: "partial" } : o);
+    const options = fakeAgentBrain(LODI_ID).options.map(partial);
+    state.brainMachines = [{ machineId: "machine_1", name: "MacBook", online: true, options }];
+    api.agents.brain = async (_org, id, scope) => ({
+      ...fakeAgentBrain(id, {
+        scope: scope ?? "mine",
+        brain: "codex",
+        account: "acct_gpt",
+        accounts: [{ ...gpt, usable: true }],
+        computer: { machineId: "machine_1", name: "MacBook", online: true },
+        canUsePlans: true,
+        canEdit: true,
+        workspaceAi: { brain: "model", ownerId: null, servesYou: true },
+      }),
+      options,
+    });
+    await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}`, { api });
+    await settle(8);
+    await click(screen().getByRole("button", { name: /^Sua IA/ }));
+    const dialog = screen().getByRole("dialog", { name: "Quem pensa pelo Lodi para você" });
+    expect(within(dialog).getByRole("combobox", { name: "Conta" })).toBeTruthy();
+    expect(within(dialog).queryByRole("button", { name: "Sobre Conta" })).toBeNull();
+  });
+
+  test("a long name ends in an ellipsis on its line, whole in its tooltip", async () => {
     const long = account("acct_long", "Conta compartilhada do time de engenharia de dados e plataforma", {
       ownerName: "Maria Fernanda Albuquerque Cavalcanti",
       ownerId: "u-maria",
@@ -201,10 +285,10 @@ describe("Quem pensa: the one picker", () => {
     const d = await brainDialog();
     const rows = await options(within(d).getByRole("combobox", { name: "Conta" }));
     const row = rows.find((o) => name(o).startsWith("Conta compartilhada")) as HTMLElement;
-    expect(row.querySelector(".aa-opt__name")?.getAttribute("title")).toBe(
+    expect(row.querySelector(".aa-row > span:first-child")?.getAttribute("title")).toBe(
       "Conta compartilhada do time de engenharia de dados e plataforma",
     );
-    expect(row.querySelector(".aa-meta__plan")?.getAttribute("title")).toBe("Max · de Maria");
+    expect(sub(row)?.getAttribute("title")).toBe("Max · de Maria");
   });
 });
 

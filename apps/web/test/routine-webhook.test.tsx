@@ -6,6 +6,7 @@ setupDom();
 import type { ApiClient } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { createFakeApi, ORG_ID, seedState } from "./fake-api";
+import { routineRun } from "./fakes/planning";
 import { hintOf, shownText } from "./hint";
 import { renderApp, screen, settle } from "./render";
 
@@ -101,6 +102,57 @@ describe("Rotinas: started by a webhook", () => {
     expect(state.calls.some((c) => c.method === "routines.testHook")).toBe(true);
     const calls = within(page).getByRole("list", { name: "Últimas chamadas" });
     expect(calls.textContent).toContain("Recebida · 74 bytes · Teste");
+  });
+
+  test("its page: the service's own secret, pasted, signs its calls from then on, and is never shown back", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    await open(webhookRoutine, api);
+    const page = await details("Pedidos pagos");
+    await click(within(page).getByRole("button", { name: "Usar o segredo do serviço" }));
+    await type(within(page).getByLabelText("Segredo de assinatura do serviço"), "lin_wh_fake_secret");
+    await click(within(page).getByRole("button", { name: "Salvar" }));
+    await settle(4);
+    expect(state.calls.some((c) => c.method === "routines.newHookSecret" && String(c.args).includes("pasted"))).toBe(
+      true,
+    );
+    expect(page.textContent).toContain("Ligada: só passam as chamadas assinadas com o segredo.");
+    expect(page.textContent).not.toContain("lin_wh_fake_secret");
+    expect(page.textContent).not.toContain("Copie o segredo agora.");
+  });
+
+  test("Execuções: a webhook run's calls open on its line, headers and body as kept", async () => {
+    const base = createFakeApi(seedState());
+    const at = new Date(Date.now() - 60_000).toISOString();
+    const api: ApiClient = {
+      ...base,
+      routines: {
+        ...base.routines,
+        runs: async () => [routineRun({ id: "run-1", at, status: "silent", calls: 1 })],
+        runCalls: async () => [
+          {
+            n: 1,
+            at,
+            method: "POST",
+            headers: { "linear-event": "Issue" },
+            bytes: 40,
+            body: '{"data":{"id":"ISS-1"}}',
+            cut: false,
+            binary: false,
+            test: false,
+          },
+        ],
+      },
+    };
+    await open(webhookRoutine, api);
+    const page = await details("Pedidos pagos");
+    await act(async () => fireEvent.mouseDown(within(page).getByRole("tab", { name: /^Execuções/ }), { button: 0 }));
+    await settle(4);
+    await click(within(page).getByRole("button", { name: "Chamadas (1)" }));
+    await settle(4);
+    expect(page.textContent).toContain("linear-event: Issue");
+    expect(page.textContent).toContain('"id": "ISS-1"');
+    expect(within(page).getByRole("button", { name: "Ocultar chamadas" })).toBeTruthy();
   });
 
   test("its page: the methods the address answers, POST by default, at least one on; GET's example sends a query", async () => {

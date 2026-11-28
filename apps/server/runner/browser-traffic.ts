@@ -49,6 +49,17 @@ import { urlCarries } from "./vault";
  * found"), and what it requests pauses on its page's session (measured on Chrome
  * for Testing 155 and 157, nested workers too): it isn't asked. reCAPTCHA starts
  * one, so a sign-in page with it could never be guarded otherwise.
+ *
+ * It also refuses passkeys and security keys on every tab (ADR 0040 addendum): a
+ * headless Chrome has no authenticator and no prompt anyone sees, so a page's
+ * `navigator.credentials.get()` or `create()` waited forever ("Verifying your
+ * identity…" on Google's and ChatGPT's sign-in) and the site never offered its
+ * other ways in. Each tab gets a virtual authenticator that never consents
+ * (`NO_PASSKEYS`): both calls fail at once with `NotAllowedError`, so nothing is
+ * signed in with nor enrolled on a key that would vanish with this browser.
+ * Measured 2026-11-18 on Chrome for Testing 156: rejected within 40 ms, popups
+ * too; back to hanging once this socket closed (Chrome drops a session's
+ * authenticators when it detaches).
  */
 
 /** What Chrome tells of at the browser's level: every target but its own UI and the tabs' wrappers. */
@@ -71,6 +82,24 @@ const AUTO_ATTACH_RELATED = {
 };
 /** Bodies never cross the socket, and Chrome buffers none of them for this client. */
 const NETWORK = { maxPostDataSize: 1, maxResourceBufferSize: 1, maxTotalBufferSize: 1 };
+/** A virtual authenticator that refuses every request (`isUserConsenting: false`), with Chrome's own UI off. */
+const NO_PASSKEYS: CdpCommand[] = [
+  { method: "WebAuthn.enable", params: { enableUI: false } },
+  {
+    method: "WebAuthn.addVirtualAuthenticator",
+    params: {
+      options: {
+        protocol: "ctap2",
+        ctap2Version: "ctap2_1",
+        transport: "internal",
+        hasResidentKey: true,
+        hasUserVerification: true,
+        isUserVerified: false,
+        isUserConsenting: false,
+      },
+    },
+  },
+];
 /** The GET guard pauses every request before it is sent (its address is all it reads). */
 const FETCH = { patterns: [{ urlPattern: "*", requestStage: "Request" }] };
 /** How long a guard waits for Chrome to acknowledge `Fetch.enable` on its sessions before it gives up. */
@@ -431,7 +460,7 @@ export function countChromeTraffic(
             target.targetId,
             typeof target.openerId === "string" && target.openerId !== "" && target.canAccessOpener !== false,
           );
-          for (const c of emulation ?? []) send(c.method, c.params, p.sessionId);
+          for (const c of [...NO_PASSKEYS, ...(emulation ?? [])]) send(c.method, c.params, p.sessionId);
         }
         if (target.type === "worker") workers.add(p.sessionId);
         send("Network.enable", NETWORK, p.sessionId);

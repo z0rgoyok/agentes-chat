@@ -4,17 +4,41 @@ import {
   formatList,
   formatMoneyUsd,
   formatPhone,
+  formatSpan,
   formatTime,
+  joinList,
   maskPhone,
   plural,
   relativeTime,
 } from "../src/format";
+import { LOCALES } from "../src/locale";
 
 describe("Intl formatting", () => {
   test("lists in each language's own way", () => {
     expect(formatList("ja-JP", ["a", "b", "c"])).toBe("a、b、c");
     expect(formatList("en-US", ["Ada", "Atlas", "Theo"])).toBe("Ada, Atlas, and Theo");
     expect(formatList("pt-BR", ["Ada", "Theo"])).toBe("Ada e Theo");
+  });
+
+  test("without Intl.ListFormat (the phone's Hermes), each language's own list words, as Intl.ListFormat says them", () => {
+    for (const { code, intl } of LOCALES)
+      for (const type of ["conjunction", "disjunction"] as const)
+        for (const items of [[], ["Ada"], ["Ada", "Bruno"], ["Ada", "Bruno", "Theo"], ["Ada", "Bruno", "Theo", "Zoe"]])
+          expect([code, type, joinList(intl, items, type)]).toEqual([
+            code,
+            type,
+            new Intl.ListFormat(intl, { type, style: "long" }).format(items),
+          ]);
+    const listFormat = Object.getOwnPropertyDescriptor(Intl, "ListFormat") as PropertyDescriptor;
+    Reflect.deleteProperty(Intl, "ListFormat");
+    try {
+      expect(formatList("en-US", ["Ada", "Atlas", "Theo"])).toBe("Ada, Atlas, and Theo");
+      expect(formatList("pt-BR", ["Ada", "Theo"], "disjunction")).toBe("Ada ou Theo");
+      expect(formatList("ja", ["a", "b", "c"])).toBe("a、b、c");
+      expect(formatList("xx", ["a", "b"])).toBe("a and b");
+    } finally {
+      Object.defineProperty(Intl, "ListFormat", listFormat);
+    }
   });
 
   test("dollars where each language writes them, more decimals for tiny amounts", () => {
@@ -104,4 +128,13 @@ describe("phone numbers", () => {
     expect(maskPhone("447700900123")).toBe("+44 •••• ••0123");
     expect(maskPhone("ana.example")).toBe("ana.example");
   });
+});
+
+test("formatSpan: how long something lasted, to the minute, in the language's own units", () => {
+  expect(formatSpan("en", 20_000)).toBe("1 min");
+  expect(formatSpan("en", 42 * 60_000)).toBe("42 min");
+  expect(formatSpan("en", 120 * 60_000)).toBe("2 hr");
+  expect(formatSpan("pt-BR", 125 * 60_000)).toBe("2 h 5 min");
+  // ICU's data spaces Japanese units differently by platform.
+  expect(formatSpan("ja", 125 * 60_000)).toMatch(/^2 ?時間 5 ?分$/);
 });

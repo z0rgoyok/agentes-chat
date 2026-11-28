@@ -1,9 +1,20 @@
-import { SLIDE_H, SLIDE_W, type SlideTheme, shapeFill, textLook, themeOf } from "@agenteschat/live";
-import type { ElementView, SlideChart, SlideTable, SlideView, ThemeId } from "@agenteschat/live/slides";
+import {
+  type Gradient,
+  type Shadow,
+  SLIDE_H,
+  SLIDE_W,
+  type SlideTheme,
+  shadowCss,
+  shapeFill,
+  textLook,
+  themeOf,
+} from "@agenteschat/live";
+import type { DeckFonts, ElementView, SlideChart, SlideTable, SlideView, ThemeId } from "@agenteschat/live/slides";
 import { cx, Icon } from "@agenteschat/ui";
 import { type CSSProperties, createContext, memo, type ReactNode, useContext } from "react";
 import { useTranslation } from "react-i18next";
 import { ChartAccent, ChartView } from "@/components/ChartBlock";
+import { fontFamilyCss, fontsOfRich, useLiveFonts } from "../fonts";
 import { RichView } from "../rich";
 import "./slides.css";
 
@@ -22,6 +33,9 @@ export type SlideImageUrl = (id: string) => string | null;
 /** The pictures of the file being drawn: the editor gives the live file's asset addresses. */
 export const SlideImages = createContext<SlideImageUrl | null>(null);
 
+/** The deck's own fonts over its theme's (ADR 0220 §3): the editor, presenting and covers give them. */
+export const SlideFonts = createContext<DeckFonts | undefined>(undefined);
+
 const FONT_STACKS: Record<string, string> = {
   "Funnel Display": '"Funnel Display", "Source Sans 3 Variable", "Source Sans 3", system-ui, sans-serif',
   "Source Sans 3": '"Source Sans 3 Variable", "Source Sans 3", system-ui, sans-serif',
@@ -32,8 +46,10 @@ export function fontStack(family: string): string {
 }
 
 /** The theme's colors as the slide's own CSS variables (charts and tables read them). */
-export function themeVars(theme: SlideTheme): CSSProperties {
+export function themeVars(theme: SlideTheme, fonts?: DeckFonts): CSSProperties {
   const c = theme.colors;
+  const body = (fonts?.body && fontFamilyCss(fonts.body)) || fontStack(theme.fonts.body);
+  const heading = (fonts?.heading && fontFamilyCss(fonts.heading)) || fontStack(theme.fonts.heading);
   return {
     "--sl-bg": c.bg,
     "--sl-text": c.text,
@@ -42,10 +58,10 @@ export function themeVars(theme: SlideTheme): CSSProperties {
     "--sl-accent2": c.accent2,
     "--sl-surface": c.surface,
     "--sl-line": c.line,
-    "--sl-body-font": fontStack(theme.fonts.body),
-    "--sl-heading-font": fontStack(theme.fonts.heading),
+    "--sl-body-font": body,
+    "--sl-heading-font": heading,
     color: c.text,
-    fontFamily: fontStack(theme.fonts.body),
+    fontFamily: body,
   } as CSSProperties;
 }
 
@@ -100,19 +116,61 @@ export function ElementBody({ el, theme, mode, text, table }: ElementBodyProps) 
   }
 }
 
-/** The look of an element's text as CSS: the theme's for its role under its own style. */
-export function textStyle(theme: SlideTheme, el: Pick<ElementView, "type" | "role" | "style">): CSSProperties {
-  const look = textLook(theme, el);
+/** The look of an element's text as CSS: the theme's for its role under its own style (and the deck's fonts). */
+export function textStyle(
+  theme: SlideTheme,
+  el: Pick<ElementView, "type" | "role" | "style">,
+  fonts?: DeckFonts,
+): CSSProperties {
+  const look = textLook(theme, el, fonts);
   return {
-    fontFamily: fontStack(look.fontFamily),
+    fontFamily: fontFamilyCss(look.fontRef, look.category) ?? fontStack(look.fontFamily),
     fontSize: look.size,
     fontWeight: look.weight,
     color: look.color,
     lineHeight: look.lineHeight,
     textAlign: look.align,
     justifyContent: look.valign === "middle" ? "center" : look.valign === "bottom" ? "flex-end" : "flex-start",
-    ...(look.font === "heading" ? { letterSpacing: "-0.01em" } : {}),
+    ...(look.tracking
+      ? { letterSpacing: `${look.tracking / 1000}em` }
+      : look.font === "heading"
+        ? { letterSpacing: "-0.01em" }
+        : {}),
+    ...(look.caps ? { textTransform: "uppercase" } : {}),
+    ...(look.padding ? { padding: look.padding } : {}),
+    ...(el.style?.opacity !== undefined && el.type === "text" ? { opacity: el.style.opacity } : {}),
   };
+}
+
+/** The fonts an element's text draws with, loaded while it shows. */
+function useElementFonts(theme: SlideTheme, el: ElementView): DeckFonts | undefined {
+  const fonts = useContext(SlideFonts);
+  const look = textLook(theme, el, fonts);
+  useLiveFonts([look.fontRef, ...fontsOfRich(el.text)]);
+  return fonts;
+}
+
+/** A gradient's ends in the box's own units (0..1), from its CSS angle (0: to the top, 90: to the right). */
+function gradientEnds(g: Gradient) {
+  const a = (g.angle * Math.PI) / 180;
+  const dx = Math.sin(a) / 2;
+  const dy = -Math.cos(a) / 2;
+  return { x1: 0.5 - dx, y1: 0.5 - dy, x2: 0.5 + dx, y2: 0.5 + dy };
+}
+
+/** A dash pattern for a stroke of `width`. */
+export function dashArray(
+  dash: string | undefined,
+  width: number,
+): { strokeDasharray?: string; strokeLinecap?: "round" } {
+  if (dash === "dashed") return { strokeDasharray: `${width * 3} ${width * 2}` };
+  if (dash === "dotted") return { strokeDasharray: `0 ${width * 2}`, strokeLinecap: "round" };
+  return {};
+}
+
+/** A drop shadow as a CSS filter (it follows the shape's own outline). */
+export function shadowFilter(shadow: Shadow | undefined): CSSProperties {
+  return shadow ? { filter: `drop-shadow(${shadowCss(shadow)})` } : {};
 }
 
 function TextBody({
@@ -127,10 +185,11 @@ function TextBody({
   text?: ReactNode;
 }) {
   const placeholder = usePlaceholder(el);
+  const fonts = useElementFonts(theme, el);
   return (
     <div
       className="sl-text"
-      style={{ ...textStyle(theme, el), "--rt-placeholder": theme.colors.muted } as CSSProperties}
+      style={{ ...textStyle(theme, el, fonts), "--rt-placeholder": theme.colors.muted } as CSSProperties}
     >
       {text ?? <RichView doc={el.text ?? []} placeholder={mode === "edit" ? placeholder : undefined} />}
     </div>
@@ -186,27 +245,45 @@ function ShapeBody({
   text?: ReactNode;
 }) {
   const style = el.style ?? {};
+  const fonts = useElementFonts(theme, el);
   const fill = shapeFill(theme, style);
   const stroke = style.stroke && style.stroke !== "none" ? style.stroke : null;
   const width = stroke ? (style.strokeWidth ?? 4) : 0;
   const w = Math.max(1, el.w);
   const h = Math.max(1, el.h);
   const hasText = !!text || (el.text ?? []).some((p) => p.runs.some((r) => r.text));
+  const gradient = style.gradient ? { id: `sl-g-${el.id}`, ...gradientEnds(style.gradient) } : null;
   return (
     <>
-      <svg className="sl-shape" viewBox={`0 0 ${w} ${h}`} width={w} height={h} aria-hidden="true">
+      <svg
+        className="sl-shape"
+        viewBox={`0 0 ${w} ${h}`}
+        width={w}
+        height={h}
+        aria-hidden="true"
+        style={{ overflow: "visible", ...shadowFilter(style.shadow) }}
+      >
+        {gradient && style.gradient && (
+          <defs>
+            <linearGradient id={gradient.id} x1={gradient.x1} y1={gradient.y1} x2={gradient.x2} y2={gradient.y2}>
+              <stop offset="0" stopColor={style.gradient.from} />
+              <stop offset="1" stopColor={style.gradient.to} />
+            </linearGradient>
+          </defs>
+        )}
         <g
-          fill={fill === "none" ? "none" : fill}
+          fill={gradient ? `url(#${gradient.id})` : fill === "none" ? "none" : fill}
           stroke={stroke ?? "none"}
           strokeWidth={width}
           strokeLinejoin="round"
           opacity={style.opacity ?? 1}
+          {...dashArray(style.dash, width)}
         >
           {shapePath(style.shape ?? "rect", w, h, width / 2, style.radius ?? 0)}
         </g>
       </svg>
       {(hasText || mode === "edit") && (
-        <div className="sl-text sl-text--shape" style={textStyle(theme, el)}>
+        <div className="sl-text sl-text--shape" style={textStyle(theme, el, fonts)}>
           {text ?? <RichView doc={el.text ?? []} />}
         </div>
       )}
@@ -230,6 +307,7 @@ function ImageBody({ el, theme, mode }: { el: ElementView; theme: SlideTheme; mo
           objectFit: el.fit ?? "cover",
           ...(radius ? { borderRadius: radius } : {}),
           ...(el.style?.opacity !== undefined ? { opacity: el.style.opacity } : {}),
+          ...shadowFilter(el.style?.shadow),
         }}
       />
     );
@@ -337,7 +415,15 @@ function LineBody({ el, theme, mode }: { el: ElementView; theme: SlideTheme; mod
   return (
     <svg className="sl-line" width={Math.max(w, 1)} height={Math.max(h, 1)} aria-hidden="true">
       <g stroke={color} fill={color} opacity={style.opacity ?? 1}>
-        <line x1={x1} y1={y1} x2={ex} y2={ey} strokeWidth={width} strokeLinecap="round" />
+        <line
+          x1={x1}
+          y1={y1}
+          x2={ex}
+          y2={ey}
+          strokeWidth={width}
+          strokeLinecap="round"
+          {...dashArray(style.dash, width)}
+        />
         {/* While editing, a wide clear stroke along the line takes the pointer: a thin line is hard to hit. */}
         {mode === "edit" && (
           <line
@@ -408,11 +494,13 @@ export const SlideBody = memo(function SlideBody({
   children?: ReactNode;
 }) {
   const url = useContext(SlideImages);
+  const fonts = useContext(SlideFonts);
+  useLiveFonts([fonts?.heading, fonts?.body]);
   return (
     <div
       className="sl-body"
       data-mode={mode}
-      style={{ width: w, height: h, ...themeVars(theme), ...slideBackground(slide, theme, url) }}
+      style={{ width: w, height: h, ...themeVars(theme, fonts), ...slideBackground(slide, theme, url) }}
     >
       {slide.elements.map((el) => {
         if (hide?.has(el.id)) return null;

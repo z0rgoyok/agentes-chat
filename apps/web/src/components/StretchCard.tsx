@@ -65,7 +65,7 @@ export function StretchCardView({ message, card }: { message: Message; card: Str
   const text = stretchCardText(t, card, names, cost);
   if (continued) {
     return (
-      <RequestDone done label={text}>
+      <RequestDone morphKey={`stretch:${message.id}`} done label={text}>
         {by === me.user.id
           ? t("stretchCard.continuedByYou", { time })
           : t("stretchCard.continued", {
@@ -77,6 +77,7 @@ export function StretchCardView({ message, card }: { message: Message; card: Str
   }
   return (
     <RequestOpen
+      morphKey={`stretch:${message.id}`}
       mine={may}
       icon="pause"
       label={text}

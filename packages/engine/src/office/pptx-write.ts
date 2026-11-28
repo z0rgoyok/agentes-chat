@@ -1,6 +1,8 @@
 import {
+  catalogFont,
   type DeckView,
   type ElementView,
+  fontAssetOf,
   type RichParagraph,
   type RichRun,
   type SlideTheme,
@@ -102,6 +104,8 @@ class Writer {
   constructor(
     readonly deck: DeckView,
     private readonly read: DeckMediaReader,
+    /** The file's own fonts' family names, by asset id (ADR 0220 §2). */
+    readonly fileFonts: ReadonlyMap<string, string> = new Map(),
   ) {
     this.emu = SLIDE_EMU_W / (deck.w > 0 ? deck.w : 1920);
     this.theme = themeOf(deck.theme);
@@ -147,17 +151,32 @@ class Writer {
 
   // ── Text ────────────────────────────────────────────────────────────────────
 
+  /** The typeface a font ref names in an office file (a file's own font under its own family name). */
+  typeface(ref: string | undefined, fallback: string): string {
+    if (!ref) return fallback;
+    const asset = fontAssetOf(ref);
+    if (asset) return this.fileFonts.get(asset) ?? fallback;
+    return catalogFont(ref)?.family ?? fallback;
+  }
+
   private run(run: RichRun, look: TextLook, rels: SlideRels): string {
     const parts = run.text.split("\n");
-    const bold = run.bold === true || look.weight >= 600;
+    // Weight is bold or not in office files (ADR 0220 §7): 600 and up is bold.
+    const weight = run.weight ?? (run.bold ? 700 : look.weight);
+    const bold = weight >= 600;
+    const size = run.size ?? look.size;
+    const tracking = run.tracking ?? look.tracking;
     const props = (tag: string) => {
       const attrs = [
         'lang="en-US"',
-        `sz="${this.sz(look.size)}"`,
+        `sz="${this.sz(size)}"`,
         bold ? 'b="1"' : "",
         run.italic ? 'i="1"' : "",
         run.underline ? 'u="sng"' : "",
         run.strike ? 'strike="sngStrike"' : "",
+        run.caps || look.caps ? 'cap="all"' : "",
+        // Letter spacing in hundredths of a point.
+        tracking ? `spc="${Math.round((tracking / 1000) * this.sz(size))}"` : "",
         'dirty="0"',
       ]
         .filter(Boolean)
@@ -166,8 +185,9 @@ class Writer {
         run.link && /^(?:https?:|mailto:)/i.test(run.link)
           ? `<a:hlinkClick r:id="${rels.add("hyperlink", run.link, true)}"/>`
           : "";
-      const face = xmlAttr(look.fontFamily);
-      return `<a:${tag} ${attrs}>${solid(run.color ?? look.color)}<a:latin typeface="${face}"/><a:cs typeface="${face}"/>${link}</a:${tag}>`;
+      const face = xmlAttr(this.typeface(run.font, this.typeface(look.fontRef, look.fontFamily)));
+      const highlight = run.highlight ? `<a:highlight><a:srgbClr val="${hex6(run.highlight)}"/></a:highlight>` : "";
+      return `<a:${tag} ${attrs}>${solid(run.color ?? look.color)}${highlight}<a:latin typeface="${face}"/><a:cs typeface="${face}"/>${link}</a:${tag}>`;
     };
     return parts
       .map((text, i) => {
@@ -195,8 +215,10 @@ class Writer {
           bullet = '<a:buFont typeface="+mj-lt"/><a:buAutoNum type="arabicPeriod"/>';
           indent = ` marL="${(level + 1) * step}" indent="-${Math.round(step * 0.9)}"`;
         }
-        const spacing = `<a:lnSpc><a:spcPct val="${Math.round((look.lineHeight / 1.2) * 100_000)}"/></a:lnSpc>`;
-        const pPr = `<a:pPr algn="${algn}"${level > 0 ? ` lvl="${level}"` : ""}${indent}>${spacing}${bullet}</a:pPr>`;
+        const lineHeight = p.lineHeight ?? look.lineHeight;
+        const spacing = `<a:lnSpc><a:spcPct val="${Math.round((lineHeight / 1.2) * 100_000)}"/></a:lnSpc>`;
+        const after = p.spaceAfter ? `<a:spcAft><a:spcPts val="${this.sz(p.spaceAfter)}"/></a:spcAft>` : "";
+        const pPr = `<a:pPr algn="${algn}"${level > 0 ? ` lvl="${level}"` : ""}${indent}>${spacing}${after}${bullet}</a:pPr>`;
         const runs = p.runs.map((r) => this.run(r, look, rels)).join("");
         const end = `<a:endParaRPr lang="en-US" sz="${this.sz(look.size)}" dirty="0"/>`;
         return `<a:p>${pPr}${runs}${end}</a:p>`;
@@ -271,7 +293,7 @@ async function elementXml(
   switch (el.type) {
     case "text":
     case "shape": {
-      const look = textLook(theme, el);
+      const look = textLook(theme, el, w.deck.fonts);
       const text = el.text ?? [];
       const hasText = text.some((p) => p.runs.some((r) => r.text.trim() !== ""));
       if (el.type === "text" && !hasText) return null;
@@ -282,17 +304,37 @@ async function elementXml(
       let fill = "<a:noFill/>";
       let line = "<a:ln><a:noFill/></a:ln>";
       let geometry = '<a:prstGeom prst="rect"><a:avLst/></a:prstGeom>';
+      let effects = "";
       if (el.type === "shape") {
         const color = shapeFill(theme, el.style);
-        fill = color === "none" ? "<a:noFill/>" : solid(color, el.style?.opacity ?? 1);
+        const g = el.style?.gradient;
+        fill = g
+          ? `<a:gradFill rotWithShape="1"><a:gsLst><a:gs pos="0">${solid(g.from).replace(/^<a:solidFill>|<\/a:solidFill>$/g, "")}</a:gs><a:gs pos="100000">${solid(g.to).replace(/^<a:solidFill>|<\/a:solidFill>$/g, "")}</a:gs></a:gsLst><a:lin ang="${Math.round((((g.angle - 90) % 360) + 360) % 360) * 60000}" scaled="0"/></a:gradFill>`
+          : color === "none"
+            ? "<a:noFill/>"
+            : solid(color, el.style?.opacity ?? 1);
         const stroke = el.style?.stroke;
         if (stroke && stroke !== "none") {
-          line = `<a:ln w="${w.e(el.style?.strokeWidth ?? 2)}">${solid(stroke, el.style?.opacity ?? 1)}</a:ln>`;
+          const dash =
+            el.style?.dash === "dashed"
+              ? '<a:prstDash val="dash"/>'
+              : el.style?.dash === "dotted"
+                ? '<a:prstDash val="sysDot"/>'
+                : "";
+          line = `<a:ln w="${w.e(el.style?.strokeWidth ?? 2)}">${solid(stroke, el.style?.opacity ?? 1)}${dash}</a:ln>`;
         }
         geometry = shapeGeometry(el.style?.shape, el);
+        const sh = el.style?.shadow;
+        if (sh) {
+          const dist = w.e(Math.hypot(sh.x, sh.y));
+          const dir = Math.round(((((Math.atan2(sh.y, sh.x) * 180) / Math.PI) % 360) + 360) % 360) * 60000;
+          const alpha = sh.color.length === 9 ? Number.parseInt(sh.color.slice(7), 16) / 255 : 1;
+          effects = `<a:effectLst><a:outerShdw blurRad="${w.e(sh.blur)}" dist="${dist}" dir="${dir}" algn="ctr" rotWithShape="0">${solid(sh.color.slice(0, 7), alpha).replace(/^<a:solidFill>|<\/a:solidFill>$/g, "")}</a:outerShdw></a:effectLst>`;
+        }
       }
-      const spPr = `<p:spPr>${w.xfrm(el)}${geometry}${fill}${line}</p:spPr>`;
-      const tx = hasText || el.type === "shape" ? w.txBody(text, look, rels, el.type === "shape" ? 12 : 0) : "";
+      const spPr = `<p:spPr>${w.xfrm(el)}${geometry}${fill}${line}${effects}</p:spPr>`;
+      const inset = look.padding || (el.type === "shape" ? 12 : 0);
+      const tx = hasText || el.type === "shape" ? w.txBody(text, look, rels, inset) : "";
       return { xml: `<p:sp>${nv}${spPr}${tx}</p:sp>`, next: id + 1 };
     }
     case "line": {
@@ -509,9 +551,16 @@ function notesMasterXml(w: Writer): string {
   return `${XML_HEAD}<p:notesMaster ${ROOT_NS}><p:cSld><p:bg><p:bgRef idx="1001"><a:schemeClr val="bg1"/></p:bgRef></p:bg><p:spTree>${TREE_HEAD}<p:sp><p:nvSpPr><p:cNvPr id="2" name="Slide Image Placeholder 1"/><p:cNvSpPr><a:spLocks noGrp="1" noRot="1" noChangeAspect="1"/></p:cNvSpPr><p:nvPr><p:ph type="sldImg" idx="2"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="685800" y="1143000"/><a:ext cx="5486400" cy="3086100"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom><a:noFill/></p:spPr></p:sp><p:sp><p:nvSpPr><p:cNvPr id="3" name="Notes Placeholder 2"/><p:cNvSpPr><a:spLocks noGrp="1"/></p:cNvSpPr><p:nvPr><p:ph type="body" sz="quarter" idx="3"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm><a:off x="685800" y="4400550"/><a:ext cx="5486400" cy="3600450"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></p:spPr><p:txBody><a:bodyPr/><a:lstStyle/><a:p><a:endParaRPr lang="en-US"/></a:p></p:txBody></p:sp></p:spTree></p:cSld><p:clrMap ${clrMap(false)}/><p:notesStyle><a:lvl1pPr marL="0" algn="l"><a:defRPr sz="1200"><a:solidFill><a:schemeClr val="tx1"/></a:solidFill><a:latin typeface="${xmlAttr(w.theme.fonts.body)}"/></a:defRPr></a:lvl1pPr></p:notesStyle></p:notesMaster>`;
 }
 
-/** A presentation as a `.pptx` file; `media` reads its pictures by asset id (a missing one is left out). */
-export async function writePptx(deck: DeckView, media: DeckMediaReader): Promise<Uint8Array> {
-  const w = new Writer(deck, media);
+/**
+ * A presentation as a `.pptx` file; `media` reads its pictures by asset id (a missing one is left out); `fileFonts`
+ * names the file's own fonts by asset id, so runs in them keep their family (ADR 0220 §7).
+ */
+export async function writePptx(
+  deck: DeckView,
+  media: DeckMediaReader,
+  fileFonts: ReadonlyMap<string, string> = new Map(),
+): Promise<Uint8Array> {
+  const w = new Writer(deck, media, fileFonts);
   const slides = deck.slides;
   const slideFiles: [string, string][] = [];
   for (const [i, slide] of slides.entries()) {

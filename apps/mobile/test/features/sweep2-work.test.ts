@@ -34,6 +34,7 @@ describe("forms clear the keyboard on both systems and ask before changes go", (
       "dashboards/NewBoardScreen.tsx",
       "dashboards/BoardEditScreen.tsx",
       "dashboards/WidgetEditScreen.tsx",
+      "dashboards/NewWidgetScreen.tsx",
       "routines/RoutineForm.tsx",
     ]) {
       const code = src(file);
@@ -48,11 +49,8 @@ describe("forms clear the keyboard on both systems and ask before changes go", (
       expect({ file, bar: /<SettingsPage[^>]*\btoolbar\b/.test(src(file)) }).toEqual({ file, bar: true });
     expect(src("issues/NewIssueForm.tsx")).toContain("{...NEXT_FIELD}");
     expect(src("dashboards/BoardEditScreen.tsx")).toContain("{...NEXT_FIELD}");
-    // New widget's card holds its fields: its own page scrolls them clear of the keyboard.
-    const widget = src("dashboards/NewWidgetScreen.tsx");
-    expect(widget).toContain("<KeyboardAwareScrollView");
-    expect(widget).toContain("bottomOffset={FIELD_CLEARANCE}");
-    expect(widget).not.toContain("automaticallyAdjustKeyboardInsets");
+    // New widget: its action rides over the keyboard at the page's foot (the form page's `bottom`).
+    expect(src("dashboards/NewWidgetScreen.tsx")).toMatch(/<SettingsPage[^>]*\bbottom=\{bottom\}/);
   });
 
   test("leaving with changes asks first; a save that took leaves without asking", () => {

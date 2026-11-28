@@ -5,6 +5,7 @@ import { EVERYONE_AUDIENCE } from "@agenteschat/client/lib/audience";
 import {
   type Advanced,
   advancedSummary,
+  effortLevelsFor,
   effortOf,
   isAdvancedDefault,
   SPEEDS,
@@ -166,6 +167,11 @@ export function AgentAdvancedScreen({ agentId }: { agentId: string }) {
                       <EffortRamp
                         value={effort.value}
                         onChange={effort.change}
+                        levels={effortLevelsFor(
+                          view.brain,
+                          view.brain === "model" ? agent?.model : view.effectiveModel,
+                          view.options,
+                        )}
                         color={agentLook(agent).color}
                         kind={view.brain}
                         disabled={!view.canEdit}

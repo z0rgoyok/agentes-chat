@@ -1,4 +1,5 @@
 import * as Y from "yjs";
+import { readTypeMark, writeTypeMarks } from "../rich/yjs";
 import { normalizeBlock, normalizeRuns } from "./blocks";
 import type { DocBlock, DocCell, DocParagraph, DocRun } from "./types";
 
@@ -53,6 +54,8 @@ function runOf(text: string, attributes: Attrs | undefined): DocRun {
         if (typeof href === "string") run.link = href;
         break;
       }
+      default:
+        readTypeMark(markName(attribute), value, run);
     }
   }
   return run;
@@ -174,6 +177,7 @@ function markAttributes(run: DocRun): Attrs {
   if (run.code) attributes.code = {};
   if (run.color) attributes.color = { color: run.color };
   if (run.link) attributes.link = { href: run.link };
+  writeTypeMarks(run, attributes);
   return attributes;
 }
 

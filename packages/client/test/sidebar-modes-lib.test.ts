@@ -40,6 +40,7 @@ describe("the sidebar's defaults by the workspace's mode (ADR 0159)", () => {
       "issues",
       "threads",
       "team",
+      "skills",
       "wiki",
       "dashboards",
       "taskManager",

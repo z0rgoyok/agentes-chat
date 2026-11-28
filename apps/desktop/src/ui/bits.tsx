@@ -15,6 +15,7 @@ import {
   LogoMark,
   normalizeAppearance,
 } from "@agenteschat/ui";
+import { hasLightInk } from "@agenteschat/ui/org-logo";
 import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useHost } from "../app";
@@ -101,6 +102,7 @@ export function OrgTile({ logo, size = "md" }: { logo?: string | null; size?: "s
       <img
         className="dk-org dk-org--logo"
         data-size={size}
+        data-ink={hasLightInk(logo) ? "light" : undefined}
         src={logo}
         alt=""
         aria-hidden="true"

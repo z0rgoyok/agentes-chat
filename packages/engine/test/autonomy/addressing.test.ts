@@ -1,6 +1,6 @@
 import { afterEach, expect } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
-import { removeChannelMember, runAuthority } from "../../src";
+import { publishTyping, removeChannelMember, runAuthority } from "../../src";
 import { closeWorlds, world } from "./harness";
 import { assertInvariants } from "./invariants";
 import { scenario } from "./known";
@@ -360,15 +360,24 @@ scenario(
   },
 );
 
-/** Starts the outbox in the background and waits until a run is working (inside its quiet window, ADR 0112). */
-async function settleOnceRunning(w: Awaited<ReturnType<typeof world>>) {
+/**
+ * The person writes the rest of their request in two more messages, typing each (ADR 0112): `oi`, then `more` while
+ * the outbox runs in the background. Nothing waits for messages nobody is typing.
+ */
+async function burstWhileTyping(w: Awaited<ReturnType<typeof world>>, first: string, more: string[]) {
+  const ana = w.people.ana;
+  if (!ana) throw new Error("no ana");
+  const typing = () => publishTyping(w.f.pubsub, { channelId: w.channelId, threadId: null, userId: ana.id });
+  await w.say(first);
+  await typing();
   const settled = w.settle();
-  const start = Date.now();
-  while (!(await w.runs()).some((r) => r.status === "running")) {
-    if (Date.now() - start > 5000) throw new Error("no run started");
-    await Bun.sleep(5);
+  for (const [i, body] of more.entries()) {
+    await Bun.sleep(300);
+    await w.say(body);
+    if (i < more.length - 1) await typing();
   }
-  return settled;
+  await settled;
+  await w.settle();
 }
 
 scenario("S54", "three messages in a row in a DM get one run and one answer that read them all", async () => {
@@ -383,12 +392,7 @@ scenario("S54", "three messages in a row in a DM get one run and one answer that
           : { text: "Oi! Em que posso ajudar?" },
     },
   });
-  await w.say("oi");
-  const settled = settleOnceRunning(w);
-  await w.say("preciso de uma coisa");
-  await w.say("olha o relatório de ontem e me diz se bate com o quadro");
-  await settled;
-  await w.settle();
+  await burstWhileTyping(w, "oi", ["preciso de uma coisa", "olha o relatório de ontem e me diz se bate com o quadro"]);
   expect(await w.runs()).toHaveLength(1);
   expect((await w.posts("otto")).map((m) => m.body)).toEqual(["Bate: 42 tarefas no relatório e no quadro."]);
   await assertInvariants(w);
@@ -403,12 +407,10 @@ scenario(
       setup: { quietMs: 400 },
       script: { otto: [{ text: "Bate: 42 tarefas no relatório e no quadro." }] },
     });
-    await w.say("@otto oi");
-    const settled = settleOnceRunning(w);
-    await w.say("preciso de uma coisa");
-    await w.say("olha o relatório de ontem e me diz se bate com o quadro");
-    await settled;
-    await w.settle();
+    await burstWhileTyping(w, "@otto oi", [
+      "preciso de uma coisa",
+      "olha o relatório de ontem e me diz se bate com o quadro",
+    ]);
     expect((await w.runs()).map((r) => w.handleOf(r.agentId))).toEqual(["otto"]);
     expect(await w.posts("ada")).toEqual([]);
     await assertInvariants(w);

@@ -4,5 +4,6 @@
  */
 export * from "./api";
 export * from "./meta";
+export * from "./place";
 export * from "./queries";
 export * from "./types";

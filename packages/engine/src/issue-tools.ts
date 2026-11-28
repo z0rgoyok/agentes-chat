@@ -61,7 +61,11 @@ const failed = (error: unknown): ToolOutput => ({
   isError: true,
 });
 /** The right hand's tasks are its person's, in their DM (ADR 0137 §13): in a channel, others read the reply. */
-const ONLY_IN_DM: ToolOutput = { content: "Tasks only in your private conversation with a person.", isError: true };
+const ONLY_IN_DM: ToolOutput = {
+  content:
+    "Tasks only where one person alone reads you: your private conversation with them, or a routine or widget of theirs that only they see (a widget on their Home or a private board of theirs). Others read this one.",
+  isError: true,
+};
 
 /** Who each assignee is, as the agent can name them: "@ada (you)", "Walter (@walter)". */
 async function assigneeNames(deps: IssueDeps, ctx: ToolContext, list: IssueView[]) {

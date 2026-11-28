@@ -1,13 +1,12 @@
 import type {
   Agent,
-  AgentGroup,
-  AgentSort,
   ApiClient,
   Availability,
   Channel,
-  ChannelCategory,
   Member,
   SidebarSection as SectionKey,
+  SidebarChannelSection,
+  SidebarDmShow,
   SidebarItem,
 } from "@agenteschat/client";
 import {
@@ -15,31 +14,27 @@ import {
   agentWorkingIn,
   MISSIONS_WAITING_COUNT,
   runningAgents,
-  useAgentGroups,
   useAgentStatuses,
   useAiAccounts,
+  useAllInvitations,
   useArchivedChannels,
   useAuthConfig,
-  useChannelCategories,
   useChannels,
   useConnections,
-  useCreateChannelCategory,
-  useDeleteChannelCategory,
   useDms,
   useMachineOutages,
   useMissionList,
   useNotificationCount,
   useOverview,
-  usePlaceChannel,
-  usePlaceChannelCategory,
   usePrefetchMessages,
   usePrefetchRecent,
+  useSetSidebarView,
   useSidebarItems,
+  useSidebarView,
   useSkills,
   useTasksUnread,
   useUnreadThreads,
 } from "@agenteschat/client";
-import { agentSections, groupOf } from "@agenteschat/client/lib/agent-groups";
 import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { WORK_TICK_MS, workLine } from "@agenteschat/client/lib/agent-work";
 import {
@@ -54,7 +49,6 @@ import {
 } from "@agenteschat/client/lib/audience";
 import { workspaceNotes } from "@agenteschat/client/lib/deletion";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
-import { errorText } from "@agenteschat/client/lib/errors";
 import { formatTime, upperFirst } from "@agenteschat/client/lib/format";
 import { waitingAgents } from "@agenteschat/client/lib/outages";
 import { can, makesAgents, managesChannel } from "@agenteschat/client/lib/permissions";
@@ -65,17 +59,26 @@ import {
   presenceOfAvailability,
   statusEndNote,
 } from "@agenteschat/client/lib/presence";
-import { recentDms } from "@agenteschat/client/lib/recent";
+import { type DmListed, dmList } from "@agenteschat/client/lib/recent";
 import { isRightHand, rightHandSeenKey } from "@agenteschat/client/lib/right-hand";
 import { SERVER_PLACE_ICON } from "@agenteschat/client/lib/server";
 import { inSidebarList, offeredTools, sidebarItemOrder, sidebarPlace } from "@agenteschat/client/lib/sidebar-items";
-import { AGENT_SORTS, sortAgents, splitPinned } from "@agenteschat/client/lib/sidebar-view";
+import {
+  addSection,
+  moveChannelBy,
+  moveSectionBy,
+  placeInSection,
+  removeSection,
+  renameSection,
+  SIDEBAR_SECTION_NAME_MAX,
+  sectionOfChannel,
+  sortAgents,
+  splitPinned,
+} from "@agenteschat/client/lib/sidebar-view";
 import { badgeCount, looksUnread } from "@agenteschat/client/lib/unread";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
-  type AgentColor,
   Avatar,
-  agentGradient,
   Button,
   CountBadge,
   CountChip,
@@ -97,23 +100,21 @@ import {
   MenuSub,
   modKey,
   OPEN_LAYER,
-  PixelSpinner,
+  OrbitGlyph,
   Popover,
   PresenceBadge,
   ProviderLogo,
-  RoleMark,
   Skeleton,
   SkeletonGroup,
-  selectionSkyUrl,
 } from "@agenteschat/ui";
 import { useMutation } from "@tanstack/react-query";
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
 import {
-  type CSSProperties,
   type DragEvent,
   Fragment,
   type HTMLAttributes,
+  type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
   Suspense,
   useEffect,
@@ -125,12 +126,13 @@ import {
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { useNewAgent } from "@/components/new-agent/new-agent-context";
+import { useArrived } from "@/hooks/useArrived";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useEverTrue } from "@/hooks/useEverTrue";
 import { useInboxWaiting } from "@/hooks/useInboxWaiting";
 import { agentLine, availabilityOf, personLine, useAgentPresence, usePersonPresence } from "@/hooks/usePresence";
 import { useServerPlace } from "@/hooks/useServerPlace";
-import { useSidebarPins } from "@/hooks/useSidebarPins";
+import { useSidebarFavorites } from "@/hooks/useSidebarPins";
 import { useSignOut } from "@/hooks/useSignOut";
 import { useUnreadTitle } from "@/hooks/useUnreadTitle";
 import { useWorkspaceGroups } from "@/hooks/useWorkspaceGroups";
@@ -140,7 +142,9 @@ import { requestChannelDetails } from "@/lib/channel-details";
 import type { MenuEntry } from "@/lib/context-menu";
 import { onPhoneAsk, takePhoneAsk, thisMac } from "@/lib/desktop";
 import { entityMenu } from "@/lib/entity-menu";
+import { keysInTurn, moveStep } from "@/lib/keys";
 import { lazyDialog } from "@/lib/lazy-dialog";
+import { lookOf } from "@/lib/look";
 import { navigateAway } from "@/lib/navigate";
 import { useOpenParam } from "@/lib/open-param";
 import { markOpen } from "@/lib/perf";
@@ -152,23 +156,16 @@ import { offersNewWorkspace, type WorkspaceGroup } from "@/lib/workspaces";
 import type { SettingsSection } from "@/pages/settings-sections";
 import { useStreams } from "@/realtime/context";
 import { AgentAvatar } from "./AgentAvatar";
-import {
-  DeleteGroupDialog,
-  type GroupDialogFor,
-  GroupMenu,
-  GroupNameDialog,
-  useAgentDrag,
-  useGroupEntries,
-  useMoveAgent,
-} from "./AgentGroups";
 import { AgentWorkLine } from "./AgentWorkLine";
 import { AgoraButton } from "./Agora";
 import { ArchivedChannelsDialog } from "./ArchivedChannelsDialog";
 import { FeedbackMark } from "./arrival/FeedbackDialog";
-import { MoveChannelDialog, NewCategoryDialog, RenameCategoryDialog } from "./ChannelCategoryDialogs";
 import { MenuEntries } from "./DesktopMenus";
 import { useAgentMenu, useChannelMenu, usePersonMenu } from "./entity-menus";
+import { GroupFace } from "./GroupFace";
 import { useInviteDialog } from "./invite/InviteDialog";
+import { arrivalProps, useArrivals } from "./lodi-cursor/arrivals";
+import { useRowsDrawIn } from "./lodi-cursor/runner";
 import { useNow } from "./missions/MissionBits";
 import { COMPACT_QUERY, useMediaQuery, useNavDrawer } from "./NavDrawer";
 import { NewChannelDialog } from "./NewChannelDialog";
@@ -178,7 +175,7 @@ import { MyFace, OrgMark } from "./ProfilePhoto";
 import { openPalette } from "./palette";
 import { sectionName, useSectionOrder } from "./SidebarOrder";
 import { SIDEBAR_TOOLS, SidebarSetupDialog, ToolList } from "./SidebarSetup";
-import { AgentGlow, AgentTrail, colorOf, MenuHorizon, SidebarHorizon, WorkspaceSky } from "./Sky";
+import { MenuHorizon, SidebarHorizon, WorkspaceSky } from "./Sky";
 import { SetStatusDialog, useSaveStatus } from "./StatusDialog";
 import { closeTabletSidebar, NEW_CHANNEL_EVENT, TABLET_QUERY, useSidebarCollapsed } from "./sidebar-state";
 
@@ -190,10 +187,6 @@ const AddPasswordDialog = lazyDialog(() => import("./AddPassword").then((m) => m
 const ChangeAvatarDialog = lazyDialog(() => import("./AvatarBuilder").then((m) => m.ChangeAvatarDialog));
 const DeleteAccountDialog = lazyDialog(() => import("./DeleteAccount").then((m) => m.DeleteAccountDialog));
 const OpenOnPhoneDialog = lazyDialog(() => import("./OpenOnPhone").then((m) => m.OpenOnPhoneDialog));
-
-/** An agent's sky for its busy chip (`.sidebar__busy`): both themes, the CSS picks one. */
-const selectionSky = (color: AgentColor) =>
-  ({ "--sel-sky": selectionSkyUrl(color), "--sel-sky-dark": selectionSkyUrl(color, true) }) as CSSProperties;
 
 /** Sidebar rows loading: an icon (or avatar) and a name bar, at the real row height. */
 function SidebarSkeleton({ count, avatar, label }: { count: number; avatar?: boolean; label: string }) {
@@ -236,11 +229,14 @@ export function channelInitials(name: string) {
 }
 
 /**
- * The workspace sidebar. A personal workspace (ADR 0159) has the person on top (their menu, the bell and the collapse
- * beside it), Go to… as the list's first row and no foot; what sits in sight changes, never what can be reached.
+ * The workspace sidebar. A team's (ADR 0260) is a tool column at its left edge (Ir para…, Início, the tools in sight,
+ * Mais; Agora and the collapse at its foot) and the familiar list beside it: Não lidas, Threads, Favoritos, Canais with the
+ * person's own sections, Mensagens diretas with people and agents together. A personal workspace (ADR 0159) has the
+ * person on top (their menu, the bell and the collapse beside it), Go to… as the list's first row and no foot; what
+ * sits in sight changes, never what can be reached.
  */
 export function Sidebar() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const orgId = org.id;
   const personal = isPersonal(org);
@@ -249,10 +245,7 @@ export function Sidebar() {
   const alone = !dir.members.some((m) => m.userId !== me.user.id);
   const channels = useChannels(orgId);
   const overview = useOverview(orgId);
-  // A new channel: `true` with no category, or the category whose + opened it.
-  const [creatingChannel, setCreatingChannel] = useState<boolean | string>(false);
-  // A new category: empty, or with the channel whose menu asked for it.
-  const [newCategory, setNewCategory] = useState<{ withChannel?: string } | null>(null);
+  const [creatingChannel, setCreatingChannel] = useState(false);
   // Archived channels this person may bring back: "Canais arquivados" in Canais' + while there are some.
   const archivedChannels = useArchivedChannels(orgId).data ?? [];
   const [showArchived, setShowArchived] = useState(false);
@@ -263,29 +256,29 @@ export function Sidebar() {
     window.addEventListener(NEW_CHANNEL_EVENT, open);
     return () => window.removeEventListener(NEW_CHANNEL_EVENT, open);
   }, []);
-  // The inbox's row: bold while something in it is unread (live through `notification.counts`).
+  // The inbox: bold while something in it is unread (live through `notification.counts`).
   const notificationCount = useNotificationCount(orgId).data;
   const unreadNotifications = notificationCount?.unread ?? 0;
-  // The inbox's count: everything that waits on me (ADR 0218).
+  // Everything that waits on me (ADR 0218): Não lidas' count in a team's list, the inbox's in a personal one.
   const waitingOnMe = useInboxWaiting(orgId);
   // Threads: how many open missions wait for me (the server counts: a decision, a review, a suggestion…).
   const missionList = useMissionList(orgId, MISSIONS_WAITING_COUNT);
   const missionsWaiting = missionList.data?.counts.waitingYou ?? 0;
-  // Tarefas: bold for a reply I haven't read in a task's conversation, red for a mention of me there, as a channel.
+  // Tarefas: bold (a dot in the column) for a reply I haven't read in a task's conversation, red for a mention of me.
   const { unread: unreadTasks, mentions: taskMentions } = useTasksUnread(orgId);
   // …and whether a thread I follow has a reply I haven't read: the entry lights like an unread channel.
   const unreadThreads = useUnreadThreads(orgId).data ?? 0;
-  // The tools on top, each where I put it (the rest in More); one there "when there's something" while its count is.
+  // The tools, each where I put it (the rest in More); one there "when there's something" while its count is.
   const sidebarItems = useSidebarItems(orgId).data;
-  // An unread reply counts as "something" for a Threads set to show "when there's something": it comes into the list
-  // lit, and leaves once read. Nothing waits in Agent improvements any more (ADR 0219): it has no count.
   const counts: Partial<Record<SidebarItem, number>> = {
     waiting: waitingOnMe,
     threads: missionsWaiting + unreadThreads,
   };
-  // The mode's defaults and order (ADR 0159): in a personal workspace, Routines and Drive in sight, the rest in More.
-  // Code only where it has anything for me (ADR 0215 §12).
-  const toolOrder = offeredTools(sidebarItemOrder(personal), overview.data?.code, sidebarItems);
+  // The mode's defaults and order (ADR 0159). Code only where it has anything for me (ADR 0215 §12). A team's column
+  // holds every tool but the inbox and Threads, which Não lidas and Threads' row take in the list (ADR 0260).
+  const toolOrder = offeredTools(sidebarItemOrder(personal), overview.data?.code, sidebarItems).filter(
+    (id) => personal || (id !== "waiting" && id !== "threads"),
+  );
   const listed = toolOrder.filter((id) => inSidebarList(sidebarPlace(sidebarItems, id, personal), counts[id] ?? 0));
   const inMore = toolOrder.filter((id) => !listed.includes(id));
   const countOf = (id: SidebarItem) =>
@@ -325,6 +318,29 @@ export function Sidebar() {
       {countOf(id)}
     </Link>
   );
+  // A tile of the column: its name in the tip, a dot for what is unread (ink) or for me (red), said in its label.
+  const dotOf = (id: SidebarItem): "you" | "unread" | undefined =>
+    (id === "issues" && taskMentions > 0) || (id === "waiting" && waitingOnMe > 0)
+      ? "you"
+      : (id === "issues" && unreadTasks > 0) || (id === "waiting" && unreadNotifications > 0)
+        ? "unread"
+        : undefined;
+  const toolTile = (id: SidebarItem) => {
+    const dot = dotOf(id);
+    const name = t(`shell.${id}`);
+    return (
+      <Link
+        key={id}
+        to={SIDEBAR_TOOLS[id].to}
+        params={{ orgId }}
+        className="sidebar__tile"
+        aria-label={dot ? t(`sidebarColumn.${dot}`, { name }) : name}
+        data-dot={dot}
+      >
+        <Icon name={SIDEBAR_TOOLS[id].icon} />
+      </Link>
+    );
+  };
   // Agents waiting for an offline computer: "esperando" instead of anything "working".
   const outages = useMachineOutages(orgId);
   const waitingFor = useMemo(() => waitingAgents(outages.data), [outages.data]);
@@ -344,7 +360,7 @@ export function Sidebar() {
   const prefetch = usePrefetchMessages(orgId);
   // …and the unread and latest ones as soon as the workspace opens.
   usePrefetchRecent(orgId);
-  // The right hand (ADR 0137): the first row of AGENTES; outside its audience, none.
+  // The right hand (ADR 0137): the first of the agents; outside its audience, none.
   const rightHand = dir.agents.find((a) => isRightHand(a) && a.canTalk !== false);
   const dmOf = new Map((dms.data ?? []).map((d) => [d.with.id, d]));
   const rightHandDm = rightHand ? dmOf.get(rightHand.id) : undefined;
@@ -352,25 +368,14 @@ export function Sidebar() {
   const newAgentDialog = useNewAgent();
   const newAgent = () =>
     newAgentDialog ? newAgentDialog.open() : void navigate({ to: "/org/$orgId/agents/new", params: { orgId } });
+  const invite = useInviteDialog();
   const sections = useSidebarSections(me.user.id, orgId);
-  // "Fixar no topo": pinned rows sit on top of their own section, above a thin line.
-  const { view, setView, pins } = useSidebarPins();
-  // "Mensagens diretas": the people I talked to or just opened a DM with, latest first (an agent's row in AGENTES is its DM), pinned ones on top.
-  const pinnedPeople = pins.people.flatMap((id) => {
-    const m = id === me.user.id ? undefined : dir.memberById.get(id);
-    return m ? [m] : [];
-  });
-  const directs = recentDms(dms.data ?? [], hiddenAgents).flatMap((d) => {
-    const member = d.with.type === "person" ? dir.memberById.get(d.with.id) : undefined;
-    return member && !pins.people.includes(member.userId) ? [{ dm: d, member }] : [];
-  });
-  const directsUnread = [...pinnedPeople.map((m) => dmOf.get(m.userId)), ...directs.map((x) => x.dm)].reduce(
-    (n, d) => n + (d?.unread ?? 0),
-    0,
-  );
+  // Favoritos (ADR 0260): their own part in a team's list; on top of their own lists in a personal workspace.
+  const favorites = useSidebarFavorites();
+  const { view, setView, pins } = favorites;
 
   // Who works now: a run this tab hears, or the agents' list (work handed off in two agents' DM too). Who waits on
-  // someone or is in line: a closed group still shows them.
+  // someone or is in line.
   const busyKey = useStreams((st) => [...runningAgents(st)].sort().join());
   const { busy, waits } = useMemo(() => {
     const work = workKey ? workKey.split(",").map((w) => w.split(":") as [string, string]) : [];
@@ -386,86 +391,47 @@ export function Sidebar() {
   const working = dir.agents.filter((a) => busy.has(a.id)).length;
   // Narrow screens: the sidebar is a drawer (id, open state, close on link / swipe).
   const drawer = useNavDrawer();
-  // Desktop: the person can shrink the sidebar to an icon rail (remembered). Tablets start as the rail and open over
-  // the page (`float`).
+  // Desktop: the person can shrink the sidebar to its column (a personal workspace's: an icon rail), remembered.
+  // Tablets start shrunk and open over the page (`float`).
   const compact = useMediaQuery(COMPACT_QUERY);
   const tablet = useMediaQuery(TABLET_QUERY);
   const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const rail = !compact && collapsed;
   const float = tablet && !collapsed;
 
-  // AGENTES (ADR 0083 and its addendum): the agents that talk to me (who manages agents may list the rest), the ones in
-  // no group, then each group of agents, each with my pinned ones on top and the rest in my order. A row opens its DM,
-  // so "the rest" are the agents whose DM opens for me (`opensDm`): the ones I manage, never someone's private agent
-  // the key doesn't reach (ADR 0085 addendum of 2026-11-17), which Team still lists.
+  // The agents that talk to me (who manages agents may list the rest): each row opens its DM, so "the rest" are the
+  // agents whose DM opens for me (`opensDm`), never someone's private agent the key doesn't reach (ADR 0085 addendum
+  // of 2026-11-17), which Team still lists. Sectors stay on Equipe (ADR 0260).
   const manages = can(org, "manage_agents");
   const team = dir.agents.filter((a) => !isRightHand(a));
+  const arrivedAgents = useArrived(
+    team.map((a) => a.id),
+    !dir.loading,
+  );
   const shownAgents = team.filter((a) => canTalk(a) || (manages && view.showAllAgents && opensDm(a)));
-  const groups = useAgentGroups(orgId).data ?? [];
-  const byGroup = agentSections(shownAgents, groups, (a) => a.id);
-  const ordered = (items: Agent[]) => {
-    const { top, rest } = splitPinned(items, pins.agents, (a) => a.id);
-    return { top, rest: sortAgents(rest, view.agentSort, me.user.id, busy) };
-  };
-  const loose = ordered(byGroup.ungrouped);
-  // Members never see an empty group; who arranges the agents keeps them, to drop agents in.
-  const agentGroups = byGroup.groups.filter((g) => g.items.length > 0 || (manages && g.group.agentIds.length === 0));
-  const groupIds = agentGroups.map((g) => `group:${g.group.id}` as SectionId);
-  // A long team starts with its groups closed. Closed, a group still shows who works, waits or wrote to me.
-  const groupsOpen = shownAgents.length <= 12;
-  const organize = manages && !rail;
-  const drag = useAgentDrag(groups);
-  const moveAgent = useMoveAgent(groups);
-  const [groupDialog, setGroupDialog] = useState<GroupDialogFor | null>(null);
-  const [deletingGroup, setDeletingGroup] = useState<AgentGroup | null>(null);
-  const groupMenuEntries = useGroupEntries();
-  const groupChoices = (group: AgentGroup) => ({
-    group,
-    index: groups.findIndex((g) => g.id === group.id),
-    count: groups.length,
-    onRename: () => setGroupDialog({ mode: "rename", group }),
-    onDelete: () => setDeletingGroup(group),
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const quietGeneral = (c: Channel) =>
+    c.name === "general" && !looksUnread(c) && !c.mentionCount && !pathname.endsWith(`/c/${c.id}`);
+  // The channels the sidebar lists. A personal workspace (ADR 0159) leaves out #general while no one else is in it
+  // (unless it is open or something new waits there).
+  const listedChannels = (channels.data ?? []).filter(
+    (c) => !dmChannels.has(c.id) && !(personal && alone && quietGeneral(c)),
+  );
+  const isFavorite = (kind: "agent" | "channel" | "person", id: string) => !personal && favorites.isFavorite(kind, id);
+  const channelRows = useChannelSections({
+    channels: listedChannels.filter((c) => !isFavorite("channel", c.id)),
+    loading: channels.isLoading,
+    // A personal workspace keeps its favorite conversations on top of its list (ADR 0159), with no sections.
+    pinned: personal ? pins.channels : [],
+    onPrefetch: prefetch,
   });
-  const agentsUnread = shownAgents.reduce((n, a) => n + (dmOf.get(a.id)?.unread ?? 0), 0);
-  const workingAgents = shownAgents.filter((a) => busy.has(a.id)).length;
-  // "Mudar de grupo" in an agent's right click: the keyboard's way to what dragging does.
-  const groupEntries = (a: Agent): MenuEntry[] => {
-    const current = groupOf(groups, a.id)?.id ?? null;
-    const choices = groups.length ? [{ id: null, name: t("agentGroups.none") }, ...groups] : [];
-    return [
-      { kind: "separator" },
-      ...(choices.length ? [{ kind: "header" as const, label: t("sidebarAgents.changeGroup") }] : []),
-      ...choices.map(
-        (g): MenuEntry => ({
-          kind: "item",
-          id: `group-${g.id ?? "none"}`,
-          label: g.name,
-          // The menu's other items have icons: the groups' line up with them. Its own group is dimmed.
-          icon: "layers",
-          disabled: g.id === current,
-          run: () => moveAgent(a.id, g.id),
-        }),
-      ),
-      {
-        kind: "item",
-        id: "new-group",
-        label: t("sidebarAgents.newGroupWith", { name: a.name }),
-        icon: "plus",
-        run: () => setGroupDialog({ mode: "create", agentIds: [a.id] }),
-      },
-    ];
-  };
-  const agentRow = (a: Agent) => {
+  const agentRow = (a: Agent, opts: { line?: boolean; move?: HTMLAttributes<HTMLAnchorElement> } = {}) => {
     const dm = dmOf.get(a.id);
     const unread = dm?.unread ?? 0;
-    // Groups are made by who holds "Edit agents"; an agent moves in or out of one only for who manages it (ADR 0085
-    // addendum of 2026-11-17): the key alone doesn't reach someone's private agent.
-    const arranges = managesAgent(a);
     return (
       <ErrorBoundary
         key={a.id}
         resetKey={a}
-        // Still a row the drag counts (`useAgentDrag`), so a drop below it lands where the pointer is.
         fallback={() => (
           <div className="sidebar__row" data-agent-row={a.id}>
             <UnshownRow />
@@ -474,24 +440,39 @@ export function Sidebar() {
       >
         <AgentRow
           agent={a}
+          arrival={arrivalProps(arrivedAgents, a.id)}
           unread={unread}
           waitingFor={waitingFor.get(a.id)}
           live={busy.has(a.id) || waits.has(a.id) || waitingFor.has(a.id) || unread > 0}
-          pinned={pins.agents.includes(a.id)}
+          pinned={personal && pins.agents.includes(a.id)}
+          oneLine={opts.line}
           onPrefetch={() => dm && prefetch(dm.channelId)}
           onOpen={() => markOpen(dm?.channelId ?? a.id)}
-          drag={organize && arranges ? drag.row(a.id) : undefined}
-          menuExtra={arranges ? groupEntries(a) : undefined}
+          drag={opts.move}
         />
       </ErrorBoundary>
     );
   };
-  // Only the middle scrolls: the workspace card on top and the foot stay put. The active item
-  // paints its own background (no sliding pill).
+  const personRow = (m: Member, move?: HTMLAttributes<HTMLAnchorElement>) => {
+    const dm = dmOf.get(m.userId);
+    return (
+      <ErrorBoundary key={m.userId} resetKey={m} fallback={unshownRow}>
+        <PersonRow
+          member={m}
+          unread={dm?.unread ?? 0}
+          onPrefetch={() => dm && prefetch(dm.channelId)}
+          onOpen={() => markOpen(dm?.channelId ?? m.userId)}
+          rowProps={move}
+        />
+      </ErrorBoundary>
+    );
+  };
+  // Only the middle scrolls: the workspace card on top and the foot stay put. The active item paints its own
+  // background (no sliding pill).
   const navRef = useRef<HTMLDivElement>(null);
-  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  useRowsDrawIn(navRef);
   // The list fades out at an edge only while there is more to scroll past it (no hard cut); re-checked as lists load.
-  useScrollEdges(navRef, [channels.data, directs.length, shownAgents.length, groups.length, rail]);
+  useScrollEdges(navRef, [channels.data, dms.data, shownAgents.length, dir.members.length, rail]);
 
   // A tablet's open sidebar folds back on a new page, a width change, Esc (before the page sees it: Esc in a channel
   // would stop an agent; an open menu closes first), a press outside it and focus leaving it (Tab past its end would
@@ -538,9 +519,9 @@ export function Sidebar() {
     const n = nav.getBoundingClientRect();
     const a = active.getBoundingClientRect();
     if (a.top < n.top || a.bottom > n.bottom) nav.scrollTop += a.top - n.top - (nav.clientHeight - a.height) / 2;
-  }, [pathname, channels.data, directs.length, shownAgents.length, rail]);
+  }, [pathname, channels.data, dms.data, shownAgents.length, rail]);
 
-  // The person's order of the sections (SidebarOrder.tsx); a section with nothing to show leaves no line.
+  // A personal workspace's order of its parts (SidebarOrder.tsx); a part with nothing to show leaves no line.
   const sectionOrder = useSectionOrder(orgId, personal);
   const sectionMenu = (id: SectionKey) =>
     entityMenu(() => [{ kind: "header", label: sectionName(t, id, personal) }, ...sectionOrder.entries(id)]);
@@ -555,26 +536,15 @@ export function Sidebar() {
   const newChannelItem = can(org, "create_channels")
     ? [item("new-channel", t(modeKey(org, "shell.sidebarMenu.newChannel")), "channel", () => setCreatingChannel(true))]
     : [];
-  const newCategoryItem = can(org, "manage_channels")
-    ? [item("new-category", t("channelCategories.newCategory"), "layers", () => setNewCategory({}))]
-    : [];
   const archivedItem =
     archivedChannels.length > 0
       ? [item("archived-channels", t("channel.archivedTitle"), "archive", () => setShowArchived(true))]
       : [];
   const createAgentItem = makesAgents(org) ? [item("create-agent", t("shell.createAgent"), "plus", newAgent)] : [];
-  const newGroupItem = manages
-    ? [item("new-group", t("agentGroups.newGroup"), "layers", () => setGroupDialog({ mode: "create" }))]
-    : [];
-  const groupsClosed = groupIds.every((id) => !sections.isOpen(id, groupsOpen));
-  // The channels the sidebar lists. A personal workspace (ADR 0159) leaves out #general while no one else is in it
-  // (unless it is open or something new waits there). With none to list, its group conversations show only for who
-  // may create one: the section then holds a "New group conversation" row, the way to the first.
-  const quietGeneral = (c: Channel) =>
-    c.name === "general" && !looksUnread(c) && !c.mentionCount && !pathname.endsWith(`/c/${c.id}`);
-  const listedChannels = (channels.data ?? []).filter(
-    (c) => !dmChannels.has(c.id) && !(personal && alone && quietGeneral(c)),
-  );
+  // Not while the workspace is being deleted: nothing new joins it.
+  const invites = can(org, "invite_people") && !org.deletion && invite !== null;
+  // With no channel to list, a personal workspace's group conversations show only for who may create one: the section
+  // then holds a "New group conversation" row, the way to the first.
   const channelsShown = !personal || listedChannels.length > 0 || newChannelItem.length > 0;
   // A tool's link keeps the browser's menu, from the mouse and the keyboard alike.
   const spaceEvent = (e: { target: EventTarget }) => !(e.target instanceof Element && e.target.closest("a[href]"));
@@ -583,279 +553,266 @@ export function Sidebar() {
     item("customize", t("shell.customizeSidebar"), "settings", () => setCustomizing(true)),
     { kind: "separator" },
     ...newChannelItem,
-    ...newCategoryItem,
     { kind: "separator" },
     ...createAgentItem,
-    ...newGroupItem,
+    ...(invites ? [item("invite", t("sidebarDms.invite"), "personAdd", () => invite?.open())] : []),
     item("team", t("shell.team"), "agent", () => void navigate({ to: "/org/$orgId/team", params: { orgId } })),
-    { kind: "separator" },
-    sectionOrder.restore,
+    ...(personal ? [{ kind: "separator" as const }, sectionOrder.restore] : []),
   ]);
-  // The agents' rows, under the Agentes header in a team's workspace and with none in a personal one (ADR 0159).
-  const agentRows = (
-    <>
-      {rightHand && (
-        <RightHandRow
-          agent={rightHand}
-          unread={rightHandDm?.unread ?? 0}
-          onPrefetch={() => rightHandDm && prefetch(rightHandDm.channelId)}
-          onOpen={() => rightHandDm && markOpen(rightHandDm.channelId)}
-        />
-      )}
-      {dir.loading && team.length === 0 && <SidebarSkeleton count={2} avatar label={t("common.loadingList")} />}
-      {loose.top.map(agentRow)}
-      {loose.top.length > 0 && (loose.rest.length > 0 || agentGroups.length > 0) && (
-        <hr className="sidebar__pins-end" />
-      )}
-      {loose.rest.map(agentRow)}
-    </>
+  const channelsPart = channelsShown && (
+    <SidebarChannels
+      rows={channelRows}
+      all={listedChannels}
+      loading={channels.isLoading}
+      sections={sections}
+      onNewChannel={() => setCreatingChannel(true)}
+      headProps={personal ? sectionMenu("channels") : undefined}
+      addEntries={[...newChannelItem, ...archivedItem]}
+    />
   );
-  const blocks: Record<SectionKey, ReactNode> = {
-    // A personal workspace's list is its conversations (ADR 0159): a tool comes into sight only while something
-    // waits in it, or once the person put it there; Início, Go to… and the other tools are in More at the end.
-    tools: personal ? (
-      listed.length > 0 && (
-        <div className="sidebar__group sidebar__tools">
-          <ToolList items={listed} row={toolRow} />
-        </div>
-      )
-    ) : (
-      // The tools each person keeps in sight; the rest open beside the sidebar from More.
+
+  // ── A personal workspace's list (ADR 0159): its tools in sight, its agents and its group conversations ──
+  const ownAgents = (() => {
+    const { top, rest } = splitPinned(shownAgents, pins.agents, (a) => a.id);
+    return { top, rest: sortAgents(rest, view.agentSort, me.user.id, busy) };
+  })();
+  const personalBlocks: Record<SectionKey, ReactNode> = {
+    tools: listed.length > 0 && (
       <div className="sidebar__group sidebar__tools">
-        <Link to="/org/$orgId/home" params={{ orgId }} className="sidebar__item" title={railTip("home")}>
-          <Icon name="home" />
-          <span className="sidebar__item-label">{t("shell.home")}</span>
-        </Link>
         <ToolList items={listed} row={toolRow} />
-        <MoreTools items={inMore} row={toolRow} countOf={countOf} onCustomize={() => setCustomizing(true)} />
       </div>
     ),
-    channels: channelsShown && (
-      <SidebarChannels
-        channels={listedChannels}
-        loading={channels.isLoading}
-        sections={sections}
-        onNewChannel={(categoryId) => setCreatingChannel(categoryId ?? true)}
-        onNewCategory={(withChannel) => setNewCategory(withChannel ? { withChannel } : {})}
-        onPrefetch={prefetch}
-        headProps={sectionMenu("channels")}
-        addEntries={[...newChannelItem, ...newCategoryItem, ...archivedItem]}
-        pinned={pins.channels}
-      />
-    ),
-    agents: (dir.loading ||
-      rightHand ||
-      (team.length > 0 ? shownAgents.length > 0 || manages : createAgentItem.length > 0)) && (
-      <>
-        {personal ? (
-          // No header in a personal workspace (ADR 0159): its agents are the list, its right hand first.
-          <div className="sidebar__group sidebar__agents-plain">{agentRows}</div>
-        ) : (
-          <SidebarSection
-            id="agents"
-            label={t("shell.agents")}
-            sections={sections}
-            className="sidebar__section--part"
-            headProps={sectionMenu("agents")}
-            // Who works, workspace-wide, at a glance (ADR 0084 addendum); closed, the part hides its groups too: their
-            // unread count with its own.
-            status={
-              workingAgents > 0 && (
-                <span className="sidebar__section-working">{t("sidebarAgents.working", { count: workingAgents })}</span>
-              )
-            }
-            summary={agentsUnread > 0 && <UnreadCount count={agentsUnread} />}
-            action={
-              <>
-                <Menu
-                  align="end"
-                  label={t("sidebarAgents.options")}
-                  trigger={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      icon="more"
-                      className="sidebar__section-add"
-                      aria-label={t("sidebarAgents.options")}
-                      title={t("sidebarAgents.options")}
-                    />
-                  }
-                >
-                  <MenuRadioGroup
-                    label={t("sidebarAgents.order")}
-                    value={view.agentSort}
-                    onValueChange={(v) => setView((now) => ({ ...now, agentSort: v as AgentSort }))}
-                    options={AGENT_SORTS.map((value) => ({ value, label: t(`sidebarAgents.sort.${value}`) }))}
-                  />
-                  {manages && (
-                    <>
-                      <MenuSeparator />
-                      <MenuCheckboxItem
-                        checked={view.showAllAgents}
-                        onCheckedChange={(on) => setView((now) => ({ ...now, showAllAgents: on }))}
-                      >
-                        {t("sidebarAgents.showAll")}
-                      </MenuCheckboxItem>
-                    </>
-                  )}
-                  {(agentGroups.length > 0 || manages) && <MenuSeparator />}
-                  {agentGroups.length > 0 && (
-                    <MenuItem
-                      icon={groupsClosed ? "chevronDown" : "chevronUp"}
-                      onSelect={() => sections.setAll(groupIds, groupsClosed)}
-                    >
-                      {groupsClosed ? t("sidebarAgents.expandAll") : t("sidebarAgents.collapseAll")}
-                    </MenuItem>
-                  )}
-                  {manages && (
-                    <MenuItem
-                      icon="layers"
-                      onSelect={() => {
-                        // Equipe opens on the view it remembers: here, its setores.
-                        storage.set(STORAGE_KEYS.teamView, "sectors");
-                        void navigate({ to: "/org/$orgId/team", params: { orgId } });
-                      }}
-                    >
-                      {t("sidebarAgents.organize")}
-                    </MenuItem>
-                  )}
-                </Menu>
-                <SectionAdd label={t("sidebarAgents.add")} entries={[...createAgentItem, ...newGroupItem]} />
-              </>
-            }
-            drop={organize ? drag.zone(null) : undefined}
-          >
-            {agentRows}
-          </SidebarSection>
+    channels: channelsPart,
+    agents: (dir.loading || rightHand || team.length > 0 || createAgentItem.length > 0) && (
+      <div className="sidebar__group sidebar__agents-plain">
+        {rightHand && (
+          <RightHandRow
+            agent={rightHand}
+            unread={rightHandDm?.unread ?? 0}
+            onPrefetch={() => rightHandDm && prefetch(rightHandDm.channelId)}
+            onOpen={() => rightHandDm && markOpen(rightHandDm.channelId)}
+          />
         )}
-        {agentGroups.map(({ group, items }) => {
-          const { top, rest } = ordered(items);
-          const list = [...top, ...rest];
-          // Where a dragged row would land: a line before the row at that place among the others.
-          const others = list.filter((a) => a.id !== drag.dragging);
-          const lineAt = drag.over?.groupId === group.id ? drag.over.index : null;
-          const line = <span className="sidebar__drop-line" aria-hidden="true" />;
-          const workingHere = list.filter((a) => busy.has(a.id)).length;
-          return (
-            <SidebarSection
-              key={group.id}
-              id={`group:${group.id}`}
-              label={group.name}
-              mark={<RoleMark color={group.color ?? "graphite"} icon={group.icon ?? "person"} size={16} />}
-              sections={sections}
-              defaultOpen={groupsOpen}
-              className="sidebar__section--category sidebar__section--group"
-              headProps={
-                manages
-                  ? entityMenu(() => [{ kind: "header", label: group.name }, ...groupMenuEntries(groupChoices(group))])
-                  : undefined
-              }
-              summary={
-                workingHere > 0 && (
-                  <span className="sidebar__section-working">{t("sidebarAgents.working", { count: workingHere })}</span>
-                )
-              }
-              action={
-                <>
-                  {manages && <GroupMenu {...groupChoices(group)} className="sidebar__section-add" />}
-                  <span className="sidebar__section-count" title={t("sidebarAgents.count", { count: list.length })}>
-                    {list.length}
-                  </span>
-                </>
-              }
-              drop={organize ? drag.zone(group.id) : undefined}
-            >
-              {list.map((a, i) => (
-                <Fragment key={a.id}>
-                  {i > 0 && i === top.length && <hr className="sidebar__pins-end" />}
-                  {lineAt === others.indexOf(a) && line}
-                  {agentRow(a)}
-                </Fragment>
-              ))}
-              {lineAt !== null && lineAt >= others.length && line}
-              {manages && group.agentIds.length === 0 && (
-                <span className="sidebar__drop-hint">{t("agentGroups.dropHere")}</span>
-              )}
-            </SidebarSection>
-          );
-        })}
-        {listsAllAgents(org) && team.length > shownAgents.length && (
-          <Link to="/org/$orgId/team" params={{ orgId }} className="sidebar__item sidebar__see-all">
-            <Icon name="agent" />
-            <span className="sidebar__item-label">
-              {t("sidebarAgents.more", { count: team.length - shownAgents.length })}
-            </span>
-          </Link>
-        )}
-        {/* New agent right under the agents, in a personal workspace (ADR 0159) and a team's (ADR 0164); the rail's
-            tile, with no headers there (a team's rail has its own in the foot). */}
+        {dir.loading && team.length === 0 && <SidebarSkeleton count={2} avatar label={t("common.loadingList")} />}
+        {ownAgents.top.map((a) => agentRow(a))}
+        {ownAgents.top.length > 0 && ownAgents.rest.length > 0 && <hr className="sidebar__pins-end" />}
+        {ownAgents.rest.map((a) => agentRow(a))}
         {createAgentItem.length > 0 &&
-          (rail ? personal && <CreateAgentTile onOpen={newAgent} /> : <NewAgentRow onOpen={newAgent} />)}
-      </>
+          (rail ? <CreateAgentTile onOpen={newAgent} /> : <NewAgentRow onOpen={newAgent} />)}
+      </div>
     ),
     // A personal workspace lists people only once someone else is a member (a family, ADR 0159).
-    people: !(personal && alone) && (
+    people: !alone && (
       <SidebarSection
         id="people"
         label={t("shell.directMessages")}
         sections={sections}
         className="sidebar__section--part"
         headProps={sectionMenu("people")}
-        summary={directsUnread > 0 && <UnreadCount count={directsUnread} />}
-        // "Nova mensagem" is Ir para…, which finds anyone (people and agents).
-        action={
-          <Button
-            variant="ghost"
-            size="sm"
-            iconOnly
-            icon="plus"
-            className="sidebar__section-add"
-            aria-label={t("shell.sidebarMenu.newMessage")}
-            title={t("shell.sidebarMenu.newMessage")}
-            onClick={openPalette}
-          />
-        }
       >
-        {pinnedPeople.map((m) => {
-          const dm = dmOf.get(m.userId);
-          return (
-            <ErrorBoundary key={m.userId} resetKey={m} fallback={unshownRow}>
-              <PersonRow
-                member={m}
-                unread={dm?.unread ?? 0}
-                pinned
-                onPrefetch={() => dm && prefetch(dm.channelId)}
-                onOpen={() => markOpen(dm?.channelId ?? m.userId)}
-              />
-            </ErrorBoundary>
-          );
-        })}
-        {pinnedPeople.length > 0 && directs.length > 0 && <hr className="sidebar__pins-end" />}
-        {directs.map(({ dm, member }) => (
-          <ErrorBoundary key={dm.channelId} resetKey={member} fallback={unshownRow}>
-            <PersonRow
-              member={member}
-              unread={dm.unread}
-              onPrefetch={() => prefetch(dm.channelId)}
-              onOpen={() => markOpen(dm.channelId)}
-            />
-          </ErrorBoundary>
-        ))}
-        {!rail && pinnedPeople.length === 0 && directs.length === 0 && !dms.isLoading && (
-          <p className="sidebar__empty">
-            {t("sidebarAgents.dmsEmpty")}{" "}
-            <button type="button" className="ac-link" onClick={openPalette}>
-              {t("shell.sidebarMenu.newMessage")}
-            </button>
-          </p>
-        )}
+        {dir.members.filter((m) => m.userId !== me.user.id).map((m) => personRow(m))}
       </SidebarSection>
     ),
   };
 
-  // The sidebar's toggle, in one place at every width: beside ⌘K (beside the bell in a personal workspace), under them
-  // in the rail. In a phone's drawer it closes the drawer.
+  // ── A team's list (ADR 0260): Não lidas, Threads, Favoritos, Canais, Mensagens diretas ──
+  const favoriteDrag = useListDrag(favorites.list, favorites.place, favorites.move);
+  const channelById = new Map(listedChannels.map((c) => [c.id, c]));
+  const favoriteRows = personal
+    ? []
+    : favorites.list.flatMap((key) => {
+        const f = favorites.parse(key);
+        if (!f) return [];
+        const move = favoriteDrag.row(key);
+        if (f.kind === "agent") {
+          const a = dir.agentById.get(f.id);
+          return a && (canTalk(a) || opensDm(a)) ? [agentRow(a, { line: true, move })] : [];
+        }
+        if (f.kind === "person") {
+          const m = f.id === me.user.id ? undefined : dir.memberById.get(f.id);
+          return m ? [personRow(m, move)] : [];
+        }
+        const c = channelById.get(f.id);
+        return c ? [channelRows.row(c, { favorite: move })] : [];
+      });
+  // Mensagens diretas: everyone in the workspace and the agents that talk to me, together (`dmList`), less Favoritos.
+  const dmPeople: (DmListed & { member?: Member; agent?: Agent })[] = [
+    ...(rightHand ? [{ kind: "agent" as const, id: rightHand.id, name: rightHand.name, agent: rightHand }] : []),
+    ...shownAgents.map((a) => ({ kind: "agent" as const, id: a.id, name: a.name, agent: a })),
+    ...dir.members
+      .filter((m) => m.userId !== me.user.id)
+      .map((m) => ({ kind: "person" as const, id: m.userId, name: m.name, member: m })),
+  ].filter((l) => !isFavorite(l.kind, l.id));
+  const dmRows = dmList(dmPeople, dms.data ?? [], {
+    show: view.dms ?? "all",
+    first: rightHand?.id,
+    locale: i18n.language,
+  });
+  // Invitations not accepted yet, for who invites: the invited address with "Convite enviado" (ADR 0260 §5).
+  const pendingInvites =
+    useAllInvitations(orgId, invites && !personal).data?.filter((i) => i.status === "pending") ?? [];
+  const dmsUnread = dmRows.reduce((n, l) => n + (dmOf.get(l.id)?.unread ?? 0), 0);
+  const favoritesUnread = favorites.list.reduce((n, key) => {
+    const f = favorites.parse(key);
+    if (!f) return n;
+    if (f.kind === "channel") return n + (channelById.get(f.id)?.mentionCount ?? 0);
+    return n + (dmOf.get(f.id)?.unread ?? 0);
+  }, 0);
+  // Não lidas: bold while any conversation or the inbox has something new, a red count for what waits for me.
+  const anyUnread =
+    unreadNotifications > 0 ||
+    (dms.data ?? []).some((d) => d.unread > 0) ||
+    listedChannels.some((c) => looksUnread(c) || (c.mentionCount ?? 0) > 0);
+  const teamList = (
+    <>
+      <div className="sidebar__block" data-section="tools">
+        <div className="sidebar__group sidebar__tools">
+          <Link to="/org/$orgId/unreads" params={{ orgId }} className="sidebar__item" data-unread={anyUnread}>
+            <Icon name="unreads" />
+            <span className="sidebar__item-label">{t("unreads.title")}</span>
+            {/* A count of things that wait, in ink: red is for mentions and DMs alone (ADR 0260). */}
+            {waitingOnMe > 0 && (
+              <CountBadge role="img" aria-label={t("notifications.summaryWaiting", { count: waitingOnMe })}>
+                {badgeCount(waitingOnMe)}
+              </CountBadge>
+            )}
+          </Link>
+          <Link
+            to="/org/$orgId/threads"
+            params={{ orgId }}
+            className="sidebar__item"
+            data-unread={unreadThreads > 0}
+            title={unreadThreads > 0 ? t("shell.unreadThreads", { count: unreadThreads }) : undefined}
+          >
+            <Icon name="thread" />
+            <span className="sidebar__item-label">{t("shell.threads")}</span>
+            {/* The missions waiting for me (a tab of Threads), as a neutral count. */}
+            {missionsWaiting > 0 && (
+              <CountChip
+                className="sidebar__count"
+                role="img"
+                aria-label={t("shell.missionsWaiting", { count: missionsWaiting })}
+              >
+                {missionsWaiting}
+              </CountChip>
+            )}
+          </Link>
+        </div>
+      </div>
+      {favoriteRows.length > 0 && (
+        <div className="sidebar__block" data-section="favorites">
+          <SidebarSection
+            id="favorites"
+            label={t("sidebarFavorites.title")}
+            sections={sections}
+            className="sidebar__section--part"
+            summary={favoritesUnread > 0 && <UnreadCount count={favoritesUnread} mentions />}
+          >
+            {favoriteRows}
+          </SidebarSection>
+        </div>
+      )}
+      <div className="sidebar__block" data-section="channels">
+        {channelsPart}
+      </div>
+      <div className="sidebar__block" data-section="people">
+        <SidebarSection
+          id="people"
+          label={t("shell.directMessages")}
+          sections={sections}
+          className="sidebar__section--part"
+          summary={dmsUnread > 0 && <UnreadCount count={dmsUnread} />}
+          action={
+            <>
+              <Menu
+                align="end"
+                label={t("sidebarDms.options")}
+                trigger={
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconOnly
+                    icon="more"
+                    className="sidebar__section-add"
+                    aria-label={t("sidebarDms.options")}
+                  />
+                }
+              >
+                <MenuRadioGroup
+                  label={t("sidebarDms.show")}
+                  value={view.dms ?? "all"}
+                  onValueChange={(v) => setView((now) => ({ ...now, dms: v as SidebarDmShow }))}
+                  options={(["all", "recent"] as const).map((value) => ({
+                    value,
+                    label: t(`sidebarDms.shows.${value}`),
+                  }))}
+                />
+                {manages && (
+                  <>
+                    <MenuSeparator />
+                    <MenuCheckboxItem
+                      checked={view.showAllAgents}
+                      onCheckedChange={(on) => setView((now) => ({ ...now, showAllAgents: on }))}
+                    >
+                      {t("sidebarAgents.showAll")}
+                    </MenuCheckboxItem>
+                  </>
+                )}
+              </Menu>
+              {/* "Nova mensagem" is Ir para…, which finds anyone (people and agents). */}
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                icon="plus"
+                className="sidebar__section-add"
+                aria-label={t("shell.sidebarMenu.newMessage")}
+                onClick={openPalette}
+              />
+            </>
+          }
+        >
+          {(dir.loading || dms.isLoading) && dmRows.length === 0 && (
+            <SidebarSkeleton count={3} avatar label={t("common.loadingList")} />
+          )}
+          {dmRows.map((l) =>
+            l.agent ? (
+              l.agent === rightHand ? (
+                <RightHandRow
+                  key={l.id}
+                  agent={l.agent}
+                  line
+                  unread={rightHandDm?.unread ?? 0}
+                  onPrefetch={() => rightHandDm && prefetch(rightHandDm.channelId)}
+                  onOpen={() => rightHandDm && markOpen(rightHandDm.channelId)}
+                />
+              ) : (
+                agentRow(l.agent, { line: true })
+              )
+            ) : (
+              l.member && personRow(l.member)
+            ),
+          )}
+          {pendingInvites.map((i) => (
+            <InviteRow key={i.id} email={i.email} />
+          ))}
+          {invites && <AddRow icon="plus" label={t("sidebarDms.invite")} onClick={() => invite?.open()} />}
+          {createAgentItem.length > 0 && <AddRow icon="plus" label={t("sidebarAgents.newAgent")} onClick={newAgent} />}
+          {listsAllAgents(org) && team.length > shownAgents.length && (
+            <Link to="/org/$orgId/team" params={{ orgId }} className="sidebar__item sidebar__see-all">
+              <Icon name="agent" />
+              <span className="sidebar__item-label">
+                {t("sidebarAgents.more", { count: team.length - shownAgents.length })}
+              </span>
+            </Link>
+          )}
+        </SidebarSection>
+      </div>
+    </>
+  );
+
+  // The sidebar's toggle, in one place at every width: the column's foot in a team's, beside the bell in a personal
+  // one. In a phone's drawer it closes the drawer.
   const collapseLabel = compact ? t("shell.closeNav") : collapsed ? t("shell.expandNav") : t("shell.collapseNav");
   const collapseProps = {
     variant: "ghost",
@@ -875,23 +832,35 @@ export function Sidebar() {
         t("sidebarAgents.count", { count: overview.data.agents }),
       ].join(" · ")
     : null;
+  // The column's tiles move the focus with ↑ and ↓ (a vertical toolbar), Home and End to its ends.
+  const columnKeys = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.altKey || e.shiftKey || e.metaKey || e.ctrlKey) return;
+    const tiles = [...e.currentTarget.querySelectorAll<HTMLElement>(".sidebar__tile, .sidebar__col .ac-btn")].filter(
+      (el) => el.offsetParent !== null || el === document.activeElement,
+    );
+    const at = tiles.indexOf(document.activeElement as HTMLElement);
+    const to =
+      e.key === "ArrowDown"
+        ? at + 1
+        : e.key === "ArrowUp"
+          ? at - 1
+          : e.key === "Home"
+            ? 0
+            : e.key === "End"
+              ? -1
+              : null;
+    if (to === null || at < 0) return;
+    e.preventDefault();
+    tiles.at(to === -1 ? tiles.length - 1 : Math.min(to, tiles.length - 1))?.focus();
+  };
 
-  return (
-    <nav
-      className="sidebar"
-      aria-label={t("shell.nav")}
-      data-rail={rail}
-      data-float={float || undefined}
-      ref={sideRef}
-      // Its faces' sizes follow the mode (the agents' and New agent's, ADR 0164).
-      data-personal={personal || undefined}
-      {...drawer?.navProps}
-    >
+  const main = (
+    <>
       <div className="sidebar__top">
-        <WorkspaceSky part="side" rail={rail} />
+        <WorkspaceSky part="side" rail={rail && personal} />
         {personal ? (
           // A personal workspace (ADR 0159): the person on top (their account, settings and workspaces in one menu),
-          // Agora, the bell and the collapse beside them. The desktop app's title bar has its own Agora and collapse
+          // Agora, the bell and the collapse beside them. The desktop app's title bar has its own collapse
           // (desktop.css).
           <div className="sidebar__org sidebar__org--person">
             <AccountMenu personal />
@@ -899,36 +868,28 @@ export function Sidebar() {
             <Button {...collapseProps} size="sm" className="sidebar__head-collapse" />
           </div>
         ) : (
-          <>
-            <div className="sidebar__org">
-              <WorkspaceMenu summary={summary} />
-            </div>
-
-            <div className="sidebar__jump-row">
-              <button type="button" className="sidebar__jump" onClick={openPalette} title={t("palette.jump")}>
-                <Icon name="search" />
-                <span className="sidebar__item-label">{t("palette.jump")}</span>
-                <Kbd>{modKey()}</Kbd>
-                <Kbd>K</Kbd>
-              </button>
-              <AgoraButton below={compact} className="sidebar__agora" />
-              <Button {...collapseProps} className="sidebar__collapse" />
-            </div>
-          </>
+          <div className="sidebar__org">
+            <WorkspaceMenu summary={summary} />
+          </div>
         )}
       </div>
 
-      {/* Space, not lines, between the tools, the channels, the agents and the people. A right click on the space
-          between the rows (not on a row or a header, which have their own) opens the sidebar's menu; a link with no
-          menu of its own (a tool) keeps the browser's. */}
+      {/* A right click on the space between the rows (not on a row or a header, which have their own) opens the
+          sidebar's menu; a link with no menu of its own (a tool) keeps the browser's. */}
       {/* biome-ignore lint/a11y/noStaticElementInteractions: the right click and Shift+F10 of the sidebar's own menu */}
       <div
         className="sidebar__scroll"
         ref={navRef}
+        // Its lists show together once the channels, the agents and the DMs are in: no part pushes the next down.
+        data-pending={channels.isLoading || dir.loading || dms.isLoading || undefined}
         onKeyDown={(e) => spaceEvent(e) && sidebarMenu.onKeyDown(e)}
         onContextMenu={(e) => spaceEvent(e) && sidebarMenu.onContextMenu(e)}
       >
-        {sectionOrder.order.filter((id) => blocks[id]).map((id) => sectionOrder.block(id, blocks[id], !rail))}
+        {personal
+          ? sectionOrder.order
+              .filter((id) => personalBlocks[id])
+              .map((id) => sectionOrder.block(id, personalBlocks[id], !rail))
+          : teamList}
       </div>
 
       {/* A personal workspace's end (ADR 0159): one More, holding Início, Go to… and every tool not in sight. */}
@@ -939,19 +900,8 @@ export function Sidebar() {
       )}
 
       <ArchivedChannelsDialog open={showArchived} onClose={() => setShowArchived(false)} />
-      <NewChannelDialog
-        open={creatingChannel !== false}
-        onOpenChange={(open) => setCreatingChannel(open)}
-        category={typeof creatingChannel === "string" ? creatingChannel : null}
-      />
-      <NewCategoryDialog
-        open={newCategory !== null}
-        onOpenChange={(open) => !open && setNewCategory(null)}
-        withChannel={newCategory?.withChannel}
-      />
+      <NewChannelDialog open={creatingChannel} onOpenChange={setCreatingChannel} />
       <SidebarSetupDialog open={customizing} onClose={() => setCustomizing(false)} />
-      {groupDialog && <GroupNameDialog purpose={groupDialog} onClose={() => setGroupDialog(null)} />}
-      {deletingGroup && <DeleteGroupDialog group={deletingGroup} onClose={() => setDeletingGroup(null)} />}
 
       {/* Beta: the way to the feedback form, a row of its own at the bottom, where this server takes it. Not beside
           the person's name, which it would leave no room for; the rail has no room for a row's words. */}
@@ -960,13 +910,59 @@ export function Sidebar() {
       {!personal && (
         <div className="sidebar__foot">
           <SidebarHorizon working={working} total={dir.agents.length} />
-          {/* The full sidebar creates from the Agentes header's + (always shown on touch screens); the rail has no
-              headers. */}
-          {rail && createAgentItem.length > 0 && <CreateAgentTile onOpen={newAgent} />}
           <div className="sidebar__me">
             <AccountMenu />
           </div>
         </div>
+      )}
+    </>
+  );
+
+  return (
+    <nav
+      className="sidebar"
+      aria-label={t("shell.nav")}
+      data-layout={personal ? undefined : "column"}
+      data-rail={rail}
+      data-float={float || undefined}
+      ref={sideRef}
+      {...drawer?.navProps}
+    >
+      {personal ? (
+        main
+      ) : (
+        <>
+          {/* The tools (ADR 0260): a vertical toolbar, each tile's name in a tip on its right. */}
+          <div
+            className="sidebar__col"
+            role="toolbar"
+            aria-orientation="vertical"
+            aria-label={t("sidebarColumn.label")}
+            data-tip-side="right"
+            onKeyDown={columnKeys}
+          >
+            <button
+              type="button"
+              className="sidebar__tile"
+              aria-label={t("palette.jump")}
+              aria-keyshortcuts="Control+K Meta+K"
+              title={`${t("palette.jump")} (${modKey()} K)`}
+              onClick={openPalette}
+            >
+              <Icon name="search" />
+            </button>
+            <hr className="sidebar__col-line" />
+            <Link to="/org/$orgId/home" params={{ orgId }} className="sidebar__tile" aria-label={t("shell.home")}>
+              <Icon name="home" />
+            </Link>
+            <ToolList items={listed} row={toolTile} />
+            <MoreTools items={inMore} row={toolTile} countOf={countOf} onCustomize={() => setCustomizing(true)} tile />
+            <span className="sidebar__col-gap" />
+            <AgoraButton className="sidebar__agora" align="end" />
+            <Button {...collapseProps} className="sidebar__collapse" />
+          </div>
+          <div className="sidebar__main">{main}</div>
+        </>
       )}
     </nav>
   );
@@ -999,8 +995,8 @@ function CreateAgentTile({ onOpen }: { onOpen: () => void }) {
   );
 }
 
-/** The fixed sections, a channel category as `category:<id>` (ADR 0080) and a group of agents as `group:<id>` (ADR 0083). */
-type SectionId = "channels" | "agents" | "people" | `category:${string}` | `group:${string}`;
+/** The fixed parts and one of the person's own channel sections as `section:<id>` (ADR 0260). */
+type SectionId = "favorites" | "channels" | "agents" | "people" | `section:${string}`;
 
 /**
  * Which sidebar categories are closed, remembered in this browser for each person in each workspace. One closed by
@@ -1041,9 +1037,10 @@ function useSidebarSections(userId: string, orgId: string) {
 }
 
 /**
- * A sidebar category that opens and closes. Closed, it keeps its open page's row in sight (CSS shows
- * only the active item), and shows `summary` (a count) on its header.
- * On the icon rail the header goes away and every item shows. `drop`: it takes dragged channels or agents.
+ * A part of the sidebar, or one of the person's channel sections, that opens and closes. Closed, it keeps its open
+ * page's row in sight (CSS shows only the active item; a section, its unread channels too), and shows `summary` (a
+ * count) on its header. On a personal workspace's icon rail the header goes away and every item shows. `drop`: it
+ * takes dragged channels.
  */
 function SidebarSection({
   id,
@@ -1051,30 +1048,30 @@ function SidebarSection({
   sections,
   defaultOpen = true,
   summary,
-  status,
   action,
   drop,
   className,
   headProps,
-  mark,
+  toggleProps,
+  title,
   children,
 }: {
   id: SectionId;
   label: string;
-  /** Before the label: a setor's color and icon. */
-  mark?: ReactNode;
   sections: ReturnType<typeof useSidebarSections>;
-  /** Open until the person closes it (a long team's groups start closed). */
+  /** Open until the person closes it. */
   defaultOpen?: boolean;
   summary?: ReactNode;
-  /** Open or closed, at the head's end: how many of its agents work ("1 trabalhando"). */
-  status?: ReactNode;
   action?: ReactNode;
-  /** It takes a drop: dragged agents (`useAgentDrag`), or channels taken out of their category. */
+  /** It takes a drop: channels dragged into a section, or out of one onto Canais. */
   drop?: HTMLAttributes<HTMLDivElement> & { "data-drop"?: string | boolean };
   className?: string;
-  /** A channel category's header: its right click and dragging. */
+  /** A section's header: its right click and the drop of a channel. */
   headProps?: HTMLAttributes<HTMLDivElement>;
+  /** On its toggle: a section's Alt+Shift+↑/↓. */
+  toggleProps?: HTMLAttributes<HTMLButtonElement> & { "aria-keyshortcuts"?: string };
+  /** In place of the toggle: a section's name being typed. */
+  title?: ReactNode;
   children: ReactNode;
 }) {
   const open = sections.isOpen(id, defaultOpen);
@@ -1082,18 +1079,19 @@ function SidebarSection({
   return (
     <div className={cx("sidebar__group sidebar__section", className)} data-open={open} {...drop}>
       <div className="sidebar__section-head" {...headProps}>
-        <button
-          type="button"
-          className="sidebar__section-toggle"
-          aria-expanded={open}
-          aria-controls={bodyId}
-          onClick={() => sections.toggle(id, defaultOpen)}
-        >
-          <Icon name="chevronDown" size={14} className="sidebar__section-chevron" />
-          {mark}
-          <span className="sidebar__label">{label}</span>
-        </button>
-        {status}
+        {title ?? (
+          <button
+            type="button"
+            className="sidebar__section-toggle"
+            aria-expanded={open}
+            aria-controls={bodyId}
+            onClick={() => sections.toggle(id, defaultOpen)}
+            {...toggleProps}
+          >
+            <Icon name="chevronDown" size={14} className="sidebar__section-chevron" />
+            <span className="sidebar__label">{label}</span>
+          </button>
+        )}
         {!open && summary}
         {action}
       </div>
@@ -1144,102 +1142,135 @@ function RowAction({ icon, label, onClick }: { icon: IconName; label: string; on
   );
 }
 
-/** Where a dragged channel or category would land: the row or header it is over, and how. */
+/** Where a dragged row would land: the row it is over and how (`into`: it makes a section with that channel). */
 type DropMark = { key: string; where: "before" | "after" | "into" } | null;
-type Dragging = { kind: "channel" | "category"; id: string };
-/** One thing a category's ⋯ (and its right click) can do. */
-interface CategoryAction {
-  id: string;
-  label: string;
-  icon: IconName;
-  run: () => void;
-  danger?: boolean;
-  description?: string;
-}
-const CATEGORY_KEY = "category:";
+const half = (e: DragEvent) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  return e.clientY > r.top + r.height / 2 ? "after" : "before";
+};
 
 /**
- * The channels (ADR 0080): the "Canais" part, its channels with no category first, then one section per category
- * (closed, "Canais" hides them too, but the open channel's); closed, a category keeps the open channel and the unread
- * ones in sight (CSS). Who may manage channels arranges the categories; they and a channel's creator move it by
- * dragging, from its right click ("Mover para…") or in its details.
+ * A list the person orders (Favoritos): a row dragged onto another goes before or after it, and Alt+Shift+↑/↓ on a
+ * focused one moves it past its neighbour. `row(key)` gives each row's props.
  */
-function SidebarChannels({
+function useListDrag(
+  keys: readonly string[],
+  place: (key: string, before: string | null) => void,
+  move: (key: string, delta: -1 | 1) => void,
+) {
+  const dragging = useRef<string | null>(null);
+  const [mark, setMark] = useState<DropMark>(null);
+  const end = () => {
+    dragging.current = null;
+    setMark(null);
+  };
+  return {
+    row: (key: string) =>
+      ({
+        draggable: true,
+        "aria-keyshortcuts": "Alt+Shift+ArrowUp Alt+Shift+ArrowDown",
+        "data-drop": mark?.key === key ? mark.where : undefined,
+        onKeyDown: (e: ReactKeyboardEvent) => {
+          const step = moveStep(e);
+          if (!step) return;
+          e.preventDefault();
+          move(key, step);
+        },
+        onDragStart: (e: DragEvent) => {
+          dragging.current = key;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("application/x-agentes-favorite", key);
+        },
+        onDragOver: (e: DragEvent) => {
+          const from = dragging.current;
+          if (!from || from === key) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const where = half(e);
+          if (mark?.key !== key || mark.where !== where) setMark({ key, where });
+        },
+        onDrop: (e: DragEvent) => {
+          const from = dragging.current;
+          const m = mark;
+          end();
+          if (!from || !m) return;
+          e.preventDefault();
+          e.stopPropagation();
+          const i = keys.indexOf(m.key);
+          place(from, m.where === "before" ? m.key : (keys[i + 1] ?? null));
+        },
+        onDragEnd: end,
+      }) as HTMLAttributes<HTMLAnchorElement> & { "data-drop"?: string },
+  };
+}
+
+const SECTION_KEY = "section:";
+/** Canais' own key among the drop marks: the channels in no section. */
+const LOOSE = "loose";
+
+/**
+ * Canais (ADR 0260): the channels in none of the person's sections, in the workspace's order, then each section of
+ * theirs with its channels. A channel dragged onto one in none makes a section of both (its name field open); onto a
+ * channel in a section or a section's header it moves there; onto Canais' header it goes back. The keyboard's way: the
+ * row's menu (Mover para a seção) and Alt+Shift+↑/↓ inside a section, on a section's header among the sections.
+ * A personal workspace (ADR 0159) has no sections: its favorite conversations sit on top (`pinned`).
+ */
+function useChannelSections({
   channels: all,
   loading,
-  sections,
-  onNewChannel,
-  onNewCategory,
-  onPrefetch,
-  headProps,
-  addEntries,
   pinned,
+  onPrefetch,
 }: {
   channels: Channel[];
   loading: boolean;
-  sections: ReturnType<typeof useSidebarSections>;
-  /** A category's + (its id), or a new channel with none (null). */
-  onNewChannel: (categoryId: string | null) => void;
-  /** A new category, with the channel whose menu asked for it. */
-  onNewCategory: (withChannel?: string) => void;
-  onPrefetch: (channelId: string) => void;
-  /** "Canais"' header: the section's own menu (its place in the sidebar). */
-  headProps?: HTMLAttributes<HTMLDivElement>;
-  /** What "Canais"' + creates. */
-  addEntries: MenuEntry[];
-  /** The channels pinned on top of "Canais" ("Fixar no topo"), in order. */
   pinned: readonly string[];
+  onPrefetch: (channelId: string) => void;
 }) {
   const { t } = useTranslation();
   const { org, me } = useOrg();
   const orgId = org.id;
-  const toast = useToast();
   const navigate = useNavigate();
-  const categories = useChannelCategories(orgId);
-  const place = usePlaceChannel(orgId);
-  const placeCategory = usePlaceChannelCategory(orgId);
-  const removeCategory = useDeleteChannelCategory(orgId);
-  const recreate = useCreateChannelCategory(orgId);
-  const manages = can(org, "manage_channels");
+  const view = useSidebarView(orgId);
+  const setView = useSetSidebarView(orgId);
+  const personal = isPersonal(org);
   // An administrator reads every channel (ADR 0151): the ones they aren't in wait under one row, not in the list.
   const path = useRouterState({ select: (s) => s.location.pathname });
   const channels = all.filter((c) => !c.seenAsAdmin || path.endsWith(`/c/${c.id}`));
-  const others = all.filter((c) => !channels.includes(c));
-  const mayCreate = can(org, "create_channels");
-  const mayChange = (c: Channel) => managesChannel(c, me.user.id, org);
-  const [renaming, setRenaming] = useState<ChannelCategory | null>(null);
-  const [moving, setMoving] = useState<Channel | null>(null);
-  const drag = useRef<Dragging | null>(null);
+  // New since the list loaded (a team's, someone else's): their rows open their room as they land.
+  const arrived = useArrived(
+    channels.map((c) => c.id),
+    !loading,
+  );
+  useArrivals();
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  const saved = personal ? [] : (view.sections ?? []);
+  // A section shows the channels the person still sees; one with none left shows nothing.
+  const shown = saved
+    .map((s) => ({ ...s, channels: s.channelIds.flatMap((id) => byId.get(id) ?? []) }))
+    .filter((s) => s.channels.length > 0);
+  const sectioned = new Set(shown.flatMap((s) => s.channelIds));
+  // The workspace's order (ADR 0080 §3), a channel still in a sector after the ones in none.
+  const loose = [
+    ...channels.filter((c) => !sectioned.has(c.id) && !c.groupId),
+    ...channels.filter((c) => !sectioned.has(c.id) && c.groupId),
+  ];
+  const save = (change: (now: SidebarChannelSection[]) => SidebarChannelSection[]) =>
+    setView((now) => ({ ...now, sections: change(now.sections ?? []) }));
+  const sectionOf = (channelId: string) => sectionOfChannel(saved, channelId);
+  // The section whose name field is open: a new one, or one being renamed.
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const create = (channelIds: string[]) => {
+    const made = addSection(saved, t("sidebarSections.newName"), channelIds);
+    save(() => made.sections);
+    setRenaming(made.id);
+  };
+
+  // ── Dragging ──
+  const drag = useRef<string | null>(null);
   const [mark, setMark] = useState<DropMark>(null);
-  const failed = (e: unknown) => toast.show(errorText(t, e), "error");
-
-  const list = categories.data ?? [];
-  const known = new Set(list.map((c) => c.id));
-  // A channel whose category isn't loaded yet (or is gone) shows with the ones with none. So nothing drags until
-  // the categories load: a drop would take the channel out of its category.
-  const categoryOf = (c: Channel) => (c.categoryId && known.has(c.categoryId) ? c.categoryId : null);
-  const pinnedChannels = pinned.flatMap((id) => channels.filter((c) => c.id === id && c.isMember));
-  const unpinned = channels.filter((c) => !pinnedChannels.includes(c));
-  const loose = unpinned.filter((c) => categoryOf(c) === null);
-  const inCategory = (id: string) => unpinned.filter((c) => categoryOf(c) === id);
-  // A category shows while it holds a channel I can see; who manages channels keeps the empty ones to drop channels in.
-  const shown = manages ? list : list.filter((c) => inCategory(c.id).length > 0);
-  const categoryIds = shown.map((c) => `${CATEGORY_KEY}${c.id}` as SectionId);
-
-  // ── Dragging: a channel onto a channel (before/after) or a header (into); a header onto a header ──
   const endDrag = () => {
     drag.current = null;
     setMark(null);
-  };
-  const startDrag = (e: DragEvent, what: Dragging) => {
-    drag.current = what;
-    e.dataTransfer.effectAllowed = "move";
-    // Firefox starts a drag only with some data set. Not text, or a text field it's dropped on types the id.
-    e.dataTransfer.setData(`application/x-agentes-${what.kind}`, what.id);
-  };
-  const half = (e: DragEvent) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    return e.clientY > r.top + r.height / 2 ? "after" : "before";
   };
   const over = (e: DragEvent, key: string, where: "before" | "after" | "into") => {
     e.preventDefault();
@@ -1247,250 +1278,294 @@ function SidebarChannels({
     e.dataTransfer.dropEffect = "move";
     if (mark?.key !== key || mark.where !== where) setMark({ key, where });
   };
+  const still = (e: DragEvent) => {
+    e.stopPropagation();
+    if (mark) setMark(null);
+  };
   const overChannel = (e: DragEvent, c: Channel) => {
-    const d = drag.current;
-    if (d?.kind !== "channel") return;
-    if (d.id !== c.id) return over(e, `channel:${c.id}`, half(e));
-    // Over its own row it lands nowhere: not at the end of the section around it.
-    e.stopPropagation();
-    if (mark) setMark(null);
+    const id = drag.current;
+    if (!id || personal) return;
+    if (id === c.id) return still(e);
+    // Onto a channel in none: a new section of both. Onto one in a section: its place there.
+    over(e, `channel:${c.id}`, sectionOf(c.id) ? half(e) : "into");
   };
-  // "Into" the part the channel is already in lands nowhere: the server would move it to that part's end.
-  const intoPart = (e: DragEvent, key: string) => {
-    const d = drag.current;
-    if (d?.kind !== "channel") return;
-    const dragged = channels.find((c) => c.id === d.id);
-    const home = dragged && categoryOf(dragged);
-    if (home === undefined || key !== (home === null ? "loose" : `${CATEGORY_KEY}${home}`)) return over(e, key, "into");
-    e.stopPropagation();
-    if (mark) setMark(null);
+  const into = (e: DragEvent, sectionId: string | null) => {
+    const id = drag.current;
+    if (!id || personal) return;
+    if (sectionOf(id) === sectionId) return still(e);
+    over(e, sectionId ? `${SECTION_KEY}${sectionId}` : LOOSE, "into");
   };
-  const overCategory = (e: DragEvent, category: ChannelCategory) => {
-    const d = drag.current;
-    if (d?.kind === "channel") intoPart(e, `${CATEGORY_KEY}${category.id}`);
-    else if (d?.kind === "category" && d.id !== category.id) over(e, `${CATEGORY_KEY}${category.id}`, half(e));
-  };
-  const overLoose = (e: DragEvent) => intoPart(e, "loose");
-  // Anywhere in a category but on a row (its empty end, a row's hover buttons): a channel goes in, at its end.
-  const overCategoryBody = (e: DragEvent, category: ChannelCategory) => intoPart(e, `${CATEGORY_KEY}${category.id}`);
   const drop = (e: DragEvent) => {
-    const d = drag.current;
+    const id = drag.current;
     const m = mark;
     endDrag();
-    if (!d || !m) return;
+    if (!id || !m) return;
     e.preventDefault();
     e.stopPropagation();
-    if (d.kind === "category") {
-      const target = m.key.slice(CATEGORY_KEY.length);
-      const i = list.findIndex((c) => c.id === target);
-      const before = m.where === "before" ? target : (list[i + 1]?.id ?? null);
-      if (before !== d.id) placeCategory.mutate({ categoryId: d.id, beforeCategoryId: before }, { onError: failed });
-      return;
-    }
-    if (m.key === "loose") return place.mutate({ channelId: d.id, categoryId: null }, { onError: failed });
-    if (m.key.startsWith(CATEGORY_KEY)) {
-      const categoryId = m.key.slice(CATEGORY_KEY.length);
-      if (!sections.isOpen(`${CATEGORY_KEY}${categoryId}` as SectionId))
-        sections.toggle(`${CATEGORY_KEY}${categoryId}` as SectionId);
-      return place.mutate({ channelId: d.id, categoryId }, { onError: failed });
-    }
-    const target = channels.find((c) => `channel:${c.id}` === m.key);
-    if (!target) return;
-    const categoryId = categoryOf(target);
-    const siblings = categoryId ? inCategory(categoryId) : loose;
-    const i = siblings.findIndex((c) => c.id === target.id);
-    const before = m.where === "before" ? target.id : (siblings[i + 1]?.id ?? null);
-    const from = siblings.findIndex((c) => c.id === d.id);
-    // Already there. The server would still renumber the group, and a group arranged by hand takes new
-    // channels at its end instead of by name (endOfCategory).
-    if (before === d.id || (from >= 0 && (siblings[from + 1]?.id ?? null) === before)) return;
-    place.mutate({ channelId: d.id, categoryId, beforeChannelId: before }, { onError: failed });
+    if (m.key === LOOSE) return save((now) => placeInSection(now, id, null));
+    if (m.key.startsWith(SECTION_KEY)) return save((now) => placeInSection(now, id, m.key.slice(SECTION_KEY.length)));
+    const target = m.key.slice("channel:".length);
+    const to = sectionOf(target);
+    if (!to) return create([target, id]);
+    const list = saved.find((s) => s.id === to)?.channelIds ?? [];
+    const next = m.where === "before" ? target : (list[list.indexOf(target) + 1] ?? null);
+    if (next === id) return;
+    save((now) => placeInSection(now, id, to, next));
   };
   const dropMark = (key: string) => (mark?.key === key ? mark.where : undefined);
+  /** A section's header and body, or Canais': a channel dropped there goes to its end (Canais: out of sections). */
+  const zone = (sectionId: string | null) => ({
+    "data-drop": dropMark(sectionId ? `${SECTION_KEY}${sectionId}` : LOOSE),
+    onDragOver: (e: DragEvent<HTMLDivElement>) => into(e, sectionId),
+    onDrop: (e: DragEvent<HTMLDivElement>) => drop(e),
+  });
 
-  // ── Menus: a channel's and a category's right click (lib/entity-menu.ts), and a category's ⋯ ──
+  // ── Menus: a channel's right click (lib/entity-menu.ts) with its "Mover para a seção" ──
   const channelEntries = useChannelMenu();
-  const channelMenu = (c: Channel) =>
-    entityMenu(() =>
-      channelEntries(c, [
-        ...(mayChange(c) && list.length > 0
-          ? ([
-              {
-                kind: "item",
-                id: "move",
-                label: t("channelCategories.move"),
-                icon: "move",
-                run: () => setMoving(c),
-              },
-            ] satisfies MenuEntry[])
-          : []),
-        ...(manages
-          ? ([
-              {
-                kind: "item",
-                id: "new-category",
-                label: t("channelCategories.newWithChannel"),
-                icon: "layers",
-                run: () => onNewCategory(c.id),
-              },
-            ] satisfies MenuEntry[])
-          : []),
-      ]),
-    );
-  const deleteCategory = (category: ChannelCategory) => {
-    const taken = inCategory(category.id).map((c) => c.id);
-    const next = list[list.findIndex((c) => c.id === category.id) + 1]?.id ?? null;
-    removeCategory.mutate(category.id, {
-      onError: failed,
-      onSuccess: () =>
-        toast.show(
-          taken.length
-            ? t("channelCategories.deleted", { name: category.name, count: taken.length })
-            : t("channelCategories.deletedEmpty", { name: category.name }),
-          "info",
-          {
-            label: t("channelCategories.undo"),
-            // Undo: the same name and channels, back in its place.
-            run: () =>
-              recreate.mutate(
-                { name: category.name, channelIds: taken },
-                {
-                  onError: failed,
-                  onSuccess: (again) => {
-                    if (next) placeCategory.mutate({ categoryId: again.id, beforeCategoryId: next });
-                  },
-                },
-              ),
-          },
-        ),
-    });
-  };
-  const allClosed = categoryIds.every((id) => !sections.isOpen(id));
-  const categoryActions = (category: ChannelCategory) => {
-    const actions: CategoryAction[] = [];
-    if (mayCreate)
-      actions.push({
-        id: "new-channel",
-        label: t("channelCategories.newChannelHere"),
-        icon: "plus",
-        run: () => onNewChannel(category.id),
-      });
-    if (manages)
-      actions.push({
-        id: "rename",
-        label: t("channelCategories.rename"),
-        icon: "edit",
-        run: () => setRenaming(category),
-      });
-    actions.push({
-      id: "fold",
-      label: allClosed ? t("channelCategories.expandAll") : t("channelCategories.collapseAll"),
-      icon: "list",
-      run: () => sections.setAll(categoryIds, allClosed),
-    });
-    if (manages)
-      actions.push(
-        {
-          id: "new-category",
-          label: t("channelCategories.newCategory"),
+  const sectionEntries = (c: Channel): MenuEntry[] => {
+    if (personal) return [];
+    const current = sectionOf(c.id);
+    return [
+      { kind: "separator" },
+      ...(saved.length ? [{ kind: "header" as const, label: t("sidebarSections.moveTo") }] : []),
+      ...saved.map(
+        (s): MenuEntry => ({
+          kind: "item",
+          id: `section-${s.id}`,
+          label: s.name,
           icon: "layers",
-          run: () => onNewCategory(),
-        },
-        {
-          id: "delete",
-          label: t("channelCategories.delete"),
-          description: t("channelCategories.deleteDesc"),
-          icon: "trash",
-          danger: true,
-          run: () => deleteCategory(category),
-        },
-      );
-    return actions;
+          disabled: s.id === current,
+          run: () => save((now) => placeInSection(now, c.id, s.id)),
+        }),
+      ),
+      { kind: "item", id: "new-section", label: t("sidebarSections.new"), icon: "plus", run: () => create([c.id]) },
+      ...(current
+        ? ([
+            {
+              kind: "item",
+              id: "out-of-section",
+              label: t("sidebarSections.takeOut"),
+              icon: "undo",
+              run: () => save((now) => placeInSection(now, c.id, null)),
+            },
+          ] satisfies MenuEntry[])
+        : []),
+    ];
   };
 
-  // A pinned row stays put: it doesn't drag, and nothing drops on it.
-  const row = (c: Channel, top = false) => {
-    // Discord's marks: something new lights the row (a pill on its left edge, the name in full ink) with how many
-    // messages wait, in a quiet count; only a mention of me gets the red one. Muted, it rests dim whatever comes, but a
-    // mention still shows.
+  const row = (c: Channel, opts: { top?: boolean; favorite?: HTMLAttributes<HTMLAnchorElement> } = {}) => {
+    // The usual marks: something new makes the row bold (a pill on its left edge) with no count; only a mention of me
+    // gets the red one. Muted, it rests dim whatever comes, but a mention still shows.
     const unread = looksUnread(c);
     const mentions = c.mentionCount ?? 0;
+    const outer = { "data-channel-row": c.id, ...arrivalProps(arrived, c.id) };
+    const plain = !managesChannel(c, me.user.id, org);
+    const inSection = sectionOf(c.id);
+    const moves: HTMLAttributes<HTMLAnchorElement> & { "data-drop"?: string } =
+      opts.favorite ??
+      (personal || opts.top
+        ? {}
+        : {
+            "data-drop": dropMark(`channel:${c.id}`),
+            draggable: true,
+            "aria-keyshortcuts": inSection ? "Alt+Shift+ArrowUp Alt+Shift+ArrowDown" : undefined,
+            onKeyDown: (e: ReactKeyboardEvent) => {
+              const step = moveStep(e);
+              if (!step || !inSection) return;
+              e.preventDefault();
+              save((now) => moveChannelBy(now, c.id, step));
+            },
+            onDragStart: (e: DragEvent) => {
+              drag.current = c.id;
+              e.dataTransfer.effectAllowed = "move";
+              // Firefox starts a drag only with some data set. Not text, or a text field it's dropped on types the id.
+              e.dataTransfer.setData("application/x-agentes-channel", c.id);
+            },
+            onDragEnd: endDrag,
+            onDragOver: (e: DragEvent) => overChannel(e, c),
+            onDrop: drop,
+          });
+    const menu = entityMenu(() => channelEntries(c, opts.favorite ? [] : sectionEntries(c)));
     const link = (
       <Link
         key={c.id}
         to="/org/$orgId/c/$channelId"
         params={{ orgId, channelId: c.id }}
-        className="sidebar__item"
-        title={`#${c.name}`}
+        className={personal ? "sidebar__item sidebar__group-row" : "sidebar__item"}
+        title={personal ? c.name : `#${c.name}`}
+        {...(plain ? outer : {})}
         data-kind="channel"
         data-unread={unread}
         data-muted={c.muted || undefined}
-        {...(top
-          ? {}
-          : {
-              "data-drop": dropMark(`channel:${c.id}`),
-              draggable: categories.data !== undefined && mayChange(c),
-              onDragStart: (e: DragEvent) => startDrag(e, { kind: "channel", id: c.id }),
-              onDragEnd: endDrag,
-              onDragOver: (e: DragEvent) => overChannel(e, c),
-              onDrop: drop,
-            })}
+        {...moves}
         onMouseEnter={() => onPrefetch(c.id)}
         onFocus={() => onPrefetch(c.id)}
         onClick={() => markOpen(c.id)}
-        {...channelMenu(c)}
+        onContextMenu={menu.onContextMenu}
+        onKeyDown={keysInTurn(moves.onKeyDown, menu.onKeyDown)}
       >
-        <Icon name="channel" className="sidebar__channel-icon" />
-        <span className="sidebar__channel-abbr" aria-hidden="true">
-          {channelInitials(c.name)}
-        </span>
-        <span className="sidebar__item-label">{c.name}</span>
-        {mentions > 0 ? (
-          <UnreadCount count={mentions} mentions />
-        ) : unread ? (
-          <UnreadCount count={c.unreadCount ?? 0} quiet />
+        {personal ? (
+          <GroupFace agentIds={c.agentIds ?? []} count={c.agentCount} />
         ) : (
-          top && <PinnedMark />
+          <>
+            <Icon name="channel" className="sidebar__channel-icon" />
+            <span className="sidebar__channel-abbr" aria-hidden="true">
+              {channelInitials(c.name)}
+            </span>
+          </>
         )}
+        <span className="sidebar__item-label">{c.name}</span>
+        {mentions > 0 ? <UnreadCount count={mentions} mentions /> : opts.top && !unread && <PinnedMark />}
       </Link>
     );
     // On hover or focus, like Discord's invite and settings: who manages the channel adds members or opens its details.
-    if (!mayChange(c)) return link;
-    const open = (ask: "details" | "add") => () => {
+    if (plain) return link;
+    const openIt = (ask: "details" | "add") => () => {
       requestChannelDetails(c.id, ask);
       void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId, channelId: c.id } });
     };
     return (
-      <div key={c.id} className="sidebar__row" data-unread={unread} data-acts={2}>
+      <div key={c.id} className="sidebar__row" data-unread={unread} data-acts={2} {...outer}>
         {link}
         <span className="sidebar__row-acts">
-          <RowAction icon="personAdd" label={t("shell.sidebarMenu.addMembers")} onClick={open("add")} />
-          <RowAction icon="cog" label={t("shell.sidebarMenu.channelSettings")} onClick={open("details")} />
+          <RowAction icon="personAdd" label={t("shell.sidebarMenu.addMembers")} onClick={openIt("add")} />
+          <RowAction icon="cog" label={t("shell.sidebarMenu.channelSettings")} onClick={openIt("details")} />
         </span>
       </div>
     );
   };
-  const addButton = (categoryId: string | null, label: string) =>
-    mayCreate ? (
-      <Button
-        variant="ghost"
-        size="sm"
-        iconOnly
-        icon="plus"
-        className="sidebar__section-add"
-        aria-label={label}
-        title={label}
-        onClick={() => onNewChannel(categoryId)}
-      />
-    ) : null;
-  const dialogs = (
-    <>
-      <RenameCategoryDialog category={renaming} onOpenChange={(open) => !open && setRenaming(null)} />
-      <MoveChannelDialog channel={moving} onOpenChange={(open) => !open && setMoving(null)} canCreate={manages} />
-    </>
-  );
-  const mentions = channels.reduce((n, c) => n + (c.isMember ? (c.mentionCount ?? 0) : 0), 0);
+  /** Canais' own rows: a personal workspace's favorite conversations on top, a thin line, the rest. */
+  const looseRows = () => {
+    const { top, rest } = splitPinned(loose, pinned, (c) => c.id);
+    return [
+      ...top.map((c) => row(c, { top: true })),
+      ...(top.length && rest.length ? [<hr key="pins-end" className="sidebar__pins-end" />] : []),
+      ...rest.map((c) => row(c)),
+    ];
+  };
+  /** A section's header menu: rename, move, delete. */
+  const sectionMenu = (s: SidebarChannelSection): MenuEntry[] => {
+    const i = saved.findIndex((x) => x.id === s.id);
+    return [
+      { kind: "header", label: s.name },
+      { kind: "item", id: "rename", label: t("sidebarSections.rename"), icon: "edit", run: () => setRenaming(s.id) },
+      {
+        kind: "item",
+        id: "move-up",
+        label: t("contextMenu.moveUp"),
+        icon: "chevronUp",
+        disabled: i <= 0,
+        run: () => save((now) => moveSectionBy(now, s.id, -1)),
+      },
+      {
+        kind: "item",
+        id: "move-down",
+        label: t("contextMenu.moveDown"),
+        icon: "chevronDown",
+        disabled: i >= saved.length - 1,
+        run: () => save((now) => moveSectionBy(now, s.id, 1)),
+      },
+      { kind: "separator" },
+      {
+        kind: "item",
+        id: "delete",
+        label: t("sidebarSections.delete"),
+        icon: "trash",
+        danger: true,
+        run: () => save((now) => removeSection(now, s.id)),
+      },
+    ];
+  };
 
+  return {
+    channels,
+    others: all.filter((c) => !channels.includes(c)),
+    looseRows,
+    row,
+    loose: zone(null),
+    sections: shown.map((s) => ({
+      ...s,
+      rows: s.channels.map((c) => row(c)),
+      unread: s.channels.reduce((n, c) => n + (c.mentionCount ?? 0), 0),
+      head: zone(s.id) as HTMLAttributes<HTMLDivElement>,
+      menu: () => sectionMenu(s),
+      onKeyDown: (e: ReactKeyboardEvent) => {
+        const step = moveStep(e);
+        if (!step) return;
+        e.preventDefault();
+        save((now) => moveSectionBy(now, s.id, step));
+      },
+    })),
+    renaming,
+    rename: (id: string, name: string | null) => {
+      setRenaming(null);
+      if (name !== null) save((now) => renameSection(now, id, name));
+    },
+  };
+}
+
+/** A section's name, typed in place on its header: Enter or leaving it keeps it, Esc keeps the one it had. */
+function SectionNameField({ name, onDone }: { name: string; onDone: (name: string | null) => void }) {
+  const { t } = useTranslation();
+  const ref = useRef<HTMLInputElement>(null);
+  const done = useRef(false);
+  useLayoutEffect(() => {
+    ref.current?.focus();
+    ref.current?.select();
+  }, []);
+  const finish = (value: string | null) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(value);
+  };
+  return (
+    <input
+      ref={ref}
+      className="sidebar__section-name"
+      defaultValue={name}
+      maxLength={SIDEBAR_SECTION_NAME_MAX}
+      aria-label={t("sidebarSections.nameLabel")}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") {
+          e.stopPropagation();
+          finish(null);
+        }
+      }}
+      onBlur={(e) => finish(e.currentTarget.value)}
+    />
+  );
+}
+
+/**
+ * Canais (ADR 0080, ADR 0260): the channels in none of the person's sections, then each section, closed sections
+ * keeping their unread channels and the open one in sight (CSS).
+ */
+function SidebarChannels({
+  rows,
+  all,
+  loading,
+  sections,
+  onNewChannel,
+  headProps,
+  addEntries,
+}: {
+  rows: ReturnType<typeof useChannelSections>;
+  all: Channel[];
+  loading: boolean;
+  sections: ReturnType<typeof useSidebarSections>;
+  onNewChannel: () => void;
+  /** A personal workspace's "Canais" header: the part's own menu (its place in the sidebar). */
+  headProps?: HTMLAttributes<HTMLDivElement>;
+  /** What "Canais"' + creates. */
+  addEntries: MenuEntry[];
+}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const navigate = useNavigate();
+  const mayCreate = can(org, "create_channels");
+  const others = rows.others;
+  const mentions = rows.channels.reduce((n, c) => n + (c.isMember ? (c.mentionCount ?? 0) : 0), 0);
   return (
     <>
       <SidebarSection
@@ -1502,17 +1577,15 @@ function SidebarChannels({
         headProps={headProps}
         summary={mentions > 0 && <UnreadCount count={mentions} mentions />}
         action={<SectionAdd label={t(modeKey(org, "shell.sidebarMenu.addToChannels"))} entries={addEntries} />}
-        // The channels with no category take a channel dragged out of one.
-        drop={shown.length > 0 ? { "data-drop": dropMark("loose"), onDragOver: overLoose, onDrop: drop } : undefined}
+        // A channel dragged here leaves its section.
+        drop={rows.sections.length > 0 ? rows.loose : undefined}
       >
         {loading && <SidebarSkeleton count={3} label={t("common.loadingList")} />}
-        {pinnedChannels.map((c) => row(c, true))}
-        {pinnedChannels.length > 0 && (loose.length > 0 || shown.length > 0) && <hr className="sidebar__pins-end" />}
-        {loose.map((c) => row(c))}
+        {rows.looseRows()}
         {/* A personal workspace with no group conversation yet (ADR 0159): a row to create the first; after it, the
             header's + does. */}
         {isPersonal(org) && mayCreate && !loading && all.length === 0 && (
-          <button type="button" className="sidebar__item sidebar__new-channel" onClick={() => onNewChannel(null)}>
+          <button type="button" className="sidebar__item sidebar__new-channel" onClick={onNewChannel}>
             <Icon name="plus" className="sidebar__channel-icon" />
             <span className="sidebar__item-label">{t("shell.sidebarMenu.newChannelPersonal")}</span>
           </button>
@@ -1532,7 +1605,9 @@ function SidebarChannels({
               <MenuItem
                 key={c.id}
                 icon="lock"
-                onSelect={() => void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId, channelId: c.id } })}
+                onSelect={() =>
+                  void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId: org.id, channelId: c.id } })
+                }
               >
                 {c.name}
               </MenuItem>
@@ -1540,73 +1615,30 @@ function SidebarChannels({
           </Menu>
         )}
       </SidebarSection>
-      {shown.map((category) => {
-        const actions = categoryActions(category);
+      {rows.sections.map((s) => {
+        const id = `section:${s.id}` as const;
+        const closedCount = sections.isOpen(id) ? 0 : s.unread;
         return (
           <SidebarSection
-            key={category.id}
-            id={`${CATEGORY_KEY}${category.id}`}
-            label={category.name}
+            key={s.id}
+            id={id}
+            label={s.name}
             sections={sections}
             className="sidebar__section--category"
-            drop={{ onDragOver: (e) => overCategoryBody(e, category), onDrop: drop }}
-            headProps={
-              {
-                draggable: manages,
-                "data-drop": dropMark(`${CATEGORY_KEY}${category.id}`),
-                onDragStart: (e) => startDrag(e, { kind: "category", id: category.id }),
-                onDragEnd: endDrag,
-                onDragOver: (e) => overCategory(e, category),
-                onDrop: drop,
-                ...entityMenu(() => [
-                  { kind: "header", label: category.name },
-                  ...actions.map(
-                    (a): MenuEntry => ({
-                      kind: "item",
-                      id: a.id,
-                      label: a.label,
-                      icon: a.icon,
-                      danger: a.danger,
-                      run: a.run,
-                    }),
-                  ),
-                ]),
-              } as HTMLAttributes<HTMLDivElement>
+            headProps={{ ...s.head, ...entityMenu(s.menu) }}
+            toggleProps={{ onKeyDown: s.onKeyDown, "aria-keyshortcuts": "Alt+Shift+ArrowUp Alt+Shift+ArrowDown" }}
+            title={
+              rows.renaming === s.id ? (
+                <SectionNameField name={s.name} onDone={(name) => rows.rename(s.id, name)} />
+              ) : undefined
             }
-            action={
-              <>
-                {addButton(category.id, t("channelCategories.newChannelIn", { name: category.name }))}
-                <Menu
-                  align="start"
-                  label={t("channelCategories.options", { name: category.name })}
-                  trigger={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      iconOnly
-                      icon="more"
-                      className="sidebar__section-add"
-                      aria-label={t("channelCategories.options", { name: category.name })}
-                    />
-                  }
-                >
-                  {actions.map((a) => (
-                    <Fragment key={a.id}>
-                      {a.id === "new-category" && <MenuSeparator />}
-                      <MenuItem icon={a.icon} danger={a.danger} description={a.description} onSelect={a.run}>
-                        {a.label}
-                      </MenuItem>
-                    </Fragment>
-                  ))}
-                </Menu>
-              </>
-            }
+            action={closedCount > 0 && <UnreadCount count={closedCount} mentions />}
+            drop={s.head}
           >
-            {inCategory(category.id).map((c) => row(c))}
+            {s.rows}
           </SidebarSection>
         );
       })}
-      {dialogs}
     </>
   );
 }
@@ -1627,6 +1659,7 @@ function MoreTools({
   countOf,
   onCustomize,
   home = false,
+  tile = false,
 }: {
   items: SidebarItem[];
   row: (id: SidebarItem) => ReactNode;
@@ -1634,6 +1667,8 @@ function MoreTools({
   onCustomize: () => void;
   /** At a personal workspace's end (ADR 0159): Início and Go to… open its list, and it opens upward. */
   home?: boolean;
+  /** A tile of a team's tool column (ADR 0260). */
+  tile?: boolean;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
@@ -1650,11 +1685,17 @@ function MoreTools({
         align={home ? "end" : "start"}
         className="sidebar__more-menu"
         trigger={
-          <button ref={trigger} type="button" className="sidebar__item sidebar__more" title={t("shell.more")}>
-            <Icon name="more" />
-            <span className="sidebar__item-label">{t("shell.more")}</span>
-            <Icon name="chevronRight" size={16} className="sidebar__more-chevron" />
-          </button>
+          tile ? (
+            <button ref={trigger} type="button" className="sidebar__tile sidebar__more" aria-label={t("shell.more")}>
+              <Icon name="more" />
+            </button>
+          ) : (
+            <button ref={trigger} type="button" className="sidebar__item sidebar__more" title={t("shell.more")}>
+              <Icon name="more" />
+              <span className="sidebar__item-label">{t("shell.more")}</span>
+              <Icon name="chevronRight" size={16} className="sidebar__more-chevron" />
+            </button>
+          )
         }
       >
         {home && (
@@ -1731,39 +1772,43 @@ function MoreTools({
 function PinnedMark() {
   const { t } = useTranslation();
   return (
-    <span className="sidebar__item-meta sidebar__pinned" role="img" aria-label={t("sidebarPins.pinned")}>
+    <span className="sidebar__item-meta sidebar__pinned" role="img" aria-label={t("sidebarFavorites.marked")}>
       <Icon name="pin" size={14} />
     </span>
   );
 }
 
 /**
- * An agent in AGENTES (its row is its DM); while it works, a light sweep in its color runs behind the row (a pulse in
- * the rail) and the line under its name says for whom or where and how long, workspace-wide (its work for me, ADR 0084
- * addendum of 2026-11-13). For who manages agents it drags to another group (`drag`) and its right click has Mudar de
- * grupo (`menuExtra`). `live`: it works, waits or wrote to me, so a closed group still shows it.
+ * An agent's row (its row is its DM). While it works its face moves and wears the orbit, and nothing else on the row
+ * changes (ADR 0260 §7): what it is on, for whom and how long is in the row's title, workspace-wide (its work for me,
+ * ADR 0084 addendum of 2026-11-13). `oneLine`: one line in Mensagens diretas and Favoritos, its name and a quiet "IA"; a
+ * personal workspace's list keeps its role or work under the name. `drag`: its place among the favorites.
+ * `live`: it works, waits or wrote to me.
  */
 function AgentRow({
   agent: a,
+  arrival,
   unread,
   waitingFor,
   live,
   pinned,
+  oneLine = false,
   onPrefetch,
   onOpen,
   drag,
-  menuExtra,
 }: {
   agent: Agent;
+  /** Its marks while it lands in the sidebar (`arrivalProps`). */
+  arrival?: ReturnType<typeof arrivalProps>;
   unread: number;
   /** The offline computer it waits for (its brain runs there). */
   waitingFor?: string;
   live?: boolean;
   pinned?: boolean;
+  oneLine?: boolean;
   onPrefetch: () => void;
   onOpen: () => void;
-  drag?: ReturnType<ReturnType<typeof useAgentDrag>["row"]>;
-  menuExtra?: MenuEntry[];
+  drag?: HTMLAttributes<HTMLAnchorElement>;
 }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
@@ -1775,7 +1820,6 @@ function AgentRow({
   const work = shown?.work ?? null;
   // At work: a run this tab hears, or its work for me anywhere (work handed off in two agents' DM too).
   const busy = (state !== "idle" && !waitingFor) || work?.state === "working";
-  const color = colorOf(a);
   const chip = audienceChip(t, a);
   // Background work's minutes move with the anchor's line, every half minute; its work's every minute.
   const clock = useNow(shown?.line?.kind === "work" || work !== null, work ? WORK_TICK_MS : 30_000);
@@ -1794,15 +1838,15 @@ function AgentRow({
       : workLine(t, i18n.language, work, { agentName: (id) => dir.agentById.get(id)?.name, channelName }, clock);
   const navigate = useNavigate();
   const agentEntries = useAgentMenu();
-  const rowMenu = entityMenu(() => agentEntries(a, menuExtra));
+  const rowMenu = entityMenu(() => agentEntries(a));
   // Its owner and who manages it (ADR 0085 addendum of 2026-11-17): its settings on hover, like a channel's.
   const edits = managesAgent(a) || ownsAgentAs(a, me.user.id, dir.rolesOf(me.user.id));
   // Listed for who manages it though it doesn't talk to them (its DM opens, `opensDm`): the line says who it talks to.
   const locked = !canTalk(a);
   const names = locked ? audienceNames(a, (id) => dir.memberById.get(id)?.name, dir.roleName) : [];
-  // Working: the pixel orbit in its color beside its name (what it is on in its label and the row's title), so the
-  // row never changes height.
-  const working = busy || shown?.line?.kind === "work";
+  // Working: its face wears the orbit (what it is on is in the row's title), so the row never changes height; the
+  // orbit says it, so the face's "working" badge steps aside.
+  const working = busy || shown?.line?.kind === "work" || shown?.presence === "working";
   const now = busy
     ? here
       ? t("sidebarAgents.workingIn", { channel: here })
@@ -1823,64 +1867,78 @@ function AgentRow({
           ? t("sidebarAgents.talksOnly", { name: names[0] })
           : chip
       : a.role);
-  // Its title: who it is over what it does, whole ("Ajudando a Ada · #vendas · 22 min", "Retorno às 00:32 · #vendas").
+  // Its title: who it is over what it does, whole ("Working · helping Ada · #sales · 22 min", "Back at 00:32 · #sales"):
+  // the line under the name only says the status.
   const place =
     (work?.forAgentId || work?.state === "later") && work.channelId
       ? (work.channelName ?? channelName(work.channelId))
       : undefined;
   const doingTitle = doing
-    ? [upperFirst(doing.text, i18n.language), place && `#${place}`, doing.time].filter(Boolean).join(" · ")
+    ? [upperFirst(doing.text, i18n.language), doing.place, place && `#${place}`, doing.time].filter(Boolean).join(" · ")
     : null;
   const title = doingTitle
     ? `${[a.name, a.role].filter(Boolean).join(" · ")}\n${doingTitle}`
     : [a.name, a.role, now ?? word, line?.text].filter(Boolean).join(" · ");
   const roleTag = !locked && !out;
+  // One line has no room under the name: who it talks to, or why it is out, goes in its title.
+  const rowTitle = oneLine && under && under !== a.role ? `${title}\n${under}` : title;
+  const face = (
+    <AgentAvatar
+      agentId={a.id}
+      name={a.name}
+      size="sm"
+      presence={working && shown?.presence === "working" ? null : (shown?.presence ?? null)}
+      presenceLabel={word ?? undefined}
+      asleep={isOutOfOffice(shown?.line)}
+      {...(waitingFor ? { state: "idle" as const, expression: "closed" as const } : {})}
+    />
+  );
   return (
-    <div className="sidebar__row" data-agent-row={a.id} data-live={live || undefined} data-acts={edits ? 1 : undefined}>
+    <div
+      className="sidebar__row"
+      data-agent-row={a.id}
+      data-live={live || undefined}
+      data-acts={edits ? 1 : undefined}
+      {...arrival}
+    >
       <Link
-        {...rowMenu}
+        onContextMenu={rowMenu.onContextMenu}
         to="/org/$orgId/dm/agent/$agentId"
         params={{ orgId: org.id, agentId: a.id }}
         className="sidebar__item"
-        title={title}
+        title={rowTitle}
         onMouseEnter={onPrefetch}
         onFocus={onPrefetch}
         onClick={onOpen}
         data-unread={unread > 0}
         data-busy={busy}
         data-presence={shown?.presence}
-        style={{ ...selectionSky(color), "--sel-glow-color": agentGradient(color)[1] } as CSSProperties}
         {...drag}
+        onKeyDown={keysInTurn(drag?.onKeyDown, rowMenu.onKeyDown)}
       >
-        {busy && <AgentTrail color={color} />}
-        {busy && <AgentGlow color={color} />}
-        <AgentAvatar
-          agentId={a.id}
-          name={a.name}
-          size="sm"
-          presence={shown?.presence ?? null}
-          presenceLabel={word ?? undefined}
-          asleep={isOutOfOffice(shown?.line)}
-          {...(waitingFor ? { state: "idle" as const, expression: "closed" as const } : {})}
-        />
-        <span className="sidebar__item-text">
-          <span className={doing || under ? "sidebar__item-label ac-captop" : "sidebar__item-label"}>
-            {a.name}
-            {working && (
-              <PixelSpinner
-                size={14}
-                color={color}
-                label={state === "idle" && doingTitle ? doingTitle : now}
-                className="sidebar__item-spin"
-              />
+        {working ? <OrbitGlyph appearance={lookOf(a)}>{face}</OrbitGlyph> : face}
+        {oneLine ? (
+          <>
+            <span className="sidebar__item-label">{a.name}</span>
+            <span className="sidebar__kind ac-tag" title={t("sidebarDms.agentTip")}>
+              {t("sidebarDms.agentTag")}
+            </span>
+            {working && now && <span className="ac-visually-hidden">{now}</span>}
+          </>
+        ) : (
+          <span className="sidebar__item-text">
+            <span className={doing || under ? "sidebar__item-label ac-captop" : "sidebar__item-label"}>{a.name}</span>
+            {/* What it is on, for screen readers, after its name (the orbit before it says it to the eye). */}
+            {working && (state === "idle" && doingTitle ? doingTitle : now) && (
+              <span className="ac-visually-hidden">{state === "idle" && doingTitle ? doingTitle : now}</span>
+            )}
+            {doing ? (
+              <AgentWorkLine line={doing} className="sidebar__item-role" />
+            ) : (
+              under && <span className={cx("sidebar__item-role", roleTag && "ac-tag")}>{under}</span>
             )}
           </span>
-          {doing ? (
-            <AgentWorkLine line={doing} className="sidebar__item-role" />
-          ) : (
-            under && <span className={cx("sidebar__item-role", roleTag && "ac-tag")}>{under}</span>
-          )}
-        </span>
+        )}
         {unread > 0 ? (
           <UnreadCount count={unread} />
         ) : waitingFor && !doing ? (
@@ -1931,11 +1989,14 @@ function AgentRow({
 function RightHandRow({
   agent: a,
   unread,
+  line = false,
   onPrefetch,
   onOpen,
 }: {
   agent: Agent;
   unread: number;
+  /** One line, as Mensagens diretas' rows (ADR 0260): its label as the tag after the name. */
+  line?: boolean;
   onPrefetch: () => void;
   onOpen: () => void;
 }) {
@@ -1957,10 +2018,17 @@ function RightHandRow({
       data-right-hand=""
     >
       <AgentAvatar agentId={a.id} name={a.name} size="sm" presence={shown?.presence ?? null} />
-      <span className="sidebar__item-text">
-        <span className="sidebar__item-label ac-captop">{a.name}</span>
-        <span className="sidebar__item-role ac-tag">{label}</span>
-      </span>
+      {line ? (
+        <>
+          <span className="sidebar__item-label">{a.name}</span>
+          <span className="sidebar__kind ac-tag">{label}</span>
+        </>
+      ) : (
+        <span className="sidebar__item-text">
+          <span className="sidebar__item-label ac-captop">{a.name}</span>
+          <span className="sidebar__item-role ac-tag">{label}</span>
+        </span>
+      )}
       {unread > 0 ? (
         <UnreadCount count={unread} />
       ) : (
@@ -1979,15 +2047,16 @@ function RightHandRow({
 function PersonRow({
   member: m,
   unread,
-  pinned,
   onPrefetch,
   onOpen,
+  rowProps,
 }: {
   member: Member;
   unread: number;
-  pinned?: boolean;
   onPrefetch: () => void;
   onOpen: () => void;
+  /** Its place among the favorites: dragging and Alt+Shift+↑/↓. */
+  rowProps?: HTMLAttributes<HTMLAnchorElement>;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
@@ -1995,9 +2064,10 @@ function PersonRow({
   const word = shown ? t(`presence.${shown.presence}`) : null;
   const line = shown?.status ? personLine(shown.status) : null;
   const personEntries = usePersonMenu();
+  const menu = entityMenu(() => personEntries(m));
   return (
     <Link
-      {...entityMenu(() => personEntries(m))}
+      onContextMenu={menu.onContextMenu}
       to="/org/$orgId/dm/person/$userId"
       params={{ orgId: org.id, userId: m.userId }}
       className="sidebar__item"
@@ -2007,6 +2077,8 @@ function PersonRow({
       onMouseEnter={onPrefetch}
       onFocus={onPrefetch}
       onClick={onOpen}
+      {...rowProps}
+      onKeyDown={keysInTurn(rowProps?.onKeyDown, menu.onKeyDown)}
     >
       <Avatar
         name={m.name}
@@ -2016,8 +2088,38 @@ function PersonRow({
         presenceLabel={word ?? undefined}
       />
       <span className="sidebar__item-label">{m.name}</span>
-      {unread > 0 ? <UnreadCount count={unread} /> : pinned && <PinnedMark />}
+      {unread > 0 && <UnreadCount count={unread} />}
     </Link>
+  );
+}
+
+/** An invitation not accepted yet (ADR 0260 §5): the invited address, a quiet "Convite enviado", no conversation yet. */
+function InviteRow({ email }: { email: string }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  return (
+    <Link
+      to="/org/$orgId/settings/$section"
+      params={{ orgId: org.id, section: "members" }}
+      className="sidebar__item sidebar__invite"
+      title={t("sidebarDms.invitedTip", { email })}
+    >
+      <Avatar name={email} size="sm" />
+      <span className="sidebar__item-label">{email}</span>
+      <span className="sidebar__kind ac-tag">{t("sidebarDms.invited")}</span>
+    </Link>
+  );
+}
+
+/** Convidar pessoas, Novo agente: a row like the people's, an empty face with a plus where a face would be. */
+function AddRow({ icon, label, onClick }: { icon: IconName; label: string; onClick: () => void }) {
+  return (
+    <button type="button" className="sidebar__item sidebar__new-agent" onClick={onClick}>
+      <span className="sidebar__new-agent-face" aria-hidden="true">
+        <Icon name={icon} size={16} />
+      </span>
+      <span className="sidebar__item-label">{label}</span>
+    </button>
   );
 }
 
@@ -2281,10 +2383,12 @@ function AccountMenu({ personal = false }: { personal?: boolean }) {
 /**
  * A workspace in your lists of them (ADR 0159): a personal one of yours is you, by your photo and your name, as its
  * sidebar shows you; with more than one, your photo and each one's own name (the same name on each would tell them
- * apart by nothing). Any other (a team's, or a personal one shared with you, whose face would be someone else's) by its
- * mark and its name.
+ * apart by nothing). Its line (`sub`) says it is personal where the full menu shows your role in a team's, so its row
+ * is the same two lines as theirs. Any other (a team's, or a personal one shared with you, whose face would be someone
+ * else's) by its mark and its name.
  */
 function useWorkspaceLook() {
+  const { t } = useTranslation();
   const { me } = useOrg();
   const mine = (id: string) => {
     const o = me.organizations.find((m) => m.id === id);
@@ -2300,7 +2404,7 @@ function useWorkspaceLook() {
       ? {
           leading: <Avatar kind="person" name={me.user.name} imageUrl={me.user.image} size={face} />,
           name: several ? o.name : me.user.name,
-          sub: null,
+          sub: t("settings.mode.personal"),
           personal: true,
         }
       : {
@@ -2316,8 +2420,8 @@ function useWorkspaceLook() {
  * Your workspaces in the account menu of a personal workspace (ADR 0159): the workspace menu's list, then New
  * workspace when the person may make one. In the desktop app (ADR 0154) by server, then Add workspace; New workspace
  * (it makes one here) sits under this server's workspaces only on a server of one's own, since on agentes.chat Add
- * workspace makes one (`offersNewWorkspace`). Mounted only while the menu is open: the counts load then. No role beside
- * each: one person's own workspaces.
+ * workspace makes one (`offersNewWorkspace`). Mounted only while the menu is open: the counts load then. One line a
+ * row (no role, no "Personal" under it): one person's own workspaces.
  */
 function MenuWorkspaces() {
   const { t, i18n } = useTranslation();
@@ -2363,7 +2467,7 @@ function MenuWorkspaces() {
                 <MenuItem
                   key={o.id}
                   leading={shown.leading}
-                  description={[shown.sub, g.here ? notes.get(o.id) : null].filter(Boolean).join(" · ") || undefined}
+                  description={(g.here && notes.get(o.id)) || undefined}
                   hint={
                     o.current ? t("shell.youAreHere") : o.unread > 0 ? <CountChip>{o.unread}</CountChip> : undefined
                   }
@@ -2401,7 +2505,7 @@ function MenuWorkspaces() {
           <MenuItem
             key={o.id}
             leading={shown.leading}
-            description={[shown.sub, notes.get(o.id)].filter(Boolean).join(" · ") || undefined}
+            description={notes.get(o.id)}
             hint={o.id === org.id ? t("shell.youAreHere") : undefined}
             onSelect={() => o.id !== org.id && go(o.id)}
           >

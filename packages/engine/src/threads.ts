@@ -22,11 +22,13 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { publishChannelEvent, publishMessageCreated, publishUserEvent } from "./events";
 import { pendingReturns } from "./follow-through";
 import { followsThreadSql, threadReadAtSql } from "./follows";
+import { authorIdOf } from "./integrations/author";
 import { landedAfterSql } from "./message-place";
 import { type PreviewMeta, previewMeta, readableBody } from "./message-preview";
 import { type Message, messageView, replyExcerpt } from "./messages";
 import { pendingCommandsSql } from "./mission-command-rules";
 import { quietNoticeSql } from "./notices";
+import { readConversationNotifications, resolveNotifications } from "./notifications";
 import { can, type Membership, requirePermission } from "./organizations";
 import { maySql } from "./permissions";
 import { fileConversationReaderSql, taskReaderSql } from "./task-access";
@@ -82,7 +84,8 @@ export interface ThreadDeps {
   pubsub?: PubSub;
 }
 
-type Actor = { type: "person" | "agent"; id: string | null };
+/** An app (ADR 0251) shows by its `meta.app`: in a thread's faces only through its latest message. */
+type Actor = { type: "person" | "agent" | "app"; id: string | null };
 
 export interface ThreadContextView {
   channelId: string;
@@ -947,7 +950,7 @@ interface ThreadSqlRow {
   created_at: Date | string;
   body: string;
   root_meta: Record<string, unknown> | null;
-  author_type: "person" | "agent";
+  author_type: "person" | "agent" | "app";
   author_user_id: string | null;
   author_agent_id: string | null;
   reply_count: number | string;
@@ -1327,7 +1330,7 @@ function toView(
     lastActivityAt: toDate(r.last_at).toISOString(),
     lastMessage: last
       ? {
-          author: { type: last.authorType, id: last.authorType === "person" ? last.authorUserId : last.authorAgentId },
+          author: { type: last.authorType, id: authorIdOf(last) },
           excerpt: replyExcerpt(readableBody(last.body, last.meta)),
           meta: previewMeta(last.meta),
           createdAt: last.createdAt.toISOString(),
@@ -1519,6 +1522,9 @@ export async function markThreadRead(
       target: [schema.threadReads.rootMessageId, schema.threadReads.userId],
       set: { lastReadAt: at },
     });
+  const place = { channelId: root.channelId, threadId: root.id };
+  await resolveNotifications(deps, orgId, { place, userIds: [actorId], kind: "agent_reply" });
+  await readConversationNotifications(deps, orgId, actorId, place, at);
   await publishUserEvent(deps.pubsub, orgId, actorId, {
     type: "thread.read",
     threadId: root.id,

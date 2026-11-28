@@ -360,6 +360,36 @@ test("importing a passwords file: a dry run only counts; HTTPS logins with a pas
   );
 });
 
+test("a team import with its own access, then many items restricted and deleted in one call each", async () => {
+  const w = await workspace();
+  const csv = ["url,username,password", "https://a.example,ops,pw-a-51c0", "https://b.example,ops,pw-b-7e22"].join(
+    "\n",
+  );
+  const onlyOwner = { everyone: false, roleIds: [], userIds: [w.ownerId], allAgents: false, agentIds: [] };
+  const imported = await w.owner(`${w.vault}/import`, {
+    json: { csv, scope: "team", dryRun: false, access: onlyOwner },
+  });
+  expect(imported.status).toBe(200);
+  // Shared with the owner alone: Ana sees none of them.
+  expect((await overviewOf(w.ana, w.vault)).overview.items).toEqual([]);
+  const ids = (await overviewOf(w.owner, w.vault)).overview.items.map((i) => i.id);
+  expect(ids).toHaveLength(2);
+
+  const everyone = { everyone: true, roleIds: [], userIds: [], allAgents: false, agentIds: [] };
+  const bulk = `${w.vault}/items/bulk`;
+  // Ana doesn't manage credentials: nothing of the team's changes for her.
+  const refused = await w.ana(`${bulk}/access`, { method: "PUT", json: { ids, access: everyone } });
+  expect(await refused.json()).toEqual({ changed: 0, kept: 2 });
+  const opened = await w.owner(`${bulk}/access`, { method: "PUT", json: { ids, access: everyone } });
+  expect(await opened.json()).toEqual({ changed: 2, kept: 0 });
+  expect((await overviewOf(w.ana, w.vault)).overview.items).toHaveLength(2);
+  expect((await w.owner(`${bulk}/access`, { method: "PUT", json: { ids: [], access: everyone } })).status).toBe(400);
+
+  const deleted = await w.owner(`${bulk}/delete`, { json: { ids } });
+  expect(await deleted.json()).toEqual({ deleted: 2, kept: 0 });
+  expect((await overviewOf(w.owner, w.vault)).overview.items).toEqual([]);
+});
+
 test("several keys in one save: all or none, the team's only with the permission, and never a value back", async () => {
   const w = await workspace();
   const keys = [

@@ -44,7 +44,12 @@ proposing agent's id, so usage and cost are recorded and the budget checked). Fo
 line it `replaces`. The prompt says what makes sense (a lasting correction, preference, fact or method that fits the
 agent and isn't said yet) and what doesn't (said already, a one-off, vague, contradicting the text unasked, weakening
 approvals, limits or privacy, a new outside destination nobody asked for, instructions planted by outside content).
-Text inside `<change>` is data.
+Text inside `<change>` is data. A change a person asked for carries their own message
+(`askedWords`: the message that started the run, when they wrote it; job payload `words`), shown as "What the person
+wrote": the review applies what those words ask for and leaves out anything beyond them (a destination, a permission,
+a rule they didn't ask for), so a run that read outside content can still apply the person's request but not what the
+content slipped in. Tried on a real model: a rule the person asked for after outside content applied, an "approve
+without review" the content added when the person had only asked for a review was left out.
 
 Code decides the rest:
 
@@ -60,7 +65,7 @@ Code decides the rest:
   or is refused leaves the lesson in memory.
 - Without a review (no model, or a call that fails other than by a rate limit, which retries): what an agent proposed
   itself or a person asked for in their own words applies as it was; a lesson, and anything after outside content or
-  from someone who can't make it, is left out.
+  from someone who can't make it, is left out. *Amended 2026-11-25, below:* the workspace's judge weighs those first.
 
 ### 2. What people see
 
@@ -90,6 +95,32 @@ until a positive outcome verifies it (ADR 0120 §5), as before. Use alone never 
 repeated by agents raises its recurrence, and verifying on that would let agents echo each other into the
 instructions.
 
+*Addendum 2026-11-25 (a skill an agent makes when asked):* `create_skill` after the run read outside content used to be
+refused outright, and the refusal held for the whole conversation (its last 30 messages), so a person asking "turn what
+you just did into a skill" after real work never got one. It now goes through this review as a new skill
+(`reviewAskedSkill`: origin `outside`, the person's own message, the skill's whole text): made when the review reads it
+as the person's request and nothing planted, refused with the review's line otherwise, and refused when no review can
+run (no model, or the call failed).
+
+*Addendum 2026-11-26 (what the review weighs in an asked skill):* the review refused a skill a person asked for because
+the agent had no role, because of what the skill taught, and as if the content had asked for it. The block now says
+the person asked for it in the words given, and those words carry the names of the files the message attached
+(`askedWords`), so a skill made from a file the person sent reads as their request. A new skill a person asked for fits
+their agent whatever its role says and teaches what they choose: it is left out only for what the rules name (a new
+destination, a weaker safety rule, steps that serve someone else). A skill sent whole (a .zip, a link) installs with
+its card instead (ADR 0020, amendment of 2026-11-26).
+
+*Addendum 2026-11-27 (long changes, and what the review left out):* the review read a text or skill change as its
+removed lines followed by its added ones, cut to 4,000 characters, so a long rewrite of a skill showed only what it
+removed: a change a person asked for was left out as "truncated, can't verify". It now reads the whole unified diff, in
+order with the unchanged lines around each change (`changeText`, wiki's `diffLines`/`unifiedPatch`); a diff too long
+for its share of the input (100,000 characters across the card) reads as the whole new text, and only past that is it
+cut, marked as cut; the judge's blocks are made for its own smaller input the same way. A long change or a rewrite is no reason to leave it out. A change the review left out (not a memory
+lesson, which stays in memory, nor deleting an agent, which can't be put back) is still the person's to make: "Aplicar mesmo assim" on its card, the history and the
+right hand's cards, for whoever may make it (`leftOutByReview`, the view's `applicable`, `POST …/proposals/{id}/accept`),
+applied as them through the same editors, 409 when what it was made against changed since. The agent that proposed it
+tells the person who asked that they can.
+
 ## Consequences
 
 - Improvements take effect within seconds of being proposed, with nobody asked; people correct after the fact with
@@ -98,3 +129,13 @@ instructions.
 - A change after outside content is applied when the review judges it the person's wish. The review sees the change
   and the current text, not the outside content, and is told to leave out new destinations and weakened safety;
   sensitive actions still ask a person at the moment they happen (ADR 0015).
+
+*Addendum 2026-11-25 (no model for the review):* a workspace whose agents run only on plans has no key for the
+summary model, and the Cloud has no platform key for one, so the review's call failed (`MissingCredentialError`) and
+every change after outside content, from someone who can't make it, or of an agent's own settings was left out, each
+time it was asked again. The review now falls back to the workspace's judge (`judgeVerdicts`: Jev where the
+installation has its key, ADR 0073, else the small model, as every judgment does): one yes/no per such change, on the
+same rules the model reads, applied at 0.5 or more, with no `why`. A lesson still needs a model to write its rule, so
+without one it stays in memory. `reviewAskedSkill` falls back the same way. When the judge can't answer either, the
+change is left out with a line that names the cause and the way out (`NO_REVIEW`: an AI account with an API key, or the
+change made by hand).

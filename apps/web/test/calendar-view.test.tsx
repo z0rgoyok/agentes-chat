@@ -37,6 +37,37 @@ const drag = async (el: HTMLElement, dy: number) => {
   await settle(3);
 };
 
+/** Reminders on the calendar (the fake has none of its own), each in the ranges it falls in; Ada's unless said. */
+const addReminders = (
+  api: ReturnType<typeof createFakeApi>,
+  list: { message: string; at: Date; agentId?: string }[],
+) => {
+  const range = api.calendar.range;
+  api.calendar.range = async (org, from, to) => {
+    const out = await range(org, from, to);
+    const inRange = list.filter((r) => r.at >= new Date(from) && r.at < new Date(to));
+    return {
+      ...out,
+      reminders: [
+        ...(out.reminders ?? []),
+        ...inRange.map(
+          (r): CalendarReminder => ({
+            id: `rem-${r.message}`,
+            message: r.message,
+            at: r.at.toISOString(),
+            forUserId: "u-walter",
+            channelId: ENG_ID,
+            threadId: null,
+            agentId: r.agentId ?? ADA_ID,
+            createdBy: "u-walter",
+            canCancel: true,
+          }),
+        ),
+      ],
+    };
+  };
+};
+
 describe("Calendário: views, moves and series", () => {
   test("moving a single event updates it (snapped to 15 minutes)", async () => {
     const { state } = await go();
@@ -158,63 +189,55 @@ describe("Calendário: views, moves and series", () => {
     expect(document.querySelector(".cal-agenda, .cal-agenda__empty")).not.toBeNull();
   });
 
-  /** Seven daily routines (07:01…07:07): more than a month cell shows. */
-  const dailyRoutines = async (api: ReturnType<typeof createFakeApi>, n = 7, time = (i: number) => `07:0${i + 1}`) => {
-    const agentId = seedState().agents[0]?.id ?? "";
-    for (let i = 0; i < n; i++)
-      await api.routines.create(ORG_ID, {
-        name: `Diária ${i + 1}`,
-        agentId,
-        prompt: "Faça algo.",
-        target: { type: "dm" },
-        trigger: { type: "schedule", rule: { freq: "daily", times: [time(i)], timezone: localZone } },
-      });
-  };
+  /** Seven reminders today (07:01…07:07): more than a month cell shows. */
+  const reminders = (api: ReturnType<typeof createFakeApi>, n = 7, time = (i: number) => at(7, i + 1)) =>
+    addReminders(
+      api,
+      Array.from({ length: n }, (_, i) => ({ message: `Lembrete ${i + 1}`, at: time(i) })),
+    );
 
   /** A row's parts in order: whose face, then its words. */
   const parts = (row: Element) =>
     [...row.children].map((c) => (c.matches(".ac-who") ? "face" : (c.className as string).replace("cal-chip__", "")));
 
-  test("Mês: no pixel dots; each run is a row like an event (face, time, name), three a day, then +N mais", async () => {
-    await go((api) => dailyRoutines(api));
+  test("Mês: each item is a row (face, time, name), three a day, then +N mais", async () => {
+    await go(async (api) => reminders(api));
     await click(screen().getByRole("radio", { name: "Mês" }));
     await settle(4);
     const cell = document.querySelector(`.cal-month__cell[data-day="${toYmd(today)}"]`) as HTMLElement;
-    expect(cell.querySelector(".ac-run-mark, .cal-marks")).toBeNull();
     const rows = [...cell.querySelectorAll<HTMLElement>(":scope > .cal-chip--line")];
     expect(rows).toHaveLength(3);
-    const run = within(cell).getByRole("button", { name: "Rotina Diária 1, 07:01" });
-    expect(parts(run)).toEqual(["face", "time tabular", "title"]);
+    const first = within(cell).getByRole("button", { name: "Lembrete 1, 07:01" });
+    expect(parts(first)).toEqual(["face", "time tabular", "title"]);
     // The agent's own face, in place of Google's dot.
-    expect(run.querySelector(".ac-who .ac-avatar--agent")).not.toBeNull();
-    expect(run.getAttribute("title")).toBe("Diária 1 · Ada · 07:01");
+    expect(first.querySelector(".ac-who .ac-avatar--agent")).not.toBeNull();
+    expect(first.getAttribute("title")).toBe("Lembrete 1 · Ada · 07:01");
     const more = within(cell).getByRole("button", { name: /^\+\d+ mais$/ });
     await click(more);
     await settle(2);
     const list = document.querySelector(".cal-more__list") as HTMLElement;
     const names = [...list.querySelectorAll(".cal-chip__title")].map((n) => n.textContent);
-    expect(names.indexOf("Diária 1")).toBeLessThan(names.indexOf("Diária 7"));
+    expect(names.indexOf("Lembrete 1")).toBeLessThan(names.indexOf("Lembrete 7"));
     expect(names.length).toBe(rows.length + Number(/\d+/.exec(more.textContent ?? "")?.[0]));
   });
 
-  test("Agenda: a day's runs are rows among its events, no line of dots", async () => {
-    await go((api) => dailyRoutines(api, 2));
+  test("Agenda: a day's reminders are rows among its events", async () => {
+    await go(async (api) => reminders(api, 2));
     await click(screen().getByRole("radio", { name: "Agenda" }));
     await settle(4);
     const agenda = document.querySelector(".cal-agenda") as HTMLElement;
-    expect(agenda.querySelector(".ac-run-mark, .cal-marks")).toBeNull();
     const first = agenda.querySelector(".cal-agenda__day") as HTMLElement;
-    const run = within(first).getByRole("button", { name: "Rotina Diária 1, 07:01" });
-    expect(parts(run)).toEqual(["face", "time tabular", "title"]);
-    await click(run);
+    const row = within(first).getByRole("button", { name: "Lembrete 1, 07:01" });
+    expect(parts(row)).toEqual(["face", "time tabular", "title"]);
+    await click(row);
     await settle(2);
-    const details = screen().getByRole("region", { name: "Diária 1" });
-    expect(within(details).getByRole("link", { name: "Abrir rotina" }).getAttribute("href")).toContain("?open=");
+    const details = screen().getByRole("region", { name: "Lembrete 1" });
+    expect(details.textContent).toContain("Lembrete · postado em #eng");
   });
 
-  test("week: runs are one-line blocks across the column, a meeting at their time beside them, +N rotinas lists the rest", async () => {
+  test("week: a reminder is one line across its column, a meeting at its time beside it, as wide", async () => {
     await go(async (api) => {
-      await dailyRoutines(api, 3, (i) => `05:0${i}`);
+      reminders(api, 1, () => at(5));
       await api.calendar.create(ORG_ID, {
         title: "Planejamento",
         start: at(5).toISOString(),
@@ -224,30 +247,15 @@ describe("Calendário: views, moves and series", () => {
       });
     });
     const col = document.querySelector(`.cal-week__col[data-day="${toYmd(today)}"]`) as HTMLElement;
-    expect(col.querySelector(".ac-run-mark, .cal-marks")).toBeNull();
-    const stack = col.querySelector(".cal-week__runs") as HTMLElement;
-    // Two runs, then "+1 rotina": a stack shows two rows at most.
-    const rows = [...stack.querySelectorAll<HTMLElement>(".cal-chip--run")];
-    expect(rows.map((r) => r.getAttribute("aria-label"))).toEqual(["Rotina Diária 1, 05:00", "Rotina Diária 2, 05:01"]);
-    expect(rows[0]?.querySelector(".cal-chip__title > .ac-who:first-child .ac-avatar--agent")).not.toBeNull();
-    expect(rows[0]?.getAttribute("title")).toBe("Diária 1 · Ada · 05:00");
-    // The meeting sits beside the stack; the runs' column is the narrow one, so the meeting keeps room for its name.
+    const chip = within(col).getByRole("button", { name: "Lembrete 1, 05:00" });
+    expect(chip.classList.contains("cal-chip--moment")).toBe(true);
+    expect(chip.querySelector(".cal-chip__title > .ac-who:first-child .ac-avatar--agent")).not.toBeNull();
+    expect(chip.getAttribute("title")).toBe("Lembrete 1 · Ada · 05:00");
+    // The meeting sits beside it, never under it.
+    const moment = chip.closest(".cal-week__moment") as HTMLElement;
     const meeting = within(col).getByRole("button", { name: "Planejamento, 05:00–06:00" });
-    const across = (el: HTMLElement) =>
-      ["--col", "--cols", "--thins", "--thin-before"].map((v) => el.style.getPropertyValue(v));
-    expect(across(stack)).toEqual(["0", "2", "1", "0"]);
-    expect(across(meeting)).toEqual(["1", "2", "1", "1"]);
-    expect(stack.hasAttribute("data-thin")).toBe(true);
-    expect(meeting.hasAttribute("data-thin")).toBe(false);
-    const more = within(stack).getByRole("button", { name: "+1 rotina" });
-    await click(more);
-    await settle(2);
-    const list = screen().getByRole("region", { name: "Rotinas às 05:00" });
-    expect([...list.querySelectorAll(".cal-runs__name")].map((n) => n.textContent)).toEqual([
-      "Diária 1",
-      "Diária 2",
-      "Diária 3",
-    ]);
+    expect([moment, meeting].map((el) => el.style.getPropertyValue("--cols"))).toEqual(["2", "2"]);
+    expect(moment.style.getPropertyValue("--col")).not.toBe(meeting.style.getPropertyValue("--col"));
   });
 
   test("every item opens with its owner's face as its title's first word: an agent's, a person's, a task's assignee", async () => {
@@ -342,9 +350,9 @@ describe("Calendário: views, moves and series", () => {
     expect(screen().queryByRole("button", { name: /^#\d+ Fechar a release, dia todo$/ })).toBeNull();
   });
 
-  test("what's over is drawn lighter: a run whose time came, an event that ended", async () => {
+  test("what's over is drawn lighter: a reminder whose time came, an event that ended", async () => {
     await go(async (api) => {
-      await dailyRoutines(api, 1, () => "00:01");
+      addReminders(api, [{ message: "Lembrete 1", at: at(0, 1) }]);
       await api.calendar.create(ORG_ID, {
         title: "Amanhã cedo",
         start: new Date(at(9).getTime() + 86_400_000).toISOString(),
@@ -354,29 +362,32 @@ describe("Calendário: views, moves and series", () => {
       });
     });
     const col = document.querySelector(`.cal-week__col[data-day="${toYmd(today)}"]`) as HTMLElement;
-    expect(within(col).getByRole("button", { name: "Rotina Diária 1, 00:01" }).hasAttribute("data-past")).toBe(true);
+    expect(within(col).getByRole("button", { name: "Lembrete 1, 00:01" }).hasAttribute("data-past")).toBe(true);
     const later = screen().queryByRole("button", { name: "Amanhã cedo, 09:00–10:00" });
     if (later) expect(later.hasAttribute("data-past")).toBe(false);
   });
 
-  test("a run's details open with whose it is (Atlas · Ops), then the title, when and where it delivers", async () => {
-    await go();
-    const run = screen().getAllByRole("button", { name: /^Rotina Erros do Sentry do dia, / })[0] as HTMLElement;
-    await click(run);
+  test("a reminder's details open with whose it is (Atlas · Ops), then the title, when and where it posts", async () => {
+    await go(async (api) =>
+      addReminders(api, [{ message: "Conferir os erros do dia", at: at(18), agentId: ATLAS_ID }]),
+    );
+    await click(screen().getByRole("button", { name: "Conferir os erros do dia, 18:00" }));
     await settle(2);
-    const details = screen().getByRole("region", { name: "Erros do Sentry do dia" });
+    const details = screen().getByRole("region", { name: "Conferir os erros do dia" });
     const owner = details.firstElementChild as HTMLElement;
     expect(owner.classList.contains("cal-details__owner")).toBe(true);
     expect(owner.textContent).toBe("Atlas · Ops");
     expect(owner.querySelector(".ac-who .ac-avatar--agent")).not.toBeNull();
-    expect(details.querySelector(".cal-details__title")?.textContent).toBe("Erros do Sentry do dia");
-    expect(details.textContent).toContain("Rotina · entrega em #eng");
-    // The agent says it once: no list of people under a routine.
+    expect(details.querySelector(".cal-details__title")?.textContent).toBe("Conferir os erros do dia");
+    expect(details.textContent).toContain("Lembrete · postado em #eng");
+    // The agent says it once: no list of people under a reminder.
     expect(details.querySelector(".cal-details__people")).toBeNull();
   });
 
   test("Agentes e pessoas: everyone with something in view, agents first, by count; unchecking hides theirs", async () => {
-    await go();
+    await go(async (api) =>
+      addReminders(api, [{ message: "Conferir os erros do dia", at: at(18), agentId: ATLAS_ID }]),
+    );
     // With the panel closed, in the Filtros popover.
     const filters = screen().queryByRole("button", { name: "Filtros" });
     if (filters) await click(filters);
@@ -394,14 +405,14 @@ describe("Calendário: views, moves and series", () => {
     expect(Number(atlas)).toBeGreaterThan(0);
     await click(within(owners()).getByRole("checkbox", { name: "Mostrar Atlas" }));
     await settle(2);
-    expect(screen().queryByRole("button", { name: /^Rotina Erros do Sentry do dia, / })).toBeNull();
+    expect(screen().queryByRole("button", { name: /^Conferir os erros do dia, / })).toBeNull();
     expect(screen().getAllByRole("button", { name: /^Daily de produto, / }).length).toBeGreaterThan(0);
     // Still listed, to bring them back.
     const box = within(owners()).getByRole("checkbox", { name: "Mostrar Atlas" });
     expect(box.getAttribute("aria-checked")).toBe("false");
     await click(box);
     await settle(2);
-    expect(screen().getAllByRole("button", { name: /^Rotina Erros do Sentry do dia, / }).length).toBeGreaterThan(0);
+    expect(screen().getAllByRole("button", { name: /^Conferir os erros do dia, / }).length).toBeGreaterThan(0);
   });
 
   test("the side panel opens beside the week from 1440, with Agentes e pessoas under the mini month", async () => {
@@ -427,7 +438,8 @@ describe("Calendário: views, moves and series", () => {
   });
 
   test("Próximos: neutral rows (avatar or event icon, title, day · time), no source bar", async () => {
-    await go();
+    const tomorrow = new Date(at(9).getTime() + 86_400_000);
+    await go(async (api) => addReminders(api, [{ message: "Pagar o aluguel", at: tomorrow }]));
     const show = screen().queryByRole("button", { name: "Mostrar painel" });
     if (show) await click(show);
     const side = screen().getByRole("region", { name: "Próximos" });
@@ -465,7 +477,7 @@ describe("Calendário: views, moves and series", () => {
         participants: [],
       }),
     );
-    const gutter = document.querySelector(".cal-week__bars:not(.cal-week__bars--routines) > .cal-week__gutter");
+    const gutter = document.querySelector(".cal-week__bars > .cal-week__gutter");
     expect(gutter?.textContent?.trim()).toBe("");
     expect(within(gutter as HTMLElement).getByRole("img", { name: "Dia todo" })).toBeTruthy();
   });
@@ -522,9 +534,9 @@ describe("Calendário: reminders", () => {
 
   test("a reminder is on the calendar with its time, who set it and where it posts, and who set it cancels it", async () => {
     const canceled = await withReminders([reminder()]);
-    // A moment, as a routine's run: one line at its time, the agent that posts it opening it.
-    expect(chip()?.classList.contains("cal-chip--run")).toBe(true);
-    expect(chip()?.closest(".cal-week__runs")).not.toBeNull();
+    // A moment: one line at its time, the agent that posts it opening it.
+    expect(chip()?.classList.contains("cal-chip--moment")).toBe(true);
+    expect(chip()?.closest(".cal-week__moment")).not.toBeNull();
     expect(chip()?.querySelector(".cal-chip__title > .ac-who .ac-avatar--agent")).not.toBeNull();
     await click(chip() as HTMLElement);
     await settle(2);

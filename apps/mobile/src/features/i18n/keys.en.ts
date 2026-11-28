@@ -7,22 +7,18 @@ export const featureKeysEn = {
     send: "Send",
   },
   categories: {
-    title: "Categories",
-    where: "Where #{{channel}} shows",
-    whereHelp: "Changes for everyone. Who takes part in the channel stays the same.",
-    create: "Create",
-    endOfList: "Goes to the end of the list for everyone.",
-    channelCount_one: "{{count}} channel",
-    channelCount_other: "{{count}} channels",
-    none: "No categories yet.",
-    manageHint: "Order, names and delete",
-    deleteTitle: "Delete {{name}}?",
-    order: "Place in the list",
     up: "Move up",
     down: "Move down",
-    position: "{{at}} of {{count}}.",
     channelPosition: "{{at}} of {{count}}.",
-    itsChannels: "Channels",
+  },
+  /** A channel's "Seção" (ADR 0260): which of the person's own sections it sits in, theirs alone. */
+  sections: {
+    title: "Section",
+    where: "Where #{{channel}} sits for you",
+    whereHelp: "Only your list changes. Each person arranges their own sections.",
+    none: "No section",
+    order: "Place in the section",
+    tooLong: "Use 40 characters or fewer.",
   },
   blocks: {
     send: "Send",
@@ -75,6 +71,17 @@ export const featureKeysEn = {
     raw: "Raw",
     more: "See all {{count}} lines",
     gone: "This code is no longer open.",
+  },
+  table: {
+    label_one: "Table · {{count}} row",
+    label_other: "Table · {{count}} rows",
+    title: "Table",
+    rows_one: "{{count}} row",
+    rows_other: "{{count}} rows",
+    copy: "Copy the table",
+    copied: "Table copied",
+    more: "See all {{count}} rows",
+    gone: "This table is no longer open.",
   },
   time: {
     today: "Today",
@@ -197,17 +204,17 @@ export const featureKeysEn = {
       text: "It may be down or outside your network. Your chats show up on their own when it's back.",
       kept: "Showing what was already in the app.",
     },
-    /** Conversas' strip of what the person pinned (the web sidebar's pins), under Início's widgets. */
-    pinned: "Pinned",
+    /** Conversas' strip of the person's Favoritos (the web sidebar's, ADR 0260), under Início's widgets. */
+    favorites: "Favorites",
     /** Conversas' one list: every chat by its latest activity, with no grouping. */
     recent: "Recent",
     /**
-     * A team's Conversas lists its chats by latest activity or by the agents' sectors (as the web's sidebar): the bar
-     * button's menu title, the second choice, and the sections Setores ends with.
+     * A team's Conversas lists its chats by latest activity or by the person's own sections (as the web's sidebar): the
+     * bar button's menu title, the second choice, and the parts Seções ends with.
      */
     view: {
       title: "Show chats",
-      sectors: "Sectors",
+      sections: "Sections",
       dms: "Direct messages",
       channels: "Channels",
     },
@@ -917,6 +924,8 @@ export const featureKeysEn = {
   },
   agent: {
     talk: "Chat",
+    /** Who answers for it, a row of its profile's card. */
+    responsible: "Owner",
     task: "Task",
     owner: "owner: {{name}}",
     cantTalk: "This agent doesn't work with you.",
@@ -1004,6 +1013,7 @@ export const featureKeysEn = {
       admin_ask_channel_agent: "{{names}} asks you to add {{agent}} to #{{label}}",
       admin_ask_create_agents: "{{names}} asks to be able to create agents",
       admin_ask_webhook: "{{names}} asks you to set up the {{service}} webhook for routines",
+      admin_ask_voice: "{{names}} asks you to turn on voice messages",
       routine_paused_one: "Routine paused",
       routine_paused_other: "Routine paused",
       routine_stalled_one: "Routine waiting for the computer",
@@ -1073,6 +1083,10 @@ export const featureKeysEn = {
       computer_disk_full_other: "A computer's disk is almost full",
       computer_no_chrome_one: "A computer needs Google Chrome. Get it at google.com/chrome",
       computer_no_chrome_other: "Computers need Google Chrome. Get it at google.com/chrome",
+      computer_down_one: "A computer isn't answering",
+      computer_down_other: "A computer isn't answering",
+      computer_back_one: "A computer is back",
+      computer_back_other: "A computer is back",
       app_created_one: "An AI app created things for you",
       app_created_other: "An AI app created things for you",
     },
@@ -1645,6 +1659,18 @@ export const featureKeysEn = {
     next: {
       pr: "Branch sent, no pull request yet",
       mergeLocal: "Ready to merge into {{base}}",
+    },
+    /** A session's terminal (the web's words are `codeTerminal.*`): the row of keys a phone keyboard lacks. */
+    terminal: {
+      keys: "Terminal keys",
+      /** The row's first button: shows or hides the phone's keyboard. */
+      keyboard: "Keyboard",
+      /** What VoiceOver says for a paste into the shell. */
+      pasteHint: "Paste what you copied into the terminal",
+      key: {
+        CtrlC: "Control-C, interrupt",
+        CtrlD: "Control-D, end of input",
+      },
     },
   },
   // The task manager (ADR 0128; the rest of its words are shared, `taskManager.*`).
@@ -2256,6 +2282,8 @@ export const featureKeysEn = {
       tool_request: "{{names}} asks you to turn on {{tool}} on your {{device}}",
       cli_request: "{{names}} asks you to install {{tool}} on your {{device}}",
       folder_request: "{{names}} asks for the folder {{path}} on your {{device}}",
+      /** Once, for a computer paired before agents could use a person's internet (ADR 0237). */
+      internet_shared: "Agents now open websites through the internet of {{device}}",
       allowOnce: "Allow once",
       always: "Always allow {{name}}",
       no: "No",
@@ -3029,11 +3057,12 @@ export const featureKeysEn = {
     formatAuto: "{{name}} picks the best one",
     /** New widget's card, which is the form. */
     newWidget: {
-      alerts: "Alerts",
       realData: "Real data",
       editAsk: "Change the ask",
       asked: "“{{ask}}”",
-      autoFormat: "Auto format",
+      testReal: "Test with real data",
+      addHome: "Add to Home",
+      addTo: "Add to {{where}}",
     },
     /** "Who looks after it", pushed from New widget's card. */
     agentPick: {
@@ -3505,6 +3534,8 @@ export const featureKeysEn = {
       key: "API key",
       keyDefault: "workspace default",
       api: "API",
+      /** Before a pick takes a login another agent thinks with: `agent` is that agent. */
+      asksMove: "{{agent}} stops using it.",
     },
     /** A mission's AI, on its screen. */
     missionAi: "AI",

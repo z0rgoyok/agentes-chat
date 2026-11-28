@@ -20,7 +20,7 @@ import { until } from "./until";
 const REACH_TEXT =
   "With Tailscale, a private network for your devices: your phone and the people you invite join it, and nobody else can reach agentes.chat.";
 const USAGE_TEXT =
-  "Counts such as people, agents, machine sizes, AI tokens used and how much data the agents' browsers send and receive. Never messages, files, names or sites.";
+  "Counts such as people, agents, machine sizes, AI tokens used, how much data the agents' browsers send and receive, and how fast the apps open and run. Never messages, files, names or sites.";
 
 /** The first run on a fake host, with what it opened in the browser and in Tailscale; `host` changes the host first. */
 async function firstRun(
@@ -366,23 +366,25 @@ describe("Where will your workspace live?", () => {
         // No pick, then a button: each place is the way on, a chevron at its end.
         expect(el.querySelector('[role="radio"]')).toBeNull();
         expect(el.querySelector(".dk-choose__list ~ button.dk-btn-lg")).toBeNull();
-        const rows = [...el.querySelectorAll<HTMLButtonElement>("button.dk-choose__place")];
+        const rows = [...el.querySelectorAll<HTMLElement>(".dk-choose__list .ac-optrow")];
         expect(rows.map((r) => r.querySelector(".ac-optrow__title")?.textContent)).toEqual([
           "In the agentes.chat cloudRecommended",
           "On this Mac",
           "On a server or VPS",
         ]);
-        expect(rows.every((r) => r.querySelector(".dk-choose__chev"))).toBe(true);
-        // Recommended in words after the cloud's name, never a pill; nothing says "free".
-        expect(rows[0]?.querySelector(".dk-choose__rec")?.textContent).toBe("Recommended");
-        expect(el.querySelector(".ac-chip")).toBeNull();
+        expect(rows.every((r) => r.querySelector(".ac-optrow__go"))).toBe(true);
+        // Recommended on the cloud's row in the kit's tag, as on the web; nothing says "free".
+        expect(
+          [...el.querySelectorAll(".ac-chip")].map((c) => c.closest(".ac-optrow") === rows[0] && c.textContent),
+        ).toEqual(["Recommended"]);
         expect(el.textContent).not.toContain("Free");
+        const buttons = rows.map((r) => r.querySelector<HTMLButtonElement>(".ac-optrow__hit"));
         const place = () => el.querySelector(".ac-place")?.getAttribute("data-place");
         expect(place()).toBe("cloud");
-        await act(async () => rows[1]?.focus());
+        await act(async () => buttons[1]?.focus());
         expect(place()).toBe("here");
         expect(el.querySelector(".ac-place canvas.ac-computer")?.getAttribute("data-kind")).toBe("mac");
-        await act(async () => rows[2]?.focus());
+        await act(async () => buttons[2]?.focus());
         expect(place()).toBe("box");
         expect(el.querySelector(".ac-place canvas.ac-computer")?.getAttribute("data-kind")).toBe("linux");
         await press("In the agentes.chat cloud");
@@ -401,7 +403,7 @@ describe("Where will your workspace live?", () => {
 
   test("on Windows, this PC by its own words and drawing, and its row goes to getting it ready", () =>
     firstRun("windows", async ({ el, press }) => {
-      const pc = [...el.querySelectorAll<HTMLButtonElement>("button.dk-choose__place")].find((r) =>
+      const pc = [...el.querySelectorAll<HTMLButtonElement>(".dk-choose__list .ac-optrow__hit")].find((r) =>
         r.textContent?.includes("On this PC"),
       );
       await act(async () => pc?.focus());

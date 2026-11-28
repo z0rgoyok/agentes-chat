@@ -1,6 +1,6 @@
-import { type Agent, useUpdateAgent } from "@agenteschat/client";
+import { type Agent, useSettings, useUpdateAgent } from "@agenteschat/client";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { readBudget } from "@agenteschat/client/lib/new-agent";
+import { readBudget, workspaceBudgetText } from "@agenteschat/client/lib/new-agent";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, TextInput, View } from "react-native";
@@ -59,10 +59,12 @@ export function BudgetField({
  * field is left, with a toast, a group of the form as every other (its header, the field, the note under it).
  */
 export function BudgetSection({ agent }: { agent: Agent }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const toast = useToast();
   const failed = useFailed();
-  const update = useUpdateAgent(useOrgId(), agent.id);
+  const orgId = useOrgId();
+  const update = useUpdateAgent(orgId, agent.id);
+  const defaultBudget = useSettings(orgId).data?.defaultAgentBudgetUsd;
   const [typed, setTyped] = useState(agent.monthlyBudgetUsd == null ? "" : String(agent.monthlyBudgetUsd));
   const save = () => {
     const { amount, invalid } = readBudget(typed);
@@ -82,7 +84,7 @@ export function BudgetSection({ agent }: { agent: Agent }) {
         onChangeText={setTyped}
         onEndEditing={save}
         label={t("rightHand.settings.budget")}
-        placeholder={t("rightHand.value.budgetDefault")}
+        placeholder={workspaceBudgetText(t, i18n.language, defaultBudget)}
       />
       <GroupedFooter>{t("agent.budgetHelp", { ...agentGrammar(agent.name), ownerNote: "" }).trim()}</GroupedFooter>
     </>

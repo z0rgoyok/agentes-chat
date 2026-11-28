@@ -4,6 +4,7 @@ import { autoContextLine, type ContextLimit, contextSize } from "@agenteschat/cl
 import { planMeterText } from "@agenteschat/client/lib/plan-usage";
 import { AUTO } from "@agenteschat/client/lib/providers";
 import {
+  cx,
   Icon,
   InfoHint,
   planLevel,
@@ -85,6 +86,8 @@ export function PlanWindows({ usage, provider }: { usage: PlanUsage; provider?: 
  */
 export function BrainLine({
   label,
+  mark,
+  inner = false,
   value,
   lead,
   onOpen,
@@ -95,6 +98,10 @@ export function BrainLine({
   disabled = false,
 }: {
   label: string;
+  /** Before the name: what the line stands for (an AI's mark in "Add account"). */
+  mark?: ReactNode;
+  /** Under a line that folds open: its name starts past that line's mark. */
+  inner?: boolean;
   /** Said at the line's end, before its chevron; none for a line that only leads somewhere. */
   value?: ReactNode;
   lead?: ReactNode;
@@ -111,7 +118,16 @@ export function BrainLine({
 }) {
   const body = (
     <>
-      <span className="bd-line__k">{label}</span>
+      {mark ? (
+        <span className="bd-line__k bd-line__k--mark">
+          <span className="bd-line__mark" aria-hidden="true">
+            {mark}
+          </span>
+          <span>{label}</span>
+        </span>
+      ) : (
+        <span className="bd-line__k">{label}</span>
+      )}
       <span className="bd-line__v">
         {lead}
         <span className="bd-line__text">{value}</span>
@@ -122,7 +138,7 @@ export function BrainLine({
   return (
     <button
       type="button"
-      className="bd-line"
+      className={cx("bd-line", inner && "bd-line--inner")}
       disabled={disabled}
       onClick={onOpen}
       {...(folds

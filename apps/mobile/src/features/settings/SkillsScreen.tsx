@@ -201,19 +201,11 @@ export function SkillsScreen() {
         </View>
       ) : null}
       <GroupedFooter>{t("settings.sectionText.skills")}</GroupedFooter>
-      {scope === "personal" && list.length > 0 ? (
-        <View style={styles.note}>
-          <Note icon="lock">{t("skills.personal.note")}</Note>
-        </View>
-      ) : null}
+      {/* Why there is nothing to do here, in the footer's column under it (an icon's note started elsewhere). */}
       {!mayInstall && none ? (
-        <View style={styles.note}>
-          <Note icon="lock">{t("settings.readOnly")}</Note>
-        </View>
+        <GroupedFooter>{t("settings.readOnly")}</GroupedFooter>
       ) : unavailable ? (
-        <View style={styles.note}>
-          <Note icon="info">{t("skills.unavailable")}</Note>
-        </View>
+        <GroupedFooter>{t("skills.unavailable")}</GroupedFooter>
       ) : (
         <>
           {scope === "team" && settings.data ? (
@@ -276,6 +268,8 @@ export function SkillsScreen() {
               ))}
             </GroupedList>
           ) : null}
+          {/* Personal's rule under its skills, as a group's footer (Connectors says its own the same way). */}
+          {scope === "personal" && shown.length > 0 ? <GroupedFooter>{t("skills.personal.note")}</GroupedFooter> : null}
           {scope === "team" && others.length > 0 ? (
             <>
               <GroupedHeader>{`${t("skills.personal.others")} · ${others.length}`}</GroupedHeader>
@@ -840,16 +834,19 @@ const REPOS_SHOWN = 30;
  */
 export function InstallSkillScreen({
   initialUrl,
+  initialFile,
   forAgentId,
   scope,
 }: {
   initialUrl?: string;
+  /** A .zip sent in a conversation (an agent's card): read on the server from Drive, its skills listed to pick. */
+  initialFile?: { id: string; name: string };
   forAgentId?: string;
   scope?: SkillScope;
 }) {
   return (
     <SheetHostProvider>
-      <InstallSkill initialUrl={initialUrl} forAgentId={forAgentId} startScope={scope} />
+      <InstallSkill initialUrl={initialUrl} initialFile={initialFile} forAgentId={forAgentId} startScope={scope} />
     </SheetHostProvider>
   );
 }
@@ -861,10 +858,12 @@ export function InstallSkillScreen({
  */
 function InstallSkill({
   initialUrl,
+  initialFile,
   forAgentId,
   startScope,
 }: {
   initialUrl?: string;
+  initialFile?: { id: string; name: string };
   forAgentId?: string;
   startScope?: SkillScope;
 }) {
@@ -909,6 +908,11 @@ function InstallSkill({
   /** The agent what installs from `link` goes on for, when the row shows it and is checked. */
   const sendFor = (link: string) =>
     turnOn && cardLink !== undefined && link.trim() === cardLink ? forAgentId : undefined;
+  /** The list is the card's .zip (`initialFile`), read on the server: its picks name it again. */
+  const [fileListed, setFileListed] = useState(false);
+  /** The card's .zip is the one on the zip tab (no other file picked), and the row for its agent shows. */
+  const cardFile = initialFile && !zip ? initialFile : undefined;
+  const forFileCard = Boolean(cardFile && forAgentId && forName);
   const busy = action.isPending || sending !== null;
   const timerStep = useStepText(busy && sending === null, [
     t("skills.installStep.fetching"),
@@ -959,9 +963,33 @@ function InstallSkill({
       },
     );
   };
-  // An agent's card: its link read once, its skills listed to pick.
+  /** Reads the card's .zip on the server and lists its skills to pick (one picked already). */
+  const readFile = (fileId: string) => {
+    setError(null);
+    action.mutate(
+      { type: "import", input: { fileId, list: true, ...mine } },
+      {
+        onSuccess: (result) => {
+          const found = skillPickOf(result);
+          if (!found) return done(result);
+          setChoices(found.choices);
+          setSkipped(found.skipped);
+          setVia(null);
+          setFileListed(true);
+          setPicked(new Set(found.choices.length === 1 ? found.choices.map((c) => c.path) : []));
+        },
+        onError: (e) => setError(errorText(t, e, i18n.language, { maxMb: SKILL_ZIP_MB })),
+      },
+    );
+  };
+  // An agent's card: its link or its .zip read once, its skills listed to pick.
   // biome-ignore lint/correctness/useExhaustiveDependencies: on opening only
   useEffect(() => {
+    if (initialFile) {
+      setTab("zip");
+      readFile(initialFile.id);
+      return;
+    }
     if (!initialUrl || !isGithubSkillLink(initialUrl)) return;
     setUrl(initialUrl);
     read(initialUrl, true);
@@ -988,6 +1016,38 @@ function InstallSkill({
   };
   const found = searchRepos(repos.data, q).flatMap((a) => a.repositories);
   const total = (repos.data?.accounts ?? []).reduce((n, a) => n + a.repositories.length, 0);
+  /** The skills a link or the card's .zip holds, each checked to install, and those that can't be, with why. */
+  const pickRows = choices ? (
+    <GroupedList>
+      <GroupedRow
+        label={t("skills.pickAll")}
+        checked={picked.size === choices.length}
+        onPress={() =>
+          togglePick(
+            choices.map((c) => c.path),
+            picked.size < choices.length,
+          )
+        }
+      />
+      {choices.map((c) => (
+        <GroupedRow
+          key={c.path}
+          label={c.name}
+          sub={
+            c.replaces
+              ? `${t(c.replaces === "removed" ? "skills.pickReplacesRemoved" : "skills.pickReplaces", { name: c.name })}\n${c.description}`
+              : c.description
+          }
+          subLines={c.replaces ? 3 : 2}
+          checked={picked.has(c.path)}
+          onPress={() => togglePick([c.path], !picked.has(c.path))}
+        />
+      ))}
+      {skipped.map((s) => (
+        <GroupedRow key={s.path} label={s.path} sub={skippedSkillText(t, s)} subLines={3} disabled />
+      ))}
+    </GroupedList>
+  ) : null;
   const pickZip = async () => {
     const res = await DocumentPicker.getDocumentAsync({
       type: ["application/zip", "application/x-zip-compressed"],
@@ -998,6 +1058,9 @@ function InstallSkill({
     if (!a) return;
     setZip({ uri: a.uri, name: a.name, size: a.size });
     setError(null);
+    // Another .zip in place of the card's: its list goes.
+    setChoices(null);
+    setFileListed(false);
   };
   const submit = async () => {
     if (busy) return;
@@ -1029,6 +1092,37 @@ function InstallSkill({
       );
       return;
     }
+    if (tab === "zip" && cardFile) {
+      if (!choices || !fileListed) {
+        readFile(cardFile.id);
+        return;
+      }
+      if (picked.size === 0) {
+        setError(t("skills.pickMissing"));
+        return;
+      }
+      const paths = choices.map((c) => c.path).filter((p) => picked.has(p));
+      action.mutate(
+        {
+          type: "importPickedFile",
+          fileId: cardFile.id,
+          paths,
+          ...(turnOn && forFileCard ? { forAgentId } : {}),
+          ...mine,
+        },
+        {
+          onSuccess: (installed) => {
+            const list = installed as SkillDetail[];
+            if (list.length === 1) return done(list[0]);
+            successHaptic();
+            toast({ title: t("skills.installedMany", { count: list.length }), icon: "check" });
+            goBack();
+          },
+          onError,
+        },
+      );
+      return;
+    }
     if (tab === "zip") {
       if (!zip) {
         setError(t("skills.zipMissing"));
@@ -1053,7 +1147,12 @@ function InstallSkill({
       action.mutate(
         { type: "import", input: { zipBase64, ...mine }, upload: { signal: stopper.signal, onProgress: setSending } },
         {
-          onSuccess: done,
+          // A .zip of several skills answers with them to pick: picked on the web's dialog, for now.
+          onSuccess: (result) => {
+            const found = skillPickOf(result);
+            if (!found) return done(result);
+            setError(t("skills.zipManyHere", { count: found.choices.length }));
+          },
           onError: (e) => {
             if (!stopper.signal.aborted) setError(errorText(t, e, i18n.language, { maxMb: SKILL_ZIP_MB }));
           },
@@ -1153,7 +1252,7 @@ function InstallSkill({
             onSubmitEditing={() => void submit()}
             accessibilityLabel={t("skills.githubUrl")}
           />
-          {choices ? (
+          {choices && !fileListed ? (
             <GroupedFooter>{t("skills.pickLead", { count: choices.length + skipped.length })}</GroupedFooter>
           ) : null}
           {said ? (
@@ -1177,36 +1276,8 @@ function InstallSkill({
               <Note icon={<SocialMark provider="github" color={c.muted} size={15} />}>{skillViaText(t, via, url)}</Note>
             </View>
           ) : null}
-          {choices ? (
-            <GroupedList>
-              <GroupedRow
-                label={t("skills.pickAll")}
-                checked={picked.size === choices.length}
-                onPress={() =>
-                  togglePick(
-                    choices.map((c) => c.path),
-                    picked.size < choices.length,
-                  )
-                }
-              />
-              {choices.map((c) => (
-                <GroupedRow
-                  key={c.path}
-                  label={c.name}
-                  sub={
-                    c.replaces
-                      ? `${t(c.replaces === "removed" ? "skills.pickReplacesRemoved" : "skills.pickReplaces", { name: c.name })}\n${c.description}`
-                      : c.description
-                  }
-                  subLines={c.replaces ? 3 : 2}
-                  checked={picked.has(c.path)}
-                  onPress={() => togglePick([c.path], !picked.has(c.path))}
-                />
-              ))}
-              {skipped.map((s) => (
-                <GroupedRow key={s.path} label={s.path} sub={skippedSkillText(t, s)} subLines={3} disabled />
-              ))}
-            </GroupedList>
+          {choices && !fileListed ? (
+            pickRows
           ) : admin && repos.data?.connected ? (
             <>
               <GroupedHeader>{t("skills.connectedRepos")}</GroupedHeader>
@@ -1262,12 +1333,27 @@ function InstallSkill({
                   ? zip.size === undefined
                     ? zip.name
                     : `${zip.name} · ${formatBytes(i18n.language, zip.size)}`
-                  : t("skills.zipNone")
+                  : (cardFile?.name ?? t("skills.zipNone"))
               }
               chevron
               onPress={() => void pickZip()}
             />
           </GroupedList>
+          {choices && fileListed ? (
+            <>
+              <GroupedFooter>{t("skills.pickLeadZip", { count: choices.length + skipped.length })}</GroupedFooter>
+              {pickRows}
+            </>
+          ) : null}
+          {forFileCard && fileListed ? (
+            <GroupedList>
+              <GroupedRow
+                label={t("skills.forAgent", { agent: forName, count: Math.max(picked.size, 1) })}
+                checked={turnOn}
+                onPress={() => setTurnOn((on) => !on)}
+              />
+            </GroupedList>
+          ) : null}
           <GroupedFooter
             hint={{
               name: t("common.about", { label: t("skills.tab.zip") }),

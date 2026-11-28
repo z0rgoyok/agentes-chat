@@ -412,6 +412,26 @@ export const agentRunSteps = pgTable(
   ],
 );
 
+/**
+ * What a person's message asked for (ADR 0254), as Jev read it when its first run started: `chat`, `question`,
+ * `lookup`, `action`, `task` or `project` (`ASK_KINDS`), with the chance of that kind. The operator's time per task
+ * reads it; its times come from the runs and messages of the ask's stretch. One row per ask (a message is partitioned,
+ * so no foreign key to it); none where Jev wasn't asked or didn't answer.
+ */
+export const askKinds = pgTable(
+  "ask_kinds",
+  {
+    messageId: uuid().primaryKey(),
+    orgId: uuid()
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    kind: text().notNull(),
+    p: real().notNull(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index().on(t.orgId, t.createdAt)],
+);
+
 /** `image`: pictures made through the gateway (ADR 0197), billed like an agent's own calls when an agent asked. */
 export const usageKindEnum = pgEnum("usage_kind", ["agent", "router", "embedding", "summary", "image"]);
 
@@ -718,6 +738,11 @@ export const approvals = pgTable(
     decidedForUserId: text(),
     /** Canceled because the agent asked the same action again in a later turn: the newer request. */
     supersededById: uuid(),
+    /**
+     * The other runs' requests its run was told were already waiting in its conversation when it started (`heldHere`,
+     * ADR 0182 addendum of 2026-11-24): once approved, it runs only after these settle. Emptied by "Rodar este agora".
+     */
+    afterIds: uuid().array().notNull().default(sql`'{}'::uuid[]`),
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [

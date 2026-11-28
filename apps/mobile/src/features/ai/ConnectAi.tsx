@@ -12,6 +12,7 @@ import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
   aiStateOf,
   choiceOfIntent,
+  connectsPlanFor,
   freePlanAccount,
   noAiLockedLine,
   PLAN_CHOICES,
@@ -33,14 +34,18 @@ import {
   thinksWithLine,
 } from "@agenteschat/client/lib/right-hand";
 import { useQueryClient } from "@tanstack/react-query";
-import { useLocalSearchParams } from "expo-router";
+import { useIsFocused, useLocalSearchParams } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import type { TFunction } from "i18next";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
+import Animated, { useAnimatedReaction } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { scheduleOnRN } from "react-native-worklets";
 import { useOrg } from "@/providers/org";
-import { Button, GroupedFooter, SkeletonList, useToast } from "@/ui";
+import { Button, SkeletonList, Text, useToast } from "@/ui";
+import { CoverBarBackdrop, useCoverScroll } from "@/ui/cover";
 import { router } from "@/ui/navigation";
 import { useColors, useDirectory, useMeId } from "../shared/hooks";
 import { BottomBar, PushedHeader } from "../shared/parts";
@@ -240,7 +245,9 @@ function FlowScreen({
   // The team's right hand thinks with each person's own AI (ADR 0137 §11): everyone's to connect for their DM.
   const mine = ask.forNew === "1" ? [] : dir.agents.filter((a) => a.ownerUserId === meId || isRightHand(a));
   const named = ask.agentId ? [ask.agentId] : null;
-  const agents = (named ? mine.filter((a) => named.includes(a.id)) : mine).map((a) => ({ id: a.id, name: a.name }));
+  const agents = (
+    named ? dir.agents.filter((a) => ask.forNew !== "1" && named.includes(a.id) && connectsPlanFor(a, meId)) : mine
+  ).map((a) => ({ id: a.id, name: a.name }));
   // The agents connected on any page of this flow think with it before the AI status says so.
   const hasAi = (id: string) => flow.linked.includes(id) || (aiStateOf(status.data, id) ?? "no_ai") !== "no_ai";
   // Settings' Sign in again: that login, on the plan's page it opened on.
@@ -285,7 +292,7 @@ function FlowScreen({
   const hasPlan = planAccount !== undefined;
   // That plan's next step is an agent that thinks with it, for whoever may make one (never over one being made).
   const makeWith = planAccount && ask.forNew !== "1" && makesAgents(org) ? planAccount : undefined;
-  // Someone else's agent: who connects a plan instead.
+  // Someone else's agent they don't manage: who connects a plan instead.
   const owner = one?.ownerUserId ? dir.memberById.get(one.ownerUserId)?.name : undefined;
   const locked =
     agents.length > 0 || bare ? undefined : one ? noAiLockedLine(t, one.name, owner) : t("noAi.lockedAdmins");
@@ -294,12 +301,23 @@ function FlowScreen({
   // Pronto: every page of the flow goes, down to its first, back to where it was opened from.
   const leave = () => router.dismiss(depth);
   const insets = useSafeAreaInsets();
+  // The first page's cover: its scroll, and the bar's title once the question under it has gone under the bar (set
+  // when the scroll crosses that line, never per frame).
+  const { y, onScroll } = useCoverScroll();
+  const [titled, setTitled] = useState(false);
+  useAnimatedReaction(
+    () => y.value > SCENE_HEIGHT + QUESTION_UNDER_BAR,
+    (now, before) => {
+      if (now !== before) scheduleOnRN(setTitled, now);
+    },
+  );
+  const focused = useIsFocused();
   const done = keySaved || planDone || accountAdded || hasPlan;
   const step = flowStep(view, done);
   const home = view.page === "home" && !done;
-  // The first page asks its question in the bar ("Como a Dora vai pensar?"), which names the agent: the line under it
-  // counts the steps alone. Past it, the bar names the page and the line the agent it is for.
-  const subtitle = [t("mobile.ai.stepOf", { step, total: FLOW_STEPS }), home ? null : (one?.name ?? null)]
+  // Where the flow stands, a line of the page (the system's bar has no line under its title): the steps alone on the
+  // first page, whose question names the agent; past it, the agent it is for too ("2 of 3 · Dora").
+  const stepLine = [t("mobile.ai.stepOf", { step, total: FLOW_STEPS }), home ? null : (one?.name ?? null)]
     .filter(Boolean)
     .join(" · ");
   const title = done
@@ -309,87 +327,132 @@ function FlowScreen({
         ? t("mobile.ai.question", agentGrammar(one.name))
         : t("mobile.ai.questionAny")
       : pageTitle(t, view);
+  const page = hold ? (
+    <PlanHoldNote org={org} inset />
+  ) : dir.loading || status.isPending ? (
+    <SkeletonList rows={3} />
+  ) : (
+    <ConnectAiPage
+      view={view}
+      go={go}
+      flowId={flowId}
+      flow={flow}
+      agents={agents}
+      hasAi={hasAi}
+      {...(ask.agentId ? { startAgentId: ask.agentId } : {})}
+      {...(ask.email ? { email: ask.email } : {})}
+      {...(again ? { again } : {})}
+      locked={locked}
+      bare={bare}
+      onAccount={() => {
+        setAccountAdded(true);
+        void qc.invalidateQueries({ queryKey: keys.aiAccounts(orgId) });
+        void qc.invalidateQueries({ queryKey: keys.brainMachines(orgId) });
+        answer();
+      }}
+      {...(one && one.ownerUserId !== meId && mayAddKey && !rightHand
+        ? { theirs: { id: one.id, name: one.name } }
+        : {})}
+      justReady={ask.ready === "1"}
+      mayAddKey={mayAddKey}
+      keyForm={form}
+      keySaved={keySaved}
+      onSaveKey={() =>
+        void form.save().then(async (key) => {
+          if (!key) return;
+          // The right hand asked for a key ("Usar uma chave de API"): the workspace's AI from now on, and the person's
+          // own DM goes back to it.
+          if (one && rightHand) {
+            const moved = await rightHandOnKey(api, orgId, one, key, models.data?.models ?? []).then(
+              () => true,
+              (error) => {
+                toast({ title: errorText(t, error), icon: "x" });
+                return false;
+              },
+            );
+            if (moved && key.check !== "unchecked")
+              form.setSavedNote(thinksWithLine(t, "workspace", one.name, key.label));
+            void qc.invalidateQueries({ queryKey: keys.agents(orgId) });
+            void qc.invalidateQueries({ queryKey: keys.agentBrain(orgId, one.id) });
+          } else await settleKey(key);
+          setKeySaved(true);
+          // Saved, and its field gone: the flow keeps no copy of the key for the next time its page opens.
+          form.setKey("");
+          answer();
+        })
+      }
+      onEndpointSaved={async (key) => {
+        await settleKey(key);
+        setKeySaved(true);
+        answer();
+      }}
+      {...(keyAgent ? { keyForLine: t("connectAi.key.forAgent", { agent: keyAgent.name }) } : {})}
+      // Computers live in the app: no site opens for one.
+      onComputer={() => router.push("/computer-setup" as never)}
+      onPlanDone={(id) => {
+        patchConnectAi(flowId, (now) => ({ linked: [...now.linked, id] }));
+        setPlanDone(true);
+        answer();
+      }}
+    />
+  );
+  if (home)
+    return (
+      <View style={[styles.screen, { backgroundColor: c.grouped }]}>
+        <Animated.ScrollView
+          onScroll={onScroll}
+          scrollEventThrottle={16}
+          keyboardShouldPersistTaps="handled"
+          automaticallyAdjustKeyboardInsets
+          contentContainerStyle={{ paddingBottom: insets.bottom + 32 }}
+        >
+          <ConnectScene y={y} height={insets.top + BAR_HEIGHT + SCENE_HEIGHT} />
+          <View style={styles.body}>
+            {/* The question under the cover, with what it leaves open, then the ways. */}
+            <View style={styles.intro}>
+              <Text variant="footnote" tone="muted">
+                {stepLine}
+              </Text>
+              <Text variant="display2" accessibilityRole="header">
+                {title}
+              </Text>
+              {hold ? null : (
+                <Text variant="subhead" tone="muted">
+                  {t("mobile.ai.questionLead")}
+                </Text>
+              )}
+            </View>
+            {page}
+          </View>
+        </Animated.ScrollView>
+        {/* What the clear bar becomes once the cover is under it (the system draws it on iOS 26). */}
+        <CoverBarBackdrop
+          y={y}
+          from={SCENE_HEIGHT - 30}
+          to={SCENE_HEIGHT + 30}
+          height={insets.top + BAR_HEIGHT}
+          tone={c.grouped}
+        />
+        {/* The clock over the night reads in white, in both themes, until the bar takes the question. */}
+        {focused && !titled ? <StatusBar style="light" /> : null}
+        {/* The system's bar, clear over the cover: no title while the question shows under it. */}
+        <PushedHeader title={titled ? title : ""} plate solid={false} />
+      </View>
+    );
   return (
     <View style={[styles.screen, { backgroundColor: c.grouped }]}>
-      <PushedHeader title={title} subtitle={subtitle} solid={false} grouped />
+      <PushedHeader title={title} solid={false} grouped />
       <ScrollView
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
         contentContainerStyle={[styles.body, { paddingBottom: insets.bottom + 32 }]}
       >
-        {view.page === "home" && !done ? <ConnectScene /> : null}
-        {/* Under the band, what the question in the bar leaves open; the ways come under it. */}
-        {home && !hold ? <GroupedFooter>{t("mobile.ai.questionLead")}</GroupedFooter> : null}
-        {hold ? (
-          <PlanHoldNote org={org} inset />
-        ) : dir.loading || status.isPending ? (
-          <SkeletonList rows={3} />
-        ) : (
-          <ConnectAiPage
-            view={view}
-            go={go}
-            flowId={flowId}
-            flow={flow}
-            agents={agents}
-            hasAi={hasAi}
-            {...(ask.agentId ? { startAgentId: ask.agentId } : {})}
-            {...(ask.email ? { email: ask.email } : {})}
-            {...(again ? { again } : {})}
-            locked={locked}
-            bare={bare}
-            onAccount={() => {
-              setAccountAdded(true);
-              void qc.invalidateQueries({ queryKey: keys.aiAccounts(orgId) });
-              void qc.invalidateQueries({ queryKey: keys.brainMachines(orgId) });
-              answer();
-            }}
-            {...(one && one.ownerUserId !== meId && mayAddKey && !rightHand
-              ? { theirs: { id: one.id, name: one.name } }
-              : {})}
-            justReady={ask.ready === "1"}
-            mayAddKey={mayAddKey}
-            keyForm={form}
-            keySaved={keySaved}
-            onSaveKey={() =>
-              void form.save().then(async (key) => {
-                if (!key) return;
-                // The right hand asked for a key ("Usar uma chave de API"): the workspace's AI from now on, and the person's
-                // own DM goes back to it.
-                if (one && rightHand) {
-                  const moved = await rightHandOnKey(api, orgId, one, key, models.data?.models ?? []).then(
-                    () => true,
-                    (error) => {
-                      toast({ title: errorText(t, error), icon: "x" });
-                      return false;
-                    },
-                  );
-                  if (moved && key.check !== "unchecked")
-                    form.setSavedNote(thinksWithLine(t, "workspace", one.name, key.label));
-                  void qc.invalidateQueries({ queryKey: keys.agents(orgId) });
-                  void qc.invalidateQueries({ queryKey: keys.agentBrain(orgId, one.id) });
-                } else await settleKey(key);
-                setKeySaved(true);
-                // Saved, and its field gone: the flow keeps no copy of the key for the next time its page opens.
-                form.setKey("");
-                answer();
-              })
-            }
-            onEndpointSaved={async (key) => {
-              await settleKey(key);
-              setKeySaved(true);
-              answer();
-            }}
-            {...(keyAgent ? { keyForLine: t("connectAi.key.forAgent", { agent: keyAgent.name }) } : {})}
-            // Computers live in the app: no site opens for one.
-            onComputer={() => router.push("/computer-setup" as never)}
-            onPlanDone={(id) => {
-              patchConnectAi(flowId, (now) => ({ linked: [...now.linked, id] }));
-              setPlanDone(true);
-              answer();
-            }}
-          />
-        )}
+        {/* A plan's page opens on its mark, centred: its line is too. */}
+        <Text variant="footnote" tone="muted" style={[styles.step, view.page === "plan" ? styles.center : null]}>
+          {stepLine}
+        </Text>
+        {page}
       </ScrollView>
       {done ? (
         // The last step's one button, pinned at the screen's foot.
@@ -415,8 +478,19 @@ function FlowScreen({
   );
 }
 
+/** The bar's height, and the first page's cover under it (the scene at its foot). */
+const BAR_HEIGHT = 44;
+const SCENE_HEIGHT = 150;
+/** How far the question scrolls past the cover's foot before the bar takes it as its title. */
+const QUESTION_UNDER_BAR = 70;
+
 const styles = StyleSheet.create({
   screen: { flex: 1 },
   body: { paddingHorizontal: 16, paddingTop: 4 },
+  // The first page's step, question and what it leaves open, in the lists' text column, 20 clear of the list.
+  intro: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 20, gap: 6 },
+  // Past it, where the flow stands at the top of the page, in the same column.
+  step: { paddingHorizontal: 16, paddingBottom: 12 },
+  center: { textAlign: "center" },
   foot: { gap: 8 },
 });

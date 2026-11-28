@@ -21,6 +21,8 @@ export interface LodiPrefs {
   dayHour: number;
   digestOff: boolean;
   remindOff: boolean;
+  /** "Learns from your conversations", off. Absent from an older server: on. */
+  learnOff: boolean;
   timezone: string;
   dayTimezone: string;
   /** The switches whose feature the server has. None from an older server. */
@@ -57,6 +59,7 @@ export function lodiPrefsOf(raw: unknown): LodiPrefs {
     dayHour: r.dayHour ?? r.hour ?? 9,
     digestOff: r.digestOff === true,
     remindOff: r.remindOff === true,
+    learnOff: r.learnOff === true,
     timezone,
     dayTimezone: r.dayTimezone ?? timezone,
     switches: Array.isArray(r.switches) ? r.switches : [],

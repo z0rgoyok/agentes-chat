@@ -166,7 +166,9 @@ describe("pairing from the app", () => {
       expect(el.textContent).toContain(
         "Only if you want this Mac to do agents' work too. With Not now you still use Estúdio Norte here as usual.",
       );
-      expect(rowOf(el, "Who can use it")?.querySelector('[role="combobox"]')?.textContent).toBe("Only me");
+      // Who can use it comes once it's in, not before Allow.
+      expect(rowOf(el, "Who can use it")).toBeUndefined();
+      expect(el.querySelector('[role="combobox"]')).toBeNull();
       expect(rowOf(el, "Keep it ready: open agentes.chat at login")?.querySelector('[role="checkbox"]')).toBeTruthy();
       expect(el.textContent).toContain("What agents can do here");
       expect(el.textContent).toContain("No folders of yours yet. Add them later in Preferences\u00a0›\u00a0Folders.");
@@ -188,8 +190,23 @@ describe("pairing from the app", () => {
       expect(host.site.calls.filter((c) => c.method === "POST").map((c) => c.path)).toEqual([
         expect.stringMatching(/^\/api\/app\/organizations\/o-norte\/machines\/device\/[A-Z0-9]{6}\/confirm$/),
       ]);
-      // Only me is the server's own default: nothing else is set.
+      // It joins as the person's alone; one switch over the permissions shares it, saved at once.
       expect(host.site.calls.some((c) => c.method === "PATCH")).toBe(false);
+      const share = rowOf(el, "Let the whole workspace use it");
+      expect(share?.querySelector('[role="switch"]')?.getAttribute("aria-checked")).toBe("false");
+      expect(share?.textContent).toContain("Only you for now");
+      await act(async () => toggle(el, "Let the whole workspace use it"));
+      await until(() => host.site.calls.some((c) => c.method === "PATCH"));
+      expect(host.site.calls.filter((c) => c.method === "PATCH")).toEqual([
+        {
+          method: "PATCH",
+          path: expect.stringMatching(/^\/api\/app\/organizations\/o-norte\/devices\/computers\/[^/]+$/),
+          body: { audience: { mode: "everyone", userIds: [], roleIds: [] } },
+        },
+      ]);
+      await until(() =>
+        rowOf(el, "Let the whole workspace use it")?.textContent?.includes("Everyone in Estúdio Norte"),
+      );
       const norte = () => pairedHomes(store.getSnapshot()).find((h) => h.status?.org?.id === "o-norte");
       await until(() => norte()?.access?.tools.browser === true);
       expect(norte()?.access?.tools).toMatchObject({ claude: true, codex: false, commands: false, browser: true });
@@ -289,6 +306,7 @@ describe("pairing from the app", () => {
         writePref(MAC_ASKED_PREF, { version: "0.6.0", asked: ["screen", "network"] });
         await act(async () => button(el, "Allow")?.click());
         await until(() => el.querySelector("h1")?.textContent === "Connected to Estúdio Norte");
+        expect(rowOf(el, "Let the whole workspace use it")?.querySelector('[role="switch"]')).toBeTruthy();
       },
       { macReady: true },
     );

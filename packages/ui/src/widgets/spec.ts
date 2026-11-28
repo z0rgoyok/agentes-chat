@@ -49,6 +49,8 @@ export interface KpiWidgetSpec {
   note?: string;
   /** A small trend, oldest first. */
   spark?: number[];
+  /** What each `spark` point is (its date, mostly), one per number: hover or tap on the trend shows it with the value. */
+  sparkLabels?: string[];
 }
 
 /** Progress towards a goal. */
@@ -298,6 +300,16 @@ export function validateWidgetSpec(raw: unknown, options: { clipNotes?: boolean 
         if (spark === null) return { ok: false, error: `\`spark\` is at most ${WIDGET_LIMITS.spark} numbers.` };
         if (spark.length >= 2) spec.spark = spark;
       }
+      if (spec.spark && raw.sparkLabels !== undefined && raw.sparkLabels !== null) {
+        const names = labels(raw.sparkLabels);
+        if (names === null || names.length !== spec.spark.length) {
+          return {
+            ok: false,
+            error: "`sparkLabels` names each `spark` number (its date, mostly): one label per number.",
+          };
+        }
+        spec.sparkLabels = names;
+      }
       return { ok: true, spec };
     }
     case "goal": {
@@ -433,7 +445,11 @@ export function chartBlockToWidgetSpec(chart: unknown): { title: string; spec: W
       if (split.note) candidate.note = split.note;
     } else if (subtitle) candidate.note = subtitle;
     const spark = numbers(first, WIDGET_LIMITS.spark);
-    if (spark && spark.length >= 2) candidate.spark = spark;
+    if (spark && spark.length >= 2) {
+      candidate.spark = spark;
+      const names = labels(raw.labels);
+      if (names && names.length === spark.length) candidate.sparkLabels = names;
+    }
   } else if (type === "bar" || type === "pie") {
     candidate = { kind: "bars", labels: raw.labels, values: first, unit, note: subtitle };
   } else if (type === "line") {
@@ -494,6 +510,10 @@ export function exampleWidgetSpec(kind: WidgetKind, words: ExampleWords): Widget
       return { kind, items: [...words.items] };
   }
 }
+
+/** A number's value `n` (formatted) with its prefix and its suffix, as words read it: "R$ 1.800", "7%", "$ 45.3 k". */
+export const kpiText = (spec: KpiWidgetSpec, n: string): string =>
+  `${spec.prefix ? `${spec.prefix} ` : ""}${n}${!spec.suffix ? "" : spec.suffix === "%" ? "%" : ` ${spec.suffix}`}`;
 
 /** One line for a history row or a notification: the spec's headline in plain words (numbers unformatted). */
 export function specHeadline(spec: WidgetSpec): string {

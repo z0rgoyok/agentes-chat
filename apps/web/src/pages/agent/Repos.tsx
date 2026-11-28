@@ -1,4 +1,4 @@
-import type { GitHubRepositories } from "@agenteschat/client";
+import type { GitHostAccount } from "@agenteschat/client";
 import {
   useAgentMergeRepos,
   useGitHubApp,
@@ -8,8 +8,10 @@ import {
 } from "@agenteschat/client";
 import { can as orgCan } from "@agenteschat/client/lib/permissions";
 import {
+  accountPrefix,
   applyPick,
   covers,
+  hostAccounts,
   isAccount,
   makeFirst,
   mergeChoices,
@@ -287,14 +289,17 @@ function AccountRows({
   all,
   onToggle,
 }: {
-  account: GitHubRepositories["accounts"][number];
+  account: GitHostAccount;
   query: string;
   list: string[];
   all: boolean;
   onToggle: (entry: string, on: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const whole = `${account.login}/*`;
+  const whole = `${accountPrefix(account)}/*`;
+  // Another git host's group says which host it is; GitHub's accounts stay as they were.
+  const elsewhere = Boolean(account.host && account.host !== "github");
+  const heading = elsewhere ? `${account.hostLabel ?? account.host} · ${account.login}` : account.login;
   const same = (a: string | undefined, b: string) => a?.toLowerCase() === b.toLowerCase();
   const wholeOn = list.some((e) => same(e, whole));
   const startsHere = (entry: string) =>
@@ -307,8 +312,8 @@ function AccountRows({
   if (repos.length === 0 && query) return null;
   const id = (s: string) => `repo-${s.replace(/[^a-zA-Z0-9]/g, "-")}`;
   return (
-    <section className="agp-repogroup" aria-label={account.login}>
-      <p className="ac-eyebrow">{account.login}</p>
+    <section className="agp-repogroup" aria-label={heading}>
+      <p className="ac-eyebrow">{heading}</p>
       {!query && (
         <label htmlFor={id(whole)} className="scope-row" data-off={all || undefined}>
           <Checkbox
@@ -335,7 +340,7 @@ function AccountRows({
           />
           <Icon name={r.private ? "lock" : "globe"} size={16} />
           <span className="scope-row__text">
-            <b>{r.fullName}</b>
+            <b>{elsewhere ? `${account.login}/${r.name}` : r.fullName}</b>
             <span className="small muted">{r.private ? t("repos.private") : t("repos.public")}</span>
           </span>
           {startsHere(r.fullName)}
@@ -372,7 +377,7 @@ export function RepoDialog({
   );
   const [q, setQ] = useState("");
   const query = q.trim().toLowerCase();
-  const accounts = listing.data?.accounts ?? [];
+  const accounts = hostAccounts(listing.data);
   const matches = accounts.some((a) => a.repositories.some((r) => !query || r.fullName.toLowerCase().includes(query)));
   const canInstall = orgCan(org, "manage_connectors") && app.data?.installable === true;
   const exists = (e: string) => repoExists(listing.data, e);
@@ -446,7 +451,7 @@ export function RepoDialog({
         >
           {accounts.map((a) => (
             <AccountRows
-              key={a.login}
+              key={accountPrefix(a)}
               account={a}
               query={query}
               list={pick.list}

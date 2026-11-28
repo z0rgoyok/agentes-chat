@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { ASK_IN_CHAT, approvalMessage, PLAN_MESSAGE } from "@agenteschat/adapters/command-policy";
 import { type MachineRequest, parseBrainEvent } from "@agenteschat/adapters/machine-protocol";
@@ -11,6 +11,7 @@ import {
   codexThreadKey,
   codexThreadsFile,
   handleCodexBrainTurn,
+  runCodexTurn,
 } from "../../runner/brain-codex";
 import {
   approvalCalls,
@@ -23,7 +24,6 @@ import {
   DECLINED_PREFIX,
   decideApproval,
 } from "../../runner/brain-codex-app";
-import { CODEX_WINDOWS_CONFIG } from "../../runner/codex-windows";
 import { handleRequest } from "../../runner/handlers";
 import { CODEX_MCP_SERVER, type IpcReply, type McpTaskInfo } from "../../runner/mcp";
 import { agentWorkspace } from "../../runner/paths";
@@ -689,12 +689,59 @@ test("an approval's line is judged as its shell runs it: a comment hides no line
   expect(await plan(pwsh)).toBe("decline");
 });
 
-test("Windows: the app-server names MXC and nothing asks (the command policy doesn't read PowerShell)", () => {
+test("Windows: the app-server names the turn's sandbox and nothing asks (the command policy doesn't read PowerShell)", () => {
   expect(codexThreadPolicy("work", true)).toEqual({ sandbox: "workspace-write", approvalPolicy: "never" });
   expect(codexThreadPolicy("plan", true)).toEqual({ sandbox: "read-only", approvalPolicy: "never" });
-  const args = codexAppServerArgs({ processId: "p", windows: true });
-  for (const c of CODEX_WINDOWS_CONFIG) expect(args).toContain(c);
+  for (const sandbox of ["mxc", "unelevated"] as const) {
+    const args = codexAppServerArgs({ processId: "p", windows: sandbox, writableRoots: ["C:\\d"] });
+    expect(args.filter((a) => a.startsWith("windows.sandbox="))).toEqual([`windows.sandbox="${sandbox}"`]);
+    // Every other limit stays: no network, no folder but the agent's.
+    expect(args).toContain("sandbox_workspace_write.network_access=false");
+    expect(args).toContain('sandbox_workspace_write.writable_roots=["C:\\\\d"]');
+  }
   expect(codexAppServerArgs({ processId: "p" }).join(" ")).not.toContain("windows.sandbox");
+});
+
+test.skipIf(!posix)("Windows: the app-server a turn starts names the sandbox chosen on that computer", async () => {
+  const t = await setup();
+  // A `codex.exe` the Windows lookup finds (the fake's launcher under that name).
+  const exe = path.join(t.root, "codex.exe");
+  copyFileSync(t.ctx.bin, exe);
+  chmodSync(exe, 0o755);
+  const events: CodexBrainEvent[] = [];
+  await runCodexTurn(
+    {
+      runId: run(1),
+      sessionId: SESSION,
+      cwd: path.join(t.folder, "app"),
+      system: "You are Dev.",
+      prompt: "Say pong",
+      mcp: { token: "tok_run_1" },
+      agentId: AGENT.id,
+      folder: t.folder,
+    },
+    {
+      threads: new CodexThreads(codexThreadsFile(t.home)),
+      workDir: path.join(t.home, "brain", "turns", run(1)),
+      emit: (e) => events.push(e),
+      signal: new AbortController().signal,
+      runnerHome: t.home,
+      mcpCommand: t.ctx.mcp.command,
+      socketPath: t.ctx.mcp.socketPath,
+      codexVersion: t.ctx.codexVersion,
+      bin: exe,
+      app: t.app,
+      platform: "win32",
+      windowsSandbox: async () => "unelevated",
+    },
+  );
+  expect(events.at(-1)).toMatchObject({ type: "done", text: "pong" });
+  const [proc] = t.starts();
+  expect(proc?.start).toBe("app-server");
+  const args = (proc?.args ?? []) as string[];
+  expect(args.filter((a) => a.startsWith("windows.sandbox="))).toEqual(['windows.sandbox="unelevated"']);
+  expect(args).toContain("sandbox_workspace_write.network_access=false");
+  expect(t.rpcs("thread/start")[0]).toMatchObject({ sandbox: "workspace-write", approvalPolicy: "never" });
 });
 
 test("an approval is judged on its script exactly: a second line is a second command", async () => {
@@ -850,6 +897,21 @@ test.skipIf(!posix)(
   },
   20_000,
 );
+
+test("reasoning summaries: their deltas or the item's parts become notes when the item completes", () => {
+  const m = new CodexAppMapper({ cwd: "", redact: (s) => s.replaceAll("sk-fake-123", "[key]") });
+  m.summaryDelta({ itemId: "r1", summaryIndex: 0, delta: "Checking the " });
+  m.summaryDelta({ itemId: "r1", summaryIndex: 0, delta: "tests." });
+  m.summaryDelta({ itemId: "r1", summaryIndex: 1, delta: "Then the key sk-fake-123." });
+  expect(m.completed({ id: "r1", type: "reasoning", summary: [] }).events).toEqual([
+    { type: "note", text: "Checking the tests." },
+    { type: "note", text: "Then the key [key]." },
+  ]);
+  // The item's own parts win; a part with nothing in it is no note.
+  expect(m.completed({ id: "r2", type: "reasoning", summary: ["Opening the report.", " "] }).events).toEqual([
+    { type: "note", text: "Opening the report." },
+  ]);
+});
 
 test("a refusal known by its words after a command says the turn worked", () => {
   const m = new CodexAppMapper({ cwd: "" });

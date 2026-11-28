@@ -661,6 +661,29 @@ export const en = {
       /** The picture's alt text: the assistant beside the phone, switched off. */
       picture: "Your assistant, no longer on your phone",
     },
+    /** Chooses the PIN that confirms acts from the surface (ADR 0226): `url`, the page that does it once. */
+    pinReset: {
+      subject: (surface: string) => `Choose your ${surface} PIN`,
+      preheader: "Choose the PIN that approves actions from your chat app.",
+      headline: (surface: string) => `Choose your ${surface} PIN`,
+      body: (surface: string) =>
+        `Someone asked for a link to choose the PIN you use to approve actions from ${surface}. If it was you, choose it on the page this button opens.`,
+      button: "Choose my PIN",
+      small: "The link works once, for one hour. If it wasn't you, ignore this email. Nothing changes.",
+      why: (surface: string) => `You got this email because ${surface} is linked to your agentes.chat account.`,
+    },
+    /** Three wrong PINs locked approving from the surface (ADR 0226); `lockedFor`: 15 minutes, an hour, a day. */
+    pinLocked: {
+      subject: (surface: string) => `Your ${surface} PIN is locked`,
+      preheader: "Three wrong PINs in a row. Approving from your chat app is paused for now.",
+      headline: (surface: string) => `Your ${surface} PIN is locked`,
+      body: (surface: string, time: string) =>
+        `Someone typed a wrong PIN three times in a row to approve an action from ${surface}. Approving from ${surface} is paused for ${time}.`,
+      lockedFor: ["15 minutes", "1 hour", "24 hours"] as [string, string, string],
+      small: (surface: string) =>
+        `If it was you, try again later. If it wasn't, unlink ${surface} in your notification settings, so nobody can approve from it.`,
+      button: "Open notification settings",
+    },
   },
   /** The answer of whoever runs the server to a member's request for help (ADR 0056). */
   supportReply: {

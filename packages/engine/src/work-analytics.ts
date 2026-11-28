@@ -25,6 +25,7 @@ const FAILURE_OF: Record<string, Failure> = {
   "run.no_ai": "noAi",
   "run.missing_credential": "noAi",
   "run.credential_revoked": "noAi",
+  "run.credential_unreadable": "noAi",
   "run.credential_wrong_provider": "noAi",
   "run.agent_paused": "paused",
   "run.org_paused": "paused",
@@ -32,7 +33,7 @@ const FAILURE_OF: Record<string, Failure> = {
   "run.org_deleting": "paused",
   "run.budget_exceeded": "paused",
 };
-const failureOf = (error: string | null): Failure =>
+export const failureOf = (error: string | null): Failure =>
   FAILURE_OF[runErrorDetail(error)?.errorCode ?? ""] ?? "failedOther";
 
 const zeroTurns = () => ({
@@ -56,6 +57,13 @@ const zeroTokens = () => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, co
 type Tokens = ReturnType<typeof zeroTokens>;
 const zeroRow = () => ({ turns: zeroTurns(), waits: zeroWaits(), tokens: zeroTokens() });
 type Row = ReturnType<typeof zeroRow>;
+
+/**
+ * When the run's step `s` was followed: at its next step by `seq`, one row of the (run_id, seq) index. The earliest
+ * `created_at` of the later steps reads every one of them instead, hundreds a run, past the read's time limit.
+ */
+export const nextStepAt = sql`(select n.created_at from agent_run_steps n
+  where n.run_id = s.run_id and n.seq > s.seq order by n.seq limit 1)`;
 
 /** Which of the grouping sets a row is: the whole range, one bucket of the series, or one workspace or agent. */
 interface Grouped {
@@ -99,9 +107,8 @@ async function workAnalytics(db: Database, query: { from: string; to: string }, 
   // (`roomFound` when the computer takes the turn), its end or now.
   const busyStep = sql`s.kind = 'error' and s.data->>'reason' = 'brain_unavailable' and s.data->>'code' = 'busy'`;
   // How long the wait step `s` of the run `ar` lasted: until the run's next step, its end or now, like the peak below.
-  const waitSec = sql`extract(epoch from least(coalesce(
-    (select min(n.created_at) from agent_run_steps n where n.run_id = s.run_id and n.seq > s.seq),
-    ar.finished_at, now()), ${end}::timestamptz) - s.created_at)::float8`;
+  const waitSec = sql`extract(epoch from least(coalesce(${nextStepAt}, ar.finished_at, now()), ${end}::timestamptz)
+    - s.created_at)::float8`;
 
   const pct = (q: number, column: string, filter = "") =>
     sql.raw(`percentile_cont(${q}) within group (order by ${column})${filter ? ` filter (where ${filter})` : ""}`);
@@ -164,9 +171,7 @@ async function workAnalytics(db: Database, query: { from: string; to: string }, 
     read(sql`
       with w as (
         select ${runKey} as key, s.created_at as since,
-          least(coalesce(
-            (select min(n.created_at) from agent_run_steps n where n.run_id = s.run_id and n.seq > s.seq),
-            ar.finished_at, now()), ${end}::timestamptz) as until
+          least(coalesce(${nextStepAt}, ar.finished_at, now()), ${end}::timestamptz) as until
         from agent_runs ar join agent_run_steps s on s.run_id = ar.id
         where ${runsIn} and ${busyStep}
       ), e as (

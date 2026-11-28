@@ -13,6 +13,7 @@ import {
   memberRoleIds,
   OFFER_APPROVALS_TOOL,
   OFFER_OPEN_PAGE_TOOL,
+  OFFER_VOICE_SETUP_TOOL,
   openPersonAgentDm,
   PROPOSE_MEMBER_CHANGES_TOOL,
   postPersonMessage,
@@ -292,6 +293,28 @@ describe("propose_member_changes", () => {
     });
     expect(role.isError).toBe(true);
     expect(role.content).toContain("No role Marte");
+  });
+});
+
+describe("offer_voice_setup", () => {
+  test("one card for turning voice into text: the server's owner does it from it, anyone else asks them", async () => {
+    f = await setup({ rightHand: true });
+    await f.db.insert(schema.instanceTelemetry).values({ ownerUserId: f.owner.id });
+    const nina = await addMember(f.db, f.org.id, "member", "Nina");
+    const mine = await call(f, await lodiRun(f, f.owner.id, "por que não tem microfone?"), OFFER_VOICE_SETUP_TOOL, {
+      why: "Baixar o modelo de voz para este computador.",
+    });
+    expect(mine.isError).toBeFalsy();
+    expect(mine.content).toContain("nothing is downloaded until they press it");
+    const { card } = await lastCard(f, "voice_setup");
+    expect(card).toMatchObject({
+      forUserId: f.owner.id,
+      params: { why: "Baixar o modelo de voz para este computador." },
+    });
+    const theirs = await call(f, await lodiRun(f, nina.id, "meu áudio não chegou"), OFFER_VOICE_SETUP_TOOL, {
+      why: "Pedir para ligar a voz.",
+    });
+    expect(theirs.content).toContain(`Only ${f.owner.name} can choose`);
   });
 });
 

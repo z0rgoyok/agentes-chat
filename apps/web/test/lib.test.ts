@@ -26,6 +26,7 @@ import {
   earlyAccessState,
   INVITATION_MAIL_HEADER,
   INVITATION_TOKEN_HEADER,
+  joinInstead,
   landingFor,
   membershipIn,
   safeRedirect,
@@ -396,6 +397,26 @@ describe("guards and permissions", () => {
     expect(settingUp({ ...mine, role: "member" })).toBe(false);
     expect(landingFor({ ...me, organizations: [{ ...mine, role: "member" }] }, null)).toEqual({ orgId: "n" });
     expect(settingUp({ id: "n", name: "N", role: "owner" })).toBe(false);
+  });
+  test("landing: an invitation waiting for someone with no workspace set up opens instead of a first workspace", () => {
+    const invitations = [
+      { orgId: "x", orgName: "X", token: "newest" },
+      { orgId: "y", orgName: "Y", token: "older" },
+    ];
+    const mine = {
+      id: "n",
+      name: "N",
+      role: "owner" as const,
+      onboarding: { step: "agents" as const, generalChannelId: "g" },
+    };
+    expect(landingFor({ ...me, organizations: [], invitations }, null)).toEqual({ invitation: "newest" });
+    // One they started making on the way in: the invitation still comes first.
+    expect(landingFor({ ...me, organizations: [mine], invitations }, "n")).toEqual({ invitation: "newest" });
+    expect(joinInstead({ ...me, organizations: [mine], invitations })).toBe("newest");
+    // A workspace set up opens as ever; the invitation is offered from there.
+    expect(landingFor({ ...me, invitations }, "b")).toEqual({ orgId: "b" });
+    expect(joinInstead({ ...me, invitations })).toBeNull();
+    expect(joinInstead({ ...me, organizations: [] })).toBeNull();
   });
   test("what a membership may do is what the server resolved from its roles", () => {
     const member = { id: "b", name: "B", role: "member" as const, permissions: ["read", "post"] };

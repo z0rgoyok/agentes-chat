@@ -32,6 +32,7 @@ import {
   ValidationError,
 } from "../src";
 import { addMember, addUser, type Fixture, SECRET, setup } from "./fixtures";
+import { connectedComputer } from "./machine-fixtures";
 import { giveMail, imapAccount, mailSetup, runContext } from "./mail-fixtures";
 
 let close: (() => Promise<void>) | undefined;
@@ -385,6 +386,26 @@ test("account failures: one per account and cause every 10 minutes, none while e
     cause: "auth_rejected",
     code: "not_logged_in",
   });
+});
+
+test("a desktop's start on a computer: its time per step, or its error code; a stream it starts for is told", async () => {
+  const f = await setup({ machines: true });
+  close = f.close;
+  enableOperatorEvents();
+  const starting: [string, string][] = [];
+  f.machineHub?.setBrowserHooks({ streamStarting: (machineId, streamId) => starting.push([machineId, streamId]) });
+  const { paired, runner } = await connectedComputer(f);
+  const steps = { room: 3, prepared: 410, screen: 900, look: 1200, session: 25_000 };
+  await runner.frame({ type: "desktop.started", agentId: f.agent.id, ms: 26_313, steps });
+  await runner.frame({ type: "desktop.started", agentId: f.agent.id, ms: 9, error: "desktop_busy" });
+  const streamId = "A".repeat(43);
+  await runner.frame({ type: "stream.starting", streamId });
+  const rows = (await allEvents(f.db)).filter((r) => r.type === "desktop.started");
+  expect(rows.map((r) => [r.orgId, r.data])).toEqual([
+    [f.org.id, { machineId: paired.machineId, agentId: f.agent.id, ms: 26_313, steps }],
+    [f.org.id, { machineId: paired.machineId, agentId: f.agent.id, ms: 9, error: "desktop_busy" }],
+  ]);
+  expect(starting).toEqual([[paired.machineId, streamId]]);
 });
 
 test("outside access (ADR 0191): granted, denied and ended, each with its workspace and the person", async () => {

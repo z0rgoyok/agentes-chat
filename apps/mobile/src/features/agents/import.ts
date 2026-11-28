@@ -174,4 +174,4 @@ export function reportCounts(report: readonly ImportItemResult[], asked: number)
 
 /** Where a to-do's action opens on the phone: Conectores or the Drive. A key is asked in the chat; a model has no page. */
 export const todoHref = (kind: BundleTodo["kind"]): "/connectors" | "/drive" | null =>
-  kind === "connection" || kind === "app" ? "/connectors" : kind === "file" ? "/drive" : null;
+  kind === "connection" || kind === "app" ? "/connectors" : kind === "file" || kind === "path" ? "/drive" : null;

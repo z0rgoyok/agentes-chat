@@ -1092,7 +1092,7 @@ describe("deleting a file", () => {
 describe("html shim", () => {
   test("runs before the page, behind the policy", () => {
     const page = withShim("<!doctype html><html><head><title>x</title></head><body></body></html>");
-    expect(page.startsWith("<!doctype html><html><head>")).toBe(true);
+    expect(page.startsWith('<!doctype html><html translate="no"><head>')).toBe(true);
     expect(page.indexOf("Content-Security-Policy")).toBeLessThan(page.indexOf("<script>"));
     expect(page.indexOf("<script>")).toBeLessThan(page.indexOf("<title>"));
     expect(withShim("<h1>a</h1>").indexOf("<script>")).toBeLessThan(withShim("<h1>a</h1>").indexOf("<h1>"));

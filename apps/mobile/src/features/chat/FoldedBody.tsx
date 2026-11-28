@@ -12,9 +12,10 @@ const FOLDED = 114;
 
 /**
  * A long text an agent wrote, on a page rather than in a conversation (the web's `FoldedBody`): folded until "Ver mais"
- * opens it in place, for good.
+ * opens it in place, for good. `plain`: words from outside (a server's own instructions) as they are written, nothing in
+ * them made a mention, a link or a chart.
  */
-export function FoldedBody({ body, muted = false }: { body: string; muted?: boolean }) {
+export function FoldedBody({ body, muted = false, plain = false }: { body: string; muted?: boolean; plain?: boolean }) {
   const { t } = useTranslation();
   const reduced = useReducedMotion();
   const { colors } = useTheme();
@@ -37,7 +38,13 @@ export function FoldedBody({ body, muted = false }: { body: string; muted?: bool
             setHeight(measured);
           }}
         >
-          <MessageText body={body} muted={muted} small selectable={false} />
+          {plain ? (
+            <Text variant="footnote" tone={muted ? "muted" : "ink"} selectable={false}>
+              {body}
+            </Text>
+          ) : (
+            <MessageText body={body} muted={muted} small selectable={false} />
+          )}
         </View>
       </Animated.View>
       {long && !open ? (

@@ -38,7 +38,7 @@ export interface VoiceSend {
   accepted?: boolean;
 }
 
-export type VoiceRefusal = "limit" | "refused";
+export type VoiceRefusal = "limit" | "plan" | "refused";
 /** The server refused a recording for good: why, and what it carried (its typed text goes back to the field). */
 export type OnVoiceRefused = (reason: VoiceRefusal, item: VoiceSend) => void;
 
@@ -130,8 +130,10 @@ async function upload(item: VoiceSend) {
     place,
   );
   if (res.status >= 400 && res.status < 500) {
-    const body = (await res.json().catch(() => null)) as { code?: string } | null;
-    if (body?.code === "voice_limit" || body?.code === "voice.limit") return "limit" as const;
+    const body = (await res.json().catch(() => null)) as { error?: { code?: string } } | null;
+    const code = body?.error?.code;
+    if (code === "voice_limit" || code === "voice.limit") return "limit" as const;
+    if (code === "voice.plan") return "plan" as const;
   }
   const verdict = uploadVerdict(res.status);
   if (verdict === "retry") note(item, `HTTP ${res.status}`);
@@ -181,7 +183,7 @@ export async function flushVoice(qc: QueryClient, onRefused: OnVoiceRefused) {
             continue;
           }
           removeBubble(qc, item);
-          onRefused(verdict === "limit" ? "limit" : "refused", item);
+          onRefused(verdict === "limit" || verdict === "plan" ? verdict : "refused", item);
         }
       }),
     );

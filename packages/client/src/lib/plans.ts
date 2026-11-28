@@ -158,7 +158,7 @@ export function planReplies(
     agent: string | null;
     /** The plan's owner, to anyone else (an admin): "pelo plano do Claude de Walter". Absent: the viewer's own. */
     owner?: string;
-    brain: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+    brain: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
     /** The account's plan as the CLI says it (`max`, `team`…): a seat has its own words. */
     plan?: string | null;
     coding?: CodingPlan;

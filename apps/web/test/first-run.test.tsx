@@ -216,6 +216,25 @@ describe("the first-run checklist", () => {
     expect(screen().queryByText("Como prefere que eu fale com você?")).toBeNull();
   });
 
+  test("the card waits for the conversation's first page: never alone over its skeleton, pushed away when rows land", async () => {
+    const api = createFakeApi(fresh());
+    const read = api.chat.messages;
+    let release = () => {};
+    const held = new Promise<void>((ok) => {
+      release = ok;
+    });
+    api.chat.messages = async (...args) => {
+      await held;
+      return read(...args);
+    };
+    await renderApp(`/org/${ORG_ID}/dm/agent/${LODI_ID}`, { api });
+    await settle(12);
+    expect(card()).toBeNull();
+    await act(async () => release());
+    await settle(12);
+    expect(card()).not.toBeNull();
+  });
+
   test("an invited person sees none of it", async () => {
     const state = fresh();
     const org = state.me?.organizations[0];

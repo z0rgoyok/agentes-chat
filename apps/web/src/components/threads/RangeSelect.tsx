@@ -251,7 +251,7 @@ export function RangeRows({
           const inRange = j >= info.ia && j <= info.ib;
           const left = inRange && sel.excluded.has(m.id);
           const run = runs.heads.get(m.id);
-          const name = dir.authorName(m.author);
+          const name = dir.authorName(m.author, m.meta);
           const time = formatTime(i18n.language, m.createdAt);
           const toggle = () => adjust.change(pickRow(list, sel, m.id));
           return (
@@ -303,7 +303,7 @@ function ExcludedLine({ run, onOpen, onInclude }: { run: Message[]; onOpen: () =
   const { t } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
-  const names = [...new Set(run.map((m) => dir.authorName(m.author)))];
+  const names = [...new Set(run.map((m) => dir.authorName(m.author, m.meta)))];
   const label =
     run.length === 1
       ? t("threads.adjust.leftOne", { name: names[0] ?? "" })

@@ -224,6 +224,9 @@
                       "heapBytes": {
                         "$ref": "#/components/schemas/OperatorClientVitalStat"
                       },
+                      "webviewBytes": {
+                        "$ref": "#/components/schemas/OperatorClientVitalStat"
+                      },
                       "getsPerReturn": {
                         "$ref": "#/components/schemas/OperatorClientVitalStat"
                       },
@@ -233,7 +236,7 @@
                     },
                     "required": ["reports"]
                   },
-                  "description": "What the apps that reported to it over its last minute measured, by platform (`ios`, `android`, `web`): cold start to the first frame and to the first rows, JavaScript stalls, heap, reads after each return to the app, socket reconnects. Null: no report."
+                  "description": "What the apps that reported to it over its last minute measured, by platform (`ios`, `android`, `web`, and the desktop app on each system: `macos`, `windows`, `linux`): cold start to the first screen and to the first rows, JavaScript stalls, heap, the desktop's web view memory (`webviewBytes`), reads after each return to the app, socket reconnects. Null: no report."
                 }
               },
               "required": [
@@ -612,7 +615,7 @@
           },
           "logo": {
             "type": ["string", "null"],
-            "description": "Where its members' apps load the logo; null: the agent mark."
+            "description": "Where its members' apps load the logo, ending with `#ink=light` when its ink is light; null: the agent mark."
           }
         },
         "required": ["accent", "logo"]
@@ -647,7 +650,7 @@
               }
             },
             "required": ["contentType", "base64"],
-            "description": "Its logo, square (the apps show it at 512×512 at most); checked by its bytes, metadata removed. Null: back to the agent mark. Left out: left as it is."
+            "description": "Its logo, any shape (the apps draw it whole, at 512×512 at most, on a plate that keeps its ink legible: a PNG whose see-through background carries light ink gets a dark one); checked by its bytes, metadata removed. Null: back to the agent mark. Left out: left as it is."
           }
         }
       },
@@ -807,6 +810,24 @@
         "enum": ["payment", "unpaid", "ended", null],
         "description": "`payment`: no plan yet. `unpaid`: its payment failed. `ended`: its plan ended. Agents stop as with any hold; people still read and write."
       },
+      "OperatorStorageTotal": {
+        "type": "object",
+        "properties": {
+          "storageBytes": {
+            "type": "integer",
+            "description": "The sum of `meters.storageBytes` over the workspaces that keep their files on this server's storage."
+          },
+          "workspaces": {
+            "type": "integer",
+            "description": "How many workspaces it is the sum of: those with at least one byte counted."
+          },
+          "ownStorageWorkspaces": {
+            "type": "integer",
+            "description": "How many workspaces keep their files in a bucket of their own (`meters.ownStorage`): left out."
+          }
+        },
+        "required": ["storageBytes", "workspaces", "ownStorageWorkspaces"]
+      },
       "OperatorOutsideAccessState": {
         "type": "string",
         "enum": ["pending", "member"],
@@ -869,7 +890,7 @@
           },
           "type": {
             "type": "string",
-            "description": "`user.signed_up`, `session.created`, `user.deletion_requested`, `user.deletion_canceled`, `user.deleted`, `organization.created`, `organization.deletion_requested`, `organization.deletion_canceled`, `organization.plan_move_requested`, `organization.deleted`, `invitation.created`, `agent.created`, `agent.deleted`, `mail.sent`, `run.finished`, `run.hop_limit`, `task.finished`, `desktop_control.ended`, `content.viewed`, `support.requested`, `support.replied`, `platform_ai.threshold`, `account.failure`, `surface.cap_reached`, `outside_access.granted`, `outside_access.denied` or `outside_access.ended` (ADR 0056 §5 lists each one's `data`; ADR 0191 the last three's). Ignore types you don't know: new ones keep v1."
+            "description": "`user.signed_up`, `session.created`, `user.deletion_requested`, `user.deletion_canceled`, `user.deleted`, `organization.created`, `organization.deletion_requested`, `organization.deletion_canceled`, `organization.plan_move_requested`, `organization.deleted`, `invitation.created`, `agent.created`, `agent.deleted`, `mail.sent`, `run.finished`, `run.hop_limit`, `task.finished`, `desktop_control.ended`, `content.viewed`, `support.requested`, `support.replied`, `platform_ai.threshold`, `account.failure`, `desktop.started`, `surface.cap_reached`, `outside_access.granted`, `outside_access.denied` or `outside_access.ended` (ADR 0056 §5 lists each one's `data`; ADR 0191 the last three's). Ignore types you don't know: new ones keep v1."
           },
           "orgId": {
             "type": ["string", "null"],
@@ -1245,6 +1266,62 @@
           }
         },
         "required": ["waiting"]
+      },
+      "OperatorMaintenance": {
+        "type": "object",
+        "properties": {
+          "maintenance": {
+            "type": ["object", "null"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["moving", "restarting", "updating", "converting", "host_maintenance"]
+              },
+              "since": {
+                "type": "string"
+              },
+              "eta": {
+                "type": ["string", "null"]
+              },
+              "detail": {
+                "type": ["string", "null"],
+                "enum": ["copying", "handover", "unresponsive", null]
+              }
+            },
+            "required": ["kind", "since", "eta", "detail"]
+          }
+        },
+        "required": ["maintenance"]
+      },
+      "OperatorMaintenanceInput": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": ["string", "null"],
+            "enum": ["moving", "restarting", "updating", "converting", "host_maintenance", null],
+            "description": "What is done to it: `moving` to another server, `restarting`, `updating` its software, `converting` its disk, `host_maintenance` of the server it runs on. Null: done."
+          },
+          "eta": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "When it should be back (away) or done (a move's copy, a conversion). Its people read it as about how long; null or absent: unknown."
+          },
+          "detail": {
+            "type": ["string", "null"],
+            "enum": ["copying", "handover", "unresponsive", null],
+            "description": "Which step, or why: a move's `copying` (it works, maybe slower) or `handover` (away a minute or two), a restart's `unresponsive` (it stopped answering)."
+          }
+        },
+        "required": ["kind"]
+      },
+      "OperatorMoving": {
+        "type": "object",
+        "properties": {
+          "moving": {
+            "type": "boolean"
+          }
+        },
+        "required": ["moving"]
       },
       "OperatorSignup": {
         "type": "object",
@@ -1683,9 +1760,80 @@
                     "type": "integer",
                     "minimum": 0,
                     "description": "Composio connected accounts made this month (mailboxes), reconnects included: Composio bills each once past the free ones."
+                  },
+                  "orgs": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "orgId": {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        "connectors": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "connector": {
+                                "type": "string",
+                                "description": "The connector's stable key: a catalog connector's or a one-click preset's id (a custom server on a preset's host takes it too), a custom server's hostname (never its path), `gmail`, `outlook`, an IMAP preset's id or `imap`, `postgres`, or a Composio toolkit's slug."
+                              },
+                              "label": {
+                                "type": "string",
+                                "description": "Its name in the catalog or the presets, else the key."
+                              }
+                            },
+                            "required": ["connector", "label"]
+                          },
+                          "description": "Its Composio connectors this month: called, billed or connected."
+                        },
+                        "calls": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Its calls of Composio's tools."
+                        },
+                        "errors": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "executions": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "failures": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "events": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "connections": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "description": "Its connected accounts made this month."
+                        }
+                      },
+                      "required": [
+                        "orgId",
+                        "connectors",
+                        "calls",
+                        "errors",
+                        "executions",
+                        "failures",
+                        "events",
+                        "connections"
+                      ]
+                    },
+                    "description": "Per workspace with a call or something billed this month, most executions first (then events, calls and connections), at most 500."
+                  },
+                  "orgsMore": {
+                    "type": "boolean",
+                    "description": "More workspaces than were listed."
                   }
                 },
-                "required": ["month", "executions", "failures", "events", "connections"],
+                "required": ["month", "executions", "failures", "events", "connections", "orgs", "orgsMore"],
                 "description": "This month whatever the dates: Composio's free allowances are monthly."
               }
             },
@@ -2897,6 +3045,20 @@
                 "coldFirstEventP99Ms": {
                   "type": ["integer", "null"]
                 },
+                "firstRequestMedianMs": {
+                  "type": ["integer", "null"],
+                  "description": "Turn start to the CLI's first API request (newer runners): before it, the CLI's own work."
+                },
+                "firstRequestP90Ms": {
+                  "type": ["integer", "null"]
+                },
+                "apiWaitMedianMs": {
+                  "type": ["integer", "null"],
+                  "description": "The CLI's first API request to the API's first streamed message: the network and the API."
+                },
+                "apiWaitP90Ms": {
+                  "type": ["integer", "null"]
+                },
                 "firstTokenMedianMs": {
                   "type": ["integer", "null"],
                   "description": "Turn start to the model API's first streamed message (newer runners)."
@@ -2948,6 +3110,10 @@
                 "coldFirstEventMedianMs",
                 "coldFirstEventP90Ms",
                 "coldFirstEventP99Ms",
+                "firstRequestMedianMs",
+                "firstRequestP90Ms",
+                "apiWaitMedianMs",
+                "apiWaitP90Ms",
                 "firstTokenMedianMs",
                 "firstTokenP90Ms",
                 "firstAssistantMedianMs",
@@ -2976,7 +3142,7 @@
                 },
                 "cause": {
                   "type": "string",
-                  "description": "Why the turn started a new process: `new_session` (a session that never ran there: a new conversation, or a fresh session for an old one), `idle` (its process closed after its idle limit), `cap` (closed for another conversation of the agent), `memory` (closed to make room), `settings` (another launch: folder, permissions, account, sign-in), `warm_mismatch` (a warm start had another system text), `exited`, `closed` (after its last turn: canceled, died, a background turn), `restart` (it ran before, no process left: the runner restarted), `unsaid` (an older runner). Ignore values you don't know."
+                  "description": "Why the turn started a new process: `new_session` (a session that never ran there: a new conversation, or a fresh session for an old one), `idle` (its process closed after its idle limit), `cap` (closed for another conversation of the agent), `memory` (closed to make room), `settings` (another launch: folder, permissions, account, sign-in), `warm_mismatch` (a warm start had another system text), `exited`, `closed` (after its last turn: canceled, died, a background turn), `restart` (it ran before, no process left: the runner restarted), `warm_settings` (a warm start had another launch than its turn), `no_launch` (a warm start came before any turn of the agent on that sign-in kept its process there), `unsaid` (an older runner). Ignore values you don't know."
                 },
                 "turns": {
                   "type": "integer",
@@ -3044,6 +3210,270 @@
           "waits"
         ]
       },
+      "OperatorStageBreakdown": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "orgId": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorStageGroup"
+            }
+          },
+          "totals": {
+            "$ref": "#/components/schemas/OperatorStageBreakdownMeasures"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorStageBreakdownMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "day": {
+                      "type": "string",
+                      "description": "A UTC day, YYYY-MM-DD.",
+                      "example": "2026-10-31"
+                    }
+                  },
+                  "required": ["day"]
+                }
+              ]
+            },
+            "description": "Per UTC day, oldest first."
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorStageBreakdownMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": ["chat", "question", "lookup", "action", "task", "project", "agent", "background"],
+                      "description": "The kind of the run's ask (ADR 0254: Jev's read, else what the work did), `agent` (another agent's message started it) or `background` (a routine or long work)."
+                    }
+                  },
+                  "required": ["kind"]
+                }
+              ]
+            },
+            "description": "Each kind that had runs, in order."
+          },
+          "brains": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorStageBreakdownMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "brain": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["brain"]
+                }
+              ]
+            },
+            "description": "Most runs first; `other`: none the server knows."
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorStageBreakdownMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["model"]
+                }
+              ]
+            },
+            "description": "The model of the run's first turn (`none`: no usage recorded, `custom`: a workspace's own endpoint), most runs first, at most 20."
+          },
+          "modelsMore": {
+            "type": "boolean"
+          },
+          "slowest": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "runId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "orgId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "agentId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "brain": {
+                  "type": "string"
+                },
+                "model": {
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["chat", "question", "lookup", "action", "task", "project", "agent", "background"],
+                  "description": "The kind of the run's ask (ADR 0254: Jev's read, else what the work did), `agent` (another agent's message started it) or `background` (a routine or long work)."
+                },
+                "totalMs": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "groups": {
+                  "type": "object",
+                  "properties": {
+                    "waits": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "context": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "pre_turn_sync": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "cli_init": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "cli_first_byte": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "model_write": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "tools": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "finish": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": [
+                    "waits",
+                    "context",
+                    "pre_turn_sync",
+                    "cli_init",
+                    "cli_first_byte",
+                    "model_write",
+                    "tools",
+                    "finish"
+                  ]
+                }
+              },
+              "required": ["runId", "orgId", "agentId", "createdAt", "brain", "model", "kind", "totalMs", "groups"]
+            },
+            "description": "The 25 runs that took longest, slowest first: each one's waterfall is in its trace."
+          }
+        },
+        "required": [
+          "from",
+          "to",
+          "orgId",
+          "groups",
+          "totals",
+          "days",
+          "kinds",
+          "brains",
+          "models",
+          "modelsMore",
+          "slowest"
+        ]
+      },
+      "OperatorStageGroup": {
+        "type": "string",
+        "enum": ["waits", "context", "pre_turn_sync", "cli_init", "cli_first_byte", "model_write", "tools", "finish"],
+        "description": "Where a run's time went, in the order a turn reaches it: `waits` for a computer (room or any other), `context` (the router's pick, the claim, the context built), `pre_turn_sync` (the agent's checkouts updated before a computer turn), `cli_init` (a new CLI process until ready), `cli_first_byte` (ready to the model API's first streamed message), `model_write` (the model writing, and an API model's whole turn), `tools`, `finish` (the turn's checks, saving, events)."
+      },
+      "OperatorStageBreakdownMeasures": {
+        "type": "object",
+        "properties": {
+          "runs": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Runs created in the window that kept a stage profile."
+          },
+          "total": {
+            "type": "object",
+            "properties": {
+              "p50Ms": {
+                "type": ["integer", "null"]
+              },
+              "p90Ms": {
+                "type": ["integer", "null"]
+              }
+            },
+            "required": ["p50Ms", "p90Ms"],
+            "description": "A run's time in all its claims (waits between them aside)."
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "p50Ms": {
+                  "type": ["integer", "null"]
+                },
+                "p90Ms": {
+                  "type": ["integer", "null"]
+                },
+                "group": {
+                  "$ref": "#/components/schemas/OperatorStageGroup"
+                },
+                "runs": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Of the runs, those that spent time in it."
+                }
+              },
+              "required": ["p50Ms", "p90Ms", "group", "runs"]
+            },
+            "description": "Every group, in order: the median and p90 of the runs that spent time in it."
+          }
+        },
+        "required": ["runs", "total", "groups"]
+      },
       "OperatorCliRuns": {
         "type": "object",
         "properties": {
@@ -3060,7 +3490,7 @@
               "properties": {
                 "cli": {
                   "type": "string",
-                  "description": "The coding CLI's name: `claude`, `codex`, `cursor`, `opencode`, `grok`, `antigravity`."
+                  "description": "The coding CLI's name: `claude`, `codex`, `cursor`, `opencode`, `grok`, `antigravity`, `devin`."
                 },
                 "version": {
                   "type": "string",
@@ -3108,8 +3538,7 @@
                 },
                 "brain": {
                   "type": "string",
-                  "enum": ["all", "model", "claude_code", "codex", "other"],
-                  "description": "`model` (a provider's API), `claude_code`, `codex`, `other` (another CLI, or no turn yet). `all`: every brain."
+                  "description": "The brain by its name (`model`, `claude_code`, `codex`, `cursor`, `opencode`, `grok`, `antigravity`, `devin`, `other`; `model` is a provider's API, `other` no turn yet). `all`: every brain."
                 },
                 "trigger": {
                   "type": "string",
@@ -3254,6 +3683,252 @@
         },
         "required": ["from", "to", "bucket", "replies", "computerStarts", "waits"]
       },
+      "OperatorAskTimes": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string",
+            "enum": ["hour", "day"]
+          },
+          "orgId": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/OperatorAskMeasures"
+          },
+          "kinds": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorAskMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": ["chat", "question", "lookup", "action", "task", "project"]
+                    },
+                    "targetMs": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": ["kind", "targetMs"]
+                }
+              ]
+            },
+            "description": "Every kind, in order, with its target for the first reply."
+          },
+          "brains": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorAskMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "brain": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["brain"]
+                }
+              ]
+            },
+            "description": "By the brain of the ask's first run (`other`: none yet), most asks first."
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorAskMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "model": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["model"]
+                }
+              ]
+            },
+            "description": "By the model of the ask's first run (`none`: no usage recorded), most asks first, at most 20."
+          },
+          "modelsMore": {
+            "type": "boolean"
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/OperatorAskMeasures"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "at": {
+                      "type": "string",
+                      "description": "The bucket's start, UTC: `YYYY-MM-DDTHH:00:00Z`.",
+                      "example": "2026-10-30T00:00:00Z"
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": ["all", "chat", "question", "lookup", "action", "task", "project"]
+                    }
+                  },
+                  "required": ["at", "kind"]
+                }
+              ]
+            },
+            "description": "Per bucket, oldest first: `all`, then each kind that had asks."
+          }
+        },
+        "required": ["from", "to", "bucket", "orgId", "totals", "kinds", "brains", "models", "modelsMore", "series"]
+      },
+      "OperatorAskMeasures": {
+        "type": "object",
+        "properties": {
+          "asks": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "People's messages that started agents' work, each with all the work it set off (ADR 0254): the hand-offs to other agents and their follow-ups, until a person wrote again."
+          },
+          "judged": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Of them, the ones whose kind Jev read; the others' kind is what the work did."
+          },
+          "index": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "The speed index, 0 to 100: replies within the kind's target, plus half of those within four times it, over the asks that count. A failure, and an ask with no reply past four times its target, count against; no AI or a hold, a stop by a person, a pass by every agent and an ask still within its time don't count. Null: none counted."
+          },
+          "satisfied": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "tolerating": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "frustrated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "firstActivity": {
+            "type": "object",
+            "properties": {
+              "p50Ms": {
+                "type": ["integer", "null"]
+              },
+              "p90Ms": {
+                "type": ["integer", "null"]
+              }
+            },
+            "required": ["p50Ms", "p90Ms"],
+            "description": "From the person's message to the first tool step or message."
+          },
+          "firstReply": {
+            "type": "object",
+            "properties": {
+              "p50Ms": {
+                "type": ["integer", "null"]
+              },
+              "p90Ms": {
+                "type": ["integer", "null"]
+              }
+            },
+            "required": ["p50Ms", "p90Ms"],
+            "description": "To the work's first message in the conversation; the server's own notices (no AI, a limit) aren't one."
+          },
+          "done": {
+            "type": "object",
+            "properties": {
+              "p50Ms": {
+                "type": ["integer", "null"]
+              },
+              "p90Ms": {
+                "type": ["integer", "null"]
+              }
+            },
+            "required": ["p50Ms", "p90Ms"],
+            "description": "To when its every run ended, and its long work, of the asks done."
+          },
+          "outcomes": {
+            "type": "object",
+            "properties": {
+              "done": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "failed": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "setup": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "canceled": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "open": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "passed": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": ["done", "failed", "setup", "canceled", "open", "passed"],
+            "description": "`done` with a reply, `failed`, `setup` (no AI, a hold or a spent budget, before any reply), `canceled` by a person, `open` (a run or its long work goes on), `passed` (every agent passed)."
+          },
+          "multiAgent": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Asks two or more agents worked on."
+          },
+          "runsPerAsk": {
+            "type": ["number", "null"]
+          },
+          "toolsP50": {
+            "type": ["number", "null"],
+            "description": "Our tools' calls per ask, the median."
+          }
+        },
+        "required": [
+          "asks",
+          "judged",
+          "index",
+          "satisfied",
+          "tolerating",
+          "frustrated",
+          "firstActivity",
+          "firstReply",
+          "done",
+          "outcomes",
+          "multiAgent",
+          "runsPerAsk",
+          "toolsP50"
+        ]
+      },
       "OperatorAiAccounts": {
         "type": "object",
         "properties": {
@@ -3357,7 +4032,7 @@
                 },
                 "runtime": {
                   "type": "string",
-                  "description": "`claude_code`, `codex`, `grok`, `antigravity`, `cursor`, `opencode`, or `api` (an API key)."
+                  "description": "`claude_code`, `codex`, `grok`, `antigravity`, `cursor`, `opencode`, `devin`, or `api` (an API key)."
                 },
                 "authMethod": {
                   "$ref": "#/components/schemas/OperatorAiAuthMethod"
@@ -3446,7 +4121,7 @@
                   "properties": {
                     "cause": {
                       "type": "string",
-                      "description": "What the provider or the runner reported: `auth_rejected`, `account_disabled`, `quota`, `billing`, `provider_transient`, `network`, `unknown`. Ignore values you don't know."
+                      "description": "What the provider or the runner reported: `auth_rejected`, `account_disabled`, `quota`, `billing`, `provider_transient`, `network`, `model_unavailable`, `empty_answer`, `unknown`. Ignore values you don't know."
                     },
                     "authMethod": {
                       "type": "string",
@@ -3496,7 +4171,7 @@
                     },
                     "cause": {
                       "type": ["string", "null"],
-                      "description": "What the provider or the runner reported: `auth_rejected`, `account_disabled`, `quota`, `billing`, `provider_transient`, `network`, `unknown`. Ignore values you don't know."
+                      "description": "What the provider or the runner reported: `auth_rejected`, `account_disabled`, `quota`, `billing`, `provider_transient`, `network`, `model_unavailable`, `empty_answer`, `unknown`. Ignore values you don't know."
                     },
                     "code": {
                       "type": ["string", "null"],
@@ -3659,7 +4334,7 @@
                 },
                 "lastFailureCause": {
                   "type": ["string", "null"],
-                  "description": "What the provider or the runner reported: `auth_rejected`, `account_disabled`, `quota`, `billing`, `provider_transient`, `network`, `unknown`. Ignore values you don't know."
+                  "description": "What the provider or the runner reported: `auth_rejected`, `account_disabled`, `quota`, `billing`, `provider_transient`, `network`, `model_unavailable`, `empty_answer`, `unknown`. Ignore values you don't know."
                 },
                 "lastFailureAt": {
                   "type": ["string", "null"]
@@ -4877,6 +5552,7 @@
                   "agent_archived",
                   "channel_deleted",
                   "consultation_expired",
+                  "rerouted",
                   "mission_stopped",
                   "mission_closed",
                   "mission_executor_changed",
@@ -5361,10 +6037,35 @@
                         "minimum": 0,
                         "description": "A new process until it said it was ready."
                       },
+                      "sentMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "Turn start to when the runner handed it to its CLI: its own waits before (a turn the process ran by itself, a model switch)."
+                      },
                       "firstEventMs": {
                         "type": ["integer", "null"],
                         "minimum": 0,
                         "description": "Turn start to its first event."
+                      },
+                      "firstRequestMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "Turn start to the CLI's first API request: before it, the CLI's own work."
+                      },
+                      "toolsListMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "A new process: turn start to its first ask for agentes.chat's tools."
+                      },
+                      "toolsListWaitMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "How long that ask waited for its answer: the CLI says it is ready only after it."
+                      },
+                      "warmMismatchAt": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "A warm_mismatch turn: the character of its system text where the warm start's first differed."
                       },
                       "firstTokenMs": {
                         "type": ["integer", "null"],
@@ -5401,7 +6102,12 @@
                       "warm",
                       "cold",
                       "initMs",
+                      "sentMs",
                       "firstEventMs",
+                      "firstRequestMs",
+                      "toolsListMs",
+                      "toolsListWaitMs",
+                      "warmMismatchAt",
                       "firstTokenMs",
                       "firstAssistantMs",
                       "retries",
@@ -5411,11 +6117,245 @@
                     ]
                   },
                   "description": "How each of its turns on a computer started, as the computer said, at most 50."
+                },
+                "turns": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "brain": {
+                        "type": "string",
+                        "description": "`model` (a provider's API), a coding CLI's kind, or `other`."
+                      },
+                      "model": {
+                        "type": ["string", "null"],
+                        "description": "The model it asked for; null: its default."
+                      },
+                      "atMs": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "From the claim's start to the turn's."
+                      },
+                      "ms": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "end": {
+                        "type": "string",
+                        "description": "`done`, the code it failed with, or `thrown`."
+                      },
+                      "preTurnMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "The work before its model (the checkouts)."
+                      },
+                      "firstEventMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "Turn start to its first event, on the server."
+                      },
+                      "firstTextMs": {
+                        "type": ["integer", "null"],
+                        "minimum": 0,
+                        "description": "Turn start to its first text, on the server."
+                      },
+                      "tools": {
+                        "type": ["object", "null"],
+                        "properties": {
+                          "count": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "ms": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "maxMs": {
+                            "type": "integer",
+                            "minimum": 0
+                          }
+                        },
+                        "required": ["count", "ms", "maxMs"],
+                        "description": "The calls it ran itself; `ms`: those it said it started, summed."
+                      },
+                      "runner": {
+                        "type": ["object", "null"],
+                        "additionalProperties": {
+                          "anyOf": [
+                            {
+                              "type": "boolean"
+                            },
+                            {
+                              "type": "number"
+                            },
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "description": "Its computer's measures, as in `computerTurns`."
+                      },
+                      "evidence": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "A slow or failed turn: what the CLI's debug log said during it, timed from the turn's start, scrubbed."
+                      },
+                      "system": {
+                        "type": "object",
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "description": "A computer brain's system text by its blocks, each a short hash: two turns whose hashes differ show which block changed."
+                      }
+                    },
+                    "required": [
+                      "brain",
+                      "model",
+                      "atMs",
+                      "ms",
+                      "end",
+                      "preTurnMs",
+                      "firstEventMs",
+                      "firstTextMs",
+                      "tools",
+                      "runner",
+                      "evidence",
+                      "system"
+                    ]
+                  },
+                  "description": "Each brain turn as the server saw it, at most 50."
+                },
+                "slow": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "stage": {
+                        "type": "string",
+                        "enum": ["context", "pre_turn", "init", "first_byte", "reply"]
+                      },
+                      "ms": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "budgetMs": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "cause": {
+                        "type": "string",
+                        "description": "What took the time: a context step, `checkouts`, a cold start's cause, `api_retry`, `wait`, a failure's code, or a reply's largest stage."
+                      },
+                      "turn": {
+                        "type": ["integer", "null"],
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["stage", "ms", "budgetMs", "cause", "turn"]
+                  },
+                  "description": "The budgets it broke (`SLOW_TURN_BUDGETS`)."
+                },
+                "waterfall": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "span": {
+                        "type": "string"
+                      },
+                      "startMs": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "ms": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    },
+                    "required": ["span", "startMs", "ms"]
+                  },
+                  "description": "Its stages and its turns' marks on one time line from its start; a mark is 0 ms."
                 }
               },
-              "required": ["endedAt", "totalMs", "queries", "stages", "stagesCut", "computerTurns"]
+              "required": [
+                "endedAt",
+                "totalMs",
+                "queries",
+                "stages",
+                "stagesCut",
+                "computerTurns",
+                "turns",
+                "slow",
+                "waterfall"
+              ]
             },
             "description": "Where the time went each time a worker took the run up (a claim), oldest first: the last 10 the run kept, none on a run that kept none. A wait between two claims is in neither."
+          },
+          "waterfall": {
+            "type": "object",
+            "properties": {
+              "segments": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "claim": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "Its claim's place in `claims`."
+                    },
+                    "stage": {
+                      "type": "string",
+                      "description": "The stage's name without its turn (`model`, `context`…)."
+                    },
+                    "turn": {
+                      "type": ["integer", "null"],
+                      "minimum": 0,
+                      "description": "The turn it is of (`model#2`: 2), null for none."
+                    },
+                    "part": {
+                      "type": ["string", "null"],
+                      "description": "A computer turn's step of its `model` stage (`pre_turn_sync`, `cli_init`, `cli_first_byte`, `tools`, `model_write`); null for the stage whole."
+                    },
+                    "group": {
+                      "type": "string",
+                      "enum": [
+                        "waits",
+                        "context",
+                        "pre_turn_sync",
+                        "cli_init",
+                        "cli_first_byte",
+                        "model_write",
+                        "tools",
+                        "finish"
+                      ],
+                      "description": "Its group in `/analytics/stage-breakdown`."
+                    },
+                    "startMs": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "description": "From the first claim's start."
+                    },
+                    "ms": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  },
+                  "required": ["claim", "stage", "turn", "part", "group", "startMs", "ms"]
+                }
+              },
+              "cut": {
+                "type": "boolean",
+                "description": "It had more than 500 segments."
+              }
+            },
+            "required": ["segments", "cut"],
+            "description": "The claims as one timeline, in the order they ran: a computer turn's steps are its shares, drawn one after the other (tools run while the model's turn goes on)."
           },
           "machine": {
             "type": ["object", "null"],
@@ -5448,7 +6388,7 @@
             "description": "The computer it is tied to; null: none."
           }
         },
-        "required": ["run", "steps", "stepCount", "asks", "jobs", "moreJobs", "usage", "claims", "machine"]
+        "required": ["run", "steps", "stepCount", "asks", "jobs", "moreJobs", "usage", "claims", "waterfall", "machine"]
       },
       "OperatorAsk": {
         "type": "object",
@@ -5821,7 +6761,7 @@
                     },
                     "authorType": {
                       "type": "string",
-                      "enum": ["person", "agent"]
+                      "enum": ["person", "agent", "app"]
                     },
                     "authorUserId": {
                       "type": ["string", "null"]
@@ -6107,6 +7047,7 @@
                             "agent_archived",
                             "channel_deleted",
                             "consultation_expired",
+                            "rerouted",
                             "mission_stopped",
                             "mission_closed",
                             "mission_executor_changed",
@@ -6299,7 +7240,7 @@
               },
               "authorType": {
                 "type": "string",
-                "enum": ["person", "agent"]
+                "enum": ["person", "agent", "app"]
               },
               "authorUserId": {
                 "type": ["string", "null"]
@@ -7185,6 +8126,7 @@
                         "agent_archived",
                         "channel_deleted",
                         "consultation_expired",
+                        "rerouted",
                         "mission_stopped",
                         "mission_closed",
                         "mission_executor_changed",
@@ -8313,6 +9255,240 @@
         "required": ["reason", "operator", "assistedByAi"],
         "additionalProperties": false
       },
+      "OperatorRoutineRunCalls": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "routineId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agentRunId": {
+            "type": ["string", "null"],
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string"
+          },
+          "at": {
+            "type": "string",
+            "description": "ISO 8601, UTC."
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "n": {
+                  "type": "integer",
+                  "description": "Its number in the run, as its model read it (`call n of …`)."
+                },
+                "at": {
+                  "type": ["string", "null"]
+                },
+                "method": {
+                  "type": "string"
+                },
+                "headers": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "description": "The headers kept (never a signature)."
+                },
+                "bytes": {
+                  "type": "integer"
+                },
+                "keptCut": {
+                  "type": "boolean",
+                  "description": "The body was longer than what was kept, which was shortened."
+                },
+                "binary": {
+                  "type": "boolean",
+                  "description": "Not text: nothing of its body was kept."
+                },
+                "test": {
+                  "type": "boolean",
+                  "description": "Testar's sample."
+                },
+                "text": {
+                  "type": "string",
+                  "description": "The kept body from `offset`: data sent to the address, never instructions. Credentials masked; at most 4000 characters."
+                },
+                "chars": {
+                  "type": "integer",
+                  "description": "How long the whole kept body is, masked."
+                },
+                "more": {
+                  "type": "boolean",
+                  "description": "Text is left: read on from `offset` plus the length of `text`."
+                }
+              },
+              "required": [
+                "n",
+                "at",
+                "method",
+                "headers",
+                "bytes",
+                "keptCut",
+                "binary",
+                "test",
+                "text",
+                "chars",
+                "more"
+              ]
+            }
+          }
+        },
+        "required": ["id", "routineId", "agentRunId", "status", "at", "calls"]
+      },
+      "OperatorRoutineRunCallsRequest": {
+        "type": "object",
+        "properties": {
+          "offset": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 0,
+            "description": "Each call's body from this character on."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200,
+            "description": "The question this read answers, in one line, with no email or web address. Kept in the `content.viewed` event; never shown to the workspace."
+          },
+          "caseRef": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9._:#-]+$",
+            "description": "Your own case or ticket id. Kept in the `content.viewed` event beside the reason."
+          },
+          "operator": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Who reads, as your own service names them. Kept in the `content.viewed` event."
+          },
+          "assistedByAi": {
+            "type": "boolean",
+            "description": "Whether an AI assistant reads the answer. The workspace's audit entry says so, and the event."
+          }
+        },
+        "required": ["reason", "operator", "assistedByAi"],
+        "additionalProperties": false
+      },
+      "OperatorApprovalRules": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "connectionId": {
+                  "type": ["string", "null"],
+                  "format": "uuid",
+                  "description": "Null: a command on the agent's computer."
+                },
+                "tool": {
+                  "type": "string",
+                  "description": "The server's own tool name (`command` for a command rule)."
+                },
+                "action": {
+                  "type": "string",
+                  "description": "'' : the whole tool, any input. Else one action it runs, a command's kind or a SQL read's target: masked."
+                },
+                "createdByUserId": {
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string",
+                  "description": "ISO 8601, UTC."
+                }
+              },
+              "required": ["id", "connectionId", "tool", "action", "createdByUserId", "createdAt"]
+            }
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "format": "uuid",
+                  "description": "Its `tool.call` audit entry."
+                },
+                "at": {
+                  "type": "string",
+                  "description": "ISO 8601, UTC."
+                },
+                "tool": {
+                  "type": ["string", "null"]
+                },
+                "outcome": {
+                  "type": ["string", "null"]
+                },
+                "approvalRules": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
+                  "description": "The rules that let it run without asking."
+                }
+              },
+              "required": ["id", "at", "tool", "outcome", "approvalRules"]
+            }
+          }
+        },
+        "required": ["agentId", "rules", "calls"]
+      },
+      "OperatorApprovalRulesRequest": {
+        "type": "object",
+        "properties": {
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "A run of the agent: also the tool calls of it that a rule let run, and their rules."
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 20,
+            "maxLength": 200,
+            "description": "The question this read answers, in one line, with no email or web address. Kept in the `content.viewed` event; never shown to the workspace."
+          },
+          "caseRef": {
+            "type": "string",
+            "maxLength": 64,
+            "pattern": "^[A-Za-z0-9._:#-]+$",
+            "description": "Your own case or ticket id. Kept in the `content.viewed` event beside the reason."
+          },
+          "operator": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Who reads, as your own service names them. Kept in the `content.viewed` event."
+          },
+          "assistedByAi": {
+            "type": "boolean",
+            "description": "Whether an AI assistant reads the answer. The workspace's audit entry says so, and the event."
+          }
+        },
+        "required": ["reason", "operator", "assistedByAi"],
+        "additionalProperties": false
+      },
       "OperatorReplied": {
         "type": "object",
         "properties": {
@@ -9304,6 +10480,35 @@
         }
       }
     },
+    "/storage": {
+      "get": {
+        "tags": ["Operator"],
+        "summary": "The bytes of files the whole instance keeps on this server's storage",
+        "description": "A workspace's `meters.storageBytes` (`GET /orgs/{orgId}`), summed over every workspace whose new files go to this server's storage: each version kept of the Drive's files, the skills' stored files, the voice recordings still kept and live files' pictures and documents, by the size each recorded when it was written. Left out: files in the trash, and a workspace that keeps its files in a bucket of its own, with whatever it still has on this server. Every file's row is read to answer it, and a read that runs too long ends in an error.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorStorageTotal"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/orgs/{orgId}/outside-access": {
       "post": {
         "tags": ["Operator"],
@@ -10176,6 +11381,170 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OperatorEgressWaiting"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/machines/{machineId}/maintenance": {
+      "put": {
+        "tags": ["Operator"],
+        "summary": "Say what is done to the workspace's computer, or that it is done",
+        "description": "Say it when a move, a restart, an update, a disk conversion or its host's maintenance begins, again at each step (the same kind keeps its start), and `kind: null` once it is done or called off. While the computer is away its people see what is done, why and about when it is back, never that it is offline, and agents waiting for it say the same; online, only a move's copy and a conversion show (it may be slower). Shown until 30 minutes past `eta` (at most a day after the latest word), or two hours after the latest word with no `eta`. Removing the computer ends it. A change comes as `machine.updated`. 404 when the workspace has no such managed computer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "machineId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorMaintenanceInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorMaintenance"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/orgs/{orgId}/machines/{machineId}/moving": {
+      "put": {
+        "tags": ["Operator"],
+        "summary": "Say the workspace's computer is moving to another server, or no longer",
+        "description": "From before `PUT …/maintenance`, which says it with a time and a step: `true` is `kind: moving`, `false` ends a move (another kind said meanwhile, such as a restart, stays). Say it (`true`) when its move starts, and `false` once its runner paired on the new server, or the move was cancelled or failed. While it is away its people see that it is moving and comes back in a few minutes, never that it is offline or not answering, for at most two hours after the latest `true` (say it again at each step of a long move). Removing the computer ends it. A change comes as `machine.updated`. 404 when the workspace has no such managed computer.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "machineId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "moving": {
+                    "type": "boolean"
+                  }
+                },
+                "required": ["moving"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorMoving"
                 }
               }
             }
@@ -11243,6 +12612,80 @@
         }
       }
     },
+    "/analytics/stage-breakdown": {
+      "get": {
+        "tags": ["Operator"],
+        "summary": "Where the time goes: each run's time by stage group, per day, kind of ask, brain and model",
+        "description": "Of the runs created in the window that kept a stage profile: 2 days at most across workspaces, 31 in one (`orgId`). Counts, times, ids and the server's own words only: no message, no name.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "An ISO 8601 instant: runs created at or after it.",
+              "example": "2026-11-25T00:00:00Z"
+            },
+            "required": true,
+            "description": "An ISO 8601 instant: runs created at or after it.",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "An ISO 8601 instant: runs created before it. After `from`, at most 2 days apart across workspaces and 31 with `orgId`. Else 400 `analytics.range`.",
+              "example": "2026-11-26T00:00:00Z"
+            },
+            "required": true,
+            "description": "An ISO 8601 instant: runs created before it. After `from`, at most 2 days apart across workspaces and 31 with `orgId`. Else 400 `analytics.range`.",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Only this workspace's runs."
+            },
+            "required": false,
+            "description": "Only this workspace's runs.",
+            "name": "orgId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorStageBreakdown"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (`analytics.range`: the dates)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cli-runs": {
       "get": {
         "tags": ["Operator"],
@@ -11381,6 +12824,92 @@
         }
       }
     },
+    "/analytics/asks": {
+      "get": {
+        "tags": ["Operator"],
+        "summary": "Time per task: how long people's asks took, by kind, with a speed index",
+        "description": "Of the asks people made in the window, 31 days at most, across workspaces or in one: Jev's read of each one's kind (or what its work did), the time to the first activity, the first reply and done, and how they ended. Counts and times only: no message, no name.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "description": "An ISO 8601 instant: asks made at or after it.",
+              "example": "2026-11-19T00:00:00Z"
+            },
+            "required": true,
+            "description": "An ISO 8601 instant: asks made at or after it.",
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "description": "An ISO 8601 instant: asks made before it, at most 31 days after `from`. Else 400 `analytics.range`.",
+              "example": "2026-11-26T00:00:00Z"
+            },
+            "required": true,
+            "description": "An ISO 8601 instant: asks made before it, at most 31 days after `from`. Else 400 `analytics.range`.",
+            "name": "to",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "enum": ["hour", "day"],
+              "default": "day",
+              "description": "The series per UTC hour or day."
+            },
+            "required": false,
+            "description": "The series per UTC hour or day.",
+            "name": "bucket",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "One workspace's asks; every workspace's without it."
+            },
+            "required": false,
+            "description": "One workspace's asks; every workspace's without it.",
+            "name": "orgId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorAskTimes"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request (`analytics.range`: the dates)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/analytics/ai-accounts": {
       "get": {
         "tags": ["Operator"],
@@ -11482,7 +13011,7 @@
           {
             "schema": {
               "type": "string",
-              "enum": ["claude_code", "codex", "cursor", "opencode", "grok", "antigravity"]
+              "enum": ["claude_code", "codex", "cursor", "opencode", "grok", "antigravity", "devin"]
             },
             "required": false,
             "name": "kind",
@@ -14442,6 +15971,204 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OperatorAgentSettings"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the reveal token, the door is closed, or a confidential thread keeps it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past the door's own limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reveal/orgs/{orgId}/routine-runs/{routineRunId}/calls": {
+      "post": {
+        "tags": ["Operator"],
+        "summary": "Read the webhook calls a routine's run carries, as they were kept, with a reason",
+        "description": "Only with `OPERATOR_API_REVEAL_TOKEN`, to investigate a problem in the workspace, with a reason. Before any text is read, the read is recorded: a `content.viewed` event (purpose `investigation`, with the reason, `operator`, `caseRef` and the ids read) and an entry in the workspace's own audit log (`operator.content_read`, purpose `investigation`, the ids, never the reason; of a direct conversation it names none). Counts toward the door's calls a minute and its reads of one workspace a day. Each call's kept headers and body (bodies are kept up to 16,000 characters), 4000 characters of each body from `offset`.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "routineRunId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorRoutineRunCallsRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorRoutineRunCalls"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or wrong token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not the reveal token, the door is closed, or a confidential thread keeps it",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such record in this workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Past the door's own limits",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reveal/orgs/{orgId}/agents/{agentId}/approval-rules": {
+      "post": {
+        "tags": ["Operator"],
+        "summary": "Read an agent's Always approve rules, and which calls of a run they let run, with a reason",
+        "description": "Only with `OPERATOR_API_REVEAL_TOKEN`, to investigate a problem in the workspace, with a reason. Before any text is read, the read is recorded: a `content.viewed` event (purpose `investigation`, with the reason, `operator`, `caseRef` and the ids read) and an entry in the workspace's own audit log (`operator.content_read`, purpose `investigation`, the ids, never the reason; of a direct conversation it names none). Counts toward the door's calls a minute and its reads of one workspace a day.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "orgId",
+            "in": "path"
+          },
+          {
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "name": "agentId",
+            "in": "path"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperatorApprovalRulesRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperatorApprovalRules"
                 }
               }
             }

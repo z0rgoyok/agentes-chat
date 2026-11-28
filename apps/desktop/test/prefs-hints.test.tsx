@@ -3,6 +3,8 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
+import type { ComputerDevice } from "@agenteschat/client";
+import { CLOUD_SERVER } from "@agenteschat/client/lib/server";
 import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
@@ -13,6 +15,7 @@ import type { UpdateCheck } from "../src/hooks";
 import { createFakeHost, type FakeHost, type HereOptions, type Scenario } from "../src/host/fake";
 import { createDesktopI18n } from "../src/i18n";
 import { ToastProvider } from "../src/ui/Toast";
+import { InternetRow } from "../src/windows/InternetRow";
 import { Prefs } from "../src/windows/Prefs";
 import { Advanced } from "../src/windows/prefs/Advanced";
 import { Folders } from "../src/windows/prefs/Folders";
@@ -153,9 +156,9 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
       (el) => {
         expect(row(el, "Send anonymous usage statistics to agentes.chat")).toEqual({
           title: "Send anonymous usage statistics to agentes.chat",
-          hint: "Counts such as people, agents, machine sizes, AI tokens used and how much data the agents' browsers send and receive. Never messages, files, names or sites. Changing it restarts agentes.chat for a moment.",
+          hint: "Counts such as people, agents, machine sizes, AI tokens used, how much data the agents' browsers send and receive, and how fast the apps open and run. Never messages, files, names or sites. Changing it restarts agentes.chat for a moment.",
           switch:
-            "Counts such as people, agents, machine sizes, AI tokens used and how much data the agents' browsers send and receive. Never messages, files, names or sites. Changing it restarts agentes.chat for a moment.",
+            "Counts such as people, agents, machine sizes, AI tokens used, how much data the agents' browsers send and receive, and how fast the apps open and run. Never messages, files, names or sites. Changing it restarts agentes.chat for a moment.",
           line: null,
         });
         expect(el.textContent).not.toContain("nothing is sent");
@@ -397,6 +400,10 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
             hint: "Writes and changes code in the allowed folders, with your Gemini account.",
           },
           {
+            title: "Devin CLI",
+            hint: "Writes and changes code in the allowed folders, with your Devin account.",
+          },
+          {
             title: "Commands",
             hint: "Tests, builds and other Terminal commands. Each one shows in Activity. Commands run as you. They can read anything you can on this Mac, agentes.chat's database and keys included. Turn them on only for workspaces you trust with all of it.",
           },
@@ -470,6 +477,21 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
       },
     ));
 
+  test("Tools on Windows: Devin's row says why it doesn't run there, in place of its install line", () =>
+    pane(
+      "selfhost",
+      <Tools />,
+      (el) => el.querySelector("#tool-devin"),
+      (el) => {
+        const row = el.querySelector("#tool-devin")?.closest(".dk-crow") as HTMLElement;
+        expect(row.textContent).toContain(
+          "Devin doesn't run on Windows yet: here its CLI can't keep each account's sign-in apart.",
+        );
+        expect(row.textContent).not.toContain("cli.devin.ai");
+      },
+      { host: (h) => Object.assign(h, { platform: "windows" }) },
+    ));
+
   test("Tools: turning Commands on for one workspace asks first, and only that workspace changes", () =>
     pane(
       "selfhost",
@@ -531,6 +553,29 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
       },
     ));
 
+  test("Advanced with workspaces at different limits: the row says each one's number until a change sets all", () =>
+    pane(
+      "selfhost",
+      <Advanced />,
+      (el) => el.textContent?.includes("Not the same everywhere"),
+      async (el) => {
+        const row = () => [...el.querySelectorAll(".dk-crow")].find((r) => r.textContent?.includes("At the same time"));
+        expect(row()?.textContent).toMatch(/Not the same everywhere: .+ 3, .+ 12\. A change here sets all of them\./);
+        // Only that row: the others are the same everywhere.
+        expect(el.textContent?.match(/Not the same everywhere/g)).toHaveLength(1);
+        await act(async () => row()?.querySelector<HTMLButtonElement>('button[aria-label="Less"]')?.click());
+        await until(() => !el.textContent?.includes("Not the same everywhere"));
+      },
+      {
+        host: (h) => {
+          const [, second] = [...h.runners.values()];
+          (second as unknown as { config: { maxConcurrentTasks?: number } }).config.maxConcurrentTasks = 12;
+          const [first] = [...h.runners.values()];
+          (first as unknown as { config: { maxConcurrentTasks?: number } }).config.maxConcurrentTasks = 3;
+        },
+      },
+    ));
+
   test("Advanced on Linux: back to defaults keeps eight conversations open for 60 minutes, as the runner does", () =>
     pane(
       "selfhost",
@@ -586,6 +631,24 @@ describe("Preferences: a setting's explanation behind its ⓘ", () => {
           "One folder per workspace, with a folder for each agent.",
         );
         for (const r of rows(folders as HTMLElement)) expect(r.line).not.toContain("One folder per workspace");
+      },
+    ));
+
+  test("Advanced: where tasks start on the computer's room, no count of them to set", () =>
+    pane(
+      "selfhost",
+      <Advanced />,
+      (el) => el.querySelectorAll(".dk-card").length === 3 && el.querySelector(".dk-path"),
+      async (el) => {
+        const titles = () => rows(el.querySelector(".dk-card") as HTMLElement).map((r) => r.title);
+        await until(() => titles().length === 1);
+        expect(titles()).toEqual(["Longest each one may run"]);
+      },
+      {
+        host: (h) => {
+          for (const r of h.runners.values())
+            (r as unknown as { config: { tasksOnRoom?: boolean } }).config.tasksOnRoom = true;
+        },
       },
     ));
 
@@ -873,5 +936,51 @@ describe("Preferences › General: Compatibility mode (Linux)", () => {
           expect(compatRow(el)).toBeUndefined();
         },
       );
+  });
+});
+
+describe("Agents use this computer's internet: what goes through it, by server", () => {
+  const computer = {
+    id: "m-desk",
+    mayManage: true,
+    shareInternet: { on: true, inUse: false },
+  } as unknown as ComputerDevice;
+  test("all TCP on agentes.chat; what follows proxy settings on a self-hosted server", async () => {
+    for (const [server, has] of [
+      [CLOUD_SERVER, "websites, git, SSH, databases and other TCP connections"],
+      ["https://agents.example.com", "ignore proxy settings use their usual connection"],
+    ] as const)
+      await pane(
+        "selfhost",
+        <InternetRow server={server} orgId="o-1" computer={computer} />,
+        (el) => row(el, "Agents use this computer's internet"),
+        (el) => {
+          expect(row(el, "Agents use this computer's internet")?.hint).toContain(has);
+          expect(row(el, "Agents use this computer's internet")?.hint).toContain("port 25");
+        },
+      );
+  });
+
+  test("use only this computer's internet: nested under the switch while it lends, none from an older server", async () => {
+    const lent = { ...computer, shareInternet: { on: true, inUse: false, only: false } } as ComputerDevice;
+    await pane(
+      "selfhost",
+      <InternetRow server={CLOUD_SERVER} orgId="o-1" computer={lent} />,
+      (el) => row(el, "Use only this computer's internet"),
+      (el) => {
+        const only = row(el, "Use only this computer's internet");
+        expect(only?.hint).toContain("their AI included");
+        const line = el.querySelector("#internet-m-desk-only")?.closest(".dk-crow");
+        expect(line?.getAttribute("data-nested")).toBe("true");
+      },
+    );
+    await pane(
+      "selfhost",
+      <InternetRow server={CLOUD_SERVER} orgId="o-1" computer={computer} />,
+      (el) => row(el, "Agents use this computer's internet"),
+      (el) => {
+        expect(row(el, "Use only this computer's internet")).toBeUndefined();
+      },
+    );
   });
 });

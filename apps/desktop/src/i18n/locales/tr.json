@@ -1,4 +1,20 @@
 {
+  "permissionAsk": {
+    "title": "agentes.chat için {{permission}} gerekli",
+    "done": "İzin verdim",
+    "later": "Şimdi değil",
+    "trayTitle": "{{permission}} izni bekleniyor",
+    "why": {
+      "app_management": "Ajanların bu {{device}} üzerindeki uygulamaları değiştirmesi için gerekli.",
+      "screen": "Ajanların bu {{device}} için ekran görüntüsü alması için gerekli.",
+      "accessibility": "Ajanların bu {{device}} üzerindeki uygulamalarda tıklayıp yazması için gerekli.",
+      "disk": "Ajanların dosyalarınızı macOS her klasör için sormadan açması için gerekli.",
+      "network": "Ajanların ağınızdaki telefonlara ve cihazlara ulaşması için gerekli.",
+      "camera": "Ajanların bu {{device}} kamerasını kullanması için gerekli.",
+      "microphone": "Ajanların bu {{device}} mikrofonunu kullanması için gerekli.",
+      "automation": "Ajanların bu {{device}} üzerindeki diğer uygulamaları kontrol etmesi için gerekli."
+    }
+  },
   "device": {
     "mac": "Mac",
     "windows": "PC",
@@ -7,6 +23,11 @@
   "windowTitle": {
     "welcome": "Hoş geldiniz",
     "prefs": "Tercihler"
+  },
+  "background": {
+    "title": "agentes.chat çalışmaya devam ediyor",
+    "bodyMac": "Ekranın üstündeki menü çubuğunda. Oradan açabilir veya çıkabilirsin.",
+    "bodyTray": "Sistem tepsisinde. Oradan açabilir veya çıkabilirsin."
   },
   "common": {
     "cancel": "İptal",
@@ -67,6 +88,12 @@
         "capturing": "ekran görüntüsü alıyor",
         "tabs": "sekme değiştiriyor"
       }
+    },
+    "apps": {
+      "title": "{{agent}}, {{app}} uygulamasını kullanıyor",
+      "detail": "Fare ve klavye sizde kalır",
+      "stop": "Durdur",
+      "stopped": "{{agent}} uygulamalarınızı kullanmayı bıraktı"
     },
     "label": "agentes.chat",
     "now": "Şimdi",
@@ -130,12 +157,17 @@
     "allowedOne": "{{folder}} için {{agent}} ajanına izin verildi",
     "allowedAll": "{{folder}} için tüm ajanlara izin verildi",
     "denied": "Reddedildi. {{agent}} bunu sohbette bildirecek.",
+    "answerFailed": "Bu isteğe yanıt verilemedi: {{message}}",
     "notifTitle": "{{agent}}, {{folder}} klasörünü kullanmak istiyor",
     "allowedTitle": "{{name}}, agentes.chat üzerinden {{tool}} açtı",
     "allowedBody": "Siz değilseniz burada geri alın.",
     "allowedUndo": "Geri al",
     "allowedOk": "Tamam",
     "allowedUndone": "Yeniden kapalı: {{tool}}",
+    "pickTitle": "{{name}} ajanlar için bir klasör istiyor",
+    "pickTitleAgent": "{{name}}, {{agent}} için bir klasör istiyor",
+    "pickBody": "Bu {{device}} üzerinde hangi klasöre izin vereceğini seç.",
+    "pickChoose": "Klasör seç",
     "quitTitle": "agentes.chat'ten çıkılsın mı?",
     "quitBody": "Uygulama kapalıyken ajanlar bu {{device}} üzerinde çalışamaz. Zaten çalışanlar biter ve uygulamayı yeniden açtığınızda sonucu gönderir.",
     "quitHereBody": "agentes.chat bu {{device}} üzerinde durur: uygulamayı yeniden açana kadar ne burada, ne telefonunuzda ne de ekip arkadaşlarınızın cihazlarında kimse onu kullanamaz.",
@@ -233,7 +265,7 @@
     "openTailscale": "Tailscale'i aç",
     "getTailscale": "Tailscale'i indir",
     "usage": "agentes.chat'e anonim kullanım istatistikleri gönder",
-    "usageText": "Kişi ve ajan sayısı, makine boyutları, kullanılan yapay zeka token'ları ve ajanların tarayıcılarının ne kadar veri gönderip aldığı gibi sayılar. Asla mesajlar, dosyalar, adlar veya siteler değil.",
+    "usageText": "Kişi ve ajan sayısı, makine boyutları, kullanılan yapay zeka token'ları, ajanların tarayıcılarının ne kadar veri gönderip aldığı ve uygulamaların ne kadar hızlı açılıp çalıştığı gibi sayılar. Asla mesajlar, dosyalar, adlar veya siteler değil.",
     "start": "Başla",
     "setting": "Her şey hazırlanıyor",
     "rest": "Uygulamayı kapattığınızda ajanlarınız dinlenir. Yeniden açtığınız anda geri gelirler.",
@@ -455,6 +487,16 @@
     "linkBody": "Bunu sen istemediysen Şimdi değil seçeneğini seç.",
     "waiting": "{{by}} kişisinin içeri almasını bekliyor…",
     "done": "{{org}} ile bağlandı",
+    "share": "Tüm çalışma alanı kullansın",
+    "internet": "Ajanlar bu bilgisayarın internetini kullanır",
+    "internetOn": "Ajanların eriştiği siteler ve sunucular konumunu görür",
+    "internetOff": "Kapalı: ajanlar her zamanki bağlantılarını kullanır",
+    "internetHint": "Çalışma alanının ajanları bu bilgisayarın bağlantısı üzerinden çevrimiçi olur: web siteleri, git, SSH, veritabanları ve diğer TCP bağlantıları. Kendi ağındaki hiçbir şeye asla erişilmez, 25 numaralı porttan e-posta da gönderilmez. Ajanların yapay zekâsı, ad sorguları, aramalar ve diğer UDP trafiği her zamanki bağlantılarını kullanır, bu bilgisayar çevrimdışıyken de her şey öyle.",
+    "internetHintProxy": "Çalışma alanının ajanlarının tarayıcısı ve proxy ayarlarına uyan programlar (HTTPS üzerinden git, curl, çoğu komut satırı aracı) bu bilgisayarın bağlantısı üzerinden çevrimiçi olur. SSH, veritabanı istemcileri ve proxy ayarlarını yok sayan diğer programlar her zamanki bağlantılarını kullanır, ajanların yapay zekâsı, ad sorguları ve UDP trafiği de öyle. Kendi ağındaki hiçbir şeye asla erişilmez, 25 numaralı porttan e-posta da gönderilmez. Bu bilgisayar çevrimdışıyken her şey her zamanki bağlantıyı kullanır.",
+    "internetOnly": "Yalnızca bu bilgisayarın internetini kullan",
+    "internetOnlyHint": "Ajanlar, yapay zekâları dahil yalnızca bu bilgisayarın internetini kullanır, her zamanki bağlantıyı asla kullanmaz. Bu bilgisayar çevrimdışıyken, geri gelene kadar internetleri olmaz.",
+    "shareOff": "Şimdilik yalnızca siz",
+    "shareHint": "{{org}} içindeki herkesin ajanları üzerinde sizin kullanıcınız olarak görev çalıştırabilir.",
     "addFolders": "Klasör ekle",
     "expired": "Bu bağlantının süresi doldu. Cihazlar bölümünde yenisini oluştur.",
     "openDevices": "Cihazları aç",
@@ -498,6 +540,9 @@
     "grokDesc": "Grok hesabınızla, izin verilen klasörlerde kod yazar ve değiştirir.",
     "antigravityName": "Antigravity CLI",
     "antigravityDesc": "Gemini hesabınızla, izin verilen klasörlerde kod yazar ve değiştirir.",
+    "devinName": "Devin CLI",
+    "devinDesc": "Devin hesabınızla, izin verilen klasörlerde kod yazar ve değiştirir.",
+    "devinWindows": "Devin henüz Windows'ta çalışmıyor: burada CLI'ı her hesabın oturumunu ayrı tutamıyor. Ajanlar Devin ile bir Mac ya da Linux bilgisayarda düşünür.",
     "found": "Bulundu",
     "notFound": "Bulunamadı",
     "loggedOut": "Giriş yapılmadı",
@@ -788,6 +833,7 @@
       "brainMax": "Açık sohbetler",
       "brainMaxDesc": "Her çalışma alanında kaç tanesinin açık kalacağı. Daha fazlası daha hızlı yanıt verir ama daha çok bellek kullanır.",
       "brainIdle": "Boştaki sohbeti şu süreden sonra kapat",
+      "mixed": "Her yerde aynı değil: {{values}}. Buradaki değişiklik hepsine uygulanır.",
       "folder": "Ajanların klasörü",
       "folderDesc": "Her çalışma alanı için bir klasör, içinde her ajan için bir klasör."
     }

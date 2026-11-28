@@ -11,6 +11,7 @@ import {
   drainOutbox,
   getAgentBrain,
   insertMessage,
+  listMessages,
   type MachineStatus,
   machineAgents,
   OpencodeBrain,
@@ -397,7 +398,10 @@ test("its plan's CLI failing: its line says so, and what the CLI said stays in t
     machines: { status: async (id) => statusOf(id) },
   });
   const dm = await openPersonAgentDm(fx.db, fx.org.id, fx.owner.id, agent.id);
-  await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, fx.owner.id, fx.org.id, dm.id, { body: "oi" });
+  const asked = await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, fx.owner.id, fx.org.id, dm.id, {
+    body: "oi",
+  });
+  const events = fx.listen(dm.id);
   const reported: { code: string; message: string }[] = [];
   await drainOutbox(fx.db, handlers, {
     onError: (_job, error, outcome) => {
@@ -421,6 +425,18 @@ test("its plan's CLI failing: its line says so, and what the CLI said stays in t
     message: words,
   });
   expect(reported).toEqual([{ code: "claude_failed", message: words }]);
+  // The receipt under the person's message says the same, live and on a reload, never only "no AI": another account
+  // of that plan wouldn't make the CLI start there.
+  const handled = {
+    agentId: agent.id,
+    runId: run?.id ?? "",
+    status: "failed",
+    reason: "no_ai",
+    errorCode: "cli_failed",
+  } as const;
+  expect(events).toContainEqual(expect.objectContaining({ type: "message.handled", messageId: asked.id, ...handled }));
+  const listed = (await listMessages(fx.db, fx.owner.id, fx.org.id, dm.id)).find((m) => m.id === asked.id);
+  expect(listed?.receipts?.handled).toEqual([handled]);
 });
 
 test("its turn goes to the runner as the locked-down chat profile, with no checkout and none of the owner's servers", async () => {

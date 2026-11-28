@@ -237,6 +237,11 @@ function AskToJoin({ token, preview }: { token: string; preview: InvitationPrevi
   const user = session.signedIn ? (me.data?.user ?? null) : null;
   const [sent, setSent] = useState<AskToJoinResult | null>(null);
   const view = askView(preview, sent !== null);
+  // Approved with an invitation to this very account: it opens here, one tap from joining.
+  const invitation = view.state === "approvedEmail" ? view.invitation : undefined;
+  useEffect(() => {
+    if (invitation) router.replace({ pathname: "/invite/[token]", params: { token: invitation } });
+  }, [invitation]);
   useQuery({
     queryKey: keys.invitation(token),
     queryFn: () => api.orgs.previewInvitation(token),

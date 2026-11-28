@@ -420,6 +420,13 @@ describe("working line", () => {
     expect(lines).toContain("bar: { width: 3, height: 12, borderRadius: 1.5, opacity: 0.7 },");
   });
 
+  test("opening a DM with an agent or a thread tells the server, as the web does: its agent gets ready", async () => {
+    const data = (await source("features/chat/screen/useChatData.ts")).replace(/\s+/g, " ");
+    expect(data).toContain(
+      "if (focused && readable && (dmAgentId || isThread)) connection?.sendOpen(channelId, threadId);",
+    );
+  });
+
   test("the phone tells the conversation while it records (held or hands free, not paused) and while the take uploads", async () => {
     const take = await source("features/voice/useVoiceTake.ts");
     const tick = take.slice(take.indexOf("const tick = useCallback("), take.indexOf("const record = useCallback("));
@@ -519,17 +526,18 @@ describe("working line", () => {
   test("one agent on its own shows how long it has been at it, as on the web; several, or a question out, don't", async () => {
     const [pt, en] = await Promise.all([translator("pt-BR"), translator("en")]);
     const now = 1_000_000;
-    const ada = run({ runId: "r", agentId: "ada", status: "running", startedAt: now - 16_400 });
+    const ada = run({ runId: "r", agentId: "ada", status: "running", startedAt: now - 75_400 });
     const one = workingEntries([ada], [], name);
-    expect(barElapsed(pt, one, [ada], now)).toBe("16 s");
-    expect(barElapsed(en, one, [ada], now)).toBe("16s");
-    expect(barElapsed(pt, one, [ada], now + 49_000)).toBe("1 min 5 s");
-    expect(barElapsed(en, one, [ada], now - 15_000)).toBeNull();
+    expect(barElapsed(pt, one, [ada], now)).toBe("1 min");
+    expect(barElapsed(en, one, [ada], now)).toBe("1 min");
+    expect(barElapsed(pt, one, [ada], now + 60_000)).toBe("2 min");
+    // Its first minute shows no time.
+    expect(barElapsed(en, one, [ada], now - 16_000)).toBeNull();
     // Someone typing beside it doesn't take its time away, nor does a turn of its own that failed before.
     const typingToo = workingEntries([ada], [], name, typing("u1"), () => "Marina");
-    expect(barElapsed(en, typingToo, [ada], now)).toBe("16s");
-    const failed = run({ runId: "r0", agentId: "ada", status: "failed", startedAt: now - 90_000 });
-    expect(barElapsed(en, workingEntries([failed, ada], [], name), [failed, ada], now)).toBe("16s");
+    expect(barElapsed(en, typingToo, [ada], now)).toBe("1 min");
+    const failed = run({ runId: "r0", agentId: "ada", status: "failed", startedAt: now - 300_000 });
+    expect(barElapsed(en, workingEntries([failed, ada], [], name), [failed, ada], now)).toBe("1 min");
     const atlas = run({ runId: "r2", agentId: "atlas", status: "running", startedAt: now - 30_000 });
     expect(barElapsed(en, workingEntries([ada, atlas], [], name), [ada, atlas], now)).toBeNull();
     const asking: LiveConsult = {
@@ -545,15 +553,15 @@ describe("working line", () => {
     expect(barElapsed(en, workingEntries([ada], [asking], name), [ada], now)).toBeNull();
   });
 
-  test("left on its own mid-turn, an agent's seconds are right from the first draw and step evenly: one clock, read afresh as the line narrows", async () => {
+  test("left on its own mid-turn, an agent's time is right from the first draw and turns on the clock's reads: one clock, read afresh as the line narrows", async () => {
     const en = await translator("en");
     const U = 1_000_000;
-    const ada = run({ runId: "r", agentId: "ada", status: "running", startedAt: U - 148_700 });
+    const ada = run({ runId: "r", agentId: "ada", status: "running", startedAt: U - 87_700 });
     // Atlas is done. With two at work the clock moved once a minute, so it can be 50 s old: the new pace reads it afresh.
     const alone = workingEntries([ada], [], name);
     let clock = pacedClock({ every: 60_000, now: U - 50_000 }, 1000, U);
     const shown = [{ at: U, took: barElapsed(en, alone, [ada], clock.now) }];
-    expect(shown[0]?.took).toBe("2m 28s");
+    expect(shown[0]?.took).toBe("1 min");
     // Each second its interval reads the time; an event redraws the line in between (every 2.6 s here).
     const reads = Array.from({ length: 12 }, (_, k) => U + 4 + (k + 1) * 1000);
     const turns = Array.from({ length: 4 }, (_, k) => U + 4 + (k + 1) * 2600);
@@ -562,7 +570,8 @@ describe("working line", () => {
       const took = barElapsed(en, alone, [ada], clock.now);
       if (took !== shown.at(-1)?.took) shown.push({ at, took });
     }
-    expect(shown.slice(1, -1).map((s, i) => (shown[i + 2]?.at ?? 0) - s.at)).toEqual(Array(11).fill(1000));
+    // 90 s of work falls between the read at +2 s and the redraw at +2.6 s: the minute turns at the next read.
+    expect(shown.slice(1)).toEqual([{ at: U + 3004, took: "2 min" }]);
     // The line shows that clock, never a time read at each draw.
     const lines = await source("features/chat/LiveRows.tsx");
     const line = lines.slice(lines.indexOf("export function WorkingLine("), lines.indexOf("type LinePiece"));
@@ -576,33 +585,36 @@ describe("working line", () => {
     const atlas = run({ runId: "s", agentId: "atlas" });
     expect(barWords(en, workingEntries([ada], [], name), markName)[0]).toBe(markName("Ada"));
     expect(barWords(en, workingEntries([ada, atlas], [], name))[0]).toBe("Ada and Atlas are working…");
-    // The agents at work lead it with their faces (no orbit).
+    // Whoever does the work leads it with its face and its rings (`OrbitFace`, not the pixel orbit); the stack's small
+    // faces are the others.
     const lines = await source("features/chat/LiveRows.tsx");
     const line = lines.slice(lines.indexOf("export function WorkingLine("), lines.indexOf("type LinePiece"));
-    expect(line).toContain("const faces = barFaces(entries);");
+    expect(line).toContain("const faces = barFaces(entries).filter((e) => e !== lead);");
+    expect(line).toContain("<OrbitFace ");
     expect(line).not.toContain("PixelOrbit");
   });
 
   test("the line speaks for one agent at work: its step, its time right after it, and its stop", async () => {
     const en = await translator("en");
     const now = 1_000_000;
-    const ada = run({ runId: "r", agentId: "ada", status: "running", startedAt: now - 16_000 });
+    const ada = run({ runId: "r", agentId: "ada", status: "running", startedAt: now - 76_000 });
     const atlas = run({ runId: "s", agentId: "atlas", status: "running" });
     const alone = workingEntries([ada], [], name);
     expect(awayRun(alone, [ada])?.runId).toBe("r");
-    expect(barElapsed(en, alone, [ada], now)).toBe("16s");
+    expect(barElapsed(en, alone, [ada], now)).toBe("1 min");
     expect(lineStops(alone, [ada], () => true).map((r) => r.runId)).toEqual(["r"]);
     // Two agents at work: the line can't say whose time or stop.
     const both = workingEntries([ada, atlas], [], name);
     expect(awayRun(both, [ada, atlas])).toBeUndefined();
     expect(lineStops(both, [ada, atlas], () => true)).toEqual([]);
     // The step takes its own width, so its time follows the words instead of floating after a fixed gap; short of room
-    // it gives way first. The name is never cut: no line cap, no width cap, it wraps.
+    // it gives way first. The name keeps its width on one line (up to half the line, then "…"): a share of the step's
+    // shrinking wrapped it onto a second line and back as the step turned.
     const lines = await source("features/chat/LiveRows.tsx");
     expect(lines).toContain("barStep: { flexShrink: 1000, minWidth: 0 },");
-    expect(lines).toContain("awayName: { flexShrink: 1 },");
+    expect(lines).toContain('awayName: { flexShrink: 0, maxWidth: "50%" },');
     const away = lines.slice(lines.indexOf("function AwayStep("), lines.indexOf("const TURN"));
-    expect(away.slice(0, away.indexOf("{name}"))).not.toContain("numberOfLines");
+    expect(away.slice(0, away.indexOf("{name}"))).toContain("numberOfLines={1}");
     // No "Ver": no row to go back to while it works. "Parar", the word, is the one stop: the composer keeps only its send.
     const line = lines.slice(lines.indexOf("export function WorkingLine("), lines.indexOf("type LinePiece"));
     expect(line).not.toContain("seeable");

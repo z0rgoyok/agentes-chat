@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { RIGHT_HAND_POWERS, rightHandComputerLine, rightHandNoComputer } from "../src/lib/right-hand";
+import {
+  memoryAudienceGroups,
+  RIGHT_HAND_POWERS,
+  rightHandComputerLine,
+  rightHandNoComputer,
+} from "../src/lib/right-hand";
 
 test("why it has no computer for anyone is told by its own line, and any other state by none", () => {
   expect(rightHandNoComputer("no_home")).toBe("rightHand.computerNoHome");
@@ -33,4 +38,41 @@ test("every power the page lists stands on a grant the server gives the right ha
   const rows = /RIGHT_HAND_COMPUTER_GRANTS = \[([^\]]*)\]/.exec(source)?.[1] ?? "";
   for (const scope of ["sandbox:run", "browser:use", "desktop:use"]) expect(rows).toContain(`"${scope}"`);
   expect(source).toContain("export const rightHandReaches");
+});
+
+test("the right hand's memories group as Only you first, then one group per channel; an older server's by channel", () => {
+  const base = {
+    agentId: "lodi",
+    kind: "fact" as const,
+    source: "",
+    uses: 0,
+    lastUsedAt: null,
+    pinned: false,
+    archived: false,
+    lowTrust: false,
+    verified: true,
+    supersedes: null,
+    editedByUserId: null,
+    updatedAt: "2026-11-24T10:00:00.000Z",
+  };
+  const at = (id: string, channel: string | null, onlyYou?: boolean) => ({
+    ...base,
+    id,
+    text: id,
+    channelId: channel ? `c-${channel}` : null,
+    origin: { by: "agent" as const, name: null, channel, at: base.updatedAt },
+    ...(onlyYou === undefined ? {} : { onlyYou }),
+  });
+  const groups = memoryAudienceGroups([
+    at("a", "eng", false),
+    at("b", null, true),
+    at("c", "ops", false),
+    at("d", "eng", false),
+  ]);
+  expect(groups.map((g) => [g.key, g.channel, g.items.map((m) => m.id)])).toEqual([
+    ["you", null, ["b"]],
+    ["c-eng", "eng", ["a", "d"]],
+    ["c-ops", "ops", ["c"]],
+  ]);
+  expect(memoryAudienceGroups([at("x", "eng")]).map((g) => g.key)).toEqual(["c-eng"]);
 });

@@ -35,6 +35,45 @@
 .aa-state[data-level="limited"] {
   color: var(--danger);
 }
+/* Under the name: the agents that think with the account, their faces first. */
+.plan-row__head > .aa-agents {
+  grid-column: 2 / 4;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--ink-muted);
+}
+.aa-agents > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The list's groups (the account picker's): the viewer's accounts, the team's, the API keys. */
+.aa-group + .aa-group,
+.aa-group + .aa-keys {
+  margin-top: var(--space-4);
+}
+.aa-group__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+.aa-group__head > .aa-group__label {
+  margin: 0;
+}
+.aa-group__label {
+  margin: 0 0 var(--space-2);
+  color: var(--ink-muted);
+  font-size: 12.5px;
+  font-weight: 600;
+}
 .aa-acts {
   display: inline-flex;
   flex-wrap: wrap;
@@ -149,6 +188,9 @@
     white-space: nowrap;
     font-size: 13px;
     line-height: 18px;
+  }
+  .plan-rows.aa-list .plan-row__head > .aa-agents {
+    grid-area: 4 / 1 / 5 / 4;
   }
   .plan-rows.aa-list .plan-row__head > :is(.plan-row__meter, .aa-state) {
     grid-area: 3 / 1 / 4 / 4;

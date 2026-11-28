@@ -11,6 +11,7 @@ import {
   MODEL_TIERS,
   maxCostNanoUsd,
   modelForTier,
+  outputCapRefusal,
   outputTokensWithin,
   PROVIDER_IDS,
   PROVIDERS,
@@ -288,9 +289,10 @@ test("effortWithin and agentOutputTokens: a model gets the effort and the output
   expect(agentOutputTokens("claude-opus-5-5")).toBe(64_000);
   expect(agentOutputTokens("claude-opus-5-5", "high")).toBe(64_000);
   expect(agentOutputTokens("claude-opus-5-5", "max")).toBe(128_000);
-  // No known limit: the old 16K, since more than a model takes is refused.
-  expect(agentOutputTokens("deepseek-v4-pro", "max")).toBe(16_000);
-  expect(agentOutputTokens("not-a-model")).toBe(16_000);
+  // No known limit: the same room, within a quarter of the window (the gateway learns the real limit).
+  expect(agentOutputTokens("deepseek-v4-pro", "max")).toBe(64_000);
+  expect(agentOutputTokens("gpt-6.2-sol")).toBe(64_000);
+  expect(agentOutputTokens("not-a-model")).toBe(50_000);
   // A listed row whose output limit is its whole window: a quarter of it, so the input keeps room.
   setListedModels({
     "test/small-window": {
@@ -304,6 +306,72 @@ test("effortWithin and agentOutputTokens: a model gets the effort and the output
   });
   expect(agentOutputTokens("test/small-window", "max")).toBe(16_384);
   setListedModels({});
+});
+
+test("outputCapRefusal: the limit a refusal names, across providers' words; any other refusal is none", () => {
+  const refused = (said: string, status = 400) =>
+    new ProviderError(`provider rejected the request (${status}): ${said}`, false, status, undefined, said);
+  // One number: the model's limit, remembered.
+  expect(
+    outputCapRefusal(
+      refused(
+        "max_tokens is too large: 64000. This model supports at most 16384 completion tokens, whereas you provided 64000.",
+      ),
+      64_000,
+    ),
+  ).toEqual({ retry: 16_384, learn: 16_384 });
+  expect(
+    outputCapRefusal(
+      refused(
+        "max_tokens: 128000 > 64000, which is the maximum allowed number of output tokens for claude-opus-4-20250514",
+      ),
+      128_000,
+    ),
+  ).toEqual({ retry: 64_000, learn: 64_000 });
+  expect(
+    outputCapRefusal(refused("Invalid max_tokens value, the valid range of max_tokens is [1, 8192]"), 64_000),
+  ).toEqual({ retry: 8192, learn: 8192 });
+  expect(
+    outputCapRefusal(
+      refused(
+        "Unable to submit request because it has a maxOutputTokens value of 100000 but the supported range is from 1 (inclusive) to 65537 (exclusive).",
+      ),
+      100_000,
+    ),
+  ).toEqual({ retry: 65_536, learn: 65_536 });
+  expect(
+    outputCapRefusal(
+      refused("`max_tokens` must be less than or equal to `32,768`, the maximum value for `max_tokens`", 422),
+      64_000,
+    ),
+  ).toEqual({ retry: 32_768, learn: 32_768 });
+  // A window and the prompt in it: the room left now, at least a quarter of the window remembered.
+  expect(
+    outputCapRefusal(
+      refused(
+        "This model's maximum context length is 32768 tokens. However, you requested 70000 tokens (6000 in the messages, 64000 in the completion). Please reduce the length of the messages or completion.",
+      ),
+      64_000,
+    ),
+  ).toEqual({ retry: 26_768, learn: 26_768 });
+  expect(
+    outputCapRefusal(
+      refused(
+        "Input validation error: `inputs` tokens + `max_new_tokens` must be <= 32769. Given: 30000 `inputs` tokens and 64000 `max_new_tokens`",
+      ),
+      64_000,
+    ),
+  ).toEqual({ retry: 2769, learn: 8192 });
+  // About the cap but no number below it: half, never remembered.
+  expect(
+    outputCapRefusal(refused("input length and `max_tokens` exceed context limit: 190000 + 64000 > 200000"), 64_000),
+  ).toEqual({ retry: 32_000, learn: null });
+  // Anything else is no output-cap refusal: another words, another status, or a stream that had begun.
+  expect(outputCapRefusal(refused("messages: at least one message is required"), 64_000)).toBeNull();
+  expect(outputCapRefusal(new ProviderError("rate limited by provider", true, 429), 64_000)).toBeNull();
+  const midStream = refused("max_tokens is too large: 64000. at most 16384");
+  midStream.partial = { inputTokens: 10, cacheReadTokens: 0, cacheWriteTokens: 0, outputTokens: 5, outputChars: 20 };
+  expect(outputCapRefusal(midStream, 64_000)).toBeNull();
 });
 
 describe("models listed at run time (OpenRouter's)", () => {

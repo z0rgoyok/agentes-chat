@@ -2,10 +2,13 @@ import { createHash } from "node:crypto";
 import type { BlobStore, PubSub } from "@agenteschat/adapters";
 import { and, type Database, eq, schema, sql } from "@agenteschat/db";
 import { isAccentHex } from "@agenteschat/tokens/accent";
+import { contrastOf } from "@agenteschat/ui/agent/engine";
+import { LIGHT_INK, LOGO_PLATES } from "@agenteschat/ui/org-logo";
 import { type AuditEntry, recordAudit } from "./audit";
 import { caches } from "./cache";
 import { NotFoundError, ValidationError } from "./errors";
 import { publishOrgEvent } from "./events";
+import { decodePng } from "./office/pdf-images";
 import { getMembership, invitedOrgId, requirePermission } from "./organizations";
 
 const { users, organizationMembers, organizations } = schema;
@@ -128,6 +131,30 @@ export function readImage(input: { imageBase64: string; contentType: string }, c
 }
 
 /**
+ * `LIGHT_INK` for a PNG logo whose see-through background (a tenth of it or more) carries light ink: the mean color of
+ * what shows reads better on the dark plate than on the white one. "" for any other logo (a JPEG or WebP, opaque or
+ * dark ink, or past 4 million pixels), which gets the white plate.
+ */
+export function logoInk(body: Uint8Array, type: string): string {
+  // A 4:1 wordmark at 4096×1024 at most: past that, the white plate, rather than a big decode on an upload.
+  const png = type === "image/png" ? decodePng(body, 4096 * 1024) : null;
+  if (!png?.transparent) return "";
+  let clear = 0;
+  let shown = 0;
+  const sum = [0, 0, 0];
+  for (let i = 0; i < png.alpha.length; i++) {
+    const a = png.alpha[i] as number;
+    if (a < 128) clear++;
+    shown += a;
+    for (let k = 0; k < 3; k++) sum[k] = (sum[k] as number) + a * (png.rgb[i * 3 + k] as number);
+  }
+  if (clear * 10 < png.alpha.length || shown === 0) return "";
+  const [r, g, b] = sum.map((c) => Math.round(c / shown)) as [number, number, number];
+  const ink = `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
+  return contrastOf(ink, LOGO_PLATES.lightInk) > contrastOf(ink, LOGO_PLATES.darkInk) ? LIGHT_INK : "";
+}
+
+/**
  * Sets a person's photo (`PUT …/me/avatar`): JPEG, PNG or WebP up to 2 MB,
  * checked by its bytes, stripped of metadata, stored in the platform bucket,
  * served by `GET /api/app/avatars/{userId}/{file}` (people sharing an org).
@@ -197,7 +224,8 @@ export async function avatarFile(
 
 // ── The workspace logo ───────────────────────────────────────────────────────
 
-const LOGO_PATH = /^\/api\/app\/org-logos\/([^/]+)\/([0-9a-f]{16}\.(jpg|png|webp))$/;
+/** A logo's address; a light-ink one ends with `LIGHT_INK`, which no request carries. */
+const LOGO_PATH = new RegExp(`^/api/app/org-logos/([^/]+)/([0-9a-f]{16}\\.(jpg|png|webp))(${LIGHT_INK})?$`);
 
 /**
  * Who changes a workspace's look: a person, who needs `configure`, or null for the server's operator (the operator
@@ -223,8 +251,8 @@ const announceLook = (pubsub: PubSub | undefined, orgId: string) =>
 /**
  * Sets the workspace logo (`PUT …/organizations/{orgId}/logo`, or the operator's `PUT /orgs/{orgId}/look`): an admin
  * (`configure`) or the operator (`actorId` null); same checks as a photo; stored in the platform bucket and
- * served to the org's members by `GET /api/app/org-logos/{orgId}/{file}`.
- * The app crops it square (512×512) before sending. Audited.
+ * served to the org's members by `GET /api/app/org-logos/{orgId}/{file}`, at an address marked when its ink is light
+ * (`logoInk`). It may arrive uncropped (a wordmark), so the apps draw it whole. Audited.
  */
 export async function setOrgLogo(
   deps: { db: Database; blobs: BlobStore; pubsub?: PubSub },
@@ -235,7 +263,7 @@ export async function setOrgLogo(
   const before = await lookBefore(deps.db, actorId, orgId);
   const { body, type, file } = readImage(input, "logo");
   await deps.blobs.put(`org-logos/${orgId}/${file}`, body, { contentType: type });
-  const logo = `/api/app/org-logos/${encodeURIComponent(orgId)}/${file}`;
+  const logo = `/api/app/org-logos/${encodeURIComponent(orgId)}/${file}${logoInk(body, type)}`;
   await deps.db.update(organizations).set({ logo }).where(eq(organizations.id, orgId));
   caches.orgs.delete(`${orgId}:`);
   await removeStoredLogo(deps.blobs, orgId, before.logo, file);
@@ -322,7 +350,7 @@ export async function orgLogoFile(
 /**
  * The organization's current logo, no person checked: for a connected computer (`GET /api/machines/org-logo`,
  * ADR 0036: the caller authenticated the machine token, and the machine belongs to `orgId`) and an invitation's
- * page (`invitationLogoFile`). Null without a logo. `file` (a content hash) doubles as the ETag.
+ * page (`invitationLogoFile`). Null without a logo. `file` is a content hash; `ink` is the address's light-ink mark or "".
  */
 export async function currentOrgLogo(deps: { db: Database; blobs: BlobStore }, orgId: string) {
   const [org] = await deps.db
@@ -333,7 +361,7 @@ export async function currentOrgLogo(deps: { db: Database; blobs: BlobStore }, o
   if (!m?.[2] || decodeURIComponent(m[1] ?? "") !== orgId) return null;
   const object = await deps.blobs.get(`org-logos/${orgId}/${m[2]}`);
   if (!object) return null;
-  return { file: m[2], ...object };
+  return { file: m[2], ink: m[4] ?? "", ...object };
 }
 
 /**

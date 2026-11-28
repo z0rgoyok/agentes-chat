@@ -415,10 +415,12 @@ export async function buildTeamWeek(db: Database, w: Window): Promise<BuiltCard 
         where m.org_id = ${w.orgId} and m.created_at >= ${start}::timestamptz and m.created_at < ${end}::timestamptz
           and m.meta->>'bodyCode' = 'budget_wait'
           and m.author_agent_id in (select id from agents where org_id = ${w.orgId} and builtin is null)
-      ) s group by agent_id order by n desc limit 2`),
+      ) s group by agent_id order by n desc limit 10`),
   );
   // A budget is the workspace's money: only an administrator's card offers to raise it.
+  let budgetRows = 0;
   for (const s of admin ? stops : []) {
+    if (budgetRows >= 2) break;
     const agent = team.find((a) => a.id === s.agent_id);
     if (!agent) continue;
     const from = budgetOf(agent.budget);
@@ -435,6 +437,7 @@ export async function buildTeamWeek(db: Database, w: Window): Promise<BuiltCard 
         to,
       });
       proposalIds.push(id);
+      budgetRows++;
     }
   }
 
@@ -445,7 +448,7 @@ export async function buildTeamWeek(db: Database, w: Window): Promise<BuiltCard 
         and a.created_at < ${new Date(w.end.getTime() - 24 * HOUR_MS).toISOString()}::timestamptz
         and not exists (select 1 from channel_members cm join channels c on c.id = cm.channel_id
           and c.kind = 'channel' and c.archived_at is null and c.deleted_at is null where cm.agent_id = a.id)
-      order by a.created_at limit 2`),
+      order by a.created_at limit 20`),
   );
   const [home] = lonely.length
     ? rowsOf<{ id: string }>(
@@ -455,8 +458,9 @@ export async function buildTeamWeek(db: Database, w: Window): Promise<BuiltCard 
       )
     : [];
   const homeId = home?.id;
+  let channelRows = 0;
   for (const a of homeId ? lonely : []) {
-    if (!homeId) break;
+    if (!homeId || channelRows >= 2) break;
     const id = await settingsProposal(
       db,
       w,
@@ -467,6 +471,7 @@ export async function buildTeamWeek(db: Database, w: Window): Promise<BuiltCard 
     if (id) {
       rows.push({ id: `channel:${a.id}`, kind: "channel", agentId: a.id, proposalId: id, channelId: homeId });
       proposalIds.push(id);
+      channelRows++;
     }
   }
 
@@ -959,16 +964,22 @@ async function settingsProposal(
       and exists (select 1 from messages m where m.org_id = p.org_id and m.author_agent_id = p.proposed_by_agent_id
         and m.meta->'actionCard'->>'kind' = ${TEAM_WEEK_CARD}
         and m.meta->'actionCard'->'proposalIds' @> jsonb_build_array(p.id::text))`);
-  const { proposals } = await proposeSettings(
-    { db },
-    {
-      orgId: w.orgId,
-      agentId: w.rightHandId,
-      targets: [{ agentId, lines: [line] }],
-      rationale,
-      requesterId: w.userId,
-    },
-  );
+  let proposals: Awaited<ReturnType<typeof proposeSettings>>["proposals"];
+  try {
+    ({ proposals } = await proposeSettings(
+      { db },
+      {
+        orgId: w.orgId,
+        agentId: w.rightHandId,
+        targets: [{ agentId, lines: [line] }],
+        rationale,
+        requesterId: w.userId,
+      },
+    ));
+  } catch (error) {
+    if (error instanceof ForbiddenError || error instanceof NotFoundError) return null;
+    throw error;
+  }
   const [p] = proposals;
   if (p && !p.canDecide) {
     // Not on the card: a row nobody sees would only pile up, one a day on a "Resumo do dia".

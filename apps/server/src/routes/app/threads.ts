@@ -32,7 +32,7 @@ import {
 import { PreviewMeta } from "./schemas";
 
 const tags = ["Threads"];
-const Actor = z.object({ type: z.enum(["person", "agent"]), id: z.string().nullable() });
+const Actor = z.object({ type: z.enum(["person", "agent", "app"]), id: z.string().nullable() });
 const State = z.enum(["open", "closed", "archived"]);
 const Tab = z.enum(["all", "working", "missions", "closed", "archived"]);
 

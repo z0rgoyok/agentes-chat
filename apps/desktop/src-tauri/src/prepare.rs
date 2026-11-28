@@ -284,6 +284,10 @@ fn pane_url(pane: &str) -> Option<String> {
         "disk" => "Privacy_AllFiles",
         "network" => "Privacy_LocalNetwork",
         "microphone" => "Privacy_Microphone",
+        "camera" => "Privacy_Camera",
+        "accessibility" => "Privacy_Accessibility",
+        "automation" => "Privacy_Automation",
+        "app_management" => "Privacy_AppBundles",
         _ => return None,
     };
     Some(format!("x-apple.systempreferences:com.apple.preference.security?{anchor}"))
@@ -363,6 +367,22 @@ mod tests {
         assert_eq!(
             pane_url("microphone").as_deref(),
             Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone")
+        );
+        assert_eq!(
+            pane_url("app_management").as_deref(),
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_AppBundles")
+        );
+        assert_eq!(
+            pane_url("accessibility").as_deref(),
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")
+        );
+        assert_eq!(
+            pane_url("automation").as_deref(),
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+        );
+        assert_eq!(
+            pane_url("camera").as_deref(),
+            Some("x-apple.systempreferences:com.apple.preference.security?Privacy_Camera")
         );
         assert_eq!(pane_url("files"), None);
         assert_eq!(pane_url("x-apple.systempreferences:com.apple.Accounts"), None);

@@ -1,4 +1,40 @@
 {
+  "permissionAsk.title": {
+    "value": "agentes.chat needs {{permission}}"
+  },
+  "permissionAsk.done": {
+    "value": "I allowed it"
+  },
+  "permissionAsk.later": {
+    "value": "Not now"
+  },
+  "permissionAsk.trayTitle": {
+    "value": "Waiting for {{permission}}"
+  },
+  "permissionAsk.why.app_management": {
+    "value": "Agents need it to change apps on this {{device}}."
+  },
+  "permissionAsk.why.screen": {
+    "value": "Agents need it to take screenshots of this {{device}}."
+  },
+  "permissionAsk.why.accessibility": {
+    "value": "Agents need it to click and type in apps on this {{device}}."
+  },
+  "permissionAsk.why.disk": {
+    "value": "Agents need it to open your files without macOS asking for each folder."
+  },
+  "permissionAsk.why.network": {
+    "value": "Agents need it to reach phones and devices on your network."
+  },
+  "permissionAsk.why.camera": {
+    "value": "Agents need it to use this {{device}}'s camera."
+  },
+  "permissionAsk.why.microphone": {
+    "value": "Agents need it to use this {{device}}'s microphone."
+  },
+  "permissionAsk.why.automation": {
+    "value": "Agents need it to control other apps on this {{device}}."
+  },
   "device.mac": {
     "value": "Mac"
   },
@@ -13,6 +49,15 @@
   },
   "windowTitle.prefs": {
     "value": "Preferences"
+  },
+  "background.title": {
+    "value": "agentes.chat is still running"
+  },
+  "background.bodyMac": {
+    "value": "Find it in the menu bar at the top of the screen. Open it or quit it from there."
+  },
+  "background.bodyTray": {
+    "value": "Find it in the system tray. Open it or quit it from there."
   },
   "common.cancel": {
     "value": "Cancel"
@@ -166,6 +211,18 @@
   },
   "tray.browser.doing.tabs": {
     "value": "switching tabs"
+  },
+  "tray.apps.title": {
+    "value": "{{agent}} is using {{app}}"
+  },
+  "tray.apps.detail": {
+    "value": "Your mouse and keyboard stay yours"
+  },
+  "tray.apps.stop": {
+    "value": "Stop"
+  },
+  "tray.apps.stopped": {
+    "value": "{{agent}} stopped using your apps"
   },
   "tray.label": {
     "value": "agentes.chat"
@@ -353,6 +410,9 @@
   "tray.denied": {
     "value": "Declined. {{agent}} lets them know in the chat."
   },
+  "tray.answerFailed": {
+    "value": "Couldn't answer this request: {{message}}"
+  },
   "tray.notifTitle": {
     "value": "{{agent}} wants to use the folder {{folder}}"
   },
@@ -370,6 +430,18 @@
   },
   "tray.allowedUndone": {
     "value": "Off again: {{tool}}"
+  },
+  "tray.pickTitle": {
+    "value": "{{name}} asks for a folder for the agents"
+  },
+  "tray.pickTitleAgent": {
+    "value": "{{name}} asks for a folder for {{agent}}"
+  },
+  "tray.pickBody": {
+    "value": "Choose which folder to allow on this {{device}}."
+  },
+  "tray.pickChoose": {
+    "value": "Choose folder"
   },
   "tray.quitTitle": {
     "value": "Quit agentes.chat?"
@@ -627,7 +699,7 @@
     "value": "Send anonymous usage statistics to agentes.chat"
   },
   "here.usageText": {
-    "value": "Counts such as people, agents, machine sizes, AI tokens used and how much data the agents' browsers send and receive. Never messages, files, names or sites."
+    "value": "Counts such as people, agents, machine sizes, AI tokens used, how much data the agents' browsers send and receive, and how fast the apps open and run. Never messages, files, names or sites."
   },
   "here.start": {
     "value": "Start"
@@ -1244,6 +1316,36 @@
   "pair.done": {
     "value": "Connected to {{org}}"
   },
+  "pair.share": {
+    "value": "Let the whole workspace use it"
+  },
+  "pair.internet": {
+    "value": "Agents use this computer's internet"
+  },
+  "pair.internetOn": {
+    "value": "Sites and servers the agents reach see your location"
+  },
+  "pair.internetOff": {
+    "value": "Off: agents use their usual connection"
+  },
+  "pair.internetHint": {
+    "value": "The workspace's agents go online through this computer's connection: websites, git, SSH, databases and other TCP connections. Never anything on your own network, nor email on port 25. The agents' AI, name lookups, calls and other UDP traffic use their usual connection, and so does everything while this computer is offline."
+  },
+  "pair.internetHintProxy": {
+    "value": "The workspace's agents' browsers and the programs that follow proxy settings (git over HTTPS, curl, most command-line tools) go online through this computer's connection. SSH, database clients and other programs that ignore proxy settings use their usual connection, and so do the agents' AI, name lookups and UDP traffic. Never anything on your own network, nor email on port 25. While this computer is offline, everything uses the usual connection."
+  },
+  "pair.internetOnly": {
+    "value": "Use only this computer's internet"
+  },
+  "pair.internetOnlyHint": {
+    "value": "Agents use only this computer's internet, their AI included, and never the usual connection. While it's offline, they have no internet until it's back."
+  },
+  "pair.shareOff": {
+    "value": "Only you for now"
+  },
+  "pair.shareHint": {
+    "value": "Everyone's agents in {{org}} can run tasks on it, as your user."
+  },
   "pair.addFolders": {
     "value": "Add folders"
   },
@@ -1360,6 +1462,15 @@
   },
   "tools.antigravityDesc": {
     "value": "Writes and changes code in the allowed folders, with your Gemini account."
+  },
+  "tools.devinName": {
+    "value": "Devin CLI"
+  },
+  "tools.devinDesc": {
+    "value": "Writes and changes code in the allowed folders, with your Devin account."
+  },
+  "tools.devinWindows": {
+    "value": "Devin doesn't run on Windows yet: here its CLI can't keep each account's sign-in apart. Agents think with Devin on a Mac or Linux computer."
   },
   "tools.found": {
     "value": "Found"
@@ -2149,6 +2260,9 @@
   },
   "prefs.advanced.brainIdle": {
     "value": "Close an idle conversation after"
+  },
+  "prefs.advanced.mixed": {
+    "value": "Not the same everywhere: {{values}}. A change here sets all of them."
   },
   "prefs.advanced.folder": {
     "value": "Agents' folder"

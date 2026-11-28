@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createHmac } from "node:crypto";
 import { eq, schema } from "@agenteschat/db";
-import { mintReferralsLink, REFERRALS_ORGS, type ReferralsLinkClaims } from "../src";
+import { mintReferralsLink, openLinkToken, REFERRALS_ORGS, type ReferralsLinkClaims } from "../src";
 import { addMember, addUser, type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -15,22 +14,18 @@ const NOW = new Date("2027-01-01T00:00:00Z");
 const mint = (userId: string, returnTo?: string, baseUrl = "https://refer.example.com") =>
   mintReferralsLink(f.db, { secret: SECRET, baseUrl, userId, returnTo, now: NOW });
 
-/** The link's token, checked like the referral service checks it: the HMAC over the payload as sent. */
+/** The link's token, opened like the referral service opens it. */
 function claimsOf(url: string) {
-  const token = new URL(url).searchParams.get("t") ?? "";
-  const [version, payload, signature] = token.split(".");
-  expect(version).toBe("v1");
-  expect(signature).toBe(createHmac("sha256", SECRET).update(`v1.${payload}`).digest("base64url"));
-  return JSON.parse(Buffer.from(payload ?? "", "base64url").toString()) as ReferralsLinkClaims;
+  return openLinkToken(SECRET, new URL(url).searchParams.get("t") ?? "") as ReferralsLinkClaims;
 }
 
 describe("mintReferralsLink", () => {
-  test("signed with the secret, for 5 minutes, carrying who the person is and their workspaces", async () => {
+  test("sealed with the secret, for 5 minutes, carrying who the person is and their workspaces", async () => {
     const admin = await addMember(f.db, f.org.id, "admin");
     const member = await addMember(f.db, f.org.id, "member");
     await f.db.update(schema.users).set({ locale: "en" }).where(eq(schema.users.id, member.id));
     const link = await mint(f.owner.id);
-    expect(link.url.startsWith("https://refer.example.com/link?t=v1.")).toBe(true);
+    expect(link.url.startsWith("https://refer.example.com/link?t=v2.")).toBe(true);
     expect(link.expiresAt).toEqual(new Date(NOW.getTime() + 300_000));
     const [owner] = await f.db.select().from(schema.users).where(eq(schema.users.id, f.owner.id));
     const claims = claimsOf(link.url);
@@ -112,10 +107,10 @@ describe("mintReferralsLink", () => {
 
   test("keeps a path in the service's address, with no doubled slash", async () => {
     expect((await mint(f.owner.id, undefined, "https://example.com/refer/")).url).toMatch(
-      /^https:\/\/example\.com\/refer\/link\?t=v1\./,
+      /^https:\/\/example\.com\/refer\/link\?t=v2\./,
     );
     expect((await mint(f.owner.id, undefined, "https://example.com/refer")).url).toMatch(
-      /^https:\/\/example\.com\/refer\/link\?t=v1\./,
+      /^https:\/\/example\.com\/refer\/link\?t=v2\./,
     );
   });
 });

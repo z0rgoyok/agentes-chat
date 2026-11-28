@@ -1,4 +1,20 @@
 {
+  "permissionAsk": {
+    "title": "agentes.chat heeft {{permission}} nodig",
+    "done": "Ik heb het toegestaan",
+    "later": "Niet nu",
+    "trayTitle": "Wacht op {{permission}}",
+    "why": {
+      "app_management": "Agents hebben dit nodig om apps op deze {{device}} te wijzigen.",
+      "screen": "Agents hebben dit nodig om schermafbeeldingen van deze {{device}} te maken.",
+      "accessibility": "Agents hebben dit nodig om in apps op deze {{device}} te klikken en te typen.",
+      "disk": "Agents hebben dit nodig om je bestanden te openen zonder dat macOS per map vraagt.",
+      "network": "Agents hebben dit nodig om telefoons en apparaten op je netwerk te bereiken.",
+      "camera": "Agents hebben dit nodig om de camera van deze {{device}} te gebruiken.",
+      "microphone": "Agents hebben dit nodig om de microfoon van deze {{device}} te gebruiken.",
+      "automation": "Agents hebben dit nodig om andere apps op deze {{device}} te besturen."
+    }
+  },
   "device": {
     "mac": "Mac",
     "windows": "pc",
@@ -7,6 +23,11 @@
   "windowTitle": {
     "welcome": "Welkom",
     "prefs": "Voorkeuren"
+  },
+  "background": {
+    "title": "agentes.chat blijft actief",
+    "bodyMac": "Je vindt het in de menubalk boven aan het scherm. Open of sluit het daar af.",
+    "bodyTray": "Je vindt het in het systeemvak. Open of sluit het daar af."
   },
   "common": {
     "cancel": "Annuleren",
@@ -67,6 +88,12 @@
         "capturing": "maakt een schermafbeelding",
         "tabs": "wisselt van tabblad"
       }
+    },
+    "apps": {
+      "title": "{{agent}} gebruikt {{app}}",
+      "detail": "Je muis en toetsenbord blijven van jou",
+      "stop": "Stoppen",
+      "stopped": "{{agent}} gebruikt je apps niet meer"
     },
     "label": "agentes.chat",
     "now": "Nu",
@@ -130,12 +157,17 @@
     "allowedOne": "{{folder}} toegestaan voor {{agent}}",
     "allowedAll": "{{folder}} toegestaan voor alle agents",
     "denied": "Geweigerd. {{agent}} laat het in het gesprek weten.",
+    "answerFailed": "Kon niet op dit verzoek reageren: {{message}}",
     "notifTitle": "{{agent}} wil de map {{folder}} gebruiken",
     "allowedTitle": "{{name}} heeft {{tool}} aangezet via agentes.chat",
     "allowedBody": "Was jij het niet? Maak het hier ongedaan.",
     "allowedUndo": "Ongedaan maken",
     "allowedOk": "Oké",
     "allowedUndone": "Weer uit: {{tool}}",
+    "pickTitle": "{{name}} vraagt om een map voor de agents",
+    "pickTitleAgent": "{{name}} vraagt om een map voor {{agent}}",
+    "pickBody": "Kies welke map je op deze {{device}} toestaat.",
+    "pickChoose": "Map kiezen",
     "quitTitle": "agentes.chat afsluiten?",
     "quitBody": "Agents kunnen deze {{device}} niet gebruiken terwijl de app gesloten is. Wat al draait, wordt afgemaakt en stuurt het resultaat zodra je de app weer opent.",
     "quitHereBody": "agentes.chat stopt op deze {{device}}: niemand kan het gebruiken, hier, op je telefoon of die van je teamgenoten, tot je de app weer opent.",
@@ -233,7 +265,7 @@
     "openTailscale": "Tailscale openen",
     "getTailscale": "Tailscale downloaden",
     "usage": "Anonieme gebruiksstatistieken naar agentes.chat sturen",
-    "usageText": "Aantallen zoals mensen, agents, machinegroottes, gebruikte AI-tokens en hoeveel data de browsers van de agents versturen en ontvangen. Nooit berichten, bestanden, namen of sites.",
+    "usageText": "Aantallen zoals mensen, agents, machinegroottes, gebruikte AI-tokens, hoeveel data de browsers van de agents versturen en ontvangen en hoe snel de apps openen en reageren. Nooit berichten, bestanden, namen of sites.",
     "start": "Beginnen",
     "setting": "Alles wordt klaargezet",
     "rest": "Als je de app sluit, rusten je agents. Ze zijn terug zodra je hem weer opent.",
@@ -455,6 +487,16 @@
     "linkBody": "Heb je hier niet om gevraagd, kies dan Niet nu.",
     "waiting": "Wachten tot {{by}} hem binnenlaat…",
     "done": "Verbonden met {{org}}",
+    "share": "Laat de hele werkruimte hem gebruiken",
+    "internet": "Agents gebruiken het internet van deze computer",
+    "internetOn": "Websites en servers die de agents bereiken, zien jouw locatie",
+    "internetOff": "Uit: agents gebruiken hun gewone verbinding",
+    "internetHint": "De agents van de workspace gaan via de verbinding van deze computer online: websites, git, SSH, databases en andere TCP-verbindingen. Nooit iets op je eigen netwerk en geen e-mail via poort 25. De AI van de agents, naamopzoekingen, gesprekken en ander UDP-verkeer gebruiken hun gewone verbinding, net als alles zolang deze computer offline is.",
+    "internetHintProxy": "De browser van de agents van de workspace en de programma’s die proxyinstellingen volgen (git via HTTPS, curl, de meeste commandoregeltools) gaan via de verbinding van deze computer online. SSH, databaseclients en andere programma’s die proxyinstellingen negeren, gebruiken hun gewone verbinding, net als de AI van de agents, naamopzoekingen en UDP-verkeer. Nooit iets op je eigen netwerk en geen e-mail via poort 25. Zolang deze computer offline is, gebruikt alles de gewone verbinding.",
+    "internetOnly": "Alleen het internet van deze computer gebruiken",
+    "internetOnlyHint": "De agents gebruiken alleen het internet van deze computer, ook voor hun AI, en nooit de gewone verbinding. Zolang hij offline is, hebben ze geen internet tot hij terug is.",
+    "shareOff": "Voorlopig alleen jij",
+    "shareHint": "De agents van iedereen in {{org}} kunnen er taken op draaien, als jouw gebruiker.",
     "addFolders": "Mappen toevoegen",
     "expired": "Deze link is verlopen. Maak een nieuwe via Apparaten.",
     "openDevices": "Apparaten openen",
@@ -498,6 +540,9 @@
     "grokDesc": "Schrijft en wijzigt code in de toegestane mappen, met je Grok-account.",
     "antigravityName": "Antigravity CLI",
     "antigravityDesc": "Schrijft en wijzigt code in de toegestane mappen, met je Gemini-account.",
+    "devinName": "Devin CLI",
+    "devinDesc": "Schrijft en wijzigt code in de toegestane mappen, met je Devin-account.",
+    "devinWindows": "Devin werkt nog niet op Windows: hier kan de CLI de aanmelding van elk account niet gescheiden houden. Agenten denken met Devin op een Mac- of Linux-computer.",
     "found": "Gevonden",
     "notFound": "Niet gevonden",
     "loggedOut": "Niet ingelogd",
@@ -788,6 +833,7 @@
       "brainMax": "Open gesprekken",
       "brainMaxDesc": "Hoeveel er open blijven in elke werkruimte. Meer ervan antwoorden sneller, maar gebruiken meer geheugen.",
       "brainIdle": "Een inactief gesprek sluiten na",
+      "mixed": "Niet overal hetzelfde: {{values}}. Een wijziging hier geldt voor allemaal.",
       "folder": "Map van de agents",
       "folderDesc": "Eén map per werkruimte, met een map voor elke agent."
     }

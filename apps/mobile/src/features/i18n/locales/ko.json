@@ -4,21 +4,17 @@
     "send": "보내기"
   },
   "categories": {
-    "title": "카테고리",
-    "where": "#{{channel}}이(가) 표시되는 곳",
-    "whereHelp": "모두에게 바뀌어요. 채널에 참여하는 사람은 그대로예요.",
-    "create": "만들기",
-    "endOfList": "모두의 목록 맨 끝으로 가요.",
-    "channelCount_other": "채널 {{count}}개",
-    "none": "아직 카테고리가 없어요.",
-    "manageHint": "순서, 이름, 삭제",
-    "deleteTitle": "{{name}}을(를) 삭제할까요?",
-    "order": "목록에서의 위치",
     "up": "위로 이동",
     "down": "아래로 이동",
-    "position": "{{count}}개 중 {{at}}번째.",
-    "channelPosition": "{{count}}개 중 {{at}}번째.",
-    "itsChannels": "채널"
+    "channelPosition": "{{count}}개 중 {{at}}번째."
+  },
+  "sections": {
+    "title": "섹션",
+    "where": "내 목록에서 #{{channel}}의 위치",
+    "whereHelp": "내 목록만 바뀝니다. 섹션은 각자 정리합니다.",
+    "none": "섹션 없음",
+    "order": "섹션 안의 위치",
+    "tooLong": "40자 이하로 입력하세요."
   },
   "blocks": {
     "send": "보내기",
@@ -68,6 +64,15 @@
     "raw": "원본",
     "more": "{{count}}줄 모두 보기",
     "gone": "이 코드는 더 이상 열려 있지 않아요."
+  },
+  "table": {
+    "label_other": "표 · {{count}}행",
+    "title": "표",
+    "rows_other": "{{count}}행",
+    "copy": "표 복사",
+    "copied": "표를 복사했어요",
+    "more": "{{count}}행 모두 보기",
+    "gone": "이 표는 더 이상 열려 있지 않아요."
   },
   "time": {
     "today": "오늘",
@@ -181,11 +186,11 @@
       "text": "서버가 꺼져 있거나 네트워크 밖에 있을 수 있어요. 다시 켜지면 채팅이 알아서 나타나요.",
       "kept": "앱에 이미 있던 내용을 보여 드리고 있어요."
     },
-    "pinned": "고정됨",
+    "favorites": "즐겨찾기",
     "recent": "최근",
     "view": {
       "title": "대화 보기",
-      "sectors": "부서",
+      "sections": "섹션",
       "dms": "다이렉트 메시지",
       "channels": "채널"
     },
@@ -822,6 +827,7 @@
   },
   "agent": {
     "talk": "채팅",
+    "responsible": "담당자",
     "task": "작업",
     "owner": "소유자: {{name}}",
     "cantTalk": "이 에이전트는 나와 함께 일하지 않아요.",
@@ -883,6 +889,7 @@
       "admin_ask_channel_agent": "{{names}} 님이 {{agent}}을(를) #{{label}}에 추가해 달라고 요청합니다",
       "admin_ask_create_agents": "{{names}} 님이 에이전트를 만들 수 있게 해 달라고 요청합니다",
       "admin_ask_webhook": "{{names}} 님이 루틴용 {{service}} 웹훅을 설정해 달라고 요청합니다",
+      "admin_ask_voice": "{{names}} 님이 음성 메시지를 켜 달라고 요청합니다",
       "routine_paused_other": "루틴 일시 중지됨",
       "routine_stalled_other": "루틴이 컴퓨터를 기다리는 중",
       "agent_unreached_other": "루틴이 에이전트를 부르지 못했어요",
@@ -920,6 +927,8 @@
       "plan_model_dropped_other": "{{model}} 모델이 {{plan}}에서 빠졌어요. {{names}}은(는) 당분간 {{runs}}을(를) 써요",
       "computer_disk_full_other": "컴퓨터 디스크가 거의 찼어요",
       "computer_no_chrome_other": "컴퓨터에 Google Chrome이 필요해요. google.com/chrome에서 받으세요",
+      "computer_down_other": "컴퓨터가 응답하지 않아요",
+      "computer_back_other": "컴퓨터가 다시 연결됐어요",
       "app_created_other": "AI 앱이 나를 위해 항목을 만들었어요"
     },
     "markRead": "읽음으로 표시",
@@ -1422,6 +1431,15 @@
     "next": {
       "pr": "브랜치 푸시됨, 아직 풀 리퀘스트 없음",
       "mergeLocal": "{{base}}에 머지할 준비가 됐어요"
+    },
+    "terminal": {
+      "keys": "터미널 키",
+      "keyboard": "키보드",
+      "pasteHint": "복사한 내용을 터미널에 붙여넣기",
+      "key": {
+        "CtrlC": "Control-C, 중단",
+        "CtrlD": "Control-D, 입력 끝"
+      }
     }
   },
   "taskManager": {
@@ -1990,6 +2008,7 @@
       "tool_request": "{{names}}님이 회원님의 {{device}}에서 {{tool}}을(를) 켜 달라고 요청합니다",
       "cli_request": "{{names}} 님이 {{device}}에 {{tool}}을(를) 설치해 달라고 요청합니다",
       "folder_request": "{{names}}님이 회원님의 {{device}}에서 {{path}} 폴더를 요청합니다",
+      "internet_shared": "이제 에이전트가 {{device}}의 인터넷으로 웹사이트를 열어요",
       "allowOnce": "한 번 허용",
       "always": "{{name}} 항상 허용",
       "no": "아니요",
@@ -2681,11 +2700,12 @@
     },
     "formatAuto": "{{name}}이(가) 가장 좋은 걸 골라요",
     "newWidget": {
-      "alerts": "알림 켜짐",
       "realData": "실제 데이터",
       "editAsk": "요청 바꾸기",
       "asked": "“{{ask}}”",
-      "autoFormat": "자동 형식"
+      "testReal": "실제 데이터로 테스트",
+      "addHome": "홈에 추가",
+      "addTo": "{{where}}에 추가"
     },
     "agentPick": {
       "search": "에이전트 검색",
@@ -3111,7 +3131,8 @@
       "workspaceSub": "워크스페이스 API 키",
       "key": "API 키",
       "keyDefault": "워크스페이스 기본값",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}}은(는) 이 계정을 더 이상 쓰지 않아요."
     },
     "missionAi": "AI",
     "missionLocked": "작업할 주체는 시작 전에 고릅니다. 모델은 언제든 바꿀 수 있어요."

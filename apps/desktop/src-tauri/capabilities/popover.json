@@ -1,6 +1,6 @@
 {
   "identifier": "popover",
-  "description": "The menu bar popover: live state, pause, access requests, the tray icon and its menu, notifications, the servers (to name the one open now and open it) and their workspaces (to offer this computer to one once), open at login once the site pairs this computer and, on a Mac, whether its permissions are on (Prepare this Mac opens while one isn't), the microphone's privacy pane when the site asks for it, and the server here (its state, start, stop, restart, its organizations' connections) and the night's update install.",
+  "description": "The menu bar popover: live state, pause, access requests (and the folder picker for a folder asked for from the apps), the tray icon and its menu, notifications, the servers (to name the one open now and open it) and their workspaces (to offer this computer to one once), open at login once the site pairs this computer and, on a Mac, whether its permissions are on (Prepare this Mac opens while one isn't), the microphone's privacy pane when the site asks for it, the server here (its state, start, stop, restart, its organizations' connections), the night's update install, and the system's own dialog before quitting while agents work here.",
   "windows": ["popover"],
   "permissions": [
     "core:default",
@@ -10,6 +10,7 @@
     "allow-runner-add",
     "allow-open-external",
     "allow-reveal-folder",
+    "allow-pick-folder",
     "allow-set-tray-state",
     "allow-tray-visible",
     "allow-servers-get",
@@ -18,6 +19,7 @@
     "allow-show-window",
     "allow-hide-window",
     "allow-quit-app",
+    "allow-quit-ask",
     "allow-app-info",
     "allow-notch-set",
     "allow-notify",

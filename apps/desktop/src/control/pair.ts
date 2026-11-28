@@ -4,7 +4,6 @@
  * runner's code. A pair link from the web (`agenteschat://pair`, checked in `deep_link.rs`): the runner asks with the
  * link, and the link's maker lets it in on the web. Either way the person confirmed in the app first.
  */
-import type { DeviceAudience } from "@agenteschat/client";
 import { normalizeUserCode } from "@agenteschat/client/lib/machines";
 import type { Host } from "../host/types";
 import { siteApi } from "./devices";
@@ -88,21 +87,14 @@ export function nextOffer(
 
 /**
  * Pairs this computer with `target`'s workspace using the main window's session there: the runner's code, confirmed
- * by the app, who may use it when that isn't only the person, and the tools they chose. The person already said yes
- * in the app.
+ * by the app, and the tools they chose. The person already said yes in the app. It joins as theirs alone: the id it
+ * answers with is the computer's, for the switch that shares it with the whole workspace.
  */
-export async function pairWithSession(
-  host: Host,
-  store: DesktopStore,
-  target: PairTarget,
-  audience?: DeviceAudience,
-  tools?: Partial<PairTools>,
-) {
+export async function pairWithSession(host: Host, store: DesktopStore, target: PairTarget, tools?: Partial<PairTools>) {
   const { userCode } = await connect({ store, tools }, target.orgId, target.server);
-  if (!userCode) return;
-  const api = siteApi(host, target.server);
-  const machine = await api.machines.confirmDevice(target.orgId, userCode, {});
-  if (audience && audience.mode !== "owner") await api.devices.updateComputer(target.orgId, machine.id, { audience });
+  if (!userCode) return null;
+  const machine = await siteApi(host, target.server).machines.confirmDevice(target.orgId, userCode, {});
+  return machine.id;
 }
 
 /** How a link pairing ended badly: `pair.failed`'s code. */

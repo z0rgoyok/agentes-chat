@@ -183,6 +183,7 @@ test("what a person chose, from this server and from one before the two cards we
       dayHour: 8,
       digestOff: false,
       remindOff: false,
+      learnOff: false,
       timezone: "UTC",
       dayTimezone: "UTC",
       switches: ["digest"],

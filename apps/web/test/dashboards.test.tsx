@@ -52,13 +52,13 @@ describe("Dashboards: in the sidebar's More, and the list (ADR 0135 §14)", () =
     const { router } = await open(`/org/${ORG_ID}/home`, (fake) => {
       fake.addBoard({ id: "dash-m", title: "Metas", audience: "workspace" });
     });
-    const tools = [...nav().querySelectorAll(".sidebar__tools > a.sidebar__item .sidebar__item-label")].map(
-      (l) => l.textContent,
+    const tools = [...nav().querySelectorAll(".sidebar__col > a.sidebar__tile")].map((l) =>
+      l.getAttribute("aria-label"),
     );
     expect(tools).not.toContain("Painéis");
     const active = () =>
-      [...nav().querySelectorAll('.sidebar__more-active > [data-status="active"] .sidebar__item-label')].map(
-        (l) => l.textContent,
+      [...nav().querySelectorAll('.sidebar__more-active > [data-status="active"]')].map((l) =>
+        l.getAttribute("aria-label"),
       );
     expect(active()).toEqual([]);
     await click(within(nav()).getByRole("button", { name: "Mais" }));

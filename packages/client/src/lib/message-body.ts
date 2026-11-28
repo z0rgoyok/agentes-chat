@@ -1,7 +1,6 @@
 import type { TFunction } from "i18next";
-import { toolActivity } from "./activity";
 import { previewOf } from "./consultations";
-import { firstName, joinNames, lowerFirst } from "./format";
+import { firstName } from "./format";
 import { autoUpdateText, talkerStatusText, workEndBody } from "./long-work";
 import { mediaKindOf, mediaWord } from "./media";
 import { RIGHT_HAND_PLAN_LINES } from "./no-ai";
@@ -11,7 +10,6 @@ import { usageWhen } from "./plan-usage";
 import { weekDay } from "./team-week";
 import { closedNoteText, usageWaitOf, usageWindowText } from "./usage-pause";
 import { isVoiceMeta, voiceLength, voiceOf, voiceWord } from "./voice";
-import { stepLabel } from "./work";
 
 /** Notes of an agent waiting on its plan's limit or its budget (`meta.usageWait`): `{{when}}` from its reset. */
 const USAGE_NOTES = new Set([
@@ -35,7 +33,8 @@ type Meta = Record<string, unknown> | undefined;
 
 /**
  * A computer brain's wait (`meta.brainUnavailable.code`) that isn't its computer gone or busy, by the words that say
- * it: paused by whoever connected it, its CLI or commands off there, a program to update, a plan not the owner's.
+ * it: paused by whoever connected it, its CLI or commands off there, a program to update, a plan not the owner's, its
+ * shared Claude login that can't run there.
  */
 const WAIT_CAUSES: Record<string, string> = {
   machine_paused: "paused",
@@ -43,10 +42,23 @@ const WAIT_CAUSES: Record<string, string> = {
   tool_off: "commands_off",
   runner_outdated: "outdated",
   codex_too_old: "outdated",
+  // Its CLI at a version agentes.chat holds back: "the program on my computer needs an update".
+  cli_outdated: "outdated",
   plan_not_owner: "plan_owner",
+  shared_login_off: "shared_login",
+  // ADR 0237: its agents use only a person's computer's internet, offline now.
+  lent_offline: "lent_offline",
 };
 const waitCauseOf = (code: unknown) =>
   typeof code === "string" && Object.hasOwn(WAIT_CAUSES, code) ? WAIT_CAUSES[code] : null;
+
+/** Why a computer brain's turn stopped after its tools ran (`meta.brainInterrupted.code`), as its note says it. */
+const brainCutKey = (code: unknown) =>
+  code === "timeout"
+    ? "chat.body.brain_interrupted_timeout"
+    : code === "canceled"
+      ? "chat.body.brain_interrupted_computer"
+      : "chat.body.brain_interrupted";
 
 /**
  * The text of an agent message the server wrote itself (approval and secret
@@ -64,18 +76,12 @@ export function serverBody(t: TFunction, body: string, meta: Meta, locale?: stri
     const note = `_${t("chat.body.interrupted", { defaultValue: "Interrupted by a server restart. Ask again to continue." })}_`;
     return interrupted.text ? `${interrupted.text}\n\n${note}` : note;
   }
-  // A computer brain stopped mid-turn after its tools ran: what it wrote, then what its tools did, in words.
-  const cut = m.brainInterrupted as { brain?: unknown; text?: unknown; tools?: unknown } | undefined;
+  // A computer brain stopped mid-turn after its tools ran: what it wrote, then why it stopped and the way on. Which tools
+  // ran is for the agent's next turn (the server's English body), not for people.
+  const cut = m.brainInterrupted as { brain?: unknown; text?: unknown; code?: unknown } | undefined;
   if (cut && typeof cut === "object" && typeof cut.text === "string") {
     const brain = brainName(typeof cut.brain === "string" ? cut.brain : null);
-    const names = Array.isArray(cut.tools) ? cut.tools.filter((x): x is string => typeof x === "string") : [];
-    const done = names.map((tool) => lowerFirst(stepLabel(t, { ...toolActivity(tool), tool }, locale), locale));
-    const tools = joinNames([...new Set(done)], t);
-    const note = `_${t("chat.body.brain_interrupted", {
-      brain,
-      tools,
-      defaultValue: `${brain} stopped before finishing. Already done, not repeated: ${tools}.`,
-    })}_`;
+    const note = `_${t(brainCutKey(cut.code), { brain, defaultValue: `${brain} stopped before finishing. Ask again to continue.` })}_`;
     return cut.text ? `${cut.text}\n\n${note}` : note;
   }
   const code = typeof m.bodyCode === "string" ? m.bodyCode : null;
@@ -121,7 +127,8 @@ export function serverBody(t: TFunction, body: string, meta: Meta, locale?: stri
       noAi?.own === "cursor" ||
       noAi?.own === "opencode" ||
       noAi?.own === "grok" ||
-      noAi?.own === "antigravity")
+      noAi?.own === "antigravity" ||
+      noAi?.own === "devin")
       ? noAi.own
       : null;
   if (own) {

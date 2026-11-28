@@ -9,6 +9,7 @@ import {
   type AgentScope,
   type BrainEffort,
   type BrainSpeed,
+  type CodexSandbox,
   isAccountId,
   isBrainEffort,
   isContextTokens,
@@ -25,19 +26,22 @@ import {
 } from "./accounts";
 import { CODEX_ROUTE_OFF } from "./brain-route";
 import {
-  CODEX_WINDOWS_CONFIG,
+  type CodexWindowsSandbox,
   codexLaunch,
   codexStdinPrompt,
+  codexWindowsConfig,
   WINDOWS_SANDBOX_MESSAGE,
-  windowsMxcReady,
+  windowsCodexSandbox,
 } from "./codex-windows";
+import { ConsoleDecoder } from "./console-text";
 import { RunnerError } from "./errors";
 import { killTree } from "./exec";
-import { cachedCodexVersion, envValue } from "./executors";
+import { cachedCodexVersion, codexRefusal, envValue } from "./executors";
 import { CODEX_MCP_ENV, CODEX_MCP_SERVER, codexWritableRoots } from "./mcp";
 import { isInside, resolveForAgent } from "./paths";
 import type { Spawn } from "./scope-gate";
 import { agentSecrets } from "./secrets";
+import { turnZoneEnv } from "./turn-zone";
 
 /**
  * The Codex branch of `brain.turn` (ADR 0032, ADR 0029 "Codex"): one agent
@@ -77,9 +81,10 @@ import { agentSecrets } from "./secrets";
  *   threads are remembered per account. `effort` is `-c model_reasoning_effort`
  *   (`xhigh` and `max` are `high`).
  * - Windows (`codex-windows.ts`): the native `codex.exe`, started directly; a
- *   `plan` or `work` turn only where MXC holds its commands (else
- *   `windows_sandbox`), with it named in `-c` and nothing asked; a thread's
- *   instructions lead its first prompt on stdin, never the command line.
+ *   `plan` or `work` turn only where a sandbox holds its commands (MXC, else
+ *   Codex's own `unelevated`; neither: `windows_sandbox`), with it named in
+ *   `-c` and nothing asked; a thread's instructions lead its first prompt on
+ *   stdin, never the command line.
  */
 
 /** What a `tool_call` keeps of a command's output. */
@@ -92,6 +97,8 @@ const CODEX_LOGIN_STATUS_MS = 5000;
 /** The engine's `BrainEvent` (ADR 0032 contract), as the runner sends it in `brain.event`. */
 export type CodexBrainEvent =
   | { type: "text_delta"; text: string }
+  /** Its reasoning summary: what it is working on, the work's narration (never the reply). */
+  | { type: "note"; text: string }
   /** Grok Build, read with Claude Code's parser: a call of its own as it starts. */
   | { type: "tool_started"; id: string; name: string }
   | {
@@ -130,6 +137,8 @@ export type CodexBrainEvent =
 export interface CodexBrainTurnRequest {
   runId: string;
   kind: "codex";
+  /** The zone of the turn's "Now" (`turnZoneEnv`). */
+  timeZone?: string;
   session: { id: string; resume: boolean };
   /** Relative to the agent's folder. */
   cwd?: string;
@@ -336,6 +345,18 @@ const ownChatGptSignIn = (opts: Pick<CodexTurnOptions, "bin" | "env" | "platform
 export const codexContextOverride = (tokens: unknown): string[] =>
   isContextTokens(tokens) ? ["-c", `model_auto_compact_token_limit=${tokens}`] : [];
 
+/**
+ * A reasoning item's summary parts as notes (`note`), masked and trimmed, empty ones left out: exec's `text`, the
+ * app-server's `summary` (strings, or `{ text }` parts).
+ */
+export function reasoningNotes(parts: unknown[], clean: (text: string) => string): CodexBrainEvent[] {
+  return parts.flatMap((p) => {
+    const raw = typeof p === "string" ? p : p && typeof p === "object" ? (p as { text?: unknown }).text : "";
+    const text = clean(typeof raw === "string" ? raw : "");
+    return text.trim() ? [{ type: "note" as const, text: text.trim() }] : [];
+  });
+}
+
 /** Codex's `model_reasoning_effort` for a brain effort (it has no `xhigh` or `max`). */
 export function codexEffort(effort: BrainEffort): "low" | "medium" | "high" {
   return effort === "low" || effort === "medium" ? effort : "high";
@@ -472,9 +493,10 @@ export function codexTurnArgs(input: {
   chat?: boolean;
   /**
    * Windows: the instructions go on stdin (`codexStdinPrompt`), never here; a `plan` or `work` turn names its
-   * sandbox (`CODEX_WINDOWS_CONFIG`).
+   * sandbox (`windowsSandbox`, MXC unless told).
    */
   windows?: boolean;
+  windowsSandbox?: CodexWindowsSandbox;
 }): string[] {
   const instructions = input.windows ? undefined : input.instructions?.trim();
   const sandbox = input.chat ? "read-only" : codexSandbox(input.profile ?? "work");
@@ -495,7 +517,9 @@ export function codexTurnArgs(input: {
     ...(sandbox === "workspace-write"
       ? ["-c", CODEX_NO_NETWORK, "-c", codexWritableRoots(input.writableRoots ?? [])]
       : []),
-    ...(input.windows && !input.chat ? CODEX_WINDOWS_CONFIG.flatMap((c) => ["-c", c]) : []),
+    ...(input.windows && !input.chat
+      ? codexWindowsConfig(input.windowsSandbox ?? "mxc").flatMap((c) => ["-c", c])
+      : []),
     ...(instructions && !input.thread ? ["-c", `developer_instructions=${JSON.stringify(instructions)}`] : []),
     ...(input.mcp
       ? [
@@ -707,7 +731,9 @@ export class CodexEventMapper {
         ];
       }
       case "turn.failed":
-        this.failed = this.clean(str((ev.error as { message?: unknown } | undefined)?.message) || "The turn failed");
+        this.failed = this.clean(
+          str((ev.error as { message?: unknown } | undefined)?.message) || this.lastError || "The turn failed",
+        );
         return [];
       case "error":
         this.lastError = this.clean(str(ev.message) || "error");
@@ -723,6 +749,8 @@ export class CodexEventMapper {
             if (t.trim()) this.answer = this.clean(t);
             return [];
           }
+          case "reasoning":
+            return reasoningNotes([item.text], (t) => this.clean(t));
           case "command_execution":
             return [
               codexCommandCall(
@@ -793,8 +821,8 @@ export interface CodexTurnOptions {
   /** How `codex exec` starts (a worker under systemd: in the agent's AI CLIs slice, `scope-gate.ts`). */
   spawn?: Spawn;
   platform?: NodeJS.Platform;
-  /** Windows: whether MXC holds Codex's commands here (default `windowsMxcReady`); null: couldn't tell. */
-  windowsSandbox?: (version: string) => Promise<boolean | null>;
+  /** Windows: what holds Codex's commands here (default `windowsCodexSandbox`); null: couldn't tell. */
+  windowsSandbox?: (version: string) => Promise<CodexSandbox | null>;
   /**
    * Protocol 15: the long-lived `codex app-server` processes
    * (`brain-codex-app.ts`): the turn runs there when it can (it takes
@@ -827,6 +855,8 @@ export interface CodexTurnInput {
   folder?: string;
   /** Protocol 16: the turn's permission profile (default `work`). */
   profile?: CommandProfile;
+  /** Windows, a `plan` or `work` turn: the sandbox its Codex runs in (`runCodexTurn` chooses it). */
+  windowsSandbox?: CodexWindowsSandbox;
   /** The agent never asks (`permissions.asks`): what a held command's refusal says (`PromptContext.asks`). */
   asks?: "never";
   /** Protocol 16: false for a background turn: its app-server closes when the turn ends. */
@@ -856,24 +886,27 @@ export async function runCodexTurn(input: CodexTurnInput, opts: CodexTurnOptions
   if (version === null)
     return fail("codex_failed", "Couldn't check Codex on this computer (`codex --version` didn't answer).", true);
   if (!version) return fail("codex_missing", "Codex is not installed on this computer.");
-  // ADR 0053 §3 on Windows: a plan or work turn runs only inside MXC, Windows' own isolation (`codex-windows.ts`).
+  // ADR 0053 §3 on Windows: a plan or work turn runs only inside a sandbox, MXC where Windows has it, else Codex's own
+  // `unelevated` (`codex-windows.ts`).
   const windows = (opts.platform ?? process.platform) === "win32";
+  let turnInput = input;
   if (windows && !input.chat) {
     const check =
       opts.windowsSandbox ??
       ((v: string) =>
         opts.runnerHome
-          ? windowsMxcReady({ runnerHome: opts.runnerHome, version: v, ...(opts.bin ? { bin: opts.bin } : {}) })
+          ? windowsCodexSandbox({ runnerHome: opts.runnerHome, version: v, ...(opts.bin ? { bin: opts.bin } : {}) })
           : Promise.resolve(null));
-    const mxc = await check(version).catch(() => null);
-    if (mxc === null) {
+    const sandbox = await check(version).catch(() => null);
+    if (sandbox === null) {
       return fail(
         "codex_failed",
         "Couldn't check whether Windows can isolate Codex's commands on this computer.",
         true,
       );
     }
-    if (!mxc) return fail("windows_sandbox", WINDOWS_SANDBOX_MESSAGE);
+    if (sandbox === "none") return fail("windows_sandbox", WINDOWS_SANDBOX_MESSAGE);
+    turnInput = { ...input, windowsSandbox: sandbox };
   }
   // A long-lived app-server takes messages mid-turn; exec runs the turns it can't (an older CLI, a failed handshake…).
   // A `chat` turn's flags exist only for `exec`, and so does leaving someone's own Codex rules out (`--ignore-rules`),
@@ -883,11 +916,11 @@ export async function runCodexTurn(input: CodexTurnInput, opts: CodexTurnOptions
     turnOpts.app && !turn.chat && appServer
       ? turnOpts.app.turn({ ...turn, version }, turnOpts, () => runCodexExec(turn, turnOpts, version))
       : runCodexExec(turn, turnOpts, version);
-  const { speed: _speed, ...standard } = input;
+  const { speed: _speed, ...standard } = turnInput;
   if (input.speed !== "fast" || (!input.account && !(await ownChatGptSignIn(opts)))) return run(standard, opts);
   // Fast never costs a reply: failed before anything happened, the same turn goes again at standard speed.
   const first: { started?: boolean; refused?: string } = {};
-  await run(input, {
+  await run(turnInput, {
     ...opts,
     emit: (event) => {
       if (event.type === "error" && !first.started && fastMayHaveFailed(event)) first.refused = event.message;
@@ -906,15 +939,6 @@ export async function runCodexTurn(input: CodexTurnInput, opts: CodexTurnOptions
       opts.emit(event);
     },
   });
-}
-
-/**
- * The line of a Codex that refused its command line (a flag or subcommand it doesn't have yet, in clap's words), as it
- * said it; null for any other failure.
- */
-export function codexRefusal(stderr: string): string | null {
-  const line = /^error: (?:unexpected argument|unrecognized subcommand|invalid value)\b.*$/m.exec(stderr)?.[0];
-  return line ? line.trim().slice(0, 300) : null;
 }
 
 /** One turn as `codex exec --json` (`version`: what that Codex said it is). */
@@ -943,6 +967,7 @@ async function runCodexExec(input: CodexTurnInput, opts: CodexTurnOptions, versi
     profile: input.profile ?? "work",
     ...(input.chat ? { chat: true } : {}),
     ...(windows ? { windows } : {}),
+    ...(windows && input.windowsSandbox ? { windowsSandbox: input.windowsSandbox } : {}),
   });
   const base: NodeJS.ProcessEnv = {
     ...withoutContainers(input.chat ? withoutSignIns(process.env) : process.env),
@@ -982,9 +1007,11 @@ async function runCodexExec(input: CodexTurnInput, opts: CodexTurnOptions, versi
   }
 
   let stderr = "";
+
+  const stderrText = new ConsoleDecoder();
   child.stderr?.on("data", (c: Buffer) => {
     // Never a failure by itself (the person's own MCP servers log here); kept for a bad exit.
-    stderr = (stderr + c.toString("utf8")).slice(-2000);
+    stderr = (stderr + stderrText.write(c)).slice(-2000);
   });
   const lines = createInterface({ input: child.stdout as NonNullable<ChildProcess["stdout"]> });
   // A `chat` turn that used a tool of Codex's own ends there: nothing after it is passed on.
@@ -1193,7 +1220,8 @@ export async function handleCodexBrainTurn(
         signal: scope.signal,
         runnerHome: ctx.runnerHome,
         ...(ctx.mcp ? { mcpCommand: ctx.mcp.command, socketPath: ctx.mcp.socketPath } : {}),
-        ...(secrets ? { env: secrets.env, redact: secrets.redact, redactHold: secrets.hold } : {}),
+        env: { ...secrets?.env, ...turnZoneEnv(req.timeZone) },
+        ...(secrets ? { redact: secrets.redact, redactHold: secrets.hold } : {}),
         ...(ctx.codexVersion ? { codexVersion: ctx.codexVersion } : {}),
         ...(ctx.bin ? { bin: ctx.bin } : {}),
         ...(ctx.app ? { app: ctx.app } : {}),

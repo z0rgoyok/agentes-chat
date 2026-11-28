@@ -12,7 +12,8 @@ import { listNames } from "@agenteschat/client/lib/activity";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { failedRunFix, filesTextOnlyOf, runFailureLine } from "@agenteschat/client/lib/errors";
 import { sentAtLine } from "@agenteschat/client/lib/format";
-import { mayConnectAi, plansNotYoursOf } from "@agenteschat/client/lib/no-ai";
+import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { mayConnectAi, noAiReceiptLine, plansNotYoursOf } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
 import { deciderOf, everyoneLineOf } from "@agenteschat/client/lib/routing";
 import { helpUrl } from "@agenteschat/client/lib/server";
@@ -116,7 +117,18 @@ export const AgentReceiptLine = memo(function AgentReceiptLine({
   const name = (id: string) => dir.agentById.get(id)?.name ?? t("channel.unknownAgent");
   const say = (w: ReceiptLine["label"]) =>
     t(w.key, { count: w.agents.length, names: listNames(t, w.agents.map(name)) });
-  const label = say(line.label);
+  const only = line.faces.length === 1 && line.more === 0 ? line.faces[0] : undefined;
+  const noAi = line.words?.key === "noAi.receipt";
+  // Every plan here serves only someone else: the agent's card has the way out, so the line only says whose.
+  const notYours = noAi ? plansNotYoursOf(aiStatus, only) : null;
+  // What is really in the way, when its run said (a plan it has that can't think now, its CLI missing…).
+  const noAiLine = noAi && only ? noAiReceiptLine(receipt?.failures?.[only]) : null;
+  const noAiText = notYours
+    ? t("noAi.notYours.receipt", notYours)
+    : noAiLine && only
+      ? t(noAiLine.key, { ...agentGrammar(name(only)), model: noAiLine.model })
+      : null;
+  const label = noAiText ?? say(line.label);
   // One agent failed: why, in place of only saying that it did (the web's line on its failed run).
   const failedAgent =
     line.words?.key === "receipts.failed" && line.words.agents.length === 1 ? line.words.agents[0] : null;
@@ -130,16 +142,14 @@ export const AgentReceiptLine = memo(function AgentReceiptLine({
           owner: ownsIn(dir.memberById, meId, dir.agentById.get(failedAgent)),
         })
       : null;
-  const only = line.faces.length === 1 && line.more === 0 ? line.faces[0] : undefined;
-  // Every plan here serves only someone else: the agent's card has the way out, so the line only says whose.
-  const notYours = line.words?.key === "noAi.receipt" ? plansNotYoursOf(aiStatus, only) : null;
   // Retry sends my words again: only under my own message. Connect: for who can connect one.
   const action =
     line.action === "retry"
       ? mine
         ? "retry"
         : null
-      : line.action === "connect" && (notYours || !mayConnectAi(only ? dir.agentById.get(only) : null, meId, org))
+      : line.action === "connect" &&
+          (notYours || noAiLine?.connect === false || !mayConnectAi(only ? dir.agentById.get(only) : null, meId, org))
         ? null
         : line.action;
   const connect = () => {
@@ -204,7 +214,7 @@ export const AgentReceiptLine = memo(function AgentReceiptLine({
             numberOfLines={why ? undefined : 2}
             style={styles.words}
           >
-            {why ?? (notYours ? t("noAi.notYours.receipt", notYours) : say(line.words))}
+            {why ?? noAiText ?? say(line.words)}
           </Text>
         ) : null}
       </Pressable>

@@ -1,5 +1,6 @@
 import * as Y from "yjs";
 import { LiveEditError } from "../errors";
+import { cleanFileFonts, type FileFonts } from "../fonts";
 import { newId } from "../ids";
 import { LIVE_LIMITS } from "../limits";
 import { overwriteXml } from "../restore";
@@ -357,4 +358,21 @@ export function documentSource(doc: Y.Doc): DocumentSource | null {
   const raw = doc.getMap<unknown>("meta").get("source") as Partial<DocumentSource> | undefined;
   if (!raw || typeof raw !== "object" || typeof raw.name !== "string" || !raw.name) return null;
   return typeof raw.file === "string" ? { name: raw.name, file: raw.file } : { name: raw.name };
+}
+
+/** The document's own fonts for headings and body (ADR 0220 §3), in its `meta`; null goes back to the app's. */
+export function setDocumentFonts(doc: Y.Doc, fonts: FileFonts | null, origin: unknown): void {
+  const clean = fonts === null ? undefined : cleanFileFonts(fonts);
+  if (fonts !== null && !clean)
+    throw new LiveEditError("invalid", "Name a heading or body font: a catalog font or one of the file's");
+  doc.transact(() => {
+    const meta = doc.getMap<unknown>("meta");
+    if (clean) meta.set("fonts", { ...clean });
+    else if (meta.has("fonts")) meta.delete("fonts");
+  }, origin);
+}
+
+/** The document's own fonts, or undefined. */
+export function documentFonts(doc: Y.Doc): FileFonts | undefined {
+  return cleanFileFonts(doc.getMap<unknown>("meta").get("fonts"));
 }

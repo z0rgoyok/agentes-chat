@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import type { Box } from "../canvas/geometry";
 import { LiveEditError } from "../errors";
 import { isOrderKey, keyBetween, keysBetween, restack, type StackMove } from "../fractional";
+import { cleanGroupName, groupMembersOf, type LiveGroup, outermostGroup, usedGroups } from "../groups";
 import { newId } from "../ids";
 import { LIVE_LIMITS } from "../limits";
 import { cloneValue, overwriteText } from "../restore";
@@ -12,6 +13,7 @@ import { FALLBACK_SLOTS, LAYOUTS, type LayoutSlot, roleFamily, slotFor } from ".
 import {
   cleanBackground,
   cleanChart,
+  cleanDeckFonts,
   cleanStyle,
   cleanStyleValue,
   cleanTable,
@@ -19,8 +21,10 @@ import {
   deckMapOf,
   elementMapOf,
   elementsMapOf,
+  groupsMapOf,
   isRefId,
   readElements,
+  readGroups,
   rotation,
   slideIdsOf,
   slideLayoutOf,
@@ -31,6 +35,7 @@ import {
 import { SLIDE_H, SLIDE_W } from "./themes";
 import {
   type AddSlideOptions,
+  type DeckFonts,
   type ElementPatch,
   type ElementStyle,
   type ElementType,
@@ -457,6 +462,10 @@ function checkedElement(el: NewElement): Record<string, unknown> {
   }
   const style = cleanStyle(el.style);
   if (style) out.style = style;
+  if (el.group !== undefined) {
+    if (!isRefId(el.group)) throw invalid("Bad group");
+    out.group = el.group;
+  }
   if (el.type === "image") {
     if (el.asset !== undefined) {
       if (!isRefId(el.asset)) throw invalid("Bad image");
@@ -572,6 +581,11 @@ export function updateElement(doc: Y.Doc, slideId: string, elId: string, patch: 
       sets.push(["chart", chart]);
     }
   }
+  if (patch.group !== undefined) {
+    if (patch.group === null) deletes.push("group");
+    else if (isRefId(patch.group)) sets.push(["group", patch.group]);
+    else throw invalid("Bad group");
+  }
   if (patch.table !== undefined) {
     if (patch.table === null) deletes.push("table");
     else {
@@ -605,7 +619,22 @@ export function deleteElements(doc: Y.Doc, slideId: string, ids: readonly string
   if (!gone.length) return;
   doc.transact(() => {
     for (const id of gone) elements.delete(id);
+    pruneGroups(slide);
   }, origin);
+}
+
+/** Drops the groups that hold nothing any more (no element, no group inside), inside the caller's transaction. */
+function pruneGroups(slide: Y.Map<unknown>): void {
+  const map = groupsMapOf(slide);
+  if (!map || map.size === 0) return;
+  const named: string[] = [];
+  elementsMapOf(slide)?.forEach((element) => {
+    const group = element instanceof Y.Map ? element.get("group") : undefined;
+    if (typeof group === "string") named.push(group);
+  });
+  const groups = readGroups(slide);
+  const used = usedGroups(groups, named);
+  for (const g of groups) if (!used.has(g.id)) map.delete(g.id);
 }
 
 /** Brings elements to the front or the back, or one step forward or backward. */
@@ -630,4 +659,128 @@ export function elementTextFragment(doc: Y.Doc, slideId: string, elId: string): 
 export function slideNotes(doc: Y.Doc, slideId: string): Y.Text | null {
   const value = slideMapOf(doc, slideId)?.get("notes");
   return value instanceof Y.Text ? value : null;
+}
+
+/** The deck's own fonts over its theme's (ADR 0220 §3); null goes back to the theme's. */
+export function setDeckFonts(doc: Y.Doc, fonts: DeckFonts | null, origin: unknown): void {
+  const deck = deckMapOf(doc);
+  const clean = fonts === null ? undefined : cleanDeckFonts(fonts);
+  if (fonts !== null && !clean) throw invalid("Name a heading or body font: a catalog font or one of the file's");
+  doc.transact(() => {
+    if (clean) deck.set("fonts", { ...clean });
+    else if (deck.has("fonts")) deck.delete("fonts");
+  }, origin);
+}
+
+function groupsMapFor(slide: Y.Map<unknown>): Y.Map<unknown> {
+  let map = groupsMapOf(slide);
+  if (!map) {
+    map = new Y.Map<unknown>();
+    slide.set("groups", map);
+  }
+  return map;
+}
+
+/**
+ * Makes a group of a slide's elements (ADR 0220 §3): they hold together from now on. Elements already in a group
+ * bring their group along (it goes inside the new one), so a card of cards stays whole. Returns the group's id.
+ */
+export function groupElements(
+  doc: Y.Doc,
+  slideId: string,
+  ids: readonly string[],
+  opts: { name?: string; id?: string },
+  origin: unknown,
+): string {
+  const slide = needSlide(doc, slideId);
+  const elements = elementsMapOf(slide);
+  const present = ids.filter((id) => elements?.has(id));
+  if (present.length < 1) throw invalid("Name the elements to group");
+  const groups = readGroups(slide);
+  if (groups.length >= limits.elements) throw new LiveEditError("too_many", "Too many groups on one slide");
+  const id = opts.id && isRefId(opts.id) ? opts.id : newId();
+  const name = cleanGroupName(opts.name);
+  const known = new Set(groups.map((g) => g.id));
+  doc.transact(() => {
+    const map = groupsMapFor(slide);
+    map.set(id, name ? { name } : {});
+    const moved = new Set<string>();
+    for (const elId of present) {
+      const element = elementMapOf(slide, elId);
+      if (!element) continue;
+      const current = element.get("group");
+      const outer = isRefId(current) && known.has(current) ? outermostGroup(groups, current) : undefined;
+      if (outer && outer !== id) {
+        if (!moved.has(outer)) {
+          const g = map.get(outer);
+          map.set(outer, { ...(g && typeof g === "object" ? (g as object) : {}), parent: id });
+          moved.add(outer);
+        }
+      } else element.set("group", id);
+    }
+  }, origin);
+  return id;
+}
+
+/** Undoes a group: what it held goes to the group it sat in (or to none), and the group goes away. */
+export function ungroup(doc: Y.Doc, slideId: string, groupId: string, origin: unknown): void {
+  const slide = needSlide(doc, slideId);
+  const map = groupsMapOf(slide);
+  const group = readGroups(slide).find((g) => g.id === groupId);
+  if (!map || !group) throw new LiveEditError("not_found", `No group ${groupId}`);
+  doc.transact(() => {
+    elementsMapOf(slide)?.forEach((element) => {
+      if (!(element instanceof Y.Map) || element.get("group") !== groupId) return;
+      if (group.parent) element.set("group", group.parent);
+      else element.delete("group");
+    });
+    map.forEach((value, id) => {
+      if (!value || typeof value !== "object" || (value as { parent?: unknown }).parent !== groupId) return;
+      const { parent: _gone, ...rest } = value as { parent?: string; name?: string };
+      map.set(id, group.parent ? { ...rest, parent: group.parent } : rest);
+    });
+    map.delete(groupId);
+  }, origin);
+}
+
+/** Names a group ("" or null takes the name away). */
+export function renameGroup(doc: Y.Doc, slideId: string, groupId: string, name: string | null, origin: unknown): void {
+  const slide = needSlide(doc, slideId);
+  const map = groupsMapOf(slide);
+  const value = map?.get(groupId);
+  if (!map || !value || typeof value !== "object") throw new LiveEditError("not_found", `No group ${groupId}`);
+  const clean = cleanGroupName(name);
+  const { name: _old, ...rest } = value as { name?: string; parent?: string };
+  doc.transact(() => map.set(groupId, clean ? { ...rest, name: clean } : rest), origin);
+}
+
+/** Every element a group holds, its inner groups' included. */
+export function groupMembers(
+  slide: { elements: { id: string; group?: string }[]; groups?: { id: string; parent?: string }[] },
+  groupId: string,
+): string[] {
+  return groupMembersOf(slide.elements, slide.groups ?? [], groupId);
+}
+
+/**
+ * Writes groups as they are given (ids, names, parents), inside the caller's batch: what `add_html` lays out (ADR 0220
+ * §4) arrives with its whole tree of groups at once. A parent missing from the slide and from `groups` is dropped.
+ */
+export function putGroups(doc: Y.Doc, slideId: string, groups: readonly LiveGroup[], origin: unknown): void {
+  if (!groups.length) return;
+  const slide = needSlide(doc, slideId);
+  const existing = new Set(readGroups(slide).map((g) => g.id));
+  if (existing.size + groups.length > limits.elements)
+    throw new LiveEditError("too_many", "Too many groups on one slide");
+  const ids = new Set(groups.map((g) => g.id));
+  doc.transact(() => {
+    const map = groupsMapFor(slide);
+    for (const g of groups) {
+      if (!isRefId(g.id)) throw invalid("Bad group");
+      const name = cleanGroupName(g.name);
+      const parent =
+        g.parent && (ids.has(g.parent) || existing.has(g.parent)) && g.parent !== g.id ? g.parent : undefined;
+      map.set(g.id, { ...(name ? { name } : {}), ...(parent ? { parent } : {}) });
+    }
+  }, origin);
 }

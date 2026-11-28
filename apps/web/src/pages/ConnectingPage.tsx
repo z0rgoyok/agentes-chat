@@ -5,8 +5,8 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import { AuthShell } from "@/components/AuthLayout";
 
 /**
- * The sign-in popup while the computer looks up the provider's page: the opener sends it there (`sendPopup`), or closes
- * it and says why in the dialog. Fechar is the way out if the opener never does.
+ * The sign-in's tab while the computer looks up the provider's page: the opener sends it there (`sendSignInTab`), or
+ * closes it and says why in the dialog. Fechar is the way out if the opener never does.
  */
 export function ConnectingPage({ kind }: { kind?: MachineAccountKind }) {
   const { t } = useTranslation();

@@ -267,3 +267,35 @@ test("approvals API: the right hand approves for me, within what I set (ADR 0139
   const undo = `/api/app/organizations/${orgId}/right-hand-decisions/${crypto.randomUUID()}/undo`;
   expect((await ana(undo, { json: {} })).status).toBe(404);
 });
+
+test("approvals API: 'Rodar este agora' runs an approved action waiting behind another conversation's request", async () => {
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId, channelId, agentId } = await seedOrg(owner);
+  await grantScopes(t.db, orgId, agentId, [{ connectionId: null, scope: "github:pr.merge" }]);
+  const post = (body: string) =>
+    owner(`/api/app/organizations/${orgId}/channels/${channelId}/messages`, { json: { body } });
+  await post("@dev merge 42");
+  await t.drain();
+  await post("@dev merge 42 again");
+  await t.drain();
+  type View = { id: string; messageId: string; afterIds: string[]; canRunNow: boolean; status: string };
+  const listed = async () =>
+    ((await (await owner(`/api/app/organizations/${orgId}/approvals`)).json()) as { approvals: View[] }).approvals;
+  const [later, first] = await listed();
+  if (!first || !later) throw new Error("two requests expected");
+  // Two conversations, two cards; the later one was asked after the first.
+  expect(later.messageId).not.toBe(first.messageId);
+  expect(later.afterIds).toEqual([first.id]);
+  await owner(`/api/app/organizations/${orgId}/approvals/${later.id}/approve`, { json: {} });
+  await t.drain();
+  expect(merged).toHaveLength(0);
+  expect((await listed()).find((a) => a.id === later.id)?.canRunNow).toBe(true);
+  const res = await owner(`/api/app/organizations/${orgId}/approvals/${later.id}/run-now`, { json: {} });
+  expect(res.status).toBe(200);
+  await t.drain();
+  expect(merged).toHaveLength(1);
+  const again = await owner(`/api/app/organizations/${orgId}/approvals/${later.id}/run-now`, { json: {} });
+  expect(again.status).toBe(409);
+  expect(await again.json()).toMatchObject({ error: { code: "approval.not_waiting" } });
+});

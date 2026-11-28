@@ -1,9 +1,10 @@
-import { useInviteLinks, useMakeInviteLink } from "@agenteschat/client";
+import { useAuthConfig, useInviteLinks, useMakeInviteLink } from "@agenteschat/client";
 import { formatShortDate } from "@agenteschat/client/lib/format";
 import { Button, Icon, Input, SwapLabel } from "@agenteschat/ui";
 import { useTranslation } from "react-i18next";
 import { LoadingLine } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
+import { LocalOnlyNote } from "@/components/ThisMac";
 import { useCopied } from "./copied";
 import "./invite.css";
 
@@ -56,5 +57,17 @@ export function InviteLinkPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Where people invite, on a server only its own computer opens (`auth-config.localOnly`): its links, e-mailed or
+ * copied, open for nobody else, said before anyone sends one. Nothing on any other server.
+ */
+export function LocalOnlyInvites() {
+  const { t } = useTranslation();
+  if (!useAuthConfig().data?.localOnly) return null;
+  return (
+    <LocalOnlyNote text={t("invites.localOnly")} here={t("invites.localOnlyHere")} how={t("invites.localOnlyHow")} />
   );
 }

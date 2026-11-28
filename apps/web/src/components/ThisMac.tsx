@@ -1,5 +1,5 @@
 import { useConfirmDevice, useMe } from "@agenteschat/client";
-import { Button, SettingNote } from "@agenteschat/ui";
+import { Alert, Button, SettingNote } from "@agenteschat/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -154,6 +154,27 @@ export function OpenPrefsButton({ tab, children }: { tab: PrefsTab; children: st
     >
       {children}
     </Button>
+  );
+}
+
+/**
+ * A server only its own computer opens (the desktop app's, with access from other devices off): what that stops, and
+ * the way to turn that access on, from the app itself in one click, or said for the computer it runs on.
+ */
+export function LocalOnlyNote({ text, here, how }: { text: string; here: string; how: string }) {
+  const { t } = useTranslation();
+  return (
+    <div className="stack-4" style={{ gap: 12 }}>
+      <Alert>{text}</Alert>
+      {inDesktopApp() ? (
+        <div className="ac-actline">
+          <span className="small muted">{here}</span>
+          <OpenPrefsButton tab="servers">{t("machines.thisMac.openServers")}</OpenPrefsButton>
+        </div>
+      ) : (
+        <span className="small muted">{how}</span>
+      )}
+    </div>
   );
 }
 

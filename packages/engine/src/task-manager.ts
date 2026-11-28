@@ -18,6 +18,7 @@ import { computerQueue as lineOfComputer, seesRunSql } from "./computer-queue";
 import { isAgentOnlyDm } from "./dms";
 import { NotFoundError } from "./errors";
 import { type CanceledReturn, canceledReturns, type PendingReturn, pendingReturns } from "./follow-through";
+import { type ShownMaintenance, shownMaintenance } from "./machines";
 import { replyExcerpt } from "./messages";
 import { requireActiveMembership } from "./organizations";
 import { pendingIds } from "./recovery";
@@ -89,6 +90,10 @@ export interface TaskWait {
   since: string | null;
   /** The caller may press Continuar agora (`mayContinuePause`; the server checks again). */
   canContinue: boolean;
+  /** Its computer is away for what we do to it (a move, a restart…): it comes back by itself. */
+  moving?: boolean;
+  /** What we do to it (`shownMaintenance`), said instead of offline. */
+  maintenance?: ShownMaintenance;
 }
 
 /** Work one agent asked of another, in their private conversation (`ask_agent`, `tell_agent`, ADR 0034, ADR 0095). */
@@ -278,6 +283,9 @@ type Row = {
   owner_role_id: string | null;
   machine_id: string | null;
   machine_name: string | null;
+  /** What we last said we do to its computer (`moving_at`, `maintenance`): a wait that began so says it while shown. */
+  machine_said_at: Date | string | null;
+  machine_maintenance: schema.MachineMaintenanceRecord | string | null;
   requester_id: string | null;
   requester_name: string | null;
   asker_agent_id: string | null;
@@ -316,6 +324,7 @@ interface StoredWait {
   waitKey?: string;
   /** Ms. */
   since?: number;
+  moving?: boolean;
 }
 
 /** Who answers for the row's agent: a person or a role (ADR 0085, addendum of 2026-11-21). */
@@ -390,6 +399,7 @@ async function visibleRuns(
         r.started_at, r.created_at, r.finished_at, r.error, c.kind, c.name, c.dm_key, t.title,
         array_to_json(r.pending_message_ids || r.after_message_ids) as pending, r.background, r.brain,
         a.owner_user_id, a.owner_role_id, a.machine_id, mc.name as machine_name,
+        mc.moving_at as machine_said_at, mc.maintenance as machine_maintenance,
         trig.author_user_id as requester_id, ru.name as requester_name, trig.author_agent_id as asker_agent_id,
         ${which.active ? sql`consult.question` : sql`null`} as question,
         rt.id as routine_id, rt.name as routine_name, w.title as work_title, w.plan as work_plan,
@@ -648,6 +658,7 @@ function waitOf(r: Row): TaskWait | null {
   const wait = parsed(r.wait);
   if (r.status !== "waiting_input" || !wait?.code) return null;
   const pause = parsed(r.wait_pause);
+  const maintenance = waitMaintenance(r, wait.moving);
   return {
     code: wait.code,
     key: str(wait.waitKey),
@@ -659,7 +670,22 @@ function waitOf(r: Row): TaskWait | null {
     resetsAt: str(wait.resetsAt),
     since: typeof wait.since === "number" ? new Date(wait.since).toISOString() : null,
     canContinue: false,
+    ...(maintenance ? { moving: true, maintenance } : {}),
   };
+}
+
+/** The wait began away for what we do to its computer (`wait.moving`) and that is still said (`shownMaintenance`). */
+function waitMaintenance(r: Pick<Row, "machine_said_at" | "machine_maintenance">, moving: boolean | undefined) {
+  if (!moving || !r.machine_said_at) return null;
+  // Away: the wait began so, and the runs' own wake tells it when it is back.
+  return shownMaintenance({
+    kind: "managed",
+    deletedAt: null,
+    online: false,
+    lastSeenAt: null,
+    movingAt: new Date(r.machine_said_at),
+    maintenance: parsed(r.machine_maintenance),
+  });
 }
 
 const planOf = (raw: { state: string }[] | string | null) => {

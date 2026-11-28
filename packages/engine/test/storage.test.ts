@@ -27,6 +27,7 @@ import {
   getArtifact,
   getMigration,
   getStorage,
+  instanceStoredBytes,
   isBlockedAddress,
   ORG_FILES_PURGE_JOB,
   purgeOrgFiles,
@@ -653,6 +654,70 @@ describe("what a workspace's files take", () => {
     await saveStorage(f.storage, f.owner.id, f.org.id, { kind: "agentes" });
     await upload(deps, f.org.id, "de-volta.pdf", 100);
     expect(await storedBytes(f.db, f.org.id)).toEqual({ platformBytes: 100, ownBucketBytes: 8250 });
+  });
+
+  test("the whole instance: each workspace's bytes on this server summed, one with its own bucket left out", async () => {
+    f = await setup();
+    const deps = f.artifactDeps;
+    expect(await instanceStoredBytes(f.db)).toEqual({ storageBytes: 0, workspaces: 0, ownStorageWorkspaces: 0 });
+
+    // One workspace with a file of every kind counted, each beside one that is not.
+    const report = await upload(deps, f.org.id, "relatorio.pdf", 3000);
+    await addFileVersion(deps, person(f.owner.id), f.org.id, report.id, { name: "relatorio.pdf", bytes: bytes(5000) });
+    const old = await upload(deps, f.org.id, "antigo.zip", 7000);
+    await deleteArtifact(deps, f.owner.id, f.org.id, old.id);
+    await skill(deps, f.org.id, [["modelo.md", 400]]);
+    const { skillFiles, voiceClips, artifacts, liveDocs, liveAssets } = schema;
+    const [stored] = await f.db.select().from(skillFiles).where(eq(skillFiles.orgId, f.org.id));
+    if (!stored) throw new Error("no skill file");
+    // Listed only: nothing of it was stored.
+    const listed = { ...stored, id: undefined, path: "video.mp4", status: "ignored", size: 90_000, blobKey: null };
+    await f.db.insert(skillFiles).values(listed);
+    const clip = { orgId: f.org.id, channelId: f.general.id, contentType: "audio/mp4", durationMs: 1000, peaks: [] };
+    await f.db.insert(voiceClips).values([
+      { ...clip, clientId: "kept", blobKey: "voice/kept", size: 600 },
+      { ...clip, clientId: "swept", blobKey: "voice/swept", size: 800, audioDeletedAt: new Date() },
+    ]);
+    const by = { createdByType: "person", createdById: f.owner.id, updatedByType: "person", updatedById: f.owner.id };
+    const [board, trashed] = await f.db
+      .insert(artifacts)
+      .values([
+        { orgId: f.org.id, kind: "canvas", title: "Quadro", ...by },
+        { orgId: f.org.id, kind: "canvas", title: "Rascunho", ...by, deletedAt: new Date() },
+      ])
+      .returning({ id: artifacts.id });
+    if (!board || !trashed) throw new Error("no canvas");
+    await f.db.insert(liveDocs).values([
+      { artifactId: board.id, orgId: f.org.id, kind: "canvas", state: "", stateBytes: 120 },
+      { artifactId: trashed.id, orgId: f.org.id, kind: "canvas", state: "", stateBytes: 150 },
+    ]);
+    const picture = { orgId: f.org.id, contentType: "image/png", sha256: "", source: "upload" };
+    await f.db.insert(liveAssets).values([
+      { ...picture, artifactId: board.id, blobKey: "live/kept", size: 70 },
+      { ...picture, artifactId: trashed.id, blobKey: "live/trashed", size: 90 },
+    ]);
+
+    const { organization: other } = await createOrganization(f.db, f.owner.id, { name: "Outra" });
+    await upload(deps, other.id, "deles.pdf", 11_000);
+    await createOrganization(f.db, f.owner.id, { name: "Vazia" });
+    // A file from before its bucket stays on this server until it is copied.
+    const { organization: own } = await createOrganization(f.db, f.owner.id, { name: "Com bucket" });
+    await upload(deps, own.id, "antes.pdf", 2000);
+    await testStorage(f.storage, f.owner.id, own.id, bucket());
+    await saveStorage(f.storage, f.owner.id, own.id, { kind: "s3", s3: bucket() });
+    await upload(deps, own.id, "depois.pdf", 6000);
+
+    const each = await Promise.all([f.org.id, other.id, own.id].map((id) => storedBytes(f.db, id)));
+    expect(each).toEqual([
+      { platformBytes: 3000 + 5000 + 400 + 600 + 120 + 70, ownBucketBytes: 0 },
+      { platformBytes: 11_000, ownBucketBytes: 0 },
+      { platformBytes: 2000, ownBucketBytes: 6000 },
+    ]);
+    expect(await instanceStoredBytes(f.db)).toEqual({
+      storageBytes: (each[0]?.platformBytes ?? 0) + (each[1]?.platformBytes ?? 0),
+      workspaces: 2,
+      ownStorageWorkspaces: 1,
+    });
   });
 
   test("a small workspace next to a big one: summed through its own rows, never the whole table", async () => {

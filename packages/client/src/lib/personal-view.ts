@@ -25,8 +25,8 @@ export const PERSONAL_SETTINGS = [
 ] as const;
 
 /**
- * Sections a personal workspace shows on another one's page: AI and usage holds billing. Its own address still opens
- * it alone.
+ * Sections a personal workspace shows on another one's page: AI and usage holds billing. Its own address opens that
+ * page, at it.
  */
 export const PERSONAL_SETTINGS_PARTS: Readonly<Record<string, (typeof PERSONAL_SETTINGS)[number]>> = {
   billing: "usage",

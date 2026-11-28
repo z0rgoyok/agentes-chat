@@ -1,5 +1,5 @@
 import { computerName } from "@agenteschat/client/lib/computer";
-import { iphoneOverWifi, personInControl } from "@agenteschat/client/lib/devices";
+import { iphoneOverWifi, personInControl, powerChoice } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { useTranslation } from "react-i18next";
@@ -32,6 +32,9 @@ export function PhoneScreen({ phoneId }: { phoneId: string }) {
   const audienceText = useAudienceText();
   const stop = useDeviceMutation((api, orgId, id: string) => api.devices.stopPhone(orgId, id));
   const forget = useDeviceMutation((api, orgId, id: string) => api.devices.forgetPhone(orgId, id));
+  const power = useDeviceMutation((api, orgId, v: { id: string; on: boolean }) =>
+    api.devices.powerPhone(orgId, v.id, v.on),
+  );
   const found = findDevice(list.data?.devices, phoneId);
   const p = found?.phone;
   if (!found || !p) {
@@ -72,6 +75,16 @@ export function PhoneScreen({ phoneId }: { phoneId: string }) {
     s.kind === "needs_you" && (Platform.OS === "ios") === (p.platform === "ios") && p.phoneKind === "device";
   // An iPhone over Wi-Fi is let go, not forgotten: it comes back only if picked again.
   const wifi = iphoneOverWifi(p);
+  const powers = powerChoice(p);
+  const runPower = (on: boolean) =>
+    power.mutate(
+      { id: p.id, on },
+      {
+        onSuccess: () =>
+          toast({ title: t(on ? "devices.power.starting" : "devices.power.stopped", { name: p.name }), icon: "check" }),
+        onError: (err) => toast({ title: errorText(t, err), icon: "x" }),
+      },
+    );
   const askForget = () =>
     confirmAction({
       title: wifi
@@ -140,10 +153,18 @@ export function PhoneScreen({ phoneId }: { phoneId: string }) {
       <GroupedFooter>
         {p.audience ? t("mobile.devices.page.shareNote", { host }) : t("mobile.devices.page.followsHost")}
       </GroupedFooter>
-      {mayStop || p.mayManage ? (
+      {mayStop || p.mayManage || powers ? (
         <>
           <Gap />
           <GroupedList>
+            {powers ? (
+              <GroupedRow
+                icon={powers === "start" ? "play" : "stop"}
+                label={t(powers === "start" ? "devices.power.start" : "devices.power.stop")}
+                disabled={power.isPending}
+                onPress={() => runPower(powers === "start")}
+              />
+            ) : null}
             {mayStop && holder ? (
               <GroupedRow
                 icon="stop"

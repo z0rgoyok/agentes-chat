@@ -438,6 +438,7 @@ async function mac(state: Record<string, unknown> = {}) {
   let teams: AppleTeam[] | AppleLook = [TEAM];
   let locked = false;
   const logged: string[] = [];
+  const hearing: { start: string; heard: () => void }[] = [];
   const helper = new IosHelper({
     home: root,
     env: {
@@ -447,7 +448,10 @@ async function mac(state: Record<string, unknown> = {}) {
       FAKE_WDA_SOCKET: wda,
       FAKE_MJPEG_SOCKET: mjpeg,
     },
-    log: (line) => logged.push(line),
+    log: (line) => {
+      logged.push(line);
+      for (const h of hearing) if (line.startsWith(h.start)) h.heard();
+    },
     now: () => now,
     usbmuxSocket: mux.file,
     teams: async () => teams,
@@ -486,6 +490,11 @@ async function mac(state: Record<string, unknown> = {}) {
       locked = on;
     },
     logged,
+    /** Once a line that starts with `start` is logged. */
+    heard: (start: string) =>
+      logged.some((l) => l.startsWith(start))
+        ? Promise.resolve()
+        : new Promise<void>((heard) => hearing.push({ start, heard })),
     tick: (ms: number) => {
       now += ms;
     },
@@ -707,9 +716,7 @@ test("the Mac's screen locked: no signing build until it's unlocked; a helper th
   expect(await m.settle(null)).toBe(null);
   const up = await m.helper.run("device", IPHONE, m.xcrun);
   up.child.kill("SIGKILL");
-  for (let i = 0; i < 200 && !m.logged.some((l) => l.startsWith("iPhone test helper stopped")); i++)
-    await Bun.sleep(25);
-  expect(m.logged.some((l) => l.startsWith(`iPhone test helper stopped (${IPHONE})`))).toBe(true);
+  await m.heard(`iPhone test helper stopped (${IPHONE})`);
   const again = await m.helper.run("device", IPHONE, m.xcrun);
   expect(again).not.toBe(up);
   expect((await again.client.screenshot()).subarray(1, 4).toString()).toBe("PNG");

@@ -6,8 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { useNow } from "@/components/missions/MissionBits";
-import { OpenPrefsButton } from "@/components/ThisMac";
-import { inDesktopApp } from "@/lib/desktop";
+import { LocalOnlyNote } from "@/components/ThisMac";
 import { usePhoneStores } from "@/lib/phone-apps";
 
 /** A new code this long before the one on screen expires, so a scan never meets an expired one. */
@@ -70,17 +69,11 @@ function PhoneCode() {
     (code.data !== undefined && isLoopback(code.data.server));
   if (localOnly)
     return (
-      <div className="stack-4" style={{ gap: 12 }}>
-        <Alert>{t("openOnPhone.localOnly")}</Alert>
-        {inDesktopApp() ? (
-          <div className="ac-actline">
-            <span className="small muted">{t("openOnPhone.localOnlyHere")}</span>
-            <OpenPrefsButton tab="servers">{t("machines.thisMac.openServers")}</OpenPrefsButton>
-          </div>
-        ) : (
-          <span className="small muted">{t("openOnPhone.localOnlyHow")}</span>
-        )}
-      </div>
+      <LocalOnlyNote
+        text={t("openOnPhone.localOnly")}
+        here={t("openOnPhone.localOnlyHere")}
+        how={t("openOnPhone.localOnlyHow")}
+      />
     );
 
   if (code.isError)

@@ -1,7 +1,6 @@
 import type { Agent } from "@agenteschat/client";
 import { askKindWords } from "@agenteschat/client/lib/approval-words";
 import {
-  BoundedMap,
   cx,
   EventPill,
   EventPillMore,
@@ -10,8 +9,8 @@ import {
   type IconName,
   InfoHint,
   Locked,
-  prefersReducedMotion,
   Spinner,
+  useMorph,
 } from "@agenteschat/ui";
 import {
   createContext,
@@ -21,7 +20,6 @@ import {
   type Ref,
   useContext,
   useEffect,
-  useLayoutEffect,
   useRef,
   useState,
 } from "react";
@@ -175,13 +173,6 @@ export type RequestAnswer = {
 };
 
 /**
- * How tall each waiting card last stood, by request: the card that takes its place once answered (often another
- * component instance, its caller's branches differ) grows or shrinks from there instead of jumping.
- */
-const waitingHeights = new BoundedMap<string, number>(500);
-const SETTLE_MS = 220;
-
-/**
  * One card for every request an agent makes in the conversation, so each reads the same way and its decision
  * sits in the same place: a quiet header (what kind of request, and who else it waits for), the agent's own
  * words, what will happen drawn edge to edge (its preview, as an attachment's cover), the object on a line of its own between
@@ -284,28 +275,9 @@ export function RequestCard({
   const ended = over || Boolean(answer);
   // Nothing waits on the viewer once it is decided.
   const mine = waitsOnMe && !ended;
-  // No dependency list: its height is read after every draw, so the answered card starts from the last one.
-  useLayoutEffect(() => {
-    const el = root.current;
-    if (!el) return;
-    const height = el.offsetHeight;
-    if (!ended) {
-      if (height) waitingHeights.set(id, height);
-      return;
-    }
-    const from = waitingHeights.get(id);
-    waitingHeights.delete(id);
-    if (!from || !height || from === height || prefersReducedMotion() || !el.animate) return;
-    el.animate(
-      [
-        { height: `${from}px`, overflow: "clip" },
-        { height: `${height}px`, overflow: "clip" },
-      ],
-      { duration: SETTLE_MS, easing: "ease-out" },
-    );
-  });
-  // A waiting card that left the screen for good (scrolled out of a long list) is no start for a later one.
-  useEffect(() => () => void waitingHeights.delete(id), [id]);
+  // Answered, it glides from its last height to the new one as its waiting look fades out over it, also when the
+  // answered card is another instance (its caller's branches differ): the same request's id carries it over.
+  useMorph(root, { key: id, live: !ended });
   // Waiting for the viewer: in the conversation's list, with what the bar says (kept current in place).
   useEffect(() => {
     const el = root.current;
@@ -450,6 +422,7 @@ export function RequestDone({
   action,
   time,
   note,
+  morphKey,
   children,
 }: {
   /** It went through. */
@@ -464,6 +437,8 @@ export function RequestDone({
   time?: string;
   /** A quiet line under the pill (when one approved ahead runs, when it ran): a long time never squeezes the words. */
   note?: ReactNode;
+  /** The same key as the `RequestOpen` it replaces: it glides and fades from it. */
+  morphKey?: string;
   /** The words: what it was and how it ended. */
   children: ReactNode;
 }) {
@@ -482,6 +457,7 @@ export function RequestDone({
   return (
     <EventPill
       className="rq-done"
+      morphKey={morphKey}
       role="group"
       aria-label={label}
       mark={
@@ -538,6 +514,8 @@ export function RequestOpen({
   /** Always under the frame: the why, what it gives, who may decide. */
   below?: ReactNode;
   time?: string;
+  /** The same key as the `RequestDone` that takes its place once decided. */
+  morphKey?: string;
   /** The one sentence: what it asks. */
   children: ReactNode;
 }) {

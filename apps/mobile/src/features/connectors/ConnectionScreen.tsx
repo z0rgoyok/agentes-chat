@@ -222,8 +222,11 @@ function Connection({ id }: { id: string }) {
         </View>
 
         {item?.ownerUserId ? (
-          <View style={styles.personal}>
-            <Note icon="lock">{t("connectors.personal.noteOne")}</Note>
+          // Its icon in the column where the groups' headers under it start.
+          <View style={styles.body}>
+            <Note icon="lock" inset>
+              {t("connectors.personal.noteOne")}
+            </Note>
           </View>
         ) : null}
         {loading ? (
@@ -453,7 +456,6 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 16 },
   problem: { gap: 12 },
   lead: { paddingHorizontal: 16, paddingTop: 12 },
-  personal: { paddingHorizontal: 32, paddingTop: 4 },
   gap: { height: 24 },
   error: { paddingTop: 8, paddingHorizontal: 16 },
 });

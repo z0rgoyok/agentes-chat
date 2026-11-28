@@ -1,4 +1,5 @@
 import { keys, useAuthConfig, useWorkspaceLimits } from "@agenteschat/client";
+import { planLine } from "@agenteschat/client/lib/billing";
 import { errorCode, errorText } from "@agenteschat/client/lib/errors";
 import { formatBytes } from "@agenteschat/client/lib/files";
 import {
@@ -15,6 +16,8 @@ import { useNavigate } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
 import { BillingLinkButton, useOpenBilling } from "@/components/BillingLinkButton";
 import { useOrg } from "@/components/org-context";
+import { usePaidPlan } from "@/lib/paid-return";
+import { usePlanOffer } from "@/lib/plan-offer";
 import { useToast } from "@/lib/toast";
 
 /**
@@ -132,14 +135,17 @@ export function StorageMeter() {
 }
 
 /**
- * Plano e cobrança: people and files against the plan's limits, in plain numbers. People count against the plan's
- * top when the billing service says one, with the seats paid for under it. X's month, once the workspace used it, as
- * a share alone: this server shows no price.
+ * Plano e cobrança: first the plan this tab came back from buying, by its name and period as the paid moment says it
+ * (none known: no row), then people and files against the plan's limits, in plain numbers. People count against the
+ * plan's top when the billing service says one, with the seats paid for under it. X's month, once the workspace used
+ * it, as a share alone: this server shows no price.
  */
 export function BillingMeters() {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const limits = useWorkspaceLimits(org.id).data;
+  const bought = usePaidPlan(org.id, org.standing);
+  const named = usePlanOffer(i18n.language, { key: bought?.plan, enabled: Boolean(bought?.plan) });
   if (!limits) return null;
   const { members, storage, connectors } = limits;
   const bytes = (n: number) => formatBytes(i18n.language, n);
@@ -182,6 +188,13 @@ export function BillingMeters() {
   ] as const;
   return (
     <div className="stack-4" style={{ gap: 12 }}>
+      {named.offer && (
+        <div className="row">
+          <b>{t("billing.plan")}</b>
+          <span className="spacer" />
+          <span className="small muted">{planLine(t, named.offer.name, bought?.period)}</span>
+        </div>
+      )}
       {rows.map((row) => (
         <div key={row.key} className="stack-4">
           <div className="row">

@@ -2,6 +2,7 @@ import {
   threadWorkState,
   threadWorkTone,
   threadWorkWord,
+  type WorkTone,
   workLine,
   workTime,
 } from "@agenteschat/client/lib/agent-work";
@@ -46,7 +47,17 @@ export type RowMark = "orbit" | "wait" | "clock" | null;
 /** The second line, by what it says. */
 export type RowLine =
   /** A state in words (`word`, ink when `strong`, amber when it waits on you) and what follows it (` · 22 min`). */
-  | { kind: "state"; mark: RowMark; word: string; strong: boolean; em: boolean; amber: boolean; rest: string }
+  | {
+      kind: "state";
+      mark: RowMark;
+      word: string;
+      strong: boolean;
+      em: boolean;
+      amber: boolean;
+      rest: string;
+      /** An agent's work: its word drawn as its status in this tone (`StatusWord`), `rest` its time. */
+      status?: WorkTone;
+    }
   /** Waiting for its offline computer: a clock and the words. */
   | { kind: "away"; text: string }
   /** What an agent is on, after the orbit. */
@@ -174,16 +185,17 @@ export function rowFacts(r: ConversationRow, agent: AgentRowState | undefined, c
       rest: ` · ${progress}`,
     };
   } else if (work) {
-    // The same line as the web's lists: the orbit at work, amber what waits on me, the clock for a wait elsewhere.
+    // The same line as the web's lists: the status in words (amber what waits on me, the ink otherwise), then its time.
     label = [work.text, work.time].filter(Boolean).join(" · ");
     line = {
       kind: "state",
-      mark: work.tone === "working" ? "orbit" : work.tone === "neutral" ? "clock" : null,
+      mark: null,
       word: work.text,
       strong: work.tone === "working",
       em: true,
       amber: work.tone === "you",
-      rest: work.time ? ` · ${work.time}` : "",
+      rest: work.time ?? "",
+      status: work.tone,
     };
   } else if (agentState?.kind === "waiting") {
     const verb = t(`mobile.homeNow.rowWait.${agentState.wait}`);

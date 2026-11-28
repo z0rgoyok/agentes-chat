@@ -160,6 +160,29 @@ describe("Configurações → Auditoria", () => {
     expect(titles()).toEqual(["Walter criou uma rotina"]);
   });
 
+  test("another shortcut keeps the list on screen, dimmed under a running bar, until its rows land", async () => {
+    const { api } = await go();
+    const load = api.orgs.audit;
+    let land = () => {};
+    api.orgs.audit = (...args) =>
+      new Promise((done) => {
+        land = () => done(load(...args));
+      });
+    await click(within(section()).getByRole("radio", { name: "Recusadas e falhas" }));
+    await act(() => new Promise((r) => setTimeout(r, 200)));
+    const kept = section().querySelector(".ac-refreshing") as HTMLElement;
+    expect(kept.getAttribute("aria-busy")).toBe("true");
+    expect(kept.hasAttribute("data-busy")).toBe(true);
+    expect(within(kept).getByRole("progressbar", { name: "Carregando…" })).toBeTruthy();
+    // What it held, never a blank or a skeleton in its place.
+    expect(titles()).toHaveLength(5);
+    await act(async () => land());
+    await settle(4);
+    expect(titles()).toEqual(["Ada usou a ferramenta drive delete"]);
+    expect(kept.hasAttribute("aria-busy")).toBe(false);
+    expect(within(kept).queryByRole("progressbar")).toBeNull();
+  });
+
   test("a row opens the thread's panel: the reason, what was sent (secrets hidden), the conversation", async () => {
     await go();
     const refused = [...section().querySelectorAll<HTMLElement>(".audit-row")][1] as HTMLElement;

@@ -1,4 +1,4 @@
-import { useCodeSessions, useCodeStart, useCreateCodeSession } from "@agenteschat/client";
+import { isLocalPlace, looksLikeRepo, useCodeSessions, useCodeStart, useCreateCodeSession } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { Button, cx, Icon, Popover, SearchField, Select } from "@agenteschat/ui";
 import { useNavigate } from "@tanstack/react-router";
@@ -172,8 +172,7 @@ export function CodeHome() {
   );
 }
 
-/** The shapes the server takes (ADR 0215 §1): a GitHub repository, or a local project's name (no owner). */
-const GITHUB_REPO = /^[\w.-]+\/[\w.-]+$/;
+/** The shapes the server takes (ADR 0215 §1): a repository on a git host (`looksLikeRepo`), or a local project's name. */
 const LOCAL_NAME = /^(?!\.)[A-Za-z0-9._-]{1,64}$/;
 
 /**
@@ -206,13 +205,13 @@ function RepoPicker({
   const shown = all.filter((r) => !query || r.value.toLowerCase().includes(query.toLowerCase()));
   const listed = all.some((r) => r.value.toLowerCase() === query.toLowerCase());
   const creates =
-    !query || listed ? null : LOCAL_NAME.test(query) ? "local" : any && GITHUB_REPO.test(query) ? "repo" : null;
+    !query || listed ? null : LOCAL_NAME.test(query) ? "local" : any && looksLikeRepo(query) ? "repo" : null;
   const pick = (value: string) => {
     onRepo(value);
     setOpen(false);
     setQ("");
   };
-  const local = Boolean(repo) && !repo.includes("/");
+  const local = Boolean(repo) && isLocalPlace(repo);
   const shownValue = repo || t("codeSessions.home.repoPlaceholder");
   return (
     <div className="ac-select ac-select--sm code-select">

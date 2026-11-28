@@ -71,6 +71,7 @@ export function PhoneLive({ phone: p, host }: { phone: PhoneDevice; host: string
   useEffect(() => {
     if (!p.mayUse || away) return;
     let done = false;
+    let pictured = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     // A new stream (control taken, given back) shows nothing of its own until its first picture: an iPhone's test
     // helper starts in several seconds, and input before then would go nowhere.
@@ -91,6 +92,7 @@ export function PhoneLive({ phone: p, host }: { phone: PhoneDevice; host: string
             }
             canvas.getContext("2d")?.drawImage(bitmap, 0, 0);
             attempts.current = 0;
+            pictured = true;
             setShown(true);
             setView("live");
           }
@@ -104,7 +106,9 @@ export function PhoneLive({ phone: p, host }: { phone: PhoneDevice; host: string
     socket.onclose = (ev) => {
       if (done) return;
       socketRef.current = null;
-      const next = phoneCloseState(ev.code, (ev as { reason?: string }).reason ?? "");
+      const next = phoneCloseState(ev.code, (ev as { reason?: string }).reason ?? "", {
+        opening: mode === "control" && !pictured,
+      });
       // A watcher meets these only when the phone itself can't be used: opening again at once would loop.
       if (next.control && mode === "control") {
         toast.show(

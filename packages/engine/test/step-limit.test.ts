@@ -37,7 +37,8 @@ afterEach(async () => {
 
 const deps = () => ({ db: f.db, pubsub: f.pubsub });
 const ask = (body: string) => postPersonMessage(deps(), f.owner.id, f.org.id, f.general.id, { body });
-const runs = () => f.db.select().from(schema.agentRuns);
+// In the order they were made: a row's place in the table moves when an update doesn't fit where it was.
+const runs = () => f.db.select().from(schema.agentRuns).orderBy(schema.agentRuns.createdAt, schema.agentRuns.id);
 const agentMessages = async (runId: string) =>
   (await f.db.select().from(schema.messages)).filter((m) => m.agentRunId === runId);
 const lastText = (req: ModelRequest) => JSON.stringify(req.messages.at(-1)?.content ?? "");

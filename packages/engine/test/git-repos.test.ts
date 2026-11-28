@@ -90,7 +90,7 @@ describe("the list", () => {
   test("the prompt says the repositories and where to start", () => {
     expect(repositoriesPrompt([])).toBe("");
     const text = repositoriesPrompt(["acme/app", "walt/*"]);
-    expect(text).toContain("# Your GitHub repositories");
+    expect(text).toContain("# Your repositories");
     expect(text).toContain("acme/app, every repository of walt (walt/*)");
     expect(text).toContain("When nobody names a repository, work in acme/app.");
     expect(repositoriesPrompt(["walt/*"])).toContain("search the repositories of walt first (search_code)");
@@ -701,6 +701,6 @@ describe("the organization's repositories", () => {
       f.owner.id,
       f.org.id,
     );
-    expect(listing).toEqual({ connected: false, accounts: [], truncated: false });
+    expect(listing).toEqual({ connected: false, accounts: [], elsewhere: [], truncated: false });
   });
 });

@@ -32,8 +32,8 @@ export interface InlinePart {
 export interface EmailContact {
   email: string;
   /**
-   * Custom properties, merged into what the provider already has; null removes one. With a null the contact is only
-   * updated: one the provider doesn't have yet isn't created.
+   * Custom properties, merged into what the provider already has; null removes one. With a null the contact is
+   * updated first; one the provider doesn't have yet is created with the other properties, or not at all with none.
    */
   properties: Record<string, string | number | null>;
 }
@@ -45,14 +45,26 @@ export interface EmailSender {
   send(message: EmailMessage): Promise<{ id: string }>;
   /** Creates or updates a contact in the provider's list; absent = the provider keeps no contacts. */
   saveContact?(contact: EmailContact): Promise<void>;
+  /**
+   * Lets the provider mail this one address again after it stopped because of an earlier bounce; true when it lifted
+   * such a stop. A complaint or an unsubscribe stays. Absent = the provider keeps no such list.
+   */
+  removeSuppression?(address: string): Promise<boolean>;
 }
 
-/** A send failure; `retryable` drives the outbox retry. */
+/**
+ * Why a send can never reach its recipient as things stand: `suppressed`, the provider stopped mailing the address (an
+ * earlier hard bounce or complaint); `rejected`, the provider or the receiving server refused the address itself.
+ */
+export type Undelivered = "suppressed" | "rejected";
+
+/** A send failure; `retryable` drives the outbox retry. `recipient`: the refusal is about the recipient. */
 export class EmailError extends Error {
   constructor(
     message: string,
     public readonly retryable: boolean,
     public readonly status?: number,
+    public readonly recipient?: Undelivered,
   ) {
     super(message);
     this.name = "EmailError";
@@ -116,13 +128,49 @@ export function createMillionSendSender(options: {
           `MillionSend refused the email (${res.status}${body.name ? ` ${body.name}` : ""}): ${body.message ?? ""}`.trim(),
           res.status === 429 || res.status >= 500,
           res.status,
+          body.name === "all_recipients_suppressed"
+            ? "suppressed"
+            : // Its 422 `validation_error` for an address no mail can reach says so in these words.
+              res.status === 422 && body.message?.includes("can never receive mail")
+              ? "rejected"
+              : undefined,
         );
       }
       return { id: body.id };
     },
     /**
+     * `GET`, then `DELETE /suppressions/{email}`, only for an `origin: "bounce"`: a complaint, an unsubscribe or a
+     * suppression made by hand is the recipient's or the operator's choice, which a resend never overrides. A 404 is
+     * an address it wasn't holding back.
+     */
+    async removeSuppression(address) {
+      const call = async (method: "GET" | "DELETE") => {
+        let res: Response;
+        try {
+          res = await http(`${base}/suppressions/${encodeURIComponent(address)}`, {
+            method,
+            headers: { authorization: `Bearer ${options.apiKey}` },
+          });
+        } catch (error) {
+          throw new EmailError(`could not reach MillionSend: ${String(error)}`, true);
+        }
+        if (res.status === 404) return null;
+        const body = (await res.json().catch(() => ({}))) as { message?: string; name?: string; origin?: string };
+        if (!res.ok) {
+          throw new EmailError(
+            `MillionSend refused the suppression ${method === "GET" ? "lookup" : "removal"} (${res.status}${body.name ? ` ${body.name}` : ""}): ${body.message ?? ""}`.trim(),
+            res.status === 429 || res.status >= 500,
+            res.status,
+          );
+        }
+        return body;
+      };
+      if ((await call("GET"))?.origin !== "bounce") return false;
+      return (await call("DELETE")) !== null;
+    },
+    /**
      * `POST /contacts`; an existing contact (409) gets its properties merged with `PATCH /contacts/{email}`. A null
-     * goes only by `PATCH`, where it removes the key; a contact it doesn't find (404) has nothing to remove.
+     * goes only by `PATCH`, where it removes the key; a contact it doesn't find (404) is created with the rest.
      */
     async saveContact(contact) {
       const call = async (method: string, path: string, body: unknown) => {
@@ -143,7 +191,11 @@ export function createMillionSendSender(options: {
         ? await patch()
         : await call("POST", "/contacts", { email: contact.email, properties: contact.properties });
       if (res.status === 409) res = await patch();
-      if (removes && res.status === 404) return;
+      if (removes && res.status === 404) {
+        const kept = Object.fromEntries(Object.entries(contact.properties).filter(([, value]) => value !== null));
+        if (Object.keys(kept).length === 0) return;
+        res = await call("POST", "/contacts", { email: contact.email, properties: kept });
+      }
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { message?: string; name?: string };
         throw new EmailError(
@@ -205,11 +257,12 @@ export function createSmtpEmailSender(options: {
         });
         return { id: String(info.messageId) };
       } catch (error) {
-        const e = error as { responseCode?: number; message?: string };
+        const e = error as { responseCode?: number; message?: string; command?: string };
         throw new EmailError(
           `SMTP send failed: ${e.message ?? String(error)}`,
           (e.responseCode ?? 0) < 500,
           e.responseCode,
+          (e.responseCode ?? 0) >= 500 && e.command === "RCPT TO" ? "rejected" : undefined,
         );
       }
     },
@@ -232,21 +285,41 @@ export function createLogEmailSender(log: (line: string, data: Record<string, un
   };
 }
 
-/** Test sender: records every message, never sends. */
+/**
+ * Test sender: records every message, never sends. `refused`: addresses it refuses as MillionSend would (a suppressed
+ * one until `removeSuppression`, which `unsuppressed` records).
+ */
 export function createFakeEmailSender(options: { delivers?: boolean } = {}) {
   const sent: EmailMessage[] = [];
   const contacts: EmailContact[] = [];
-  const sender: EmailSender & { sent: EmailMessage[]; contacts: EmailContact[] } = {
+  const refused = new Map<string, Undelivered>();
+  const unsuppressed: string[] = [];
+  const sender: EmailSender & {
+    sent: EmailMessage[];
+    contacts: EmailContact[];
+    refused: Map<string, Undelivered>;
+    unsuppressed: string[];
+  } = {
     id: "fake",
     delivers: options.delivers ?? true,
     sent,
     contacts,
+    refused,
+    unsuppressed,
     async send(message) {
+      const why = message.to.map((a) => refused.get(a.toLowerCase())).find(Boolean);
+      if (why) throw new EmailError(`fake refused the email (422 ${why})`, false, 422, why);
       sent.push(message);
       return { id: `fake-${sent.length}` };
     },
     async saveContact(contact) {
       contacts.push(contact);
+    },
+    async removeSuppression(address) {
+      unsuppressed.push(address);
+      if (refused.get(address.toLowerCase()) !== "suppressed") return false;
+      refused.delete(address.toLowerCase());
+      return true;
     },
   };
   return sender;

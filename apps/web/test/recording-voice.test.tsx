@@ -88,7 +88,8 @@ describe("“gravando áudio…” beside “está digitando…”", () => {
     await settle();
     expect(words()).toBe("João está digitando…");
     expect(pill().querySelector(".ac-typing__bars")).toBeNull();
-    expect(pill().querySelector(".ac-typing__dots")).not.toBeNull();
+    // The dots lead the conversation's last row, in a face's column.
+    expect(document.querySelector(".working-tail__face .ac-typing__dots")).not.toBeNull();
     // Back to recording, then his voice message arrives: gone at once.
     await push(socket, frame("u-joao", "voice"));
     await settle();

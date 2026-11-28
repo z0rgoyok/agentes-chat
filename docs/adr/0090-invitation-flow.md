@@ -40,3 +40,12 @@ Bringing someone into a workspace took too many steps and had dead ends:
 - Making the account when the person asks: the link would open sign-up again (ADR 0068 rejected it), and every leaked link would leave accounts behind.
 - Keeping the password for after approval, without asking the name again: one more email and one more visit for every person, which is what this replaces.
 - Signing an existing account in from the page that asked: the code would then sign in to accounts it never made.
+
+## Addendum 2026-11-23: joining says so
+
+Adding someone to a channel used to change only its members column, and the adder alone got a toast. Now the conversation says it, for everyone (`packages/engine/src/channel-joins.ts`):
+
+- **The line.** A person or an agent joining a channel (`joinChannel`, `addChannelMember`, an agent's page, a team made from Lodi's card) enqueues `channel.joined`, 5 s later, one job per channel and 5 s stretch. The job writes one line naming everyone who joined in those moments and not named yet, and who added them: "Lia entrou no canal · Marina adicionou". Leaving or being taken out writes "Lia saiu do canal" at once. The line is a notice (`joined`, `left`) written as its first member, quiet like `run_stopped`: no unread, no notification, no preview, no search. Agents read it as a line in the channel. Who made a channel is in it from the start, so making a channel is not joining it. The adder's toast is gone.
+- **One welcome, only with room.** When exactly one agent joined, and no other agent joined the channel within the minute, one agent already there gets an agent-only `member_joined` notice: the one whose owner added the newcomer, else the last one that spoke there. Its turn lists no tool but `pass`, and it may pass. Nobody welcomes a person.
+- **No welcome, only the line**, when the workspace has no plan or is on a hold (`standingRefusal`), the welcomer has no AI, its plan's busiest window or its budget is at 80% or more, or the workspace's platform AI is used up. Then there is no model call.
+- **The apps** draw the line as an event pill with the first newcomer's face, waving a moment (the kit's wave sticker) when it arrives. On the web, the new row in the members column opens its room and the pixel veil sweeps off it, with the face's burst.

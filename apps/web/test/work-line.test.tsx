@@ -4,9 +4,9 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import type { Message, WorkView } from "@agenteschat/client";
-import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
-import { renderApp, settle } from "./render";
+import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
 
@@ -125,11 +125,13 @@ describe("the last update, once", () => {
     state.messages.push(message("anchor", null, "Vou cuidar disso.", { longWork: view }));
     state.messages.push(message("u1", "anchor", UPDATE, { meta: { workUpdate: { id: "w1", seq: 1 } } }));
     rendered = await renderApp(`/org/${ORG_ID}/threads/anchor`, { api: createFakeApi(state) });
-    await settle(8);
-    const line = document.querySelector(".ac-workline") as HTMLElement;
+    // Its link opens it beside its channel: the thread is the panel.
+    const panel = await waitFor(() => screen().getByRole("complementary", { name: "Thread" }));
+    await settle(4);
+    const line = panel.querySelector(".ac-workline") as HTMLElement;
     expect(line.querySelector(".ac-workline__text")?.textContent).toContain("Em segundo plano");
     expect(line.querySelector(".ac-workline__update")).toBeNull();
-    const shown = Array.from(document.querySelectorAll(".ac-msg")).filter((m) => m.textContent?.includes(UPDATE));
+    const shown = Array.from(panel.querySelectorAll(".ac-msg")).filter((m) => m.textContent?.includes(UPDATE));
     expect(shown).toHaveLength(1);
   });
 });
@@ -148,7 +150,9 @@ test("an anchor in a thread its updates no longer go to keeps the last update on
   state.messages.push(message("root", null, "QA do site"));
   state.messages.push(message("anchor", "root", "Vou cuidar disso.", { longWork: view }));
   rendered = await renderApp(`/org/${ORG_ID}/threads/root`, { api: createFakeApi(state) });
-  await settle(8);
-  const line = document.querySelector(".ac-workline") as HTMLElement;
+  // Its link opens it beside its channel: the thread is the panel.
+  const panel = await waitFor(() => screen().getByRole("complementary", { name: "Thread" }));
+  await settle(4);
+  const line = panel.querySelector(".ac-workline") as HTMLElement;
   expect(line.querySelector(".ac-workline__update")?.textContent).toBe(UPDATE);
 });

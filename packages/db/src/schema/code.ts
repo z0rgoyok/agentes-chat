@@ -1,4 +1,15 @@
-import { foreignKey, index, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import {
+  foreignKey,
+  index,
+  integer,
+  jsonb,
+  pgTable,
+  primaryKey,
+  text,
+  timestamp,
+  unique,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { agents } from "./agents";
 import { users } from "./auth";
 import { channels } from "./chat";
@@ -70,5 +81,50 @@ export const codeSessions = pgTable(
     index().on(t.orgId, t.createdBy),
     index().on(t.orgId, t.repo, t.branch),
     index().on(t.machineId),
+  ],
+);
+
+/** A checkout as the last `git.sync` of it answered, with its tries since the last good one (`agentCheckouts`). */
+export interface KnownCheckout {
+  repo: string;
+  dir: string;
+  path?: string;
+  status: "cloned" | "updated" | "missing" | "failed" | "cloning";
+  head?: string;
+  branch?: string;
+  defaultBranch?: string;
+  message?: string;
+  /** Failed updates in a row. */
+  failures?: number;
+  /** Epoch ms before which it isn't synced again (the backoff after a failure). */
+  retryAt?: number;
+}
+
+/**
+ * An agent's checkouts on its computer as their last sync left them (`prepareAgentCode`): a chat turn starts from
+ * these at once while the next sync runs beside it, and every process reads the same times, so a repository is
+ * synced at most once every few minutes whichever one runs the turn.
+ */
+export const agentCheckouts = pgTable(
+  "agent_checkouts",
+  {
+    orgId: uuid()
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    agentId: uuid().notNull(),
+    machineId: uuid()
+      .notNull()
+      .references(() => machines.id, { onDelete: "cascade" }),
+    repos: jsonb().$type<KnownCheckout[]>().notNull().default([]),
+    /** When the last sync of the checkouts started (claimed by one process); null before the first. */
+    syncStartedAt: timestamp({ withTimezone: true }),
+    /** When the last sync answered. */
+    syncedAt: timestamp({ withTimezone: true }),
+    /** When the computer last got a fresh proxy credential for the agent (every sync, a mission turn's too). */
+    credentialAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    primaryKey({ columns: [t.agentId, t.machineId] }),
+    foreignKey({ columns: [t.orgId, t.agentId], foreignColumns: [agents.orgId, agents.id] }).onDelete("cascade"),
   ],
 );

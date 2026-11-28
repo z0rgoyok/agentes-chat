@@ -23,7 +23,7 @@ export function replyOf(meta: Record<string, unknown> | undefined): ReplyRef | n
     messageId: o.messageId,
     threadId: typeof o.threadId === "string" ? o.threadId : null,
     author:
-      author && (author.type === "person" || author.type === "agent")
+      author && (author.type === "person" || author.type === "agent" || author.type === "app")
         ? { type: author.type, id: typeof author.id === "string" ? author.id : null }
         : { type: "person", id: null },
     authorName: typeof o.authorName === "string" ? o.authorName : "",

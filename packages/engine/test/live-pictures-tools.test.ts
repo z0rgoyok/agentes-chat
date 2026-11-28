@@ -173,7 +173,9 @@ describe("on a canvas", () => {
     const run = await runFor();
     const canvas = artifactOf(await ok(run, "create_canvas", { title: "Ícones" }));
     const out = await ok(run, "edit_canvas", { file: canvas.id, ops: [{ op: "add_image", svg: ICON }] });
-    expect(out.images).toEqual([{ mediaType: "image/png", data: Buffer.from(PNG).toString("base64") }]);
+    // The drawn icon, and a picture of the canvas around it as it looks now (ADR 0220 §5).
+    expect(out.images).toHaveLength(2);
+    expect(out.images).toContainEqual({ mediaType: "image/png", data: Buffer.from(PNG).toString("base64") });
   });
 
   test("a picture from the web: downloaded, stored with its address and credit, shown to the agent", async () => {

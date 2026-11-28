@@ -9,6 +9,7 @@ import {
   useThreadList,
   useWorkingRuns,
 } from "@agenteschat/client";
+import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import * as Notifications from "expo-notifications";
 import { useEffect, useMemo, useRef } from "react";
 import { useOrg } from "@/providers/org";
@@ -37,6 +38,9 @@ interface Kept<R> {
 
 /** Stands for an input not loaded yet (undefined or null), as a key. */
 const UNREAD = {};
+/** A workspace's mode as a key: a personal one's channels are listed as group conversations (ADR 0159). */
+const PERSONAL = {};
+const TEAM = {};
 
 /**
  * `make()`'s result for these inputs (the query cache's objects, new only when their contents change), made once and
@@ -106,14 +110,20 @@ export function useConversations() {
   const threads = useThreadList(orgId, THREAD_LIST);
   const work = useWorkingNow();
   const { hidden, loading: agentsLoading } = useHiddenAgents();
-  const rows = keptBy(conversations, [channels.data, dms.data, threads.data, work, hidden], () =>
-    buildConversations({
-      channels: channels.data ?? [],
-      dms: dms.data ?? [],
-      threads: threads.data?.pages.flatMap((p) => p.threads) ?? [],
-      workingChannels: busyChannels(work),
-      hiddenAgents: hidden,
-    }),
+  // A personal workspace's channels are group conversations, shown by their agents (ADR 0159).
+  const personal = isPersonal(useOrg().org);
+  const rows = keptBy(
+    conversations,
+    [channels.data, dms.data, threads.data, work, hidden, personal ? PERSONAL : TEAM],
+    () =>
+      buildConversations({
+        channels: channels.data ?? [],
+        dms: dms.data ?? [],
+        threads: threads.data?.pages.flatMap((p) => p.threads) ?? [],
+        workingChannels: busyChannels(work),
+        hiddenAgents: hidden,
+        personal,
+      }),
   );
   const lists = [channels, dms];
   return {

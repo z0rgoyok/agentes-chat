@@ -4,7 +4,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { ADA_ID, createFakeApi, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, createFakeApi, ENG_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
@@ -25,7 +25,11 @@ const outside = () => {
 
 describe("an agent seen from outside its audience", () => {
   test("its page is the public card: who answers for it, who it answers, where it works, a way to ask", async () => {
-    await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api: createFakeApi(outside()) });
+    // Answering someone besides João, she isn't private: her card opens.
+    const state = outside();
+    const ada = state.agents.find((a) => a.id === ADA_ID);
+    if (ada) ada.audience = { mode: "people", userIds: ["u-someone"] };
+    await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api: createFakeApi(state) });
     await settle(8);
     expect(screen().queryByRole("tablist")).toBeNull();
     expect(screen().getByRole("heading", { level: 1, name: "Ada" })).toBeTruthy();
@@ -33,6 +37,69 @@ describe("an agent seen from outside its audience", () => {
     expect(document.body.textContent).toContain("João");
     const ask = screen().getByRole("link", { name: "Pedir acesso" });
     expect(ask.getAttribute("href")).toBe(`/org/${ORG_ID}/dm/person/u-joao`);
+  });
+
+  test("a teammate's private agent: a plain member's link finds nothing", async () => {
+    await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api: createFakeApi(outside()) });
+    await settle(8);
+    expect(screen().queryByRole("heading", { level: 1, name: "Ada" })).toBeNull();
+    expect(document.body.textContent).toContain("Este agente não existe ou foi arquivado.");
+    expect(document.body.textContent).not.toContain("tabela 4");
+  });
+
+  test("a teammate's private agent: her message's menu has no Ver perfil for a plain member, who'd find nothing", async () => {
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(outside()) });
+    await settle(8);
+    const name = screen()
+      .getAllByRole("button", { name: "Perfil de Ada" })
+      .find((b) => !b.hasAttribute("aria-hidden"));
+    if (!name) throw new Error("no author name for Ada");
+    const menuKey = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 30, clientY: 40 });
+    await act(async () => void name.dispatchEvent(menuKey));
+    await settle(2);
+    const items = within(screen().getByRole("menu", { name: "Ações" }))
+      .getAllByRole("menuitem")
+      .map((i) => i.textContent);
+    expect(items).toContain("Mencionar");
+    expect(items).not.toContain("Ver perfil");
+  });
+
+  test('with "Editar agentes", a teammate\'s private agent: Equipe lists it locked, its page shows only its facts', async () => {
+    const state = outside();
+    const ada = state.agents.find((a) => a.id === ADA_ID);
+    if (ada) ada.factsOnly = true;
+    await renderApp(`/org/${ORG_ID}/team`, { api: createFakeApi(state) });
+    await settle(6);
+    const row = screen()
+      .getAllByRole("row")
+      .find((r) => r.querySelector(".team-who__text b")?.textContent === "Ada") as HTMLElement;
+    expect(row.querySelector(".team-private")?.textContent).toBe("Privado");
+    expect(within(row).queryByRole("button", { name: /^Mais/ })).toBeNull();
+    cleanup();
+
+    await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api: createFakeApi(state) });
+    await settle(8);
+    expect(screen().queryByRole("tablist")).toBeNull();
+    expect(document.querySelector(".agp-private")?.textContent).toBe("Privado");
+    expect(document.body.textContent).not.toContain("tabela 4");
+    const usage = screen().getByRole("region", { name: /^Uso em / });
+    const facts = Object.fromEntries(
+      [...usage.querySelectorAll(".agp-facts > div")].map((d) => [
+        d.querySelector("dt")?.textContent,
+        d.querySelector("dd")?.textContent,
+      ]),
+    );
+    // The budget as a share, never money; what thinks for it, and when it last worked.
+    expect(facts).toMatchObject({ "Pensa com": "Claude Sonnet 5.5", Execuções: "142", Tokens: "3,1 mi" });
+    expect(facts.Orçamento).toMatch(/^\d+% usado$/);
+    expect(facts["Última atividade"]).toBeTruthy();
+    expect(usage.textContent).not.toContain("$");
+    const locked = screen().getByRole("region", { name: "O que ela faz" });
+    expect(locked.textContent).toContain("ficam com João");
+    const ask = within(locked).getByRole("link", { name: "Pedir a João" });
+    expect(ask.getAttribute("href")).toBe(`/org/${ORG_ID}/dm/person/u-joao`);
+    // Nothing to change.
+    expect(screen().queryByRole("button", { name: /Editar|Arquivar|Orçamento/ })).toBeNull();
   });
 
   test("Equipe's map card leaves out what it does and opens its public card, which offers to ask for access", async () => {

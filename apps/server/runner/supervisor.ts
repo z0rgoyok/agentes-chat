@@ -161,6 +161,8 @@ const busctl = (args: string[]) =>
 /** What a worker must know about its computer, sent after each hello and when it changes. */
 export interface WorkerState {
   privateNetwork?: boolean;
+  /** ADR 0237: the computer's loopback proxy its agents use now (`setEgressProxy`); null or absent: none. */
+  egressProxy?: { port: number; direct: string[]; only?: boolean } | null;
   /** The server's host: an agent's commit email without one in its checkout is `<handle>@agents.<host>`. */
   commitHost?: string;
   access: RunnerAccess;
@@ -173,6 +175,10 @@ export interface WorkerState {
     /** Codex app-servers' own (`CODEX_DEFAULT_LIMITS`); absent: the brains'. */
     codexIdleMinutes?: number;
     codexMaxProcesses?: number;
+    /** The owner's Push harder (`RunnerConfig.pushHarder`). */
+    pushHarder?: boolean;
+    /** Tasks start on the machine's room (`DaemonOptions.taskRoom`); absent: on the count. */
+    onRoom?: boolean;
   };
   /** People watching or controlling its agent's desktop (root's): its Chrome there isn't idle meanwhile. */
   desktopViewers?: number;
@@ -206,7 +212,12 @@ export function accountOf(req: MachineRequest): { kind: AccountKind; account: st
   if (cli === null || !("account" in req) || typeof req.account !== "string" || !req.account) return null;
   return {
     kind:
-      cli === "codex" || cli === "cursor" || cli === "opencode" || cli === "grok" || cli === "antigravity"
+      cli === "codex" ||
+      cli === "cursor" ||
+      cli === "opencode" ||
+      cli === "grok" ||
+      cli === "antigravity" ||
+      cli === "devin"
         ? cli
         : "claude_code",
     account: req.account,
@@ -1849,12 +1860,15 @@ export class Supervisor {
 
 /**
  * The worker's home `<base>/<user>`: the agent's own (0700), in a folder only
- * root writes to and nobody else can list (0711), so no agent can plant a
- * link where root makes or opens it.
+ * root writes to (0755), so no agent can plant a link where root makes or opens
+ * it. Listable, not 0711: Grok Build's sandbox binds every folder above its
+ * `GROK_HOME` and its turn's folder, which a shared sign-in and a chat turn keep
+ * in this home, and bubblewrap can't bind under a folder its user can't list.
+ * The names it lists are the agents' users, which `/etc/passwd` lists anyway.
  */
 export function workerHome(base: string, user: AgentUser): string {
-  mkdirSync(base, { recursive: true, mode: 0o711 });
-  chmodSync(base, 0o711);
+  mkdirSync(base, { recursive: true, mode: 0o755 });
+  chmodSync(base, 0o755);
   const dir = path.join(base, user.user);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const st = lstatSync(dir);

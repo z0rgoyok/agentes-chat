@@ -191,10 +191,12 @@ test("stream.open: each kind behind its switch; a desktop that isn't running sta
   const desktop = desktopOn(x.socketPath, { running: false });
   const opened: string[] = [];
   const taken: string[] = [];
+  const starting: string[] = [];
   let paused = false;
   let tools: Partial<RunnerAccess["tools"]> = { desktop: true, terminal: true };
   const ctx: HandlerContext = {
     desktopTaken: (agentId) => taken.push(agentId),
+    streamStarting: (streamId) => starting.push(streamId),
     workspaceReal: "/srv/agentes",
     exec: true,
     token: TOKEN,
@@ -233,14 +235,18 @@ test("stream.open: each kind behind its switch; a desktop that isn't running sta
   expect(await open({ kind: "desktop", mode: "watch" })).toBe("desktop_off");
   expect(desktop.state.started).toEqual([]);
 
-  // A viewer of a desktop that isn't running starts it, then watches it (logged in view-only).
+  // A viewer of a desktop that isn't running starts it, then watches it (logged in view-only). The server hears it
+  // first: a start takes longer than an open.
+  expect(starting).toEqual([]);
   expect(await open(watch)).toBe("ok");
   expect(desktop.state.started).toEqual(["dev"]);
+  expect(starting).toEqual([STREAM_ID]);
   expect(x.logins.map((l) => l.password)).toEqual(["view"]);
-  // Running: watched on a paused computer as before.
+  // Running: watched on a paused computer as before, and nothing more is said.
   paused = true;
   expect(await open(watch)).toBe("ok");
   paused = false;
+  expect(starting).toEqual([STREAM_ID]);
   expect(taken).toEqual([]);
   expect(await open(control)).toBe("ok");
   expect(taken).toEqual([dev.id]);

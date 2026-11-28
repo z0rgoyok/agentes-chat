@@ -2,7 +2,8 @@ import { type MessagePin, usePinMessage, usePins } from "@agenteschat/client";
 import { clockAt } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import { pinPreview, pinsIn } from "@agenteschat/client/lib/pins";
-import { Button, CountChip, Icon, Popover } from "@agenteschat/ui";
+import { appAuthor } from "@agenteschat/client/lib/via";
+import { AppMark, Button, CountChip, Icon, Popover } from "@agenteschat/ui";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ActorAvatar } from "@/components/AgentAvatar";
@@ -27,7 +28,7 @@ export function ChannelPinnedBar(props: { channelId: string; channelName?: strin
       <button type="button" className="pinbar" aria-label={t("channel.pins.button", { count: pins.length })}>
         <Icon name="pin" size={14} />
         <span className="pinbar__text">
-          <b>{dir.authorName(latest.message.author)}</b> {pinPreview(t, latest)}
+          <b>{dir.authorName(latest.message.author, latest.message.meta)}</b> {pinPreview(t, latest)}
         </span>
         {pins.length > 1 && <CountChip>{pins.length}</CountChip>}
       </button>
@@ -103,12 +104,18 @@ function PinsPopover({
       <div className="thread-pop__list">
         {pins.map((p) => {
           const author = p.message.author;
-          const name = dir.authorName(author);
+          const name = dir.authorName(author, p.message.meta);
           return (
             <div key={p.messageId} className="pins-pop__item">
               <button type="button" className="thread-pop__row ac-mediarow" onClick={() => go(p)}>
                 <span className="ac-mediarow__face">
-                  {author.id ? <ActorAvatar actor={{ type: author.type, id: author.id }} name={name} /> : <span />}
+                  {author.type === "app" ? (
+                    <AppMark color={appAuthor(p.message.meta)?.color ?? "graphite"} name={name} size={24} />
+                  ) : author.id ? (
+                    <ActorAvatar actor={{ type: author.type, id: author.id }} name={name} />
+                  ) : (
+                    <span />
+                  )}
                 </span>
                 <span className="ac-mediarow__head thread-pop__name">
                   <b>{name}</b>

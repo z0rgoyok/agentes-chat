@@ -49,13 +49,35 @@ export function standbyOn(ask: StandbyAsk | null, uptime = os.uptime(), boot = b
   return ask !== null && ask.boot === boot && ask.until > uptime;
 }
 
-/** The runner applied the ask `id`. */
-export function ackStandby(home: string, id: string) {
-  writeJson(file(home, STANDBY_ACK_FILE), { id });
+/**
+ * A new ask in force that the runner turns down: a turn runs here (`turns`), and a standby would drop its link, a sleep
+ * after it freeze it. `answered`: the last ask it answered; `inStandby`: it is in standby already (a renewal).
+ */
+export function refusesStandby(
+  ask: StandbyAsk | null,
+  answered: string | null,
+  inStandby: boolean,
+  turns: number,
+  uptime = os.uptime(),
+  boot = bootId(),
+): boolean {
+  return ask !== null && ask.id !== answered && !inStandby && turns > 0 && standbyOn(ask, uptime, boot);
+}
+
+/** The runner applied the ask `id`, or turned it down (`refused`, why, for the one who asked). */
+export function ackStandby(home: string, id: string, refused?: string) {
+  writeJson(file(home, STANDBY_ACK_FILE), refused ? { id, refused } : { id });
 }
 
 export function standbyAcked(home: string, id: string): boolean {
-  return readJson<{ id?: unknown }>(file(home, STANDBY_ACK_FILE))?.id === id;
+  return standbyAnswer(home, id) !== null;
+}
+
+/** The runner's answer to the ask `id`: null while none, else whether it turned it down and why. */
+export function standbyAnswer(home: string, id: string): { refused: string | null } | null {
+  const ack = readJson<{ id?: unknown; refused?: unknown }>(file(home, STANDBY_ACK_FILE));
+  if (ack?.id !== id) return null;
+  return { refused: typeof ack.refused === "string" ? ack.refused : null };
 }
 
 /**

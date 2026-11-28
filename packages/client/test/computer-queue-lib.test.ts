@@ -19,6 +19,7 @@ import {
   queueStartText,
   queueStatusText,
   queueView,
+  queueWaitText,
   queueWhereText,
   waitingFor,
 } from "../src/lib/computer-queue";
@@ -144,6 +145,22 @@ test("rows: what each turn is for, never its content, where, and its estimate", 
   );
   expect(queueStartText(en, queue.waiting[3] as never, agentName, NOW)).toBeNull();
   expect(awayText(en, at(-3), NOW)).toBe("Away 3 min");
+});
+
+test("a waiting turn says plainly whose turn it waits behind", () => {
+  const w = (i: number) => queue.waiting[i] ?? null;
+  // Behind the turn just ahead of it, not the first in line.
+  expect(queueWaitText(pt, queue, w(1), agentName)).toBe("Na fila, depois do Theo");
+  expect(queueWaitText(en, queue, w(2), agentName)).toBe("In line, after Kai");
+  // The head waits for room, behind nobody in line.
+  expect(queueWaitText(pt, queue, w(0), agentName)).toBe("Na fila · começa em seguida");
+  // Behind its own other turn, an agent it can't name, or no row yet: the plain line.
+  const again = { ...queue.waiting[0], runId: "q1b", position: 2 } as ComputerQueue["waiting"][number];
+  expect(queueWaitText(en, { ...queue, waiting: [queue.waiting[0], again] } as ComputerQueue, again, agentName)).toBe(
+    "In line · starts soon",
+  );
+  expect(queueWaitText(en, queue, w(2), () => undefined)).toBe("In line · starts soon");
+  expect(queueWaitText(pt, null, null, agentName)).toBe("Na fila · começa em seguida");
 });
 
 test("how long something has gone on: seconds, minutes, hours, then days past two of them", () => {

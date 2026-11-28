@@ -1,5 +1,5 @@
 import type { Channel, ChannelInput, OrgRole } from "@agenteschat/client";
-import { channelMembersQuery, keys, useApi, useChannelCategories, useChannels } from "@agenteschat/client";
+import { channelMembersQuery, keys, useAgentGroups, useApi, useChannels } from "@agenteschat/client";
 import { sameList } from "@agenteschat/client/lib/agent-edit";
 import { accessOf } from "@agenteschat/client/lib/channel-access";
 import { errorText } from "@agenteschat/client/lib/errors";
@@ -56,7 +56,7 @@ export function RoleChannelsScreen({ roleId }: { roleId: string }) {
   const fail = useFail();
   const { orgId, org, data, people, failed, error, retry, viewer } = useRolesData();
   const channels = useChannels(orgId);
-  const categories = useChannelCategories(orgId);
+  const sectors = useAgentGroups(orgId);
   const save = useSaveChannel();
   const api = useApi();
   const qc = useQueryClient();
@@ -79,7 +79,7 @@ export function RoleChannelsScreen({ roleId }: { roleId: string }) {
   const name = roleName(t, role);
   const locked = roleLock(org ?? { role: "member" }, role) !== null;
   const admin = !isEveryone(role) && role.permissions.includes("administrator");
-  const groups = channelGroups(channels.data, categories.data ?? [], query);
+  const groups = channelGroups(channels.data, sectors.data ?? [], query);
   const onlyGeneral = channels.data.every(isGeneral);
   const header = isEveryone(role) ? t("mobile.roles.channels.headerBase") : t("mobile.roles.channels.header", { name });
   const send = (channel: Channel, input: ChannelInput) =>

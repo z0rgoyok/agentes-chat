@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type KeyboardEvent,
   type PointerEvent,
   type ReactNode,
@@ -38,6 +39,11 @@ export interface VideoPlayerProps {
   name: string;
   /** `tile` in the chat (one box, the video whole inside it; a corner button opens the viewer), `viewer` fills its box. */
   variant?: "tile" | "viewer";
+  /**
+   * A tile's width over its height, when the server read its size: the box has the video's shape from the first
+   * paint (a phone's upright video stands upright). Without it, the box is 16:9 and the video sits whole inside.
+   */
+  ratio?: number;
   labels: VideoPlayerLabels;
   /** The tile's corner button. */
   onOpen?: () => void;
@@ -73,7 +79,7 @@ const IDLE_MS = 2000;
 const STEP_S = 5;
 /** `MediaError.MEDIA_ERR_NETWORK`: the bytes stopped coming after the video had loaded. */
 const MEDIA_ERR_NETWORK = 2;
-/** A fresh signed link lives an hour: failing again sooner than this after asking for one is no expired link. */
+/** Failing again sooner than this after asking again is no passing drop: the caller shows the file instead. */
 const RELOAD_GAP_MS = 60_000;
 const clock = (seconds: number) => {
   const s = Math.max(0, Math.floor(Number.isFinite(seconds) ? seconds : 0));
@@ -170,7 +176,7 @@ function Rail({
       <span className="ac-video__line">
         {buffered !== undefined && <span className="ac-video__buffered" style={{ width: `${buffered * 100}%` }} />}
         <span className="ac-video__filled" style={{ width: `${value * 100}%` }} />
-        <span className="ac-video__knob" style={{ left: `${value * 100}%` }} />
+        <span className="ac-video__knob" style={{ "--at": value } as CSSProperties} />
       </span>
       {tip && shown !== null && (
         <span className="ac-video__tip" style={{ left: `${shown * 100}%` }} aria-hidden="true">
@@ -191,6 +197,7 @@ export function VideoPlayer({
   src,
   name,
   variant = "tile",
+  ratio,
   labels,
   onOpen,
   actions,
@@ -377,6 +384,8 @@ export function VideoPlayer({
       data-phase={phase}
       data-hide={(hidden && phase === "playing") || undefined}
       data-full={full || undefined}
+      data-ratio={tile && ratio ? true : undefined}
+      style={tile && ratio ? ({ "--ratio": String(ratio) } as CSSProperties) : undefined}
       tabIndex={-1}
       onKeyDown={keys}
       onClick={(e) => {
@@ -437,9 +446,8 @@ export function VideoPlayer({
         }}
         onError={(e) => {
           const v = e.currentTarget;
-          // Our address may send it on to the file store's signed link, which can expire while the page stays open
-          // (hours, for a conversation left open): it asks our address again for a fresh one and goes on from where
-          // it was, each time that link has had the time to expire too.
+          // The bytes stopped coming (a network that dropped, a link that expired while the page stayed open for
+          // hours): it asks the address again and goes on from where it was, at most once a minute.
           if (v.error?.code !== MEDIA_ERR_NETWORK || Date.now() - reloadedAt.current < RELOAD_GAP_MS) {
             onFailed?.();
             return;

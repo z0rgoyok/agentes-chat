@@ -110,6 +110,7 @@ export function ChatDock({
   afterVoice,
   voiceFromField,
   voiceTakeBack,
+  voiceAsk,
   onRecording,
   admin,
   join,
@@ -159,6 +160,7 @@ export function ChatDock({
     | "afterVoice"
     | "voiceFromField"
     | "voiceTakeBack"
+    | "voiceAsk"
     | "onRecording"
   > & {
     lift: number;
@@ -320,6 +322,7 @@ export function ChatDock({
               onVoiceSent={afterVoice}
               prepareVoice={voiceFromField}
               voiceTakeBack={voiceTakeBack}
+              voiceAsk={voiceAsk}
               onRecording={onRecording}
             />
           </Animated.View>

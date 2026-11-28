@@ -16,13 +16,15 @@ import {
   codexProfileOf,
   codexThreadKey,
 } from "./brain-codex";
+import { ConsoleDecoder } from "./console-text";
 import { RunnerError } from "./errors";
 import { killTree } from "./exec";
-import { CURSOR_BIN, resolveCommand } from "./executors";
+import { CURSOR_BIN, cliSpawn } from "./executors";
 import { CODEX_MCP_ENV, CODEX_MCP_SERVER, redactDeep } from "./mcp";
 import { resolveForAgent } from "./paths";
 import type { Spawn } from "./scope-gate";
 import { agentSecrets } from "./secrets";
+import { turnZoneEnv } from "./turn-zone";
 
 /**
  * The Cursor branch of `brain.turn` (protocol 36, ADR 0114): one agent turn as
@@ -65,12 +67,23 @@ import { agentSecrets } from "./secrets";
 
 /** The longest prompt argument: Linux refuses a single argument past 128 KiB (`MAX_ARG_STRLEN`). */
 export const CURSOR_PROMPT_MAX = 120_000;
+/**
+ * On Windows: a whole command line is at most 32,767 characters there (CreateProcess), the program's path and the
+ * other arguments included.
+ */
+export const WINDOWS_PROMPT_MAX = 24_000;
+
+/** The longest prompt argument on `platform`. */
+export const promptMaxOn = (platform: NodeJS.Platform) =>
+  platform === "win32" ? WINDOWS_PROMPT_MAX : CURSOR_PROMPT_MAX;
 const KILL_GRACE_MS = 5000;
 
 /** `brain.turn` with `kind: "cursor"`. */
 export interface CursorBrainTurnRequest {
   runId: string;
   kind: "cursor";
+  /** The zone of the turn's "Now" (`turnZoneEnv`). */
+  timeZone?: string;
   session: { id: string; resume: boolean };
   cwd?: string;
   model?: string;
@@ -176,10 +189,10 @@ export function cursorMayApproveMcps(folder: string, cwd: string): boolean {
   return true;
 }
 
-/** The prompt argument: a new chat's leads with the engine's context, cut in its middle past `CURSOR_PROMPT_MAX`. */
-export function cursorPrompt(system: string, prompt: string, newChat: boolean): string {
+/** The prompt argument: a new chat's leads with the engine's context, cut in its middle past `max`. */
+export function cursorPrompt(system: string, prompt: string, newChat: boolean, max = CURSOR_PROMPT_MAX): string {
   const context = newChat ? system.trim() : "";
-  const room = CURSOR_PROMPT_MAX - prompt.length - 2;
+  const room = max - prompt.length - 2;
   // ponytail: a context past the argument limit loses its middle; a rules file per chat if real contexts get there.
   const fitted =
     context.length <= room
@@ -187,7 +200,7 @@ export function cursorPrompt(system: string, prompt: string, newChat: boolean): 
       : room > 2000
         ? `${context.slice(0, Math.floor(room / 2) - 1)}\n…\n${context.slice(context.length - Math.floor(room / 2) + 2)}`
         : "";
-  return (fitted ? `${fitted}\n\n${prompt}` : prompt).slice(-CURSOR_PROMPT_MAX);
+  return (fitted ? `${fitted}\n\n${prompt}` : prompt).slice(-max);
 }
 
 /** The `agent` arguments for one turn. */
@@ -358,7 +371,11 @@ export class CursorEventMapper {
       }
       case "result": {
         if (ev.is_error === true || (ev.subtype !== undefined && ev.subtype !== "success")) {
-          this.failed = this.clean(str(ev.result) || str(ev.error) || "The turn failed");
+          this.failed = this.clean(
+            str(ev.result) ||
+              str(ev.error) ||
+              `Cursor ended the turn with ${str(ev.subtype) || "an error and no message"}`,
+          );
           return [];
         }
         this.completed = true;
@@ -443,9 +460,7 @@ export interface CursorTurnOptions {
 export async function runCursorTurn(input: CursorTurnInput, opts: CursorTurnOptions): Promise<void> {
   const fail = (code: string, message: string, retryable?: boolean) =>
     opts.emit({ type: "error", code, message, ...(retryable ? { retryable } : {}) });
-  if ((opts.platform ?? process.platform) === "win32") {
-    return fail("unsupported", "The Cursor brain isn't supported on Windows yet.");
-  }
+  const platform = opts.platform ?? process.platform;
   try {
     writeCursorMcp(input.folder, cursorMcpEntry(input.mcp.url ? { url: input.mcp.url } : { command: opts.mcpCommand }));
     if (input.chat) {
@@ -460,7 +475,7 @@ export async function runCursorTurn(input: CursorTurnInput, opts: CursorTurnOpti
   const chat = opts.chats.get(chatKey);
   const args = cursorTurnArgs({
     cwd: input.cwd,
-    prompt: cursorPrompt(input.system, input.prompt, !chat),
+    prompt: cursorPrompt(input.system, input.prompt, !chat, promptMaxOn(platform)),
     ...(chat ? { chat } : {}),
     ...(input.model ? { model: input.model } : {}),
     profile: input.profile ?? "work",
@@ -475,7 +490,7 @@ export async function runCursorTurn(input: CursorTurnInput, opts: CursorTurnOpti
     ...(opts.socketPath ? { [CODEX_MCP_ENV[1]]: opts.socketPath } : {}),
     ...(opts.runnerHome ? { [CODEX_MCP_ENV[2]]: opts.runnerHome } : {}),
   };
-  const env = input.account ? accountEnv("cursor", input.account.home, base) : base;
+  const env = input.account ? accountEnv("cursor", input.account.home, base, platform) : base;
   const key = input.account?.key;
   if (key) env.CURSOR_API_KEY = key;
   // The agent's shell could print the key (its env, its file in the lent folder).
@@ -487,20 +502,25 @@ export async function runCursorTurn(input: CursorTurnInput, opts: CursorTurnOpti
     ...(redact ? { redact, hold: Math.max(opts.redactHold ?? 0, key ? key.length - 1 : 0) } : {}),
   });
 
+  // Windows: the runner's own copy is `node.exe` and its `index.js` (`cliSpawn`); its own group would open a console.
+  const run = cliSpawn([opts.bin ?? CURSOR_BIN], args, env.PATH, platform);
   let child: ChildProcess;
   try {
-    child = (opts.spawn ?? spawn)(resolveCommand(opts.bin ?? CURSOR_BIN, env.PATH), args, {
+    child = (opts.spawn ?? spawn)(run.file, run.args, {
       cwd: input.cwd,
-      env,
+      env: run.env ? { ...env, ...run.env } : env,
       stdio: ["ignore", "pipe", "pipe"],
-      detached: true,
+      detached: platform !== "win32",
+      windowsHide: true,
+      ...(run.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
   } catch (err) {
     return fail("cursor_failed", err instanceof Error ? err.message : String(err));
   }
   let stderr = "";
+  const stderrText = new ConsoleDecoder();
   child.stderr?.on("data", (c: Buffer) => {
-    stderr = (stderr + c.toString("utf8")).slice(-2000);
+    stderr = (stderr + stderrText.write(c)).slice(-2000);
   });
   const lines = createInterface({ input: child.stdout as NonNullable<ChildProcess["stdout"]> });
   // A `chat` turn that used a tool of Cursor's own ends there: nothing after it is passed on.
@@ -641,7 +661,8 @@ export async function handleCursorBrainTurn(
       signal: scope.signal,
       runnerHome: ctx.runnerHome,
       ...(ctx.mcp ? { mcpCommand: ctx.mcp.command, socketPath: ctx.mcp.socketPath } : {}),
-      ...(secrets ? { env: secrets.env, redact: secrets.redact, redactHold: secrets.hold } : {}),
+      env: { ...secrets?.env, ...turnZoneEnv(req.timeZone) },
+      ...(secrets ? { redact: secrets.redact, redactHold: secrets.hold } : {}),
       ...(ctx.bin ? { bin: ctx.bin } : {}),
       ...(ctx.spawn ? { spawn: ctx.spawn } : {}),
     },

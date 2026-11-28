@@ -19,6 +19,7 @@ import {
   useMachines,
 } from "@agenteschat/client";
 import { browserCardLine, hostAndPath, titleKind } from "@agenteschat/client/lib/browser-card";
+import { LEGACY_MOVE, maintenanceNamed, maintenanceOf } from "@agenteschat/client/lib/computer-maintenance";
 import { lowerFirst } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { browserNoAnswerMessage, browserOffMessage, profileRefusalLine } from "@agenteschat/client/lib/machines";
@@ -42,6 +43,7 @@ import {
   InkOrbit,
   PixelOrbit,
   PressScale,
+  RADIUS,
   Text,
   TOUCH,
   useReducedMotion,
@@ -201,8 +203,13 @@ export const BrowserCard = memo(function BrowserCard({
   // A profile whose browser is off on its computer: the switch in the page's place (ADR 0036 §8).
   const offHere = Boolean(profile) && live.unavailable === "unavailable" && browserOffMessage(live.message);
   const noAnswer = Boolean(profile) && live.unavailable === "unavailable" && browserNoAnswerMessage(live.message);
-  const machines = useMachines(orgId, offHere);
+  const away = live.unavailable === "offline";
+  const machines = useMachines(orgId, offHere || away);
   const profileMachine = offHere ? machines.data?.find((m) => m.id === profile?.machineId) : undefined;
+  // Its computer away for what we do to it (a move, a restart…): said so, never that it isn't answering.
+  const moving = away
+    ? machines.data?.find((m) => (profile ? m.id === profile.machineId : m.agents.some((a) => a.id === agentId)))
+    : undefined;
   const controller =
     live.handoff?.controllerUserId ??
     live.controllerUserId ??
@@ -337,7 +344,9 @@ export const BrowserCard = memo(function BrowserCard({
       : note.say === "hidden"
         ? // The card's top (or the full view's head) says who is in control; the page only why it hides.
           t("browser.inCard.hiddenHelp", grammar)
-        : t(pageGapKey(note.say, g, cloud), { name });
+        : note.say === "offline" && moving?.moving
+          ? maintenanceNamed(t, maintenanceOf(moving) ?? LEGACY_MOVE, moving.name)
+          : t(pageGapKey(note.say, g, cloud), { name });
   const coverHelp =
     note.say === "starting"
       ? t("browser.inCard.openingHelp")
@@ -880,9 +889,10 @@ const styles = StyleSheet.create({
   // the frame's (the inner box clips it).
   framePage: { aspectRatio: 16 / 10, overflow: "hidden" },
   screenRoom: { aspectRatio: DEFAULT_DESKTOP.width / DEFAULT_DESKTOP.height },
-  // Over the page's top right, on glass: the toolbar's buttons, each a finger's 44 by its reach.
-  over: { position: "absolute", top: 8, right: 8, borderRadius: 12 },
-  overIn: { flexDirection: "row", alignItems: "center", gap: 4, padding: 4, borderRadius: 12 },
+  // Over the page's top right, on glass: the toolbar's buttons, each a finger's 44 by its reach. A capsule around the
+  // capsule buttons, 4 out from them, so its ends follow theirs (the computer's dock, `AgentScreen`'s `dockGlass`).
+  over: { position: "absolute", top: 8, right: 8, borderRadius: RADIUS.full },
+  overIn: { flexDirection: "row", alignItems: "center", gap: 4, padding: 4, borderRadius: RADIUS.full },
   histRoom: { position: "absolute", top: 8, right: 8, bottom: 8, left: 8, alignItems: "flex-end" },
   hist: { width: "100%", maxWidth: 300, maxHeight: "100%", borderRadius: 14 },
   histIn: { flexShrink: 1, borderRadius: 14 },

@@ -1,6 +1,7 @@
 import { and, type Database, eq, inArray, isNull, rowsOf, schema, sql } from "@agenteschat/db";
 import { caches, rulesPresenceKey } from "../cache";
 import { isAgentOnlyDm } from "../dms";
+import { ownTypedSql } from "../message-origin";
 import { unaskedDestination } from "../outside";
 import { enqueueIndex } from "../search";
 import { howToChannels, howToSql, isVerified } from "./items";
@@ -55,9 +56,8 @@ export async function backfillMemoryTrust(db: Database): Promise<TrustBackfill> 
         .where(
           and(
             inArray(messages.id, refs),
-            eq(messages.authorType, "person"),
+            ownTypedSql(),
             isNull(messages.deletedAt),
-            sql`coalesce(${messages.meta}->>'readOutside', '') <> 'true'`,
             sql`coalesce(${messages.meta}->>'confidential', '') <> 'true'`,
           ),
         )

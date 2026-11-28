@@ -15,8 +15,15 @@ const runBounded: RunCommand = (file, args) => {
   return { code: result.status ?? 1, output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() };
 };
 
-/** A listener on an assigned browser port must belong to that port's agent (`ss -Htln -e` output). */
-export function conflictingBrowserPorts(ssOutput: string, uidRange: [number, number]): number[] {
+/**
+ * A listener on an assigned browser port must belong to that port's agent (`ss -Htln -e` output). `holders`: only
+ * listeners of those uids count (ss leaves root's uid out, read as 0).
+ */
+export function conflictingBrowserPorts(
+  ssOutput: string,
+  uidRange: [number, number],
+  holders: [number, number] = [0, Number.MAX_SAFE_INTEGER],
+): number[] {
   const [first, last] = browserBand(uidRange);
   const conflicts = new Set<number>();
   const bucket = Math.floor(uidRange[0] / 10_000) * 10_000;
@@ -27,7 +34,7 @@ export function conflictingBrowserPorts(ssOutput: string, uidRange: [number, num
     if (!Number.isInteger(port) || port < first || port > last) continue;
     const owner = bucket + Math.floor((port - 10_000) / 2);
     const actual = Number(/\buid:(\d+)\b/.exec(line)?.[1] ?? 0);
-    if (actual !== owner) conflicts.add(port);
+    if (actual !== owner && actual >= holders[0] && actual <= holders[1]) conflicts.add(port);
   }
   return [...conflicts].sort((a, b) => a - b);
 }
@@ -149,9 +156,12 @@ export function ensureBrowserBindPolicy(user: AgentUser, runner: string[], opts:
       : run("ss", ["-Htln", "-e"]);
   const sockets = socketsInNetwork();
   if (sockets.code !== 0) throw new Error(`Cannot inspect browser bind test ports: ${sockets.output.slice(0, 200)}`);
-  const wrongOwner = conflictingBrowserPorts(sockets.output, [user.uid, user.uid]);
+  // Only another agent there breaks isolation. Host software on the pair (Webmin's default is 10000, the first
+  // agent's) is no agent's: agents can't reach it (the loopback table) and the browser refuses a port it doesn't own
+  // (`launchChrome`), so the rest of the agent works and only its browser says the port is taken.
+  const wrongOwner = conflictingBrowserPorts(sockets.output, [user.uid, user.uid], opts.uidRange);
   if (wrongOwner.length)
-    throw new Error(`Agent ${user.uid}'s browser ports have the wrong listener owner: ${wrongOwner.join(", ")}`);
+    throw new Error(`Another agent listens on agent ${user.uid}'s browser port ${wrongOwner.join(", ")}`);
   const occupied = new Set<number>();
   for (const line of sockets.output.split("\n")) {
     const local = line.trim().split(/\s+/)[3];
@@ -209,9 +219,9 @@ export function ensureBrowserBindPolicy(user: AgentUser, runner: string[], opts:
   const finalSockets = socketsInNetwork();
   if (finalSockets.code !== 0)
     throw new Error(`Cannot recheck browser listener owners: ${finalSockets.output.slice(0, 200)}`);
-  const finalWrongOwner = conflictingBrowserPorts(finalSockets.output, [user.uid, user.uid]);
+  const finalWrongOwner = conflictingBrowserPorts(finalSockets.output, [user.uid, user.uid], opts.uidRange);
   if (finalWrongOwner.length) {
-    throw new Error(`Agent ${user.uid}'s browser ports have the wrong listener owner: ${finalWrongOwner.join(", ")}`);
+    throw new Error(`Another agent listens on agent ${user.uid}'s browser port ${finalWrongOwner.join(", ")}`);
   }
 }
 

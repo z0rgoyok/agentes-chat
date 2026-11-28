@@ -82,7 +82,11 @@ test("a pick goes to the agent as the person's own message, once; the card then 
   const { message, choices } = await answerChoices(deps(), f.owner.id, f.org.id, row.id, { picks: [1] });
   expect(message.body).toBe("@dev Como sigo com o deploy? Deixar para amanhã");
   expect(message.author).toMatchObject({ type: "person", id: f.owner.id });
-  expect(message.meta.choiceReply).toEqual({ id: row.id, title: "Deploy" });
+  expect(message.meta.choiceReply).toEqual({
+    id: row.id,
+    title: "Deploy",
+    answers: [{ question: "Como sigo com o deploy?", answer: "Deixar para amanhã" }],
+  });
   expect(choices.answer).toMatchObject({ userId: f.owner.id, picks: [1], messageId: message.id });
   const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, message.id));
   expect(run?.agentId).toBe(f.agent.id);
@@ -141,7 +145,12 @@ test("Outra resposta: what the person wrote reaches the agent in place of an opt
     others: ["  Só depois da reunião de sexta  "],
   });
   expect(message.body).toBe("@dev Como sigo com o deploy? Só depois da reunião de sexta");
-  expect(message.meta.choiceReply).toEqual({ id: row.id, title: "Deploy", others: ["Só depois da reunião de sexta"] });
+  expect(message.meta.choiceReply).toEqual({
+    id: row.id,
+    title: "Deploy",
+    answers: [{ question: "Como sigo com o deploy?", answer: "Só depois da reunião de sexta" }],
+    others: ["Só depois da reunião de sexta"],
+  });
   expect(choices.answer).toMatchObject({ picks: [2], others: ["Só depois da reunião de sexta"] });
   // Anyone opening the card later reads it too.
   const later = await getChoices(f.artifactDeps, f.owner.id, f.org.id, row.id);

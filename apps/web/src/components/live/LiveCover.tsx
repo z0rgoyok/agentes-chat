@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
 import { CanvasMini } from "./canvas";
 import { DocCover } from "./document/DocCover";
+import { FontAssetUrl } from "./fonts";
 import { PeerFace, usePeerLooks } from "./peers";
 import { SlideThumb } from "./slides";
 import "./covers.css";
@@ -241,12 +242,15 @@ function SlidesCover({ preview, fileId }: { preview: SlidesPreview; fileId: stri
     <div className="lf-cover lf-cover--slides">
       <div ref={ref} className="lf-cover__slide" style={{ background: ground }}>
         {first && width > 0 ? (
-          <SlideThumb
-            slide={first}
-            theme={preview.theme}
-            width={width}
-            imageUrl={(asset) => api.live.assetUrl(org.id, fileId, asset)}
-          />
+          <FontAssetUrl.Provider value={(asset) => api.live.assetUrl(org.id, fileId, asset)}>
+            <SlideThumb
+              slide={first}
+              theme={preview.theme}
+              width={width}
+              imageUrl={(asset) => api.live.assetUrl(org.id, fileId, asset)}
+              {...(preview.fonts ? { fonts: preview.fonts } : {})}
+            />
+          </FontAssetUrl.Provider>
         ) : null}
       </div>
     </div>

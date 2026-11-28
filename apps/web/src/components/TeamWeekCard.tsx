@@ -42,7 +42,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { isReviewing, ProposalUndo, proposalOutcome } from "@/components/ChatCards";
+import { isReviewing, ProposalAction, proposalOutcome } from "@/components/ChatCards";
 import { useOrg } from "@/components/org-context";
 import { WaitMark } from "@/components/RequestCard";
 import { CardApproval } from "@/components/RightHandApprovalsCard";
@@ -469,7 +469,7 @@ function MarkRow({
             {proposal?.review && <span className="tw__line">{proposal.review}</span>}
           </span>
         </div>
-        {proposal && <ProposalUndo p={proposal} variant="link" className="tw__end" />}
+        {proposal && <ProposalAction p={proposal} variant="link" className="tw__end" />}
       </div>
     );
   }

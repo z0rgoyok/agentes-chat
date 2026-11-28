@@ -115,6 +115,11 @@ export interface RealtimeDeps {
   sessionRecheckMs?: number;
   /** Why this process is overloaded now (`watchLoad`), or null: new sockets are turned away with a 503 meanwhile. */
   overloaded?: () => string | null;
+  /**
+   * A person's typing frame got through, or they opened a DM or a thread (`open`): the agent that will answer gets
+   * ready (`warmWhileTyping`). Never awaited, its failure is nobody's.
+   */
+  onTyping?: (where: { orgId: string; channelId: string; threadId: string | null; userId: string }) => Promise<void>;
 }
 
 /** A browser tab of the web app. */
@@ -186,6 +191,7 @@ const isLive = (ws: Bun.ServerWebSocket<SocketData>): ws is Bun.ServerWebSocket<
 export type ClientFrame =
   | { type: "subscribe" | "unsubscribe"; channelId: string }
   | { type: "typing"; channelId: string; threadId: string | null; kind?: "voice" }
+  | { type: "open"; channelId: string; threadId: string | null }
   | { type: "ping" };
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -255,6 +261,10 @@ export function parseClientFrame(raw: string | Buffer): ClientFrame | null {
         threadId,
         ...(frame.kind === "voice" ? { kind: frame.kind } : {}),
       };
+    }
+    if (frame.type === "open" && typeof frame.channelId === "string" && UUID.test(frame.channelId)) {
+      const threadId = typeof frame.threadId === "string" && UUID.test(frame.threadId) ? frame.threadId : null;
+      return { type: "open", channelId: frame.channelId, threadId };
     }
     if (
       (frame.type === "subscribe" || frame.type === "unsubscribe") &&
@@ -1014,6 +1024,18 @@ export function createRealtime(deps: RealtimeDeps) {
             userId: ws.data.user.id,
             kind: frame.kind,
           });
+          const where = { orgId: ws.data.orgId, channelId, threadId: frame.threadId, userId: ws.data.user.id };
+          deps.onTyping?.(where).catch(() => {});
+          return;
+        }
+        if (frame.type === "open") {
+          // A conversation opened on screen, in a channel this connection already reads: warmed like typing there
+          // (at most once every two minutes per conversation, `TYPING_WARM_EVERY_MS`).
+          if (!ws.data.subscriptions.has(channelId)) return;
+          const t = await deps.rateLimiter.consume(`open:${ws.data.connectionId}`, { limit: 5, windowMs: 10_000 });
+          if (!t.allowed) return;
+          const where = { orgId: ws.data.orgId, channelId, threadId: frame.threadId, userId: ws.data.user.id };
+          deps.onTyping?.(where).catch(() => {});
           return;
         }
         if (frame.type === "unsubscribe") {

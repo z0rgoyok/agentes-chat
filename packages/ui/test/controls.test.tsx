@@ -186,6 +186,26 @@ describe("Radio", () => {
     expect(b?.getAttribute("aria-checked")).toBe("true");
     expect(a?.getAttribute("aria-checked")).toBe("false");
   });
+
+  test("the chosen one shows its dot, on a card too, and no card is marked by a ring alone", async () => {
+    render(
+      <RadioGroup value="own" onValueChange={() => {}} aria-label="Qual chave o agente usa?">
+        <Radio value="platform" aria-label="Chave do agentes" />
+        <RadioCard value="own" id="own" checked title="Chave da Acme" />
+      </RadioGroup>,
+    );
+    const [plain, card] = body().getAllByRole("radio");
+    expect(plain?.querySelector(".ac-radio__dot")).toBeNull();
+    expect(card?.querySelector(".ac-radio__dot")).not.toBeNull();
+    const css = await Bun.file(new URL("../src/styles/components.css", import.meta.url).pathname).text();
+    expect(css.split("\n.ac-radio {")[1]?.split("}")[0]).not.toContain("clip:");
+    expect(css).toContain("\n.ac-radio__dot {");
+    const chosen = css
+      .split('\n.ac-option[data-state="checked"] {')
+      .slice(1)
+      .map((r) => r.split("}")[0]);
+    expect(chosen.some((r) => r?.includes("var(--ink)"))).toBe(false);
+  });
 });
 
 describe("RadioCard", () => {
@@ -339,6 +359,8 @@ describe("PickerHeading", () => {
     const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
     expect(rule(".ac-picker-head")).toContain("flex-direction: column;");
     expect(rule(".ac-picker-head")).toContain("gap: var(--space-1);");
+    // A list heading: 8 over its list's first line, as much as over the heading.
+    expect(rule(".ac-picker-head")).toContain("padding-block: var(--space-2);");
   });
 });
 

@@ -70,18 +70,26 @@ export interface WorkPlaceNames {
   here?: string | null;
 }
 
-/** A list's line: its words, a shorter form for when they don't fit, the time and the tone. */
+/**
+ * A list's line: its status (the lists draw it as a badge), a shorter form for when it doesn't fit, where the work is,
+ * the time and the tone.
+ */
 export interface WorkLine {
-  /** "ajudando a Ada", "#vendas", "aqui", "esperando você", "esperando aprovação", "na fila". */
+  /** The status: "working", "waiting on you", "waiting for approval", "in line", "back at 00:32". */
   text: string;
   /** "trabalhando", "esperando", "na fila". */
   short: string;
   /** "22 min"; null in the first minute. */
   time: string | null;
   tone: WorkTone;
+  /**
+   * Where it works or for whom, while it works ("helping Ada", "#sales", "here", "in a routine"): the row's title
+   * and the profile say it, never the status. None when nothing more than "working" is known.
+   */
+  place?: string;
 }
 
-/** A neutral wait in a list's words: "esperando aprovação", "esperando o computador", "IA fora do ar". */
+/** A neutral wait in a list's words: "esperando aprovação", "esperando o computador", "IA não responde". */
 export const WAIT_WORDS = {
   approval: "chat.consultPair.waitingApproval",
   answer: "chat.consultPair.waitingInput",
@@ -89,9 +97,13 @@ export const WAIT_WORDS = {
   outage: "chat.consultPair.waitingProvider",
 } as const satisfies Record<Exclude<AgentWorkState, "you" | "working" | "queued" | "later">, string>;
 
-/** Where its work is, in a list's line: "ajudando a Ada", "#vendas", "aqui", "numa rotina", "trabalhando". */
+/**
+ * Where its work is, in a list's line: "ajudando a Ada", "#vendas", "aqui", "numa rotina", "numa conversa particular",
+ * "trabalhando".
+ */
 function workPlace(t: TFunction, work: AgentWork, names: WorkPlaceNames): string {
   if (work.routine) return t("agentWork.routine");
+  if (work.private) return t("agentWork.private");
   const forName = work.forAgentId ? names.agentName(work.forAgentId) : undefined;
   if (forName) {
     const g = agentGrammar(forName);
@@ -105,7 +117,10 @@ function workPlace(t: TFunction, work: AgentWork, names: WorkPlaceNames): string
   return channel ? `#${channel}` : t("agentWork.working");
 }
 
-/** An agent's line in a list (the sidebar, the members column, the phone's rows), or null with no work. */
+/**
+ * An agent's line in a list (the sidebar, the members column, the phone's rows), or null with no work: a status, never
+ * a place, so every row reads the same way.
+ */
 export function workLine(
   t: TFunction,
   locale: string,
@@ -119,8 +134,11 @@ export function workLine(
   switch (work.state) {
     case "you":
       return { text: t("agentWork.you"), short: t("agentWork.waiting"), time, tone };
-    case "working":
-      return { text: workPlace(t, work, names), short: t("agentWork.working"), time, tone };
+    case "working": {
+      const word = t("agentWork.working");
+      const place = workPlace(t, work, names);
+      return { text: word, short: word, time, tone, ...(place !== word ? { place } : {}) };
+    }
     case "queued":
       return { text: t("agentWork.queued"), short: t("agentWork.queued"), time, tone };
     // A return says when, never for how long.
@@ -153,7 +171,8 @@ export function workDetail(
   if (!work) return null;
   if (work.state === "you") return t(work.ask === "approval" ? "agentWork.yourApproval" : "agentWork.yourAnswer");
   if (work.state === "later") return t("agentWork.later", { when: returnWhen(t, locale, work.at ?? work.since, now) });
-  if (work.state !== "working") return null;
+  // A private conversation: the card's line already says so, under what it does.
+  if (work.state !== "working" || work.private) return null;
   const place = workPlace(t, work, names);
   return place === t("agentWork.working") ? null : place;
 }

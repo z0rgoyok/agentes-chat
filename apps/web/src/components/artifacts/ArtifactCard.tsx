@@ -29,6 +29,7 @@ import { canCopyImage, contextMenuHandler, copyImage, type MenuEntry } from "@/l
 import { Markdown } from "@/lib/markdown";
 import { useToast } from "@/lib/toast";
 import { useArtifactDownload, useDeleteArtifact } from "./ArtifactActions";
+import { FileAudio } from "./FileAudio";
 import { FileVideo, MAX_THUMB_BYTES, usePreviewUrl } from "./FileView";
 import { HtmlFrame } from "./HtmlFrame";
 import { MermaidDiagram } from "./Mermaid";
@@ -181,6 +182,7 @@ export function ArtifactCard({ artifact: ref, alone = false }: { artifact: Artif
           artifactId={a.id}
           version={a.shownVersion}
           onOpen={open}
+          ratio={pictureRatio(content) ?? pictureRatio(ref)}
           tip={`${a.title} · ${meta}`}
           actions={<TileActions title={a.title} actions={actions} onDownload={save} />}
           // A video this browser can't play is a file's tile.
@@ -195,6 +197,22 @@ export function ArtifactCard({ artifact: ref, alone = false }: { artifact: Artif
               cover={<TypeCover content={content} />}
             />
           }
+        />
+        {remove.dialog}
+        {share.dialog}
+      </>
+    );
+  if (kind === "audio")
+    return (
+      <>
+        <AudioAttachment
+          artifact={a}
+          content={content}
+          meta={meta}
+          icon={icon}
+          actions={actions}
+          onOpen={open}
+          onDownload={save}
         />
         {remove.dialog}
         {share.dialog}
@@ -232,10 +250,24 @@ export function ArtifactCard({ artifact: ref, alone = false }: { artifact: Artif
  */
 function LoadingTile({ title = "", ratio }: { title?: string; ratio?: number }) {
   const kind = previewKindOfName(title);
+  if (kind === "audio")
+    return (
+      <div className="artifact-audio" aria-busy="true">
+        <div className="ac-voice">
+          <div className="ac-voice__card artifact-audio__wait" />
+        </div>
+        <div className="artifact-audio__foot" aria-hidden="true">
+          <span className="artifact-audio__label ac-iconline">
+            <Icon name={fileIcon(title)} size={16} />
+            <span className="artifact-audio__title">{title || "\u00a0"}</span>
+          </span>
+        </div>
+      </div>
+    );
   if (kind === "video")
     return (
       <div className="artifact-tile artifact-tile--loading" data-kind="video" aria-busy="true">
-        <span className="ac-video ac-video--tile">
+        <span className="ac-video ac-video--tile" {...ratioProps(ratio)}>
           <span className="ac-video__media" />
         </span>
       </div>
@@ -261,7 +293,7 @@ function LoadingTile({ title = "", ratio }: { title?: string; ratio?: number }) 
   );
 }
 
-/** A tile in a picture's proportions: alone on its message it is that shape (CSS: `[data-ratio]`). */
+/** A tile in a picture's proportions: alone on its message it is that shape (CSS: `[data-ratio]`); a video's always. */
 const ratioProps = (ratio: number | undefined) =>
   ratio ? { "data-ratio": true, style: { "--ratio": String(ratio) } as CSSProperties } : {};
 
@@ -366,6 +398,68 @@ function Tile({ artifact: a, icon, meta, cover, media, ratio, actions, onOpen, o
 }
 
 /** Download, then More (the right click's other actions), as small ghost buttons. */
+/**
+ * An audio file on a message plays in place, in the voice-message player, with its name under it (which opens it) and
+ * the tile's actions. One this browser can't play is its file's tile.
+ */
+function AudioAttachment({
+  artifact: a,
+  content,
+  meta,
+  icon,
+  actions,
+  onOpen,
+  onDownload,
+}: Pick<TileProps, "meta" | "icon" | "actions" | "onOpen" | "onDownload"> & {
+  artifact: Pick<Artifact, "id" | "kind" | "title"> & { shownVersion: number };
+  content: ArtifactFileContent;
+}) {
+  const { t } = useTranslation();
+  const [failed, setFailed] = useState(false);
+  if (failed)
+    return (
+      <Tile
+        artifact={a}
+        actions={actions}
+        onOpen={onOpen}
+        onDownload={onDownload}
+        icon={icon}
+        meta={meta}
+        cover={<TypeCover content={content} />}
+      />
+    );
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: right click only; its name and its buttons are the accessible ways
+    <div
+      className="artifact-audio"
+      onContextMenu={contextMenuHandler(() => [{ kind: "header", label: a.title }, ...actions()])}
+    >
+      <FileAudio
+        artifactId={a.id}
+        version={a.shownVersion}
+        content={content}
+        fallback={null}
+        onFailed={() => setFailed(true)}
+      />
+      <div className="artifact-audio__foot">
+        <span className="artifact-audio__label ac-iconline">
+          <Icon name={icon} size={16} />
+          <button
+            type="button"
+            className="artifact-audio__name"
+            aria-label={t("artifacts.open", { title: a.title })}
+            onClick={onOpen}
+          >
+            <span className="artifact-audio__title">{a.title}</span>
+            <span className="tabular">{meta}</span>
+          </button>
+        </span>
+        <TileActions title={a.title} actions={actions} onDownload={onDownload} />
+      </div>
+    </div>
+  );
+}
+
 function TileActions({
   title,
   actions,

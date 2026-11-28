@@ -9,13 +9,14 @@ import { type LiveScreen, liveRoute, opensLive, type PhoneLiveKind } from "../li
  */
 
 /**
- * How the app shows a file: inline picture or video, the document screen (Markdown, text, PDF), a live file's own
- * screen (ADR 0196), an Office file as the server read it (ADR 0198: a workbook's grid, a deck's slides, a Word
- * document's page; an old table in the same grid), or only its card.
+ * How the app shows a file: inline picture or video, the document screen (Markdown, text, PDF, an audio file's
+ * player), a live file's own screen (ADR 0196), an Office file as the server read it (ADR 0198: a workbook's grid, a
+ * deck's slides, a Word document's page; an old table in the same grid), or only its card.
  */
 export type FileView =
   | "image"
   | "video"
+  | "audio"
   | "markdown"
   | "text"
   | "pdf"
@@ -138,6 +139,7 @@ export function fileInfo(a: Pick<ArtifactDetail, "kind" | "title" | "content">):
     if (IMAGE_TYPES.has(mime) || (untyped && IMAGE_EXT.has(ext))) view = "image";
     else if (VIDEO_TYPES.has(mime) || (untyped && VIDEO_EXT.has(ext))) view = "video";
     else if (mime === "application/pdf" || ext === "pdf") view = "pdf";
+    else if (previewKind(mime) === "audio" || (untyped && previewKind("", name) === "audio")) view = "audio";
     else if (office) view = office;
     // A page is shown as a page (its source isn't the point), before the text types it is one of.
     else if (mime === "text/html" || ext === "html" || ext === "htm") view = "html";
@@ -214,6 +216,13 @@ export function singleImageBox(width: number, ratio: number | undefined): { widt
     ? { width, height }
     : { width: Math.round(MAX_PICTURE_HEIGHT * ratio), height: MAX_PICTURE_HEIGHT };
 }
+
+/**
+ * A video's box for `width` in a message, set before it loads: its own shape when the server read its size (a lone
+ * picture's box, an upright one narrowed to fit), else 16:9 (`videoHeight`).
+ */
+export const videoBox = (width: number, ratio: number | undefined) =>
+  ratio ? singleImageBox(width, ratio) : { width, height: videoHeight(width) };
 
 /**
  * A safe file name for a copy in the cache (and the name the share sheet shows): no folders, no

@@ -28,6 +28,14 @@ export interface RichFormat {
   align: RichAlign | null;
   list: RichList | null;
   level: number;
+  /** The type marks (ADR 0220 §3) the selection has throughout; null where none or mixed (the box's own shows). */
+  font: string | null;
+  weight: number | null;
+  tracking: number | null;
+  highlight: string | null;
+  caps: boolean;
+  /** The first selected paragraph's own line height. */
+  lineHeight: number | null;
 }
 
 export const NO_FORMAT: RichFormat = {
@@ -40,6 +48,12 @@ export const NO_FORMAT: RichFormat = {
   align: null,
   list: null,
   level: 0,
+  font: null,
+  weight: null,
+  tracking: null,
+  highlight: null,
+  caps: false,
+  lineHeight: null,
 };
 
 const { marks: M, nodes: N } = richSchema;
@@ -50,23 +64,45 @@ function markActive(state: EditorState, type: MarkType): boolean {
   return state.doc.rangeHasMark(from, to, type);
 }
 
-function markAttr(state: EditorState, type: MarkType, attr: string): string | null {
+/** A mark's attribute where the caret is, or across the selection when every character has the same; else null. */
+export function markValue(state: EditorState, type: MarkType, attr: string): unknown {
   const { from, $from, to, empty } = state.selection;
   if (empty) {
     const mark = type.isInSet(state.storedMarks ?? $from.marks());
-    return mark ? String(mark.attrs[attr]) : null;
+    return mark ? (mark.attrs[attr] ?? null) : null;
   }
-  let found: string | null | undefined;
+  let found: unknown;
   let mixed = false;
   state.doc.nodesBetween(from, to, (node) => {
     if (!node.isText || mixed) return;
     const mark = type.isInSet(node.marks);
-    const value = mark ? String(mark.attrs[attr]) : null;
+    const value = mark ? (mark.attrs[attr] ?? null) : null;
     if (found === undefined) found = value;
     else if (found !== value) mixed = true;
   });
   return mixed ? null : (found ?? null);
 }
+
+function markAttr(state: EditorState, type: MarkType, attr: string): string | null {
+  const value = markValue(state, type, attr);
+  return value === null || value === undefined ? null : String(value);
+}
+
+/** Whether every character of the selection (or what is typed next) has the mark. */
+export function markEverywhere(state: EditorState, type: MarkType): boolean {
+  const { from, $from, to, empty } = state.selection;
+  if (empty) return !!type.isInSet(state.storedMarks ?? $from.marks());
+  let all = true;
+  let any = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (!node.isText || !all) return;
+    any = true;
+    if (!type.isInSet(node.marks)) all = false;
+  });
+  return any && all;
+}
+
+const numberOr = (value: unknown): number | null => (typeof value === "number" ? value : null);
 
 /** The paragraphs the selection touches, with their positions. */
 function selectedParagraphs(state: EditorState): { node: PMNode; pos: number }[] {
@@ -99,6 +135,12 @@ export function richFormat(state: EditorState): RichFormat {
     align: (first?.attrs.align as RichAlign | null) ?? null,
     list: (first?.attrs.list as RichList | null) ?? null,
     level,
+    font: markAttr(state, M.font as MarkType, "font"),
+    weight: numberOr(markValue(state, M.weight as MarkType, "weight")),
+    tracking: numberOr(markValue(state, M.tracking as MarkType, "tracking")),
+    highlight: markAttr(state, M.highlight as MarkType, "color"),
+    caps: markEverywhere(state, M.caps as MarkType),
+    lineHeight: numberOr(first?.attrs.lineHeight),
   };
 }
 
@@ -112,14 +154,20 @@ export function sameFormat(a: RichFormat, b: RichFormat): boolean {
     a.link === b.link &&
     a.align === b.align &&
     a.list === b.list &&
-    a.level === b.level
+    a.level === b.level &&
+    a.font === b.font &&
+    a.weight === b.weight &&
+    a.tracking === b.tracking &&
+    a.highlight === b.highlight &&
+    a.caps === b.caps &&
+    a.lineHeight === b.lineHeight
   );
 }
 
 export const toggleRichMark = (key: RichMarkKey): Command => toggleMark(M[key] as MarkType);
 
 /** Sets a mark with attributes over the selection (or for what is typed next), or takes it away with null. */
-function setMarkAttrs(type: MarkType, attrs: Record<string, string> | null): Command {
+function setMarkAttrs(type: MarkType, attrs: Record<string, unknown> | null): Command {
   return (state, dispatch) => {
     const { from, to, empty } = state.selection;
     if (!dispatch) return true;
@@ -141,6 +189,31 @@ export function setRichColor(color: string | null): Command {
   if (color !== null && !isRichColor(color)) return () => false;
   return setMarkAttrs(M.color as MarkType, color ? { color } : null);
 }
+
+/** The type marks people set from the toolbars (ADR 0220 §3), with the attribute each keeps its value in. */
+export type RichTypeMark = "font" | "weight" | "tracking" | "highlight";
+
+const TYPE_ATTR: Record<RichTypeMark, string> = {
+  font: "font",
+  weight: "weight",
+  tracking: "tracking",
+  highlight: "color",
+};
+
+/**
+ * Sets a type mark on the selection (or for what is typed next): a font ref, a weight, letter spacing in thousandths
+ * of the size, a highlight color; null (or no spacing) takes it away, so the box's own shows.
+ */
+export function setRichType(mark: RichTypeMark, value: string | number | null): Command {
+  const off = value === null || (mark === "tracking" && value === 0);
+  return setMarkAttrs(M[mark] as MarkType, off ? null : { [TYPE_ATTR[mark]]: value });
+}
+
+/** Capitals on the selection, or off. */
+export const setRichCaps = (on: boolean): Command => setMarkAttrs(M.caps as MarkType, on ? {} : null);
+
+/** The selected paragraphs' own line height, or theirs taken away with null. */
+export const setRichLineHeight = (lineHeight: number | null): Command => setParagraphs(() => ({ lineHeight }));
 
 /**
  * Links the selection to `href` (https, http or mailto; a bare address gets https), or unlinks it with null. With an

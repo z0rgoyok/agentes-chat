@@ -6,8 +6,9 @@ import { editsAgent, managesAgent, ownsAgent } from "./audience";
 import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import { addChannelMember, archiveChannel, removeChannelMember, unarchiveChannel } from "./channels";
-import { ConflictError, ForbiddenError, NotFoundError } from "./errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { getIssue, type IssueView, setCriterion, updateIssue, type WorkActor } from "./issues";
+import { updateChannel } from "./management";
 import { announceMessageMemories } from "./message-memories";
 import { assertActiveMembership, can, getMembership } from "./organizations";
 import { hookMethodsOf, routineHookKeys } from "./routine-hooks";
@@ -435,6 +436,32 @@ const handlers: Record<string, Handler> = {
         { agentId, autoReply: obj(a.after).autoReply !== false },
         { pubsub: deps.pubsub },
       );
+    }
+    return undefined;
+  },
+
+  async "channel.lead_changed"(deps, a, userId, direction) {
+    const [from, to] = direction === "undo" ? [obj(a.after), obj(a.before)] : [obj(a.before), obj(a.after)];
+    const lead = (v: unknown) => (typeof v === "string" ? v : null);
+    const [channel] = await deps.db
+      .select({ leadAgentId: channels.leadAgentId, archivedAt: channels.archivedAt })
+      .from(channels)
+      .where(and(eq(channels.orgId, a.orgId), eq(channels.id, a.targetId)));
+    if (!channel || channel.archivedAt) throw new NotFoundError("The channel is gone", "action.target_gone");
+    if (channel.leadAgentId !== lead(from.leadAgentId)) throw changedSince();
+    try {
+      await updateChannel(
+        deps.db,
+        userId,
+        a.orgId,
+        a.targetId,
+        { leadAgentId: lead(to.leadAgentId) },
+        { pubsub: deps.pubsub },
+      );
+    } catch (error) {
+      // The agent it goes back to left the channel, or was archived, since.
+      if (error instanceof ValidationError && error.code === "channel.lead_not_member") throw changedSince();
+      throw error;
     }
     return undefined;
   },

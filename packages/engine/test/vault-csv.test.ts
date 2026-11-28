@@ -197,6 +197,33 @@ describe("importing", () => {
     expect(await storedValue(v, deploy?.id ?? "")).toBe('op,pw"1');
   });
 
+  test("the access chosen for an import goes to its new logins; a login already saved keeps its own", async () => {
+    v = await vaultSetup();
+    const first = ["url,username,password", "https://deploy.acme.example,ops,pw-1"].join("\n");
+    await importVaultCsv(v.deps, v.carla.id, v.f.org.id, { csv: first, scope: "team", dryRun: false });
+    const support = {
+      everyone: false,
+      roleIds: [v.supportRoleId],
+      userIds: [],
+      allAgents: false,
+      agentIds: [v.dev.id],
+    };
+    const again = [first, "https://registry.acme.example,bot,pw-2"].join("\n").replace("pw-1", "pw-1b");
+    expect(
+      await importVaultCsv(v.deps, v.carla.id, v.f.org.id, {
+        csv: again,
+        scope: "team",
+        dryRun: false,
+        access: support,
+      }),
+    ).toMatchObject({ added: 1, updated: 1 });
+    const team = await logins(v.carla.id);
+    expect(team.find((i) => i.title === "registry.acme.example")?.access).toEqual(support);
+    expect(team.find((i) => i.title === "deploy.acme.example")?.access.everyone).toBe(true);
+    // Dora, in no role, sees only the one shared with everyone.
+    expect((await logins(v.dora.id)).map((i) => i.title)).toEqual(["deploy.acme.example"]);
+  });
+
   test("files it refuses: no website and password columns, too many rows, too large", async () => {
     v = await vaultSetup();
     const run = (csv: string) => importVaultCsv(v.deps, v.ana.id, v.f.org.id, { csv, scope: "personal", dryRun: true });

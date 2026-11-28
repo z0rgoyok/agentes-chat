@@ -1,0 +1,49 @@
+agentes-speech, speech to text for agentes.chat voice messages (AGPL-3.0-only, the repository's LICENSE), and the
+files it loads. The models come unchanged from the files models.txt names, each under its own license. The core
+writes this notice into the models folder beside them, and Settings › Voice links to it.
+
+Parakeet TDT 0.6B v3, speech to text, by NVIDIA
+  https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+  License: Creative Commons Attribution 4.0 International (CC BY 4.0),
+  https://creativecommons.org/licenses/by/4.0/
+  Changes by others: exported to ONNX for sherpa-onnx, with int8 weights, by csukuangfj (k2-fsa) on Hugging Face,
+  https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
+  (revision ed5d745623472f97cfc2e6c2916ee248798fc5a8).
+  The files: encoder.int8.onnx, decoder.int8.onnx, joiner.int8.onnx and tokens.txt.
+
+Whisper tiny, the spoken language's guess, by OpenAI
+  https://github.com/openai/whisper
+  Exported to ONNX for sherpa-onnx, with int8 weights, by csukuangfj (k2-fsa) on Hugging Face,
+  https://huggingface.co/csukuangfj/sherpa-onnx-whisper-tiny (revision 65176e2deb88badc814a94058666cadccc29b61c).
+  The files: tiny-encoder.int8.onnx and tiny-decoder.int8.onnx.
+  License: MIT, as follows.
+
+  MIT License
+
+  Copyright (c) 2022 OpenAI
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+
+Inside the agentes-speech program, each under its own license:
+  sherpa-onnx, https://github.com/k2-fsa/sherpa-onnx, Apache License 2.0
+  ONNX Runtime, https://github.com/microsoft/onnxruntime, MIT License
+  Symphonia, https://github.com/pdeljanov/Symphonia, Mozilla Public License 2.0 (its source: crates.io, symphonia 0.5.4)
+  libopus, https://opus-codec.org, BSD 3-Clause License
+  tiny_http, serde_json, libc: MIT or Apache License 2.0
+The full texts of these licenses come with each project's source, at the versions Cargo.lock pins.

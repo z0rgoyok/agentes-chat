@@ -54,6 +54,7 @@ import { useCopied } from "@/components/invite/copied";
 import { EditInvitationDialog, EditLinkDialog } from "@/components/invite/EditDialogs";
 import { useInviteDialog } from "@/components/invite/InviteDialog";
 import { MarkOf } from "@/components/invite/InviteFields";
+import { LocalOnlyInvites } from "@/components/invite/InviteLinkPanel";
 import { givesText, State, Who, whenWords } from "@/components/invite/InviteRows";
 import { MembersFull } from "@/components/Limits";
 import { useOrg } from "@/components/org-context";
@@ -130,6 +131,7 @@ export function InvitesPage() {
         meta={t("settings.sectionText.invites")}
         actions={<InviteActions />}
       />
+      <LocalOnlyInvites />
       {total > SEARCH_FROM && (
         <Toolbar
           size="sm"
@@ -818,7 +820,11 @@ function EmailInvitations({
                 name={inv.email}
                 sub={sub}
               >
-                {again && !off ? (
+                {inv.undelivered && !off ? (
+                  <State icon="alert" tone="soon">
+                    {t(`members.invitations.undelivered.${inv.undelivered}`)}
+                  </State>
+                ) : again && !off ? (
                   <State icon="check" tone="ok">
                     {t("members.invitations.resentState", { date: date(again) })}
                   </State>
@@ -866,7 +872,7 @@ function EmailInvitations({
                       variant="ghost"
                       size="sm"
                       icon="send"
-                      disabled={!!again}
+                      disabled={!!again && !inv.undelivered}
                       loading={sending}
                       onClick={() => sendAgain(inv, false)}
                     >

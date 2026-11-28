@@ -88,3 +88,11 @@ export function serverDownOf(
   if (check && !check.ok && (unreachable || stuck)) return check.problem;
   return unreachable ? "unreachable" : null;
 }
+
+/**
+ * The waiting invitation that opens instead of the first run (pure), when `opens` (signed in, no workspace, none
+ * asked for): not the one the person went back from, their way to make a workspace of their own, since the screen
+ * under it holds nothing.
+ */
+export const joinFirstOf = (opens: boolean, waiting: string | null, left: string | null) =>
+  opens && waiting !== left ? waiting : null;

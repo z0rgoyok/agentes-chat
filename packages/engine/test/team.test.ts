@@ -176,14 +176,19 @@ test("find_agent searches by what agents do and shows what they can do", async (
       return { chunks: [], toolUses: [{ name: "find_agent", input: { query: "deploy de staging" } }] };
     },
   });
-  await addAgent("Infra", "infra", "Infrastructure", "Cuida dos servidores e do deploy no Railway.");
+  const infra = await addAgent("Infra", "infra", "Infrastructure", "Cuida dos servidores e do deploy no Railway.");
   await addAgent("Design", "design", "Designer", "Faz telas e protótipos.");
+  // Idle an hour: it still answers when called, never "away".
+  await f.db
+    .update(schema.agents)
+    .set({ createdAt: new Date(Date.now() - 60 * 60_000) })
+    .where(eq(schema.agents.id, infra.id));
 
   await post("@dev quem faz deploy?");
   await drainOutbox(f.db, f.handlers);
 
   const out = results[0] ?? "";
-  expect(out).toContain("@infra: Infra, Infrastructure");
+  expect(out).toContain("@infra: Infra, Infrastructure (idle, answers when called)");
   expect(out).toContain("Files (Drive)");
   expect(out).toContain("Responsible person:");
   expect(out).not.toContain("@design");

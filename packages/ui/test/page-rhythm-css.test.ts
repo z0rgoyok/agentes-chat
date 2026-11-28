@@ -128,6 +128,8 @@ describe("one menu rhythm", () => {
     expect(body(".ac-mo__group")).toContain("--menu-pad: var(--space-2);");
     // The full-screen menu's 15px rows are the touch ones under any pointer: 20px of line and 10 above and below.
     expect(body(".ac-mo__item")).toContain("padding: 10px 14px;");
+    // A row with no shortcut keeps no room for one: its hint ends on the row's padding, not a hidden key further in.
+    expect(body(".ac-mo__kbd:empty")).toContain("display: none;");
     expect(body(".ac-suggest__item")).not.toContain("min-height");
   });
 

@@ -7,6 +7,7 @@ import {
   type ComputerDevice,
   type DeviceRule,
   type DeviceStatus,
+  type DevicesList,
   listDevices,
   type MachinePhoneRow,
   machineRule,
@@ -17,6 +18,7 @@ import {
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { formatDuration } from "./machine-task-text";
 import { taskRequester } from "./machine-tasks";
+import { maintenancePhrase } from "./machines";
 import { notify, resolveNotifications } from "./notifications";
 import { personAtComputerWay } from "./runner-update";
 import { replyThreadOf } from "./runs";
@@ -497,11 +499,13 @@ export interface DeviceRoster {
 
 async function loadRoster(db: Executor, orgId: string): Promise<DeviceRoster> {
   const rows = rowsOf<{ kind: string; id: string; name: string; os: string }>(
-    await db.execute(sql`select 'computer' as kind, m.id::text as id, m.name, m.os from machines m
+    // In a fixed order: the list is in the agent's system text, which a computer's warm CLI and the prompt cache match.
+    await db.execute(sql`select 'computer' as kind, m.id::text as id, m.name, m.os, m.created_at from machines m
       where m.org_id = ${orgId}::uuid and m.deleted_at is null
       union all
-      select 'phone', p.id::text, p.name, p.platform from machine_phones p
-      where p.org_id = ${orgId}::uuid and p.deleted_at is null`),
+      select 'phone', p.id::text, p.name, p.platform, p.created_at from machine_phones p
+      where p.org_id = ${orgId}::uuid and p.deleted_at is null
+      order by kind, created_at, id`),
   );
   return {
     computers: rows.filter((r) => r.kind === "computer").map(({ id, name, os }) => ({ id, name, os })),
@@ -551,6 +555,8 @@ function statusWords(s: DeviceStatus, people: Map<string, string>) {
       return `getting ready (${s.reason})`;
     case "paused":
       return `paused by its owner${s.until ? ` until ${s.until}` : ""}`;
+    case "moving":
+      return s.maintenance ? maintenancePhrase(s.maintenance) : "moving to another server, back in a few minutes";
     case "offline":
       return `${s.withHost ? "offline with its computer" : "offline"} (${seenAgo(s.lastSeenAt)})`;
     case "unsupported":
@@ -562,7 +568,8 @@ function phoneLine(p: PhoneDevice, people: Map<string, string>) {
   const kind = p.phoneKind === "device" ? "" : ` ${p.phoneKind}`;
   const system = `${p.platform === "ios" ? "iOS" : "Android"}${p.osVersion ? ` ${p.osVersion}` : ""}`;
   const model = p.model && p.model !== p.name ? `${p.model}, ` : "";
-  return `"${p.name}" (${model}${system}${kind}): ${statusWords(p.status, people)}`;
+  const start = kind && p.status.kind === "offline" && !p.status.withHost ? "; simulator_start starts it" : "";
+  return `"${p.name}" (${model}${system}${kind}): ${statusWords(p.status, people)}${start}`;
 }
 
 /** The switches agents' tools need on a computer, as people call them. */
@@ -629,7 +636,7 @@ function computerLine(d: ComputerDevice, people: Map<string, string>, requester:
     .join(", ");
   const phones = d.phones.map((p) => phoneLine(p, people));
   return [
-    `- "${d.name}" (${facts}; ${owner}${d.systemMode ? "; each agent its own user" : ""}): ${statusWords(d.status, people)}.`,
+    `- "${d.name}" (${facts}; ${owner}${d.systemMode ? "; each agent its own user" : ""}): ${statusWords(d.status, people)}${d.maintenance && !d.maintenance.away ? ` (${maintenancePhrase(d.maintenance)})` : ""}.`,
     tools ? `  Tools: ${tools}.` : "",
     off ? `  ${off}` : "",
     ...phones.map((line) => `  Phone ${line}.`),
@@ -681,11 +688,13 @@ export async function devicesForRequester(
     };
   }
   // Its own computer is said above (`computer_status`), not listed again.
-  const home = (await getAgentCached(ctx.db, ctx.orgId, ctx.agentId))?.machineId ?? null;
+  const agent = await getAgentCached(ctx.db, ctx.orgId, ctx.agentId);
+  const home = agent?.machineId ?? null;
   const listed = devices.filter((d) => d.id !== home || d.phones.length > 0);
   const usable = listed.filter((d) => d.mayUse || d.id === home || d.phones.some((p) => p.mayUse));
   const others = listed.filter((d) => !usable.includes(d));
   if (usable.length === 0 && others.length === 0) return { text: "" };
+  const free = helpers(all, agent?.ownerUserId ?? null, home);
   return {
     text: [
       `# Devices you may use for ${forWhom}`,
@@ -704,11 +713,52 @@ export async function devicesForRequester(
       others.length > 0
         ? `Not shared with ${forWhom} (using one asks its owner): ${others.map((d) => `"${d.name}"`).join(", ")}.`
         : "",
+      free.length > 0
+        ? `Free now to help with long work: ${free.map((d) => `"${d.name}"`).join(", ")}. start_task with computer "auto" starts on your own computer when it has room, else on one of them.`
+        : "",
       "Name a computer with `computer` on run_code, start_task and the file tools, and a phone with the phone tools' `phone`. When one isn't ready, wait_for_device starts by itself once it is.",
     ]
       .filter(Boolean)
       .join("\n"),
   };
+}
+
+/** Room for more work there now: nothing running, or less than its limit (or room left, where tasks start on room). */
+const roomNow = (d: ComputerDevice) =>
+  d.status.kind === "ready" ||
+  (d.status.kind === "busy" && (d.status.max === null ? (d.taskRoom?.more ?? 0) > 0 : d.status.running < d.status.max));
+
+/**
+ * The computers that may take an agent's long work now when its own has no room ("Help when the team's computer is
+ * full or away", ADR 0233): its owner lets it help in a workspace that lets devices help, the person the agent works for
+ * may use it, it has room, and it's the agent's owner's own or one marked the workspace's (never someone else's own
+ * computer, where commands would run as its owner).
+ */
+function helpers(list: DevicesList, agentOwner: string | null, home: string | null) {
+  if (!list.devicesHelp) return [];
+  return list.devices.filter(
+    (d) =>
+      d.id !== home &&
+      d.machineKind !== "managed" &&
+      d.spill.own &&
+      d.mayUse &&
+      roomNow(d) &&
+      (d.belongsToWorkspace || (agentOwner !== null && d.ownerUserId === agentOwner)),
+  );
+}
+
+/**
+ * `start_task`'s `computer: "auto"`: "" (the agent's own computer) while it has room or nothing else does, else the
+ * name of a computer that helps (`helpers`).
+ */
+export async function autoComputer(ctx: ToolContext): Promise<string> {
+  const requester = await deviceRequester(ctx);
+  const agent = await getAgentCached(ctx.db, ctx.orgId, ctx.agentId);
+  if (!requester || !agent?.machineId) return "";
+  const list = await listDevices(ctx.db, ctx.orgId, requester).catch(() => null);
+  const home = list?.devices.find((d) => d.id === agent.machineId);
+  if (!list || !home || roomNow(home)) return "";
+  return helpers(list, agent.ownerUserId ?? null, agent.machineId)[0]?.name ?? "";
 }
 
 /**

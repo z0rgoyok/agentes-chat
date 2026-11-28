@@ -1,19 +1,18 @@
 import { describe, expect, test } from "bun:test";
 import {
   type CalItem,
-  collapseRoutines,
   dayEntries,
-  dayRuns,
+  dayItemsKey,
   dragRange,
   grownHeights,
   HOUR_PX,
   initialScrollMinutes,
   itemOwners,
+  keptHeights,
   layoutBars,
   layoutDay,
   onDay,
   rangeLabel,
-  runStacks,
   toItems,
   upcomingItems,
   viewDays,
@@ -33,92 +32,24 @@ const item = (key: string, start: Date, end: Date, allDay = false): CalItem => (
   people: [],
 });
 
-const run = (key: string, start: Date): CalItem => ({
-  ...item(key, start, new Date(start.getTime() + 15 * 60_000)),
-  kind: "routine",
-  source: "routine",
-  routineId: key,
+const reminder = (key: string, start: Date): CalItem => ({
+  ...item(key, start, new Date(start.getTime() + 60_000)),
+  kind: "reminder",
+  source: "reminder",
 });
-/** A stack as the grid shows it: its first run's minute, its runs, the rows it shows and how many go behind "+N". */
-const stacked = (list: ReturnType<typeof runStacks>) =>
-  list.map((s) => [Math.round(s.top), s.runs.map((r) => r.key), s.shown, s.more]);
 
 describe("calendar layout", () => {
-  test("runs that would meet stack (earliest first): two rows, then +N; events and bands stay out", () => {
-    const band: CalItem = { ...run("band", at(0)), allDay: true, end: at(0, 0, new Date(2026, 9, 15)), runs: [at(1)] };
-    const stacks = runStacks(
-      [
-        run("b", at(9, 30)),
-        run("a", at(9, 10)),
-        run("c", at(9, 45)),
-        run("d", at(9, 50)),
-        run("e", at(18)),
-        run("other-day", at(9, 0, new Date(2026, 9, 15))),
-        item("event", at(9), at(10)),
-        band,
-      ],
-      day,
-    );
-    expect(stacked(stacks)).toEqual([
-      [9 * 60 + 10, ["a", "b", "c", "d"], 2, 2],
-      [18 * 60, ["e"], 1, 0],
-    ]);
-    expect(stacks[0]?.kind).toBe("runs");
-  });
-
-  test("a stack shows only the rows that fit before the next item under it, at least one", () => {
-    // A meeting 40 minutes after three runs: room for one row and "+2" (40px), not two rows and "+1" (62px).
-    const runs = [run("a", at(7)), run("b", at(7, 1)), run("c", at(7, 2))];
-    expect(stacked(runStacks([...runs, item("meeting", at(7, 40), at(8, 40))], day))).toEqual([
-      [7 * 60, ["a", "b", "c"], 1, 2],
-    ]);
-    // A run an hour later starts its own stack, under the first one's line and "+2".
-    expect(stacked(runStacks([...runs, run("d", at(8))], day))).toEqual([
-      [7 * 60, ["a", "b", "c"], 1, 2],
-      [8 * 60, ["d"], 1, 0],
-    ]);
-    // Ten minutes after the first run there's no room even for one line: it still shows one.
-    expect(stacked(runStacks([run("a", at(7)), item("soon", at(7, 10), at(8))], day))).toEqual([[7 * 60, ["a"], 1, 0]]);
-  });
-
-  test("a stack drawn taller than a line (a name that wraps) takes in the run that would start inside it", () => {
-    const runs = [run("a", at(7)), run("b", at(7, 40))];
-    expect(stacked(runStacks(runs, day))).toEqual([
-      [7 * 60, ["a"], 1, 0],
-      [7 * 60 + 40, ["b"], 1, 0],
-    ]);
-    const tall = new Map([["runs-a", 3 * 16 + 4]]);
-    expect(stacked(runStacks(runs, day, tall))).toEqual([[7 * 60, ["a", "b"], 2, 0]]);
-  });
-
-  test("a stack is one item beside the meetings it meets; a block drawn past its slot pushes the next beside it", () => {
-    const runs = [run("a", at(7)), run("b", at(7, 1)), run("c", at(7, 2))];
-    const meeting = item("meeting", at(7, 40), at(8, 40));
-    const stacks = runStacks([...runs, meeting], day);
-    const placed = layoutDay([meeting], day, stacks);
-    expect(placed.map((p) => [p.item.key, p.col, p.cols])).toEqual([
-      ["runs-a", 0, 2],
-      ["meeting", 1, 2],
-    ]);
-    // The runs' column is the narrow one: the meeting keeps room for its name.
-    expect(placed.map((p) => [p.thin, p.thins, p.thinBefore])).toEqual([
-      [true, 1, 0],
-      [false, 1, 1],
-    ]);
-    // A stack alone takes the column, and meetings beside meetings share it evenly.
-    const two = runStacks([run("x", at(7)), run("y", at(7, 1)), run("z", at(7, 2)), item("m", at(7, 50), at(9))], day);
-    expect(layoutDay([], day, two).map((p) => p.thins)).toEqual([0]);
-    expect(layoutDay([item("p", at(9), at(10)), item("q", at(9), at(10))], day).map((p) => p.thins)).toEqual([0, 0]);
-    // 09:00–09:30 drawn 50px tall (its title wraps) reaches 10:08: the 09:45 meeting goes beside it.
+  test("a block drawn past its slot (a title that wraps) pushes the next one beside it", () => {
+    // 09:00–09:30 drawn 50px tall reaches 10:08: the 09:45 meeting goes beside it.
     const short = item("short", at(9), at(9, 30));
     const next = item("next", at(9, 45), at(10, 15));
     expect(layoutDay([short, next], day).map((p) => p.cols)).toEqual([1, 1]);
-    expect(layoutDay([short, next], day, [], new Map([["short", 50]])).map((p) => [p.col, p.cols])).toEqual([
+    expect(layoutDay([short, next], day, new Map([["short", 50]])).map((p) => [p.col, p.cols])).toEqual([
       [0, 2],
       [1, 2],
     ]);
     // Its own slot stays its slot: only what it reaches into moves.
-    expect(layoutDay([short], day, [], new Map([["short", 50]]))[0]?.height).toBe(30);
+    expect(layoutDay([short], day, new Map([["short", 50]]))[0]?.height).toBe(30);
   });
 
   test("measured heights only grow, so a layout that changes how tall it draws settles instead of flipping", () => {
@@ -137,85 +68,54 @@ describe("calendar layout", () => {
       ["a", 52],
       ["b", 20],
     ]);
-    // Runs 40 minutes apart (29px): alone the first one wraps (44px) and takes in the second; together they draw 24px,
-    // which lets the second go again. Taking each measure as it is flips the stacks on every render.
-    const runs = [run("a", at(7)), run("b", at(7, 40))];
-    const draw = (stacks: ReturnType<typeof runStacks>) =>
-      new Map(stacks.map((s) => [s.key, s.runs.length === 1 ? 44 : 24] as const));
-    const renders = (
-      next: (before: ReadonlyMap<string, number>, drawn: Map<string, number>) => ReadonlyMap<string, number>,
-    ) => {
-      let measured: ReadonlyMap<string, number> = new Map();
-      const stackCounts: number[] = [];
-      for (let render = 0; render < 6; render++) {
-        const stacks = runStacks(runs, day, measured);
-        stackCounts.push(stacks.length);
-        measured = next(measured, draw(stacks));
-      }
-      return stackCounts;
-    };
-    expect(renders((_, drawn) => drawn)).toEqual([2, 1, 2, 1, 2, 1]);
-    expect(renders(grownHeights)).toEqual([2, 1, 1, 1, 1, 1]);
   });
 
-  test("a day's rows for the month and the agenda: all day first, then by time, a frequent routine once", () => {
-    const band: CalItem = {
-      ...run("band", at(0)),
-      allDay: true,
-      end: at(0, 0, new Date(2026, 9, 15)),
-      runs: [at(6), at(12), at(18)],
+  test("a change on a day measures again the clusters it was in and lands in, and only those", () => {
+    // A reminder drawn 44px tall (an hour), a meeting with the one that starts inside it, one in the evening.
+    const items = [
+      reminder("a", at(7)),
+      item("planning", at(14), at(16)),
+      item("coffee", at(15), at(15, 30)),
+      item("late", at(18), at(19)),
+    ];
+    const heights = new Map([
+      ["a", 44],
+      ["planning", 86],
+      ["coffee", 60],
+      ["late", 42],
+    ]);
+    const was = dayItemsKey(items, day);
+    const after = (key: string, change: Partial<CalItem>) => {
+      const changed = items.map((it) => (it.key === key ? { ...it, ...change } : it));
+      return keptHeights(heights, was, dayItemsKey(changed, day));
     };
+    expect(keptHeights(heights, was, was)).toBe(heights);
+    // An hour shorter: the meeting, and the one beside it, which may now go under it.
+    expect([...after("planning", { end: at(15) })]).toEqual([
+      ["a", 44],
+      ["late", 42],
+    ]);
+    // A reminder renamed: only it.
+    expect([...after("a", { title: "Call the bank" })]).toEqual([
+      ["planning", 86],
+      ["coffee", 60],
+      ["late", 42],
+    ]);
+    // Moved to the evening: where it was, and the meeting it lands beside.
+    expect([...after("coffee", { start: at(18, 30), end: at(19) })]).toEqual([["a", 44]]);
+  });
+
+  test("a day's rows for the month and the agenda: all day first, then by time", () => {
     const rows = dayEntries(
       [
-        run("late", at(18, 30)),
+        reminder("late", at(18, 30)),
         item("lunch", at(12), at(13)),
         item("holiday", at(0), at(0, 0, new Date(2026, 9, 15)), true),
-        band,
+        item("tomorrow", at(9, 0, new Date(2026, 9, 15)), at(10, 0, new Date(2026, 9, 15))),
       ],
       day,
     );
-    expect(rows.map((r) => [r.key, r.day?.count])).toEqual([
-      ["holiday", undefined],
-      [`band@${day.getFullYear()}-${day.getMonth() + 1}-${day.getDate()}`, 3],
-      ["lunch", undefined],
-      ["late", undefined],
-    ]);
-  });
-
-  test("a day's routine runs: a mark per single run, one per frequent routine with its count; time-ordered", () => {
-    const run = (key: string, start: Date): CalItem => ({
-      ...item(key, start, new Date(start.getTime() + 15 * 60_000)),
-      kind: "routine",
-      source: "routine",
-      routineId: key,
-    });
-    const next = new Date(2026, 9, 15);
-    const band: CalItem = {
-      ...run("band", at(0)),
-      allDay: true,
-      end: at(0, 0, new Date(2026, 9, 16)),
-      runs: [...Array.from({ length: 24 }, (_, h) => at(h, 30)), at(1, 30, next), at(2, 30, next)],
-      pastRuns: [
-        { at: at(3, 30), status: "ok" },
-        { at: at(2, 30), status: "failed" },
-      ],
-    };
-    const entries = dayRuns(
-      [
-        run("late", at(18)),
-        { ...run("early", at(0, 10)), result: "ok" },
-        run("tomorrow", at(9, 0, next)),
-        item("event", at(9), at(10)),
-        band,
-      ],
-      day,
-    );
-    expect(entries.map((e) => [e.item.key, e.count, e.status])).toEqual([
-      ["early", 1, "ok"],
-      ["band", 24, "failed"],
-      ["late", 1, undefined],
-    ]);
-    expect(dayRuns([band], next).map((e) => [e.count, e.status])).toEqual([[2, undefined]]);
+    expect(rows.map((r) => r.key)).toEqual(["holiday", "lunch", "late"]);
   });
 
   test("a reminder late at night stays on its day, in the grid, tall enough to read", () => {
@@ -246,7 +146,7 @@ describe("calendar layout", () => {
     expect(layoutDay([{ ...reminder, start: at(9), end: at(9, 1) }], day).map((p) => p.height)).toEqual([30]);
   });
 
-  test("each item knows whose it is: who made an event, a run's and a reminder's agent, who has a task", () => {
+  test("each item knows whose it is: who made an event, a reminder's agent, who has a task; no routine run", () => {
     const event = (id: string, createdBy: { type: "person" | "agent"; id: string }) => ({
       id,
       title: id,
@@ -264,6 +164,7 @@ describe("calendar layout", () => {
     });
     const items = toItems({
       events: [event("by-person", { type: "person", id: "u-ana" }), event("by-agent", { type: "agent", id: "ag-ada" })],
+      // The Routines page's horizon: never an item of the calendar.
       routines: [
         { routineId: "r1", name: "Diária", agentId: "ag-atlas", at: at(7).toISOString(), target: { type: "dm" } },
       ],
@@ -299,7 +200,6 @@ describe("calendar layout", () => {
     expect(items.map((it) => [it.key, it.owner])).toEqual([
       ["by-person", { type: "person", id: "u-ana" }],
       ["by-agent", { type: "agent", id: "ag-ada" }],
-      [`r1@${at(7).toISOString()}`, { type: "agent", id: "ag-atlas" }],
       ["reminder-rem", { type: "agent", id: "ag-ada" }],
       ["deadline-i1", { type: "agent", id: "ag-ada" }],
       ["deadline-i2", undefined],
@@ -384,46 +284,18 @@ describe("hour labels", () => {
   });
 });
 
-describe("routines on the calendar", () => {
-  const run = (routineId: string, start: Date): CalItem => ({
-    ...item(`${routineId}@${start.getTime()}`, start, new Date(start.getTime() + 15 * 60_000)),
-    kind: "routine",
-    source: "routine",
-    recurring: true,
-    routineId,
-    agentId: "a1",
-  });
-  const week = viewDays("week", day);
-  const hourly = week.flatMap((d) => Array.from({ length: 24 }, (_, h) => run("hourly", at(h, 0, d))));
-
-  test("a routine that runs often is one band over the week, with its runs and cadence", () => {
-    const sparse = run("daily", at(9));
-    const out = collapseRoutines([...hourly, sparse, item("meet", at(10), at(11))], week);
-    const bands = out.filter((it) => it.runs);
-    expect(bands).toHaveLength(1);
-    const band = bands[0] as CalItem;
-    expect(band.allDay).toBe(true);
-    expect(band.runs).toHaveLength(24 * 7);
-    expect(band.every).toBe(60);
-    expect(layoutBars(bands, week)[0]).toMatchObject({ from: 0, span: 7 });
-    // Sparse runs and events stay as they are.
-    expect(out.map((it) => it.key)).toContain(sparse.key);
-    expect(out.map((it) => it.key)).toContain("meet");
-  });
-
-  test("a band only spans days that follow each other; a light day breaks it", () => {
-    const light = new Date((week[2] as Date).getTime());
-    const runs = hourly.filter((r) => !(r.start.toDateString() === light.toDateString() && r.start.getHours() > 1));
-    const bands = collapseRoutines(runs, week).filter((it) => it.runs);
-    expect(bands.map((b) => b.runs?.length)).toEqual([48, 96]);
-    const businessWeek = viewDays("week", day, true);
-    expect(collapseRoutines(hourly, businessWeek).filter((it) => it.runs)).toHaveLength(1);
-  });
-
-  test("Próximos shows a routine only by its next run", () => {
+describe("upcoming", () => {
+  test("Próximos: what comes next from now, in order, never a task's due date", () => {
     const now = at(8, 30);
-    const next = upcomingItems([...hourly, item("meet", at(10), at(11))], now);
-    expect(next.filter((it) => it.routineId)).toHaveLength(1);
-    expect(next.map((it) => it.key)).toContain("meet");
+    const next = upcomingItems(
+      [
+        item("meet", at(10), at(11)),
+        reminder("call", at(9)),
+        item("past", at(7), at(8)),
+        { ...item("due", at(0), at(0, 0, new Date(2026, 9, 15)), true), kind: "deadline", source: "deadline" },
+      ],
+      now,
+    );
+    expect(next.map((it) => it.key)).toEqual(["call", "meet"]);
   });
 });

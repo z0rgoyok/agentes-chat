@@ -1,16 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import type { Message, ThreadInfo } from "../src/index";
 import {
-  contextMarks,
   excludedRuns,
   hiddenByThreads,
   moveEdge,
+  opensInConversation,
   pickRow,
   type RangeSelection,
   selectionInfo,
   selectionOf,
   stepEdge,
   suggestRange,
+  threadAnchor,
   threadMessageCount,
   threadStartOf,
   threadStatus,
@@ -175,12 +176,6 @@ describe("what the channel shows", () => {
     count: 2,
   };
 
-  test("context messages still in the channel get the mark", () => {
-    expect([...contextMarks([thread({ context: ctx })], list, "c")]).toEqual(["a", "c"]);
-    expect(contextMarks([thread({ context: { ...ctx, moved: true } })], list, "c").size).toBe(0);
-    expect(contextMarks([thread({ context: ctx })], list, "other").size).toBe(0);
-  });
-
   test("closed and archived threads hide their replies; archived roots and range replies too", () => {
     const hidden = hiddenByThreads(
       [thread({ id: "x", state: "closed" }), thread({ id: "y", state: "archived" })],
@@ -202,5 +197,33 @@ describe("what the channel shows", () => {
     expect(threadMessageCount(thread({ replyCount: 3 }))).toBe(4);
     expect(threadMessageCount(thread({ replyCount: 3, context: ctx }))).toBe(5);
     expect(threadMessageCount(thread({ replyCount: 5, context: { ...ctx, moved: true } }))).toBe(5);
+  });
+});
+
+describe("where a thread opens", () => {
+  test("a channel's and a DM's in their conversation; a mission's, a task's and a file's on their own screen", () => {
+    expect(opensInConversation(thread())).toBe(true);
+    expect(opensInConversation(thread({ channelKind: "dm" }))).toBe(true);
+    const mission = { id: "mi", agentId: "a", status: "active" as const, planDone: 0, planTotal: 2, waitingYou: 0 };
+    expect(opensInConversation(thread({ mission }))).toBe(false);
+    for (const channelKind of ["task", "file", "code"] as const)
+      expect(opensInConversation(thread({ channelKind }))).toBe(false);
+  });
+
+  test("the conversation beside it opens at its root, at its range while that is there, at its end when archived", () => {
+    expect(threadAnchor(thread())).toBe("root");
+    const context = {
+      channelId: "c",
+      firstMessageId: "a",
+      lastMessageId: "b",
+      excludedMessageIds: [],
+      moved: false,
+      count: 2,
+    };
+    expect(threadAnchor(thread({ context }))).toBe("a");
+    expect(threadAnchor(thread({ context: { ...context, moved: true } }))).toBe("root");
+    expect(threadAnchor(thread({ context: { ...context, channelId: "other" } }))).toBe("root");
+    expect(threadAnchor(thread({ state: "closed" }))).toBe("root");
+    expect(threadAnchor(thread({ state: "archived" }))).toBeNull();
   });
 });

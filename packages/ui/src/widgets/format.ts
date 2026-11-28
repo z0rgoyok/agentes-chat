@@ -41,6 +41,18 @@ export function formatWithUnit(value: number, unit: string | undefined, locale: 
   return unit === "%" ? `${n}%` : `${n} ${unit}`;
 }
 
+/**
+ * What point `i` of a series says on hover, tap or the arrow keys, as the chat's charts write it: its label and its
+ * value with the unit ("Nov 12: R$ 18.420"); the value alone when the point has no label.
+ */
+export const seriesTip =
+  (labels: readonly string[] | undefined, values: readonly number[], text: (value: number) => string) =>
+  (i: number): string => {
+    const value = text(values[i] ?? 0);
+    const label = labels?.[i];
+    return label ? `${label}: ${value}` : value;
+  };
+
 const COUNT_MS = 800;
 
 /**

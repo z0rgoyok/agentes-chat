@@ -1,5 +1,5 @@
 import type { Agent, AgentGroup } from "@agenteschat/client";
-import { useAgentGroupAction, useRoles } from "@agenteschat/client";
+import { useAgentGroupAction, useAgentGroups, useChannelsPick, useRoles } from "@agenteschat/client";
 import { groupOf, NO_GROUP } from "@agenteschat/client/lib/agent-groups";
 import { errorText } from "@agenteschat/client/lib/errors";
 import {
@@ -27,8 +27,10 @@ import { MenuEntries } from "./DesktopMenus";
 import { useOrg } from "./org-context";
 import "./roles/roles.css";
 
-/** What Equipe's group dialog is for: a new group (with these agents in it), or renaming one. */
-export type GroupDialogFor = { mode: "create"; agentIds?: string[] } | { mode: "rename"; group: AgentGroup };
+/** What Equipe's group dialog is for: a new group (with these agents or channels in it), or renaming one. */
+export type GroupDialogFor =
+  | { mode: "create"; agentIds?: string[]; channelIds?: string[] }
+  | { mode: "rename"; group: AgentGroup };
 
 /** "Novo setor" and "Editar setor" (ADR 0148): its name, color and icon. Mounted while open. */
 export function GroupNameDialog({ purpose, onClose }: { purpose: GroupDialogFor; onClose: () => void }) {
@@ -36,9 +38,12 @@ export function GroupNameDialog({ purpose, onClose }: { purpose: GroupDialogFor;
   const { org } = useOrg();
   const action = useAgentGroupAction(org.id);
   const looks = useRoles(org.id).data;
+  const groups = useAgentGroups(org.id).data;
   const renaming = purpose.mode === "rename" ? purpose.group : null;
   const [name, setName] = useState(renaming?.name ?? "");
-  const [color, setColor] = useState(renaming?.color ?? "graphite");
+  // A new setor starts in a color no other one has, so the sidebar's marks tell them apart.
+  const [picked, setColor] = useState(renaming ? (renaming.color ?? "graphite") : undefined);
+  const color = picked ?? looks?.colors.find((c) => !groups?.some((g) => (g.color ?? "graphite") === c)) ?? "graphite";
   const [icon, setIcon] = useState(renaming?.icon ?? "person");
   const save = () => {
     const value = name.trim();
@@ -56,6 +61,7 @@ export function GroupNameDialog({ purpose, onClose }: { purpose: GroupDialogFor;
         color,
         icon,
         agentIds: purpose.mode === "create" ? purpose.agentIds : undefined,
+        channelIds: purpose.mode === "create" ? purpose.channelIds : undefined,
       },
       { onSuccess: onClose },
     );
@@ -142,17 +148,22 @@ export function GroupNameDialog({ purpose, onClose }: { purpose: GroupDialogFor;
   );
 }
 
-/** "Excluir o grupo X?": its agents go back to Agentes. Mounted while open. */
+/** "Excluir o grupo X?": its agents go back to Agentes, its channels to Canais (ADR 0240). Mounted while open. */
 export function DeleteGroupDialog({ group, onClose }: { group: AgentGroup; onClose: () => void }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const action = useAgentGroupAction(org.id);
+  const hasChannels = useChannelsPick(org.id, (list) => list.some((c) => c.groupId === group.id));
   return (
     <Dialog
       open
       onOpenChange={(open) => !open && onClose()}
       title={t("agentGroups.deleteTitle", { name: group.name })}
-      description={group.agentIds.length > 0 ? t("agentGroups.deleteText") : undefined}
+      description={
+        [group.agentIds.length > 0 && t("agentGroups.deleteText"), hasChannels && t("agentGroups.deleteChannels")]
+          .filter(Boolean)
+          .join(" ") || undefined
+      }
       closeLabel={t("common.close")}
       width={440}
     >
@@ -220,7 +231,7 @@ export function useGroupEntries() {
   };
 }
 
-/** A group header's "…" (owners and admins), on Equipe and in the sidebar (`className`: the header's buttons). */
+/** A group header's "…" (owners and admins), on Equipe (`className`: the header's buttons). */
 export function GroupMenu({ className, ...choices }: GroupChoices & { className?: string }) {
   const { t } = useTranslation();
   const entries = useGroupEntries();
@@ -344,7 +355,7 @@ export function useMoveAgent(groups: AgentGroup[]) {
 }
 
 /**
- * Dragging agents between groups (Equipe and the sidebar's AGENTES, for who manages agents) (owners and admins): rows are draggable, groups take the drop.
+ * Dragging agents between groups on Equipe, for who manages agents: rows are draggable, groups take the drop.
  * Inside a group the row lands where the pointer is (`over.index`, before the first row whose middle is below it);
  * the agents in no group keep the workspace's order.
  */

@@ -595,9 +595,15 @@ export const extraIcons = {
     ["path", { d: "M11.5 3.5h5v5M16.5 3.5 9.5 10.5M15 11.5v4a1 1 0 0 1-1 1H4.5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h4" }],
   ],
   /** Threads: a thread (a speech box with a line). */
+  /** Its ink centred on the box (drawn 0.75 lower than it was, so it lines up with the tools beside it). */
   thread: [
-    ["path", { d: "M3.5 4h13v7.5H9l-3.5 3v-3h-2z" }],
-    ["path", { d: "M7.5 7.75h5" }],
+    ["path", { d: "M3.5 4.75h13v7.5H9l-3.5 3v-3h-2z" }],
+    ["path", { d: "M7.5 8.5h5" }],
+  ],
+  /** Não lidas (ADR 0260): lines of a list and a dot for what is new. */
+  unreads: [
+    ["path", { d: "M3.5 5.5h13M3.5 10h13M3.5 14.5h7" }],
+    ["circle", { cx: "15", cy: "14.5", r: "1.6" }],
   ],
   /** Threads: "Tirar do canal" (out of the conversation, into the thread). */
   move: [["path", { d: "M3.5 10h9M9 6l4 4-4 4M16.5 4v12" }]],

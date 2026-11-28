@@ -3,6 +3,7 @@ import { useAllAgents, useFormerAgents, useMembers, useRoles } from "@agentescha
 import { type AgentOwnerLike, ownerNameOf } from "@agenteschat/client/lib/agent-owner";
 import { agentsByAnyHandle, formerById } from "@agenteschat/client/lib/directory";
 import { memberRoleColor } from "@agenteschat/client/lib/member-groups";
+import { appAuthor } from "@agenteschat/client/lib/via";
 import { type AgentColor, agentGradient } from "@agenteschat/ui";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -42,10 +43,13 @@ export function useDirectory(orgId: string) {
     const memberByHandle = new Map<string, Member>(
       (members.data ?? []).filter((m) => m.handle).map((m) => [m.handle.toLowerCase(), m]),
     );
-    const authorName = (author: Message["author"]) =>
-      author.type === "agent"
-        ? (anyAgent(author.id ?? "")?.name ?? t("channel.unknownAgent"))
-        : (memberById.get(author.id ?? "")?.name ?? t("channel.unknownPerson"));
+    /** An integration app's name (ADR 0251) is in its message's `meta.app`: pass `meta` where one may be an app's. */
+    const authorName = (author: Message["author"], meta?: Record<string, unknown>) =>
+      author.type === "app"
+        ? (appAuthor(meta)?.name ?? t("integrations.unknownApp"))
+        : author.type === "agent"
+          ? (anyAgent(author.id ?? "")?.name ?? t("channel.unknownAgent"))
+          : (memberById.get(author.id ?? "")?.name ?? t("channel.unknownPerson"));
     // Agents sharing a first letter get two (Ada "A", Atlas "At").
     const initials = new Map<string, string>();
     const used = new Set<string>();

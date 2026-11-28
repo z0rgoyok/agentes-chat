@@ -833,21 +833,61 @@ describe("listing a server's tools", () => {
     expect(failures).toBe(1);
   });
 
-  test("a list older than ten minutes isn't served: the claim waits for a new listing", async () => {
+  test("a list idle for over ten minutes is served while it refreshes; once that refresh fails, the server is down", async () => {
     f = await setup();
     const mcp = fakeGithubMcp();
     let down = false;
+    let tries = 0;
     const connect: typeof mcp.connect = async (c, headers) => {
+      tries++;
       if (down) throw new Error("connect ECONNREFUSED");
       return mcp.connect(c, headers);
     };
     await github(f);
     const source = createConnectorToolSource({ ...depsOf(f), connect });
-    expect((await source.tools(ctxOf(f))).length).toBeGreaterThan(0);
+    const listed = (await source.tools(ctxOf(f))).map((t) => t.name);
+    expect(listed.length).toBeGreaterThan(0);
 
     down = true;
     setSystemTime(new Date(Date.now() + 601_000));
+    // Before, a conversation back after ten quiet minutes waited for the server here.
+    expect((await source.tools(ctxOf(f))).map((t) => t.name)).toEqual(listed);
+    await Bun.sleep(50);
+    const after = tries;
     expect(await source.tools(ctxOf(f))).toEqual([]);
+    // Down is kept for the minute: no claim waits on the server again meanwhile.
+    expect(await source.tools(ctxOf(f))).toEqual([]);
+    expect(tries).toBe(after);
+  });
+
+  test("a restart starts from the pinned tools when the server is slow; only a first listing ever waits for it", async () => {
+    f = await setup();
+    const mcp = fakeGithubMcp();
+    let hold: Promise<void> | null = null;
+    let tries = 0;
+    const connect: typeof mcp.connect = async (c, headers) => {
+      tries++;
+      await hold;
+      return mcp.connect(c, headers);
+    };
+    await github(f);
+    const listed = (await createConnectorToolSource({ ...depsOf(f), connect }).tools(ctxOf(f))).map((t) => t.name);
+    expect(listed.length).toBeGreaterThan(0);
+    // A new process (a deploy), and the server slow to answer: the turn waits half a second, not for the server.
+    let release = () => {};
+    hold = new Promise((resolve) => {
+      release = resolve;
+    });
+    const restarted = createConnectorToolSource({ ...depsOf(f), connect });
+    const started = performance.now();
+    expect((await restarted.tools(ctxOf(f))).map((t) => t.name)).toEqual(listed);
+    expect(performance.now() - started).toBeLessThan(1500);
+    release();
+    await Bun.sleep(20);
+    // One listing behind it, and its list is what the next claim reads.
+    expect(tries).toBe(2);
+    expect((await restarted.tools(ctxOf(f))).map((t) => t.name)).toEqual(listed);
+    expect(tries).toBe(2);
   });
 
   test("a failed listing is kept for a minute, then asked again", async () => {

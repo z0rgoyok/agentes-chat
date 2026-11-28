@@ -1,3 +1,4 @@
+import { CLI_UPDATE_COMMAND } from "@agenteschat/providers/cli-floors";
 import type { TFunction } from "i18next";
 import type {
   Agent,
@@ -17,8 +18,9 @@ import { groupPlans, type OwnSignInRow, ownSignInReady, ownSignIns, planWordOf }
 import { answersOthers, audienceOf, managesAgent } from "./audience";
 import { type BillingHold, billingHoldOf } from "./billing";
 import { type SetupView, setupPending } from "./computer";
+import { maintenanceNamed, maintenanceOf } from "./computer-maintenance";
 import { firstName } from "./format";
-import { CLI_HOME_ONLY } from "./machines";
+import { brainTool, CLI_GIT_MISSING, CLI_HOME_ONLY, osName } from "./machines";
 import { can } from "./permissions";
 import { CODING_PLANS, isPlanId, loginPerAgent, PLAN_IDS, type PlanId } from "./plans";
 import { isRightHand } from "./right-hand";
@@ -147,7 +149,8 @@ export function noAiCardOf(meta: Record<string, unknown> | null | undefined): No
       o.own === "cursor" ||
       o.own === "opencode" ||
       o.own === "grok" ||
-      o.own === "antigravity")
+      o.own === "antigravity" ||
+      o.own === "devin")
       ? o.own
       : null;
   return {
@@ -207,6 +210,39 @@ export function keptCardState(s: { hold: BillingHold | null; paid: boolean; read
 export const planLineKey = (line: RightHandPlanLine, why?: string) =>
   line === "cli_failed" && why ? ("noAi.rightHand.cli_failedWhy" as const) : (`noAi.rightHand.${line}` as const);
 
+/** A missing piece's sentence (it names the agent): Connect is still the way out. */
+const MISSING_LINES = {
+  cli_missing: "noAi.cliMissing",
+  no_computer: "noAi.noComputer",
+  not_signed_in: "noAi.signedOut",
+} as const;
+
+/**
+ * Under a message one agent won't answer for want of an AI (`why`: its run's reason, the receipt's `failures` entry):
+ * what is really in the way, filled with `agentGrammar(name)` and `model`. A plan it has that can't think now (its
+ * computer, its CLI, its limit) says so, with no Connect (`connect` false): picking an account again changes nothing,
+ * and its card in the conversation has the way out. A plan that doesn't serve this person keeps Connect, for their own.
+ * A missing piece (the CLI, a computer, a sign-in) says which, and Connect stays. Null: "falta uma IA".
+ */
+export function noAiReceiptLine(why: { code: string; params?: Record<string, string> } | undefined): {
+  key: ReturnType<typeof planLineKey> | (typeof MISSING_LINES)[keyof typeof MISSING_LINES];
+  model?: string;
+  connect: boolean;
+} | null {
+  if (!why) return null;
+  if (Object.hasOwn(MISSING_LINES, why.code))
+    return { key: MISSING_LINES[why.code as keyof typeof MISSING_LINES], connect: true };
+  // Whose the plans are comes from the AI status (`plansNotYoursOf`).
+  if (!RIGHT_HAND_PLAN_LINES.has(why.code) || why.code === "plans_not_yours") return null;
+  const model = why.params?.model;
+  if (why.code.startsWith("model_") && !model) return null;
+  return {
+    key: planLineKey(why.code as RightHandPlanLine),
+    ...(model ? { model } : {}),
+    connect: why.code === "plan_not_shared",
+  };
+}
+
 /** A plan line that passes by itself: once the agent can think again, its card offers "Responder agora". */
 export const planLinePasses = (line: RightHandPlanLine | undefined) =>
   line === "computer_away" || line === "computer_failed" || line === "cli_failed" || line === "plans_not_yours";
@@ -257,6 +293,14 @@ export const mayConnectAi = (
 ) => (!!meId && isRightHand(agent)) || maySetAgentAi(agent, meId, org);
 
 /**
+ * Whom Connect signs a plan in for, of the agents it was opened for: the person's own, the right hand (everyone's, ADR
+ * 0137 §11) and one they manage, with a plan of their own lent to it. Someone else's agent they don't manage gets who
+ * connects it instead (`noAiLockedLine`).
+ */
+export const connectsPlanFor = (agent: ConnectingAgent | null | undefined, meId: string | null | undefined) =>
+  !!agent && ((!!meId && agent.ownerUserId === meId) || isRightHand(agent) || managesAgent(agent));
+
+/**
  * The way out of a plan line for this person: their own plan when the workspace's doesn't serve them, or when a key
  * isn't theirs to set (an API key is always the workspace's, §11), else an API key. A request no person made thinks
  * with no one's own plan: only a key helps there. Null: neither is theirs to do.
@@ -301,18 +345,24 @@ export const opensByItself = (x: { intent?: string; autoOpen?: boolean }) =>
  * The brain a plan thinks with, on the agent's computer: a Claude plan through Claude Code, ChatGPT's through Codex,
  * OpenCode's (`zen`: its free tier or an OpenCode key, ADR 0132) through OpenCode's CLI, a SuperGrok or X Premium+ plan
  * through Grok Build (ADR 0142), a Google AI Pro or Ultra plan or Gemini Enterprise through the Antigravity CLI (ADR
- * 0143).
+ * 0143), a Devin plan through the Devin CLI (ADR 0253).
  */
-export const PLAN_BRAIN: Record<"claude" | "chatgpt" | "cursor" | "zen" | "grok" | "gemini", MachineAccountKind> = {
+export const PLAN_BRAIN: Record<
+  "claude" | "chatgpt" | "cursor" | "zen" | "grok" | "gemini" | "devin",
+  MachineAccountKind
+> = {
   claude: "claude_code",
   chatgpt: "codex",
   cursor: "cursor",
   zen: "opencode",
   grok: "grok",
   gemini: "antigravity",
+  devin: "devin",
 };
 /** The plan a CLI signs in to by itself (`PLAN_BRAIN` the other way): ChatGPT's for Codex, Claude's for Claude Code. */
-export const planOfKind = (kind: MachineAccountKind): "claude" | "chatgpt" | "cursor" | "zen" | "grok" | "gemini" =>
+export const planOfKind = (
+  kind: MachineAccountKind,
+): "claude" | "chatgpt" | "cursor" | "zen" | "grok" | "gemini" | "devin" =>
   kind === "codex"
     ? "chatgpt"
     : kind === "cursor"
@@ -323,7 +373,9 @@ export const planOfKind = (kind: MachineAccountKind): "claude" | "chatgpt" | "cu
           ? "grok"
           : kind === "antigravity"
             ? "gemini"
-            : "claude";
+            : kind === "devin"
+              ? "devin"
+              : "claude";
 
 type AiState = AiStatus["agents"][number]["state"];
 
@@ -335,16 +387,20 @@ export const aiStateOf = (status: AiStatus | undefined, agentId: string): AiStat
  * A plan a person signs in with, on the agent's computer: Claude's, ChatGPT's, Cursor's (a sign-in or its API key,
  * ADR 0114), OpenCode's (`zen`, its free tier or an OpenCode key, ADR 0132), or a coding plan's key.
  */
-export type PlanChoice = "claude" | "chatgpt" | "cursor" | "zen" | "grok" | "gemini" | PlanId;
+export type PlanChoice = "claude" | "chatgpt" | "cursor" | "zen" | "grok" | "gemini" | "devin" | PlanId;
 /** What the picker offers: a plan, or the workspace's API key. */
 export type AiChoice = PlanChoice | "key";
-/** Every picker's order, the most used first: Claude (chosen first), ChatGPT, Gemini, Grok, Cursor, OpenCode, then the coding plans. */
+/**
+ * Every picker's order, the most used first: Claude (chosen first), ChatGPT, Gemini, Grok, Cursor, Devin, OpenCode, then
+ * the coding plans.
+ */
 export const PLAN_CHOICES: readonly PlanChoice[] = [
   "claude",
   "chatgpt",
   "gemini",
   "grok",
   "cursor",
+  "devin",
   "zen",
   ...PLAN_IDS,
 ];
@@ -352,7 +408,12 @@ export const PLAN_CHOICES: readonly PlanChoice[] = [
 export const SCENE_PLANS = ["claude", "chatgpt", "gemini"] as const satisfies readonly PlanChoice[];
 /** The account a plan signs in as: ChatGPT's through Codex, Cursor's and OpenCode's through their CLIs; the rest through Claude Code. */
 export const kindOf = (choice: PlanChoice): MachineAccountKind =>
-  choice === "chatgpt" || choice === "cursor" || choice === "zen" || choice === "grok" || choice === "gemini"
+  choice === "chatgpt" ||
+  choice === "cursor" ||
+  choice === "zen" ||
+  choice === "grok" ||
+  choice === "gemini" ||
+  choice === "devin"
     ? PLAN_BRAIN[choice]
     : PLAN_BRAIN.claude;
 /** The plan an account signs in with: a coding plan's key, ChatGPT's through Codex, Cursor's, else Claude's. */
@@ -403,6 +464,7 @@ const PLAN_SEARCH_NAMES: Partial<Record<PlanChoice, string>> = {
   chatgpt: "Codex",
   gemini: "Gemini CLI Antigravity",
   grok: "Grok Build",
+  devin: "Devin CLI Cognition Windsurf",
   zen: "OpenCode Zen",
 };
 export const planSearchNames = (choice: PlanChoice) => PLAN_SEARCH_NAMES[choice] ?? "";
@@ -441,8 +503,13 @@ export type PlanGate =
       state: "unsupported";
       reason: BrainUnavailable | "keys";
       overdue?: boolean;
+      /** `reason` "system": the computer's system, which the picker names before a plan is picked. */
+      os?: string;
     }
-  /** `owner`: the viewer doesn't own the agent; `computer`: only whoever connected it adds a sign-in there. */
+  /**
+   * `owner`: the viewer doesn't own the agent and can't sign a plan of theirs in for it there; `computer`: only whoever
+   * connected it adds a sign-in there.
+   */
   | { state: "locked"; who: "owner" | "computer" }
   /** The Cloud's workspace is on a billing hold: it has no computer to sign in on until its agentes.chat plan is active. */
   | { state: "billing"; hold: BillingHold }
@@ -473,6 +540,17 @@ export const unsupportedGate = (
   ...(edition === "cloud" && reason !== "tool_off" && installOverdue(setup, now) ? { overdue: true } : {}),
 });
 
+/** A plan that doesn't run on the computer's system carries that system (`os`), for the picker to name it. */
+const withSystem = (gate: PlanGate, os: string | undefined): PlanGate =>
+  gate.state === "unsupported" && gate.reason === "system" && os ? { ...gate, os } : gate;
+
+/**
+ * The system a plan doesn't run on, as a picker names it before the plan is picked ("Windows",
+ * `connectAi.offSystem`); null for any other gate.
+ */
+export const planOffSystem = (t: TFunction, gate: PlanGate) =>
+  gate.state === "unsupported" && gate.reason === "system" && gate.os ? osName(t, gate.os) : null;
+
 /**
  * The gate, first match wins. `brain` is the chosen agent's view (undefined while it loads); `computer` is that
  * computer's `/ai-accounts` row, which says whether it takes a coding plan's key. `caughtUp`: the view was asked
@@ -502,12 +580,14 @@ export function planGate({
   if (hold) return { state: "billing", hold };
   if (edition === "cloud" && setupPending(setup)) return { state: "preparing", view: setup };
   if (!brain || !edition) return { state: "loading" };
-  if (!brain.canUsePlans) return { state: "locked", who: "owner" };
+  // Who manages someone else's agent signs a plan of their own in for it wherever they may add one (`canManageAccounts`).
+  if (!brain.canUsePlans && !brain.canManageAccounts) return { state: "locked", who: "owner" };
   if (!brain.computer)
     return edition === "cloud" && !caughtUp ? { state: "preparing", view: null } : { state: "missing" };
   if (!brain.computer.online) return { state: "offline" };
   const option = brain.options.find((o) => o.kind === kindOf(choice));
-  if (!option?.available) return unsupportedGate(option?.reason ?? "not_reported", edition, setup, now);
+  if (!option?.available)
+    return withSystem(unsupportedGate(option?.reason ?? "not_reported", edition, setup, now), brain.computer.os);
   if (!brain.accountsSupported) return unsupportedGate("runner_old", edition, setup, now);
   if (isPlanId(choice) && !computer?.keys) return unsupportedGate("keys", edition, setup, now);
   if (!brain.canManageAccounts) return { state: "locked", who: "computer" };
@@ -561,7 +641,7 @@ export function planGateWithoutAgent({
   if (!computer.online) return { gate: { state: "offline" }, computer };
   if (computer.brains[kind] !== true)
     return {
-      gate: unsupportedGate(computer.off?.[kind] ?? "not_reported", edition, setup, now),
+      gate: withSystem(unsupportedGate(computer.off?.[kind] ?? "not_reported", edition, setup, now), computer.os),
       computer,
     };
   if (isPlanId(choice) && !computer.keys) return { gate: unsupportedGate("keys", edition, setup, now), computer };
@@ -606,6 +686,27 @@ export const gateRechecks = (gate: PlanGate, edition: Edition | null) =>
     !gate.overdue &&
     (gate.reason === "not_reported" || (edition === "cloud" && gate.reason !== "tool_off")));
 
+/**
+ * How long the server's own computer may take to connect the first time: its runner asks for its token every minute
+ * (`agentes-runner host`), the desktop app at once when the site tells it of a new workspace and every five minutes
+ * otherwise. Past this, it is offline like any other computer.
+ */
+export const HOST_CONNECT_WAIT_MS = 5 * 60_000;
+
+/**
+ * The server's own computer (ADR 0060 §3), added with a new workspace and not connected yet: its row exists before the
+ * runner here gets its token, so a plan's panel says it is connecting, with its steps waiting, instead of offline.
+ */
+export const hostConnecting = (
+  gate: PlanGate,
+  machine: Pick<Machine, "kind" | "lastSeenAt" | "createdAt"> | null | undefined,
+  now = Date.now(),
+) =>
+  gate.state === "offline" &&
+  machine?.kind === "host" &&
+  machine.lastSeenAt === null &&
+  now - Date.parse(machine.createdAt) < HOST_CONNECT_WAIT_MS;
+
 /** The Cloud's line per reason a plan can't sign in on the workspace's computer (`aiAccounts.connect.needsCloud.*`). */
 const CLOUD_REASON = {
   no_computer: "preparing",
@@ -618,7 +719,10 @@ const CLOUD_REASON = {
   not_reported: "stuck",
   // The Cloud's computers run Linux, where every CLI runs: never said there.
   system: "stuck",
+  windows_sandbox: "stuck",
   cant_start: "stuck",
+  // The Cloud's programs are updated with its image: said as being updated.
+  cli_outdated: "installing",
 } as const satisfies Record<BrainUnavailable | "keys", string>;
 
 /**
@@ -646,7 +750,7 @@ export function gateLine(
     edition: Edition | null;
     kind: MachineAccountKind;
     computer: string;
-    machine?: Partial<Pick<Machine, "lastSeenAt" | "kind" | "cliErrors">> | null;
+    machine?: Partial<Pick<Machine, "lastSeenAt" | "kind" | "cliErrors" | "moving" | "maintenance">> | null;
     hold?: string | null;
     now?: number;
   },
@@ -658,6 +762,9 @@ export function gateLine(
   if (gate.state === "missing" && edition === "cloud")
     return { text: t("aiAccounts.connect.needsCloud.stuck", { computer, program }), rechecks };
   if (gate.state === "offline") {
+    // Away for what we do to it (a move, a restart…): back by itself, never "use an API key for now".
+    const away = maintenanceOf(machine);
+    if (away?.away) return { text: maintenanceNamed(t, away, computer), rechecks };
     const seen = machine?.lastSeenAt ? Date.parse(machine.lastSeenAt) : null;
     if (edition === "cloud" && seen !== null && now - seen >= CLOUD_AWAY_MS)
       return { text: t("aiAccounts.connect.needsCloud.away", { computer }), rechecks };
@@ -682,8 +789,27 @@ export function gateLine(
     };
   if (gate.reason === "keys") return { text: t("aiAccounts.connect.needs.keys"), rechecks };
   if (gate.reason === "tool_off") return { text: t("brain.reasons.tool_offOne", { computer, program }), rechecks };
-  if (gate.reason === "cant_start" && machine?.cliErrors?.[kind] === CLI_HOME_ONLY)
-    return { text: t("brain.reasons.home_only", { computer, program }), rechecks };
+  if (gate.reason === "cant_start") {
+    // The runner's error line for it, by the CLI's own name (Claude Code's is `claude`), or one of its codes.
+    const said = machine?.cliErrors?.[brainTool(kind)] ?? machine?.cliErrors?.[kind];
+    const words = { computer, program };
+    if (said === CLI_HOME_ONLY) return { text: t("brain.reasons.home_only", words), rechecks };
+    if (said === CLI_GIT_MISSING) return { text: t("connectAi.cli.gitMissing", words), rechecks };
+    if (said) return { text: t("connectAi.cli.cantStart", { ...words, message: said }), rechecks };
+  }
+  // Too old for agentes.chat, or a blocked version: with the command that updates it where its own updater is the way.
+  if (gate.reason === "cli_outdated") {
+    const command = CLI_UPDATE_COMMAND[kind === "claude_code" ? "claude" : kind];
+    return {
+      text: command
+        ? t("brain.reasons.cli_outdatedRun", { computer, program, command })
+        : t("brain.reasons.cli_outdated", { computer, program }),
+      rechecks,
+    };
+  }
+  // The Devin CLI's pin has no Windows build (ADR 0253): its line says why, and the way out.
+  if (gate.reason === "system" && kind === "devin" && gate.os === "windows")
+    return { text: t("brain.reasons.systemDevin", { computer }), rechecks };
   return { text: t(`brain.reasons.${gate.reason}`, { computer, program }), rechecks };
 }
 
@@ -797,6 +923,7 @@ export function agentAi(agent: Pick<Agent, "brain"> | undefined, state: AiState 
   if (brain?.kind === "opencode") return "zen";
   if (brain?.kind === "grok") return "grok";
   if (brain?.kind === "antigravity") return "gemini";
+  if (brain?.kind === "devin") return "devin";
   if (brain?.kind === "claude_code") return isPlanId(brain.provider) ? brain.provider : "claude";
   return state === undefined || state === "no_ai" ? null : "key";
 }

@@ -1,11 +1,45 @@
 /** Credential shapes that never belong in an address or a message: API keys, tokens. */
 export const KEY_SHAPES =
   /\b(sk-[A-Za-z0-9_-]{12,}|sk-ant-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9._-]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[abprs]-[A-Za-z0-9-]{10,})/g;
-/** Credential shapes that signed and presigned addresses carry by design (an AWS key id, a JWT). */
+/**
+ * Credential shapes that signed and presigned addresses carry by design (an AWS key id, a JWT). Read through
+ * `replaceShapes`.
+ */
 export const SIGNED_SHAPES = /\b(AKIA[0-9A-Z]{16}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{8,})/g;
+const WORD_START = /\b(?=\w)/g;
+const JWT_RUN = /[\w-]*/y;
+
+/**
+ * `text.replace(shapes, by)`, read in time, for key shapes that each start a word and of which only a JWT starts with
+ * `eyJ` (`SIGNED_SHAPES`, it with `KEY_SHAPES`). A JWT's first part runs to the end of its run of letters, digits, `_`
+ * and `-`: once one fails, every later start in that run fails too, and isn't tried. `String.replace` reads the run to
+ * its end again from each, the square of its length on a long run of `eyJ-`.
+ */
+export function replaceShapes(text: string, shapes: RegExp, by: string | ((found: string) => string)): string {
+  const at = new RegExp(shapes.source, "y");
+  let out = "";
+  let done = 0;
+  let failed = 0;
+  for (const { index } of text.matchAll(WORD_START)) {
+    const jwt = text.startsWith("eyJ", index);
+    if (index < done || (jwt && index < failed)) continue;
+    at.lastIndex = index;
+    const found = at.exec(text)?.[0];
+    if (found !== undefined) {
+      out += text.slice(done, index) + (typeof by === "string" ? by : by(found));
+      done = index + found.length;
+    } else if (jwt) {
+      JWT_RUN.lastIndex = index;
+      JWT_RUN.test(text);
+      failed = JWT_RUN.lastIndex;
+    }
+  }
+  return out + text.slice(done);
+}
+
 /** `text` with every key shape (`KEY_SHAPES`, `SIGNED_SHAPES`) replaced by `[REDACTED]`. */
 export const maskKeyShapes = (text: string) =>
-  text.replace(KEY_SHAPES, "[REDACTED]").replace(SIGNED_SHAPES, "[REDACTED]");
+  replaceShapes(text.replace(KEY_SHAPES, "[REDACTED]"), SIGNED_SHAPES, "[REDACTED]");
 /** A private key, by its first line. */
 export const PRIVATE_KEY = /-----BEGIN[A-Z0-9\s]*?\sPRIVATE\s+KEY/;
 
@@ -35,7 +69,8 @@ export function normalizeUrl(raw: string): string | null {
   if (u.protocol !== "http:" && u.protocol !== "https:") return null;
   u.hash = "";
   u.protocol = "https:";
-  return u.toString().replace(/\/+$/, "");
+  // From a run's first `/` only: without the lookbehind each `/` of a long run inside the address reads it to its end.
+  return u.toString().replace(/(?<!\/)\/+$/, "");
 }
 
 const URLS_IN_TEXT = /https?:\/\/[^\s<>"'`]+/gi;
@@ -87,7 +122,7 @@ export function outboundUrlProblem(
   const decoded = carried(u);
   const whole = `${decode(u.href)} ${decoded}`;
   if (new RegExp(KEY_SHAPES.source).test(whole) || PRIVATE_KEY.test(whole)) return problem("outbound.credential");
-  if (opts.privateText && new RegExp(SIGNED_SHAPES.source).test(whole)) return problem("outbound.credential");
+  if (opts.privateText && replaceShapes(whole, SIGNED_SHAPES, "") !== whole) return problem("outbound.credential");
   if (decoded.length > MAX_QUERY || u.pathname.split("/").some((s) => s.length > MAX_SEGMENT)) {
     return problem("outbound.long");
   }

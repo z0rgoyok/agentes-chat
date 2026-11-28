@@ -2,6 +2,7 @@ import * as Y from "yjs";
 import type { PeerUser } from "../awareness";
 import { LiveEditError } from "../errors";
 import { isOrderKey, keyBetween, restack, type StackMove } from "../fractional";
+import { cleanGroupName, type LiveGroup, outermostGroup, usedGroups } from "../groups";
 import { newId } from "../ids";
 import { LIVE_LIMITS } from "../limits";
 import { isLiveOrigin } from "../origins";
@@ -12,9 +13,11 @@ import { arrowPath, type Box, center, type Point, pointsBounds, union } from "./
 import { placeBoxes } from "./place";
 import {
   COMMON_PROPS,
+  canvasGroupsMapOf,
   canvasMapOf,
   cleanProp,
   descendantsOf,
+  readCanvasGroups,
   readShapeById,
   readShapes,
   shapeBounds,
@@ -387,7 +390,22 @@ export function deleteShapes(doc: Y.Doc, ids: readonly string[], origin: unknown
       }
     }
     for (const id of gone) map.delete(id);
+    pruneCanvasGroups(doc);
   }, origin);
+}
+
+/** Drops the groups that hold nothing any more, inside the caller's transaction (ADR 0220 §3). */
+function pruneCanvasGroups(doc: Y.Doc): void {
+  const map = canvasGroupsMapOf(doc);
+  if (map.size === 0) return;
+  const named: string[] = [];
+  shapesMapOf(doc).forEach((shape) => {
+    const group = shape instanceof Y.Map ? shape.get("group") : undefined;
+    if (typeof group === "string") named.push(group);
+  });
+  const groups = readCanvasGroups(doc);
+  const used = usedGroups(groups, named);
+  for (const g of groups) if (!used.has(g.id)) map.delete(g.id);
 }
 
 /** Moves shapes by (dx, dy); a frame carries what's in it, and an arrow's free ends move with it. */
@@ -553,4 +571,90 @@ export function arrowEnds(
   const from = endOf(doc, arrow.from);
   const to = endOf(doc, arrow.to);
   return from && to ? { from, to, path: arrowPath(from, to) } : null;
+}
+
+/**
+ * Makes a group of shapes (ADR 0220 §3): they hold together from now on (frames still contain; a group only holds).
+ * Shapes already in a group bring their outermost group along, inside the new one. Returns the group's id.
+ */
+export function groupShapes(
+  doc: Y.Doc,
+  ids: readonly string[],
+  opts: { name?: string; id?: string },
+  origin: unknown,
+): string {
+  const present = ids.filter((id) => shapeMapOf(doc, id));
+  if (!present.length) throw invalid("Name the shapes to group");
+  const groups = readCanvasGroups(doc);
+  if (groups.length >= LIVE_LIMITS.canvas.shapes) throw new LiveEditError("too_many", "Too many groups");
+  const known = new Set(groups.map((g) => g.id));
+  const id = opts.id && /^[A-Za-z0-9_-]{1,64}$/.test(opts.id) ? opts.id : newId();
+  const name = cleanGroupName(opts.name);
+  doc.transact(() => {
+    const map = canvasGroupsMapOf(doc);
+    map.set(id, name ? { name } : {});
+    const moved = new Set<string>();
+    for (const shapeId of present) {
+      const shape = shapeMapOf(doc, shapeId);
+      if (!shape) continue;
+      const current = shape.get("group");
+      const outer = typeof current === "string" && known.has(current) ? outermostGroup(groups, current) : undefined;
+      if (outer && outer !== id) {
+        if (!moved.has(outer)) {
+          const g = map.get(outer);
+          map.set(outer, { ...(g && typeof g === "object" ? (g as object) : {}), parent: id });
+          moved.add(outer);
+        }
+      } else shape.set("group", id);
+    }
+  }, origin);
+  return id;
+}
+
+/** Undoes a group: what it held goes to the group it sat in (or to none). */
+export function ungroupShapes(doc: Y.Doc, groupId: string, origin: unknown): void {
+  const group = readCanvasGroups(doc).find((g) => g.id === groupId);
+  if (!group) throw new LiveEditError("not_found", `No group ${groupId}`);
+  doc.transact(() => {
+    const map = canvasGroupsMapOf(doc);
+    shapesMapOf(doc).forEach((shape) => {
+      if (!(shape instanceof Y.Map) || shape.get("group") !== groupId) return;
+      if (group.parent) shape.set("group", group.parent);
+      else shape.delete("group");
+    });
+    map.forEach((value, id) => {
+      if (!value || typeof value !== "object" || (value as { parent?: unknown }).parent !== groupId) return;
+      const { parent: _gone, ...rest } = value as { parent?: string; name?: string };
+      map.set(id, group.parent ? { ...rest, parent: group.parent } : rest);
+    });
+    map.delete(groupId);
+  }, origin);
+}
+
+/** Names a canvas group ("" or null takes the name away). */
+export function renameShapeGroup(doc: Y.Doc, groupId: string, name: string | null, origin: unknown): void {
+  const map = canvasGroupsMapOf(doc);
+  const value = map.get(groupId);
+  if (!value || typeof value !== "object") throw new LiveEditError("not_found", `No group ${groupId}`);
+  const clean = cleanGroupName(name);
+  const { name: _old, ...rest } = value as { name?: string; parent?: string };
+  doc.transact(() => map.set(groupId, clean ? { ...rest, name: clean } : rest), origin);
+}
+
+/** Writes canvas groups as they are given (ids, names, parents), as `putGroups` does for a slide (ADR 0220 §4). */
+export function putShapeGroups(doc: Y.Doc, groups: readonly LiveGroup[], origin: unknown): void {
+  if (!groups.length) return;
+  const existing = new Set(readCanvasGroups(doc).map((g) => g.id));
+  if (existing.size + groups.length > LIVE_LIMITS.canvas.shapes) throw new LiveEditError("too_many", "Too many groups");
+  const ids = new Set(groups.map((g) => g.id));
+  doc.transact(() => {
+    const map = canvasGroupsMapOf(doc);
+    for (const g of groups) {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(g.id)) throw invalid("Bad group");
+      const name = cleanGroupName(g.name);
+      const parent =
+        g.parent && (ids.has(g.parent) || existing.has(g.parent)) && g.parent !== g.id ? g.parent : undefined;
+      map.set(g.id, { ...(name ? { name } : {}), ...(parent ? { parent } : {}) });
+    }
+  }, origin);
 }

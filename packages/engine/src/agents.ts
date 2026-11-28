@@ -9,6 +9,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  or,
   rowsOf,
   schema,
   sql,
@@ -24,6 +25,7 @@ import {
 import { isIdHandle } from "@agenteschat/ui/names";
 import { type AgentAppearance, type AppearanceInput, setAgentAppearance } from "./appearance";
 import { dropAgentRules } from "./approval-rules";
+import { releaseUnasked } from "./approvals";
 import {
   ACCESS_COLUMNS,
   type AgentAccessFields,
@@ -48,9 +50,10 @@ import { type AutonomySettings, autonomySettings, chosenAutonomy } from "./auton
 import { isComputerBrain } from "./brains/types";
 import { resolveBudgetPaused } from "./budget-paused-rows";
 import { caches } from "./cache";
+import { hasLearnedSection, moveLearnedSections } from "./context/learned-sections";
 import { modelInfoFor, usableCredentialRow } from "./credentials";
 import { ConflictError, ForbiddenError, isUniqueViolation, NotFoundError, ValidationError } from "./errors";
-import { publishAgentsChanged } from "./events";
+import { publishAgentsChanged, publishListChanged } from "./events";
 import type { CommandApproval } from "./missions";
 import { recordOperatorEvent } from "./operator-events";
 import { can, getMembership, type Membership, requireActiveMembership, requirePermission } from "./organizations";
@@ -262,22 +265,38 @@ export function setupOfAgent(a: Agent): schema.AgentSetup {
   };
 }
 
-/** The workspace's own computer (managed, else the server's own) once it has connected (ADR 0056 §10), else null. */
+/**
+ * The workspace's own computer once it has connected (ADR 0056 §10), else null: managed, else the server's own, else
+ * a connected one marked the workspace's and opened to everyone (a self-hosted server's VPS, ADR 0175 §3) whose
+ * pairer is still an admin. Every member's right hand keeps its sign-ins and files there, and whoever runs a
+ * connected computer reads all of it: only someone already trusted with the whole workspace may be that person.
+ */
 export async function workspaceHomeId(db: Executor, orgId: string): Promise<string | null> {
-  const [home] = await db
-    .select({ id: machines.id })
+  const rows = await db
+    .select({ id: machines.id, kind: machines.kind, pairedBy: machines.pairedByUserId })
     .from(machines)
     .where(
       and(
         eq(machines.orgId, orgId),
-        inArray(machines.kind, ["managed", "host"]),
+        or(
+          inArray(machines.kind, ["managed", "host"]),
+          and(
+            eq(machines.kind, "connected"),
+            eq(machines.belongsToWorkspace, true),
+            eq(machines.audienceMode, "everyone"),
+            isNotNull(machines.pairedByUserId),
+          ),
+        ),
         isNotNull(machines.tokenHash),
         isNull(machines.deletedAt),
       ),
     )
-    .orderBy(sql`${machines.kind} = 'managed' desc`, asc(machines.createdAt))
-    .limit(1);
-  return home?.id ?? null;
+    .orderBy(sql`case ${machines.kind} when 'managed' then 0 when 'host' then 1 else 2 end`, asc(machines.createdAt));
+  for (const m of rows) {
+    if (m.kind !== "connected") return m.id;
+    if (m.pairedBy && can(await getMembership(db, m.pairedBy, orgId), "configure")) return m.id;
+  }
+  return null;
 }
 
 /**
@@ -502,8 +521,21 @@ export async function createAgent(
     throw error;
   }
   caches.agents.delete(`${orgId}:team`);
+  agent = await moveOwnLearned(db, actorId, agent, options.pubsub);
   await publishAgentsChanged(options.pubsub, orgId);
   return agent;
+}
+
+/**
+ * A "## Learned" section an agent was created, copied, imported or saved with becomes its memory at once (ADR 0017
+ * §6), as the person's lessons; the agent comes back without it.
+ */
+async function moveOwnLearned(db: Database, actorId: string, agent: Agent, pubsub?: PubSub): Promise<Agent> {
+  if (!hasLearnedSection(agent.instructions)) return agent;
+  if ((await moveLearnedSections(db, agent.orgId, { agentId: agent.id, actorId })) > 0)
+    await publishListChanged(pubsub, agent.orgId, "memory");
+  const [row] = await db.select().from(agents).where(eq(agents.id, agent.id));
+  return row ?? agent;
 }
 
 /** Whose plan the agent's computer brain thinks with: its account's owner, else whoever connected its computer. */
@@ -711,6 +743,7 @@ export async function updateAgent(
     throw error;
   }
   if (!agent) throw new NotFoundError("Agent not found");
+  if (input.instructions !== undefined) agent = await moveOwnLearned(db, actorId, agent, options.pubsub);
   caches.agents.delete(`${orgId}:${agentId}`);
   caches.agents.delete(`${orgId}:team`);
   if (before && (before.ownerUserId !== agent.ownerUserId || before.ownerRoleId !== agent.ownerRoleId)) {
@@ -749,6 +782,10 @@ export async function updateAgent(
       target: { type: "agent", id: agentId },
       details: { name: agent.name, changed, ...shown },
     });
+  }
+  // Set to never ask: what it still waits on would not ask now, so its runs call it again (`releaseUnasked`).
+  if (approvalsLevel !== undefined && agent.approvalsLevel === "never") {
+    await releaseUnasked({ db, pubsub: options.pubsub }, actorId, orgId, { agentIds: [agentId] });
   }
   if (input.monthlyBudgetNanoUsd !== undefined) {
     await resyncBudgetCounter(db, orgId, agentId);
@@ -888,6 +925,9 @@ export async function archiveAgent(
     // It leaves every task it was on (ADR 0188): an archived agent answers no task's conversation and starts no work.
     const { unassignGone } = await import("./issues");
     await unassignGone({ db, pubsub }, orgId, { type: "agent", id: agentId }).catch(() => null);
+    // Its routines can't run: they read as paused now, and a person may still pause, edit or delete them.
+    const { pauseRoutinesOf } = await import("./routine-firing");
+    await pauseRoutinesOf({ db, pubsub }, orgId, { agentId }).catch(() => 0);
   }
   // Its channel memberships stay: what runs read of a channel's members leaves it out from now on.
   forgetAgentCaches(orgId, agentId);
@@ -920,6 +960,9 @@ export async function unarchiveAgent(
     details: { name: back.name, handle: back.handle },
   });
   forgetAgentCaches(orgId, agentId);
+  // Its archive paused its routines: they come back with it. Loaded here: routines builds on this module.
+  const { resumeArchivedAgentRoutines } = await import("./routines");
+  await resumeArchivedAgentRoutines({ db, pubsub: options.pubsub }, orgId, agentId, actorId).catch(() => 0);
   await publishAgentsChanged(options.pubsub, orgId);
 }
 

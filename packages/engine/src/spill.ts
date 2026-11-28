@@ -12,11 +12,26 @@ import { isRightHand } from "./right-hand";
 
 const { agentRuns, machineAccounts, machines } = schema;
 
-/** Where a spilled run thinks (`Transcript.spill`): `from` is the agent's own computer, which was full. */
+/**
+ * Where a spilled run thinks (`Transcript.spill`): `from` is the agent's own computer, full (`cause` "full") or away
+ * (offline or paused: "away"), and the names the reply's line says them by (`meta.spilled`).
+ */
 export interface SpillRecord {
   from: string;
   to: string;
+  cause?: SpillCause;
+  fromName?: string;
+  toName?: string;
 }
+
+/** "chosen": its owner chose a computer of theirs for their agents' work (`spill_first`), and it was free. */
+export type SpillCause = "full" | "away" | "chosen";
+
+/**
+ * How long an agent's ask, a routine or long work waits in its computer's line before it looks for another computer
+ * (a person's reply looks at once): most waits end sooner, and a run on its own computer keeps its warm session.
+ */
+export const SPILL_AFTER_MS = 60_000;
 
 type SpillDeps = { db: Executor; machines?: { status(machineId: string): Promise<MachineStatus | null> } };
 
@@ -70,7 +85,8 @@ export async function spillPlan(
   );
   if (computerBrainUnavailable(plan.kind, machineId, status, Date.now(), account, ownersPlan, usage, model))
     return null;
-  const { account: _home, usage: _homeUsage, ...rest } = plan;
+  // What kept its own computer from thinking (offline, paused) isn't this one's.
+  const { account: _home, usage: _homeUsage, unavailable: _away, ...rest } = plan;
   return {
     ...rest,
     ...(model ? { model } : {}),
@@ -98,8 +114,11 @@ export interface AccountMove {
 export interface AccountSwitch {
   from: { id: string; name: string };
   to: { id: string; name: string };
-  /** What moved it: its plan's limit, the pause line (99%) of long work, or the paid extra usage it would go into. */
-  cause: "limit" | "line" | "extra";
+  /**
+   * What moved it: its plan's limit, the pause line (99%) of long work, the paid extra usage it would go into, or its
+   * sign-in thinking for all the runs it takes at once (`busy`).
+   */
+  cause: "limit" | "line" | "extra" | "busy";
 }
 
 /** Where `nextAccountPlan` landed: the plan on the next account, else how many accounts are all limited and the first reset. */
@@ -272,7 +291,15 @@ export async function movedAccountPlan(
   return { ...rest, account, ...(usage ? { usage } : {}), ...(why ? { unavailable: why } : {}) };
 }
 
-/** Online computers of the workspace other than `home` that take spill-over for someone, with nothing in their line. */
+/** The workspace lets devices help (`organization_settings.devices_help`): on unless an admin turned it off. */
+const workspaceLetsDevicesHelp = sql`coalesce((select s.devices_help from ${schema.organizationSettings} s
+  where s.org_id = ${machines.orgId}), true)`;
+
+/**
+ * Online computers of the workspace other than `home` whose owner lets them help ("Help when the team's computer is
+ * full or away", `spill_own`), in a workspace that lets devices help, with nothing in their line. Never a server
+ * install (an OS user per agent): the agent has no user of its own there.
+ */
 const spillable = (orgId: string, home: string) =>
   and(
     eq(machines.orgId, orgId),
@@ -281,12 +308,26 @@ const spillable = (orgId: string, home: string) =>
     eq(machines.online, true),
     eq(machines.paused, false),
     eq(machines.execAllowed, true),
-    sql`(${machines.spillOwn} or ${machines.spillOthers})`,
+    eq(machines.spillOwn, true),
+    workspaceLetsDevicesHelp,
     sql`${machines.executors}->>'mode' is distinct from 'system'`,
     sql`not exists (select 1 from ${agentRuns} w where w.org_id = ${machines.orgId}
       and w.waiting_machine_id = ${machines.id} and w.status = 'waiting_input'
       and coalesce(w.state, w.transcript)->'waitingForBrain'->>'code' = 'busy')`,
   );
+
+/** The computers `owner` chose for their agents' work (`spill_first`), free to take a turn now. */
+const chosenBy = (owner: string) => and(eq(machines.spillFirst, true), eq(machines.pairedByUserId, owner));
+
+/** Whether `owner` has a computer for their agents' work free now (`spillTarget` with `chosen`): worth a look. */
+export async function chosenComputerFree(db: Executor, orgId: string, owner: string, home: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: machines.id })
+    .from(machines)
+    .where(and(spillable(orgId, home), chosenBy(owner)))
+    .limit(1);
+  return row !== undefined;
+}
 
 /** Whether a turn waiting behind others on `home` may find another computer (`spillTarget`): worth a look now. */
 export async function spillMayHelp(db: Executor, orgId: string, home: string): Promise<boolean> {
@@ -295,38 +336,48 @@ export async function spillMayHelp(db: Executor, orgId: string, home: string): P
 }
 
 /**
- * Spill-over: another online computer of the workspace that may think `personId`'s waited-on turn now, while the
- * agent's own (`plan.session.machineId`) is full. Its owner allowed it (`spill_own` for the owner's own turns,
- * `spill_others` for anyone's whose agents may use it), nothing waits in its line, and the agent's owner has a
- * sign-in there. A server install (an OS user per agent) is never one: the agent has no user of its own there.
+ * Spill-over ("Devices as extra capacity", ADR 0233): another online computer of the workspace that may take the run's
+ * fresh turn now, while the agent's own (`plan.session.machineId`) is full or away. Its owner lets it help, nothing
+ * waits in its line, and the agent's owner has a sign-in there (`spillPlan`). A person's own computer takes only its
+ * owner's agents (until agents' commands are isolated from its owner's files there); a computer marked the
+ * workspace's takes anyone's. `personId`: whom the run works for, who may use the computer unless it's theirs.
  */
 export async function spillTarget(
   deps: SpillDeps,
   agent: Agent,
   plan: BrainPlan,
-  personId: string,
+  personId: string | null,
   session: { id: string },
-): Promise<{ machineId: string; plan: BrainPlan } | null> {
+  /** Only a computer its owner chose for their agents' work (`chosenBy`). */
+  chosen = false,
+): Promise<{ machineId: string; name: string; homeName: string | null; plan: BrainPlan } | null> {
   const home = plan.session?.machineId;
-  if (!home) return null;
+  const owner = agent.ownerUserId;
+  if (!home || (chosen && !owner)) return null;
   const candidates = await deps.db
     .select()
     .from(machines)
     .where(
       and(
         spillable(agent.orgId, home),
-        sql`(${machines.spillOthers} or (${machines.spillOwn} and ${machines.pairedByUserId} = ${personId}))`,
+        chosen && owner ? chosenBy(owner) : undefined,
+        owner
+          ? sql`(${machines.belongsToWorkspace} or ${machines.pairedByUserId} = ${owner})`
+          : eq(machines.belongsToWorkspace, true),
       ),
     )
     .orderBy(
-      sql`${machines.pairedByUserId} = ${personId} desc nulls last`,
+      sql`${machines.pairedByUserId} = ${owner ?? ""} desc nulls last`,
       sql`${machines.size}->>'memoryGb' desc nulls last`,
     );
+  const person = personId ?? owner;
   for (const m of candidates) {
-    if (m.pairedByUserId !== personId && !(await mayUseDevice(deps.db, agent.orgId, personId, machineRule(m))))
+    if (m.pairedByUserId !== person && !(person && (await mayUseDevice(deps.db, agent.orgId, person, machineRule(m)))))
       continue;
     const moved = await spillPlan(deps, agent, plan, m.id, { id: session.id, resume: false });
-    if (moved) return { machineId: m.id, plan: moved };
+    if (!moved) continue;
+    const [from] = await deps.db.select({ name: machines.name }).from(machines).where(eq(machines.id, home));
+    return { machineId: m.id, name: m.name, homeName: from?.name ?? null, plan: moved };
   }
   return null;
 }

@@ -6,6 +6,7 @@ import { readRich } from "../rich/yjs";
 import { arrowPath, union } from "./geometry";
 import {
   canvasBackground,
+  canvasGroupsMapOf,
   canvasMapOf,
   cleanProp,
   finite,
@@ -144,6 +145,8 @@ export function validateCanvas(doc: Y.Doc): string[] {
   if (bg !== undefined && canvasBackground(doc) !== bg) problems.push("The canvas has an unknown background");
   const map = shapesMapOf(doc);
   if (map.size > limits.shapes) problems.push(`The canvas has ${map.size} shapes (at most ${limits.shapes})`);
+  const groups = canvasGroupsMapOf(doc);
+  if (groups.size > limits.shapes) problems.push(`The canvas has ${groups.size} groups (at most ${limits.shapes})`);
   map.forEach((shape, id) => {
     const where = `Shape ${id}`;
     if (!(shape instanceof Y.Map)) {
@@ -186,5 +189,6 @@ export function replaceCanvas(doc: Y.Doc, from: Y.Doc, origin: unknown): void {
   doc.transact(() => {
     overwriteMap(canvasMapOf(doc), canvasMapOf(from));
     overwriteMap(shapesMapOf(doc), shapesMapOf(from));
+    overwriteMap(canvasGroupsMapOf(doc), canvasGroupsMapOf(from));
   }, origin);
 }

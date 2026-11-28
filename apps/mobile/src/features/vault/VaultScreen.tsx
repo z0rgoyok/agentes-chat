@@ -1,10 +1,11 @@
-import { useVault, type VaultConnection, type VaultItem, type VaultOverview } from "@agenteschat/client";
+import { useVault, useVaultBulk, type VaultConnection, type VaultItem, type VaultOverview } from "@agenteschat/client";
+import { errorText } from "@agenteschat/client/lib/errors";
 import { joinNames, relativeTime } from "@agenteschat/client/lib/format";
 import { webSettingsUrl } from "@agenteschat/client/lib/server";
 import { vaultNoAgents } from "@agenteschat/client/lib/vault";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { serverUrl } from "@/lib/server";
 import {
   Button,
@@ -20,13 +21,14 @@ import {
   Segmented,
   SkeletonList,
   Text,
+  useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { openPage } from "../ai/parts";
 import { Gap, SettingsPage } from "../settings/parts";
 import { FirstUse, LoadFailed } from "../shared/FirstUse";
 import { useColors, useNow, useOrgId } from "../shared/hooks";
-import { Loaded, MONO } from "../shared/parts";
+import { Loaded, MONO, successHaptic } from "../shared/parts";
 import {
   agentsSummary,
   connectionLine,
@@ -42,6 +44,7 @@ import {
   vaultList,
 } from "./logic";
 import { useVaultNames } from "./parts";
+import { openBulkAccess } from "./VaultAccessScreen";
 
 /** Above this many items a tab gets its search (a few rows read faster than a search box). */
 const SEARCH_FROM = 6;
@@ -49,13 +52,18 @@ const SEARCH_FROM = 6;
 /**
  * Settings › Vault (ADR 0144), as the web's: the team's items, the person's own and the password managers connected,
  * one view at a time. Each row says what it is, which agents use it and when it was last used, and opens its page.
- * New items start here; importing a passwords file happens on a computer (the web), and a row says so.
+ * New items start here; importing a passwords file happens on a computer (the web), and a row says so. "Select"
+ * turns a tab's rows into choices, to change who has access to many items at once or delete them.
  */
 export function VaultScreen() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const orgId = useOrgId();
+  const toast = useToast();
   const vault = useVault(orgId);
+  const bulk = useVaultBulk(orgId);
   const [tab, setTab] = useState<VaultTab | null>(null);
+  // Choosing items to change or delete at once: null while the rows open their pages.
+  const [picked, setPicked] = useState<ReadonlySet<string> | null>(null);
   const title = t("settings.section.vault");
   const data = vault.data;
   if (!data) {
@@ -70,11 +78,101 @@ export function VaultScreen() {
   // A new item starts where the person is: the team's tab adds to the team when they may, the person's own always.
   const adds = current === "personal" || (current === "team" && data.canManageTeam);
   const create = () => router.push(vaultHref.create(current === "team" ? "team" : "personal") as never);
+  const inTab = current === "connections" ? [] : data.items.filter((i) => i.scope === current);
+  // Only who edits a tab's items chooses them: their own, or the team's with the permission.
+  const choosable = inTab.length > 0 && (current === "personal" || data.canManageTeam);
+  const chosen = picked ? inTab.filter((i) => picked.has(i.id)) : [];
+  const toggle = (id: string) =>
+    setPicked((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const failed = (err: unknown) => toast({ title: errorText(t, err, i18n.language), icon: "x" });
+  const remove = () =>
+    Alert.alert(t("vault.bulk.deleteTitle", { count: chosen.length }), t("vault.bulk.deleteText"), [
+      { text: t("common.cancel"), style: "cancel" },
+      {
+        text: t("vault.bulk.deleteGo", { count: chosen.length }),
+        style: "destructive",
+        onPress: () =>
+          bulk.mutate(
+            { type: "delete", ids: chosen.map((i) => i.id) },
+            {
+              onSuccess: (r) => {
+                successHaptic();
+                toast({
+                  title: [
+                    t("vault.bulk.deleted", { count: r.count }),
+                    r.kept ? t("vault.bulk.kept", { count: r.kept }) : "",
+                  ]
+                    .filter(Boolean)
+                    .join(" "),
+                });
+                setPicked(null);
+              },
+              onError: failed,
+            },
+          ),
+      },
+    ]);
+  const changeAccess = () => {
+    const first = chosen[0];
+    if (!first || current === "connections") return;
+    openBulkAccess({ ids: chosen.map((i) => i.id), scope: current, access: first.access });
+    setPicked(null);
+  };
+  const header = picked
+    ? { action: { label: t("common.cancel"), onPress: () => setPicked(null) } }
+    : {
+        actions: [
+          ...(choosable
+            ? [
+                {
+                  icon: "checkc" as const,
+                  sf: "checkmark.circle" as const,
+                  label: t("vault.bulk.select"),
+                  onPress: () => setPicked(new Set()),
+                },
+              ]
+            : []),
+          ...(adds
+            ? [{ icon: "plus" as const, sf: "plus" as const, label: t("mobile.vault.newItem"), onPress: create }]
+            : []),
+        ],
+      };
   return (
-    // "+" in the bar, as every list that adds: the tabs keep their place whichever tab is shown.
+    // "+" in the bar, as every list that adds: the tabs keep their place whichever tab is shown. Choosing items, the
+    // bar's word ends the choice and what to do with them is docked at the foot.
     <SettingsPage
       title={title}
-      {...(adds ? { actions: [{ icon: "plus", sf: "plus", label: t("mobile.vault.newItem"), onPress: create }] } : {})}
+      {...header}
+      locked={bulk.isPending}
+      {...(picked
+        ? {
+            bottom: (
+              <View style={styles.bulk}>
+                <Button
+                  variant="secondary"
+                  label={t("vault.bulk.access")}
+                  disabled={chosen.length === 0 || bulk.isPending}
+                  onPress={changeAccess}
+                />
+                <View style={styles.grow}>
+                  <Button
+                    variant="primary"
+                    wide
+                    label={chosen.length ? t("vault.bulk.deleteGo", { count: chosen.length }) : t("vault.bulk.delete")}
+                    loading={bulk.isPending}
+                    disabled={chosen.length === 0 || bulk.isPending}
+                    onPress={remove}
+                  />
+                </View>
+              </View>
+            ),
+          }
+        : {})}
     >
       <Loaded>
         <GroupedFooter>{t("settings.sectionText.vault")}</GroupedFooter>
@@ -86,20 +184,49 @@ export function VaultScreen() {
               { key: "connections", label: t("mobile.vault.tab.connections"), count: counts.connections },
             ]}
             value={current}
-            onChange={(key) => setTab(key as VaultTab)}
+            onChange={(key) => {
+              setTab(key as VaultTab);
+              setPicked(null);
+            }}
           />
         </View>
         {/* Another tab's rows fade in where the last one's were. */}
         <Loaded key={current}>
-          {current === "connections" ? <Connections data={data} /> : <Items data={data} tab={current} onNew={create} />}
+          {current === "connections" ? (
+            <Connections data={data} />
+          ) : (
+            <Items
+              data={data}
+              tab={current}
+              onNew={create}
+              {...(picked ? { picking: { picked, toggle, all: (ids: string[]) => setPicked(new Set(ids)) } } : {})}
+            />
+          )}
         </Loaded>
       </Loaded>
     </SettingsPage>
   );
 }
 
+/** Items being chosen: which, one chosen or let go, and all of those shown at once. */
+interface Picking {
+  picked: ReadonlySet<string>;
+  toggle: (id: string) => void;
+  all: (ids: string[]) => void;
+}
+
 /** One tab of items: what it is for, a search and a kind filter when it holds enough, the rows. */
-function Items({ data, tab, onNew }: { data: VaultOverview; tab: "team" | "personal"; onNew: () => void }) {
+function Items({
+  data,
+  tab,
+  onNew,
+  picking,
+}: {
+  data: VaultOverview;
+  tab: "team" | "personal";
+  onNew: () => void;
+  picking?: Picking;
+}) {
   const { t } = useTranslation();
   const orgId = useOrgId();
   const now = useNow(60_000);
@@ -171,34 +298,58 @@ function Items({ data, tab, onNew }: { data: VaultOverview; tab: "team" | "perso
               }
             />
           ) : (
-            <GroupedList>
-              {shown.map((item) => (
-                <ItemRow key={item.id} icon={KIND_ICON[item.kind]} item={item} now={now} />
-              ))}
-            </GroupedList>
+            <>
+              {picking && shown.some((i) => !picking.picked.has(i.id)) && shown.length > 1 ? (
+                <>
+                  <GroupedList>
+                    <GroupedRow
+                      icon="checkc"
+                      label={t("vault.bulk.selectAll", { count: shown.length })}
+                      onPress={() => picking.all(shown.map((i) => i.id))}
+                    />
+                  </GroupedList>
+                  <Gap />
+                </>
+              ) : null}
+              <GroupedList>
+                {shown.map((item) => (
+                  <ItemRow
+                    key={item.id}
+                    icon={KIND_ICON[item.kind]}
+                    item={item}
+                    now={now}
+                    {...(picking ? { pick: { on: picking.picked.has(item.id), toggle: picking.toggle } } : {})}
+                  />
+                ))}
+              </GroupedList>
+            </>
           )}
         </>
       )}
-      <Gap />
-      <GroupedList>
-        {mayAdd ? (
-          <GroupedRow
-            icon="key"
-            label={t("vault.env.open")}
-            chevron
-            onPress={() => router.push(vaultHref.env(tab) as never)}
-          />
-        ) : null}
-        <GroupedRow
-          icon="laptop"
-          label={t("mobile.vault.import.title")}
-          sub={t("mobile.vault.import.text")}
-          subLines={4}
-          media
-          chevron
-          onPress={() => openPage(webSettingsUrl(serverUrl(), orgId, "vault"))}
-        />
-      </GroupedList>
+      {picking ? null : (
+        <>
+          <Gap />
+          <GroupedList>
+            {mayAdd ? (
+              <GroupedRow
+                icon="key"
+                label={t("vault.env.open")}
+                chevron
+                onPress={() => router.push(vaultHref.env(tab) as never)}
+              />
+            ) : null}
+            <GroupedRow
+              icon="laptop"
+              label={t("mobile.vault.import.title")}
+              sub={t("mobile.vault.import.text")}
+              subLines={4}
+              media
+              chevron
+              onPress={() => openPage(webSettingsUrl(serverUrl(), orgId, "vault"))}
+            />
+          </GroupedList>
+        </>
+      )}
     </>
   );
 }
@@ -207,7 +358,18 @@ function Items({ data, tab, onNew }: { data: VaultOverview; tab: "team" | "perso
  * An item's row: what it is, its source and state, which agents use it and its last use. `icon` is a prop of the row
  * itself so the list insets the line between rows past the icon, as it does for its own rows.
  */
-function ItemRow({ icon, item, now }: { icon: IconName; item: VaultItem; now: number }) {
+function ItemRow({
+  icon,
+  item,
+  now,
+  pick,
+}: {
+  icon: IconName;
+  item: VaultItem;
+  now: number;
+  /** Choosing items: a tap chooses this one or lets it go, instead of opening its page. */
+  pick?: { on: boolean; toggle: (id: string) => void };
+}) {
   const { t, i18n } = useTranslation();
   const c = useColors();
   const names = useVaultNames();
@@ -241,8 +403,9 @@ function ItemRow({ icon, item, now }: { icon: IconName; item: VaultItem; now: nu
           ) : null}
         </>
       }
-      chevron
-      onPress={() => router.push(vaultHref.item(item.id) as never)}
+      {...(pick
+        ? { checked: pick.on, onPress: () => pick.toggle(item.id) }
+        : { chevron: true, onPress: () => router.push(vaultHref.item(item.id) as never) })}
     />
   );
 }
@@ -328,6 +491,8 @@ function ConnectionRow({ icon, conn, now }: { icon: IconName; conn: VaultConnect
 }
 
 const styles = StyleSheet.create({
+  bulk: { flexDirection: "row", gap: 10 },
+  grow: { flex: 1, minWidth: 0 },
   tabs: { paddingTop: 20, paddingBottom: 4, paddingHorizontal: 4 },
   search: { paddingTop: 12, paddingBottom: 4 },
   // The pills scroll to the screen's edges; their row has its own inset.

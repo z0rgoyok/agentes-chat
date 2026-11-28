@@ -15,7 +15,7 @@ import {
   sql,
 } from "@agenteschat/db";
 import { audienceSql } from "./audience";
-import { messageRoot, personOfMessage, routinePostRun, runAuthorityById } from "./authority";
+import { feedingBrief, messageRoot, personOfMessage, routinePostRun, runAuthorityById } from "./authority";
 import { agentLineRank, frontOfLine } from "./computer-queue";
 import { dmAgents, isAgentOnlyDm } from "./dms";
 import { getMessage, type Message } from "./messages";
@@ -519,8 +519,9 @@ const byPerson = async (tx: Executor, message: Pick<Message, "id" | "orgId">) =>
  * steer the agent's run there (and put them behind an unattended one), except in the agents' DM, where a
  * run works for one person, and background work, which only its asker's join (ADR 0121). Another agent's message for a person, and work coming back to a person's run (a
  * note's reply, a task that ended, a folder decision), joins only a run working for that same person. A
- * routine's report joins only a run such news woke: never one working for a person, nor the agent's own work
- * (a mission's); it starts a run of its own. What nobody is behind still goes to whatever run works there.
+ * routine's report joins only a run news of that same routine woke: never one working for a person, the agent's own
+ * work (a mission's), nor another routine's (each works within its own routine's brief and access); it starts a run
+ * of its own. What nobody is behind still goes to whatever run works there.
  */
 export async function mayJoin(
   tx: Executor,
@@ -550,7 +551,11 @@ export async function mayJoin(
   const behind = await runAuthorityById(tx, message.orgId, runId);
   if (root.kind === "person") return behind.personId === root.personId;
   if (root.kind === "agent") return behind.personId === null;
-  return behind.kind === "unattended" && behind.reason !== "agent";
+  // An integration app's message joins only a run that answers that same app (ADR 0251).
+  if (root.kind === "app") return behind.kind === "unattended" && behind.appId === root.appId;
+  if (behind.kind !== "unattended" || behind.reason === "agent" || behind.reason === "app") return false;
+  const brief = await feedingBrief(tx, message.orgId, root);
+  return !brief || !behind.brief || brief.routineId === behind.brief.routineId;
 }
 
 /** Active agents among `agentIds` that are members of the channel, or the right hand there (re-checked at dispatch time). */

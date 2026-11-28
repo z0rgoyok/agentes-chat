@@ -70,7 +70,12 @@ export interface PackCommit {
   parents: string[];
 }
 
-/** Object count and the commits (with their parents) in a pack; deltified commits are counted but not read. */
+/**
+ * Object count and the commits (with their parents) in a pack. `git pack-objects` stores most pushed commits as deltas
+ * of other commits in the same pack, so a delta whose base is a commit read earlier is resolved: without that, a long
+ * fast-forward push stops at its first deltified commit and reads as a force push. A delta on a base outside the pack
+ * (a thin pack) or on a non-commit is counted but not read.
+ */
 export function readPack(
   data: Uint8Array,
   start = 0,
@@ -85,9 +90,15 @@ export function readPack(
   if (count > (options.maxObjects ?? 1_000_000)) throw new Error("too many objects");
   let pos = start + 12;
   let inflatedTotal = 0;
+  const maxCommitBytes = options.maxCommitBytes ?? 2 * 1024 * 1024;
+  const maxInflatedBytes = options.maxInflatedBytes ?? 128 * 1024 * 1024;
   const commits: PackCommit[] = [];
+  /** Each commit's content, by where its object starts and by id: the bases a later delta may name. */
+  const commitAt = new Map<number, Uint8Array>();
+  const commitById = new Map<string, Uint8Array>();
   for (let i = 0; i < count; i++) {
     if (pos >= data.length) throw new Error("truncated pack object");
+    const objectStart = pos;
     let c = data[pos++] as number;
     const type = (c >> 4) & 7;
     let size = c & 15;
@@ -98,27 +109,46 @@ export function readPack(
       size += (c & 0x7f) * 2 ** shift;
       shift += 7;
     }
-    if (
-      !Number.isSafeInteger(size) ||
-      size < 0 ||
-      size > (options.maxInflatedBytes ?? 128 * 1024 * 1024) - inflatedTotal
-    )
+    if (!Number.isSafeInteger(size) || size < 0 || size > maxInflatedBytes - inflatedTotal)
       throw new Error("pack exceeds uncompressed size limit");
-    if (type === 1 && size > (options.maxCommitBytes ?? 2 * 1024 * 1024)) throw new Error("commit exceeds size limit");
+    if (type === 1 && size > maxCommitBytes) throw new Error("commit exceeds size limit");
+    let base: Uint8Array | undefined;
     if (type === 6) {
-      // OFS_DELTA: a variable-length offset to the base.
-      do c = data[pos++] as number;
-      while (c & 0x80);
-    } else if (type === 7) pos += 20; // REF_DELTA: the base's id.
-    const isCommit = type === 1;
-    const inflated = inflateZlib(data, pos, { keep: isCommit, maxOut: Math.max(size, 1) });
+      // OFS_DELTA: the base starts this many bytes before this object (git's offset encoding, `get_delta_base`).
+      if (pos >= data.length) throw new Error("truncated pack object");
+      c = data[pos++] as number;
+      let back = c & 0x7f;
+      while (c & 0x80) {
+        if (pos >= data.length || back > 2 ** 45) throw new Error("invalid delta offset");
+        c = data[pos++] as number;
+        back = (back + 1) * 128 + (c & 0x7f);
+      }
+      base = commitAt.get(objectStart - back);
+    } else if (type === 7) {
+      // REF_DELTA: the base's id.
+      if (pos + 20 > data.length) throw new Error("truncated pack object");
+      base = commitById.get(Buffer.from(data.subarray(pos, pos + 20)).toString("hex"));
+      pos += 20;
+    }
+    // A delta that git writes is smaller than what it builds, so one bigger than a commit may be is never kept in memory.
+    if (base && size > maxCommitBytes) throw new Error("commit exceeds size limit");
+    const inflated = inflateZlib(data, pos, { keep: type === 1 || base !== undefined, maxOut: Math.max(size, 1) });
     if (inflated.size !== size) throw new Error("pack object size mismatch");
     inflatedTotal += inflated.size;
     pos = inflated.end;
-    if (isCommit && inflated.data) {
-      const header = new TextEncoder().encode(`commit ${inflated.data.length}\0`);
-      const oid = createHash("sha1").update(header).update(inflated.data).digest("hex");
-      const head = new TextDecoder().decode(inflated.data.subarray(0, Math.min(inflated.data.length, 64 * 1024)));
+    let content = type === 1 ? inflated.data : undefined;
+    if (base && inflated.data) {
+      content = applyDelta(base, inflated.data, maxCommitBytes);
+      // A small delta can expand to a large commit: what it expands to counts against the same limit.
+      if (content.length > maxInflatedBytes - inflatedTotal) throw new Error("pack exceeds uncompressed size limit");
+      inflatedTotal += content.length;
+    }
+    if (content) {
+      const header = new TextEncoder().encode(`commit ${content.length}\0`);
+      const oid = createHash("sha1").update(header).update(content).digest("hex");
+      commitAt.set(objectStart, content);
+      commitById.set(oid, content);
+      const head = new TextDecoder().decode(content.subarray(0, Math.min(content.length, 64 * 1024)));
       // Parents as git reads them (`parse_commit_buffer`): only the `parent` lines right after the `tree` line. Git
       // ignores a `parent` line anywhere else, so counting it would pass a root commit off as a fast-forward.
       const lines = head.split("\n");
@@ -132,6 +162,53 @@ export function readPack(
     }
   }
   return { objects: count, commits };
+}
+
+/** A git delta (`patch_delta`) applied to its base; the result is refused above `max` bytes. */
+function applyDelta(base: Uint8Array, delta: Uint8Array, max: number) {
+  let pos = 0;
+  const byte = () => {
+    if (pos >= delta.length) throw new Error("bad delta");
+    return delta[pos++] as number;
+  };
+  const varint = () => {
+    let n = 0;
+    for (let shift = 0; ; shift += 7) {
+      if (shift > 49) throw new Error("bad delta");
+      const c = byte();
+      n += (c & 0x7f) * 2 ** shift;
+      if (!(c & 0x80)) return n;
+    }
+  };
+  if (varint() !== base.length) throw new Error("bad delta");
+  const size = varint();
+  if (size > max) throw new Error("commit exceeds size limit");
+  const out = new Uint8Array(size);
+  let at = 0;
+  while (pos < delta.length) {
+    const op = byte();
+    let from: Uint8Array;
+    let start: number;
+    let length: number;
+    if (op & 0x80) {
+      start = 0;
+      length = 0;
+      for (let i = 0; i < 4; i++) if (op & (1 << i)) start += byte() * 2 ** (8 * i);
+      for (let i = 0; i < 3; i++) if (op & (0x10 << i)) length += byte() * 2 ** (8 * i);
+      if (length === 0) length = 0x10000;
+      from = base;
+    } else if (op) {
+      from = delta;
+      start = pos;
+      length = op;
+      pos += op;
+    } else throw new Error("bad delta");
+    if (start + length > from.length || at + length > size) throw new Error("bad delta");
+    out.set(from.subarray(start, start + length), at);
+    at += length;
+  }
+  if (at !== size) throw new Error("bad delta");
+  return out;
 }
 
 /**

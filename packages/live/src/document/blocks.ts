@@ -1,7 +1,7 @@
 import { newId } from "../ids";
 import { LIVE_LIMITS } from "../limits";
 import { RICH_MAX_LEVEL } from "../rich/schema";
-import { isRichColor, isRichHref } from "../rich/text";
+import { isRichColor, isRichHref, sameTypeMarks, typeMarksOf } from "../rich/text";
 import { DOC_MAX_HEADING } from "./schema";
 import type {
   DocBlock,
@@ -49,7 +49,7 @@ function marksOf(run: Partial<DocRun>): Marks {
   if (run.code === true) marks.code = true;
   if (isRichColor(run.color)) marks.color = run.color;
   if (isRichHref(run.link)) marks.link = run.link;
-  return marks;
+  return { ...marks, ...typeMarksOf(run) };
 }
 
 function sameMarks(a: Marks, b: Marks): boolean {
@@ -60,7 +60,8 @@ function sameMarks(a: Marks, b: Marks): boolean {
     a.strike === b.strike &&
     a.code === b.code &&
     a.color === b.color &&
-    a.link === b.link
+    a.link === b.link &&
+    sameTypeMarks(a, b)
   );
 }
 

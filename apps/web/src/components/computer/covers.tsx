@@ -23,9 +23,9 @@ export function Stage({ children }: { children: ReactNode }) {
 }
 
 /**
- * Watching, the line under the screen: what programs there can see. A cover the screen opens from by itself keeps it
- * too, so the screen opens where its cover was; a cover that stays until someone acts takes its room. Where the stage
- * asks for it (`notice: "hint"`), an ⓘ at the line's end says it instead, with the address sites see.
+ * Watching, the line under the screen: the way out its agents' connections take. A cover the screen opens from by
+ * itself keeps it too, so the screen opens where its cover was; a cover that stays until someone acts takes its room.
+ * Where the stage asks for it (`notice: "hint"`), an ⓘ at the line's end says the address sites see instead.
  */
 export function ScreenNotice({ name, machine }: { name: string; machine?: Machine | null }) {
   const { t } = useTranslation();
@@ -34,18 +34,16 @@ export function ScreenNotice({ name, machine }: { name: string; machine?: Machin
     const ip = machine?.kind === "managed" && machine.online ? machine.egress?.ip : null;
     return (
       <div className="dsk-line dsk-line--hint">
-        <InfoHint name={t("common.about", { label: t("agentComputer.screen", agentGrammar(name)) })} align="end">
-          {t("desktop.watch.notice", agentGrammar(name))}
-          {ip ? ` ${t("machines.egress.line", { ip })}.` : null}
-        </InfoHint>
+        {ip ? (
+          <InfoHint name={t("common.about", { label: t("agentComputer.screen", agentGrammar(name)) })} align="end">
+            {t("machines.egress.line", { ip })}
+          </InfoHint>
+        ) : null}
       </div>
     );
   }
   return (
     <div className="dsk-line">
-      <span className="dsk-words">
-        <span className="muted">{t("desktop.watch.notice", agentGrammar(name))}</span>
-      </span>
       <Egress machine={machine} compact />
     </div>
   );

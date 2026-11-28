@@ -693,7 +693,7 @@ html:not([data-pointer]) .sl-notes__head:focus-visible {
 /* The slide on black: a projector's black, the same in both themes. */
 .sl-present {
   position: fixed;
-  inset: 0;
+  inset: var(--window-top) 0 0;
   z-index: var(--z-dialog);
   display: flex;
   align-items: center;

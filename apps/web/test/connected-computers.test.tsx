@@ -13,9 +13,9 @@ import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { objectUrls } from "@/components/artifacts/FileView";
 import { fileSaver } from "@/components/artifacts/fileSaver";
 import { createI18n } from "@/i18n";
-import { ADA_ID, createFakeApi, ENG_ID, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, createFakeApi, ENG_ID, fakeMachinesOf, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { hintOf, shownText } from "./hint";
-import { renderApp, screen, settle, showIn } from "./render";
+import { onScreen, renderApp, screen, settle, showIn } from "./render";
 
 const saved: { url: string; name: string }[] = [];
 const realSave = fileSaver.save;
@@ -187,6 +187,79 @@ describe("uploaded files in the Drive", () => {
     await settle(4);
     const dialog = screen().getByRole("dialog", { name: long });
     expect(dialog.querySelector(".ac-details__subtitle")?.textContent).toMatch(/7\s?(byte|B)/);
+  });
+
+  test("an audio file plays in the voice-message player in the viewer and on its Drive card, never the browser's", async () => {
+    // A browser that can't play it: the player hands its place back.
+    const played: string[] = [];
+    const RealAudio = globalThis.Audio;
+    globalThis.Audio = class {
+      src = "";
+      preload = "";
+      currentTime = 0;
+      duration = Number.NaN;
+      playbackRate = 1;
+      onerror: (() => void) | null = null;
+      onended: (() => void) | null = null;
+      onloadedmetadata: (() => void) | null = null;
+      constructor(src?: string) {
+        if (src) this.src = src;
+      }
+      play() {
+        played.push(this.src);
+        return Promise.reject(Object.assign(new Error("no"), { name: "NotSupportedError" }));
+      }
+      pause() {}
+      removeAttribute() {}
+    } as unknown as typeof Audio;
+    try {
+      const api = createFakeApi(seedState());
+      const audio = await api.artifacts.upload(
+        ORG_ID,
+        new File([new Uint8Array([73, 68, 51, 4])], "entrevista.mp3", { type: "audio/mpeg" }),
+      );
+      const src = `/api/app/organizations/${ORG_ID}/artifacts/${audio.id}/file?version=1`;
+      await renderApp(`/org/${ORG_ID}/drive?artifact=${audio.id}`, { api });
+      await settle(8);
+      const dialog = screen().getByRole("dialog", { name: "entrevista.mp3" });
+      expect(dialog.querySelector("audio")).toBeNull();
+      const player = dialog.querySelector<HTMLElement>(".file-view--audio .ac-voice");
+      expect(player).not.toBeNull();
+      expect(player?.querySelector("[role=slider]")).not.toBeNull();
+      expect(player?.querySelector(".ac-voice__speed")?.textContent).toBe("1×");
+      expect(dialog.textContent).not.toContain("Sem prévia para este tipo de arquivo.");
+      // One the browser can't play says so, and Baixar stays in the header.
+      const play = player?.querySelector<HTMLButtonElement>(".ac-voice__play");
+      await act(async () => play?.click());
+      await settle(2);
+      expect(played).toEqual([src]);
+      expect(dialog.querySelector(".ac-voice")).toBeNull();
+      expect(dialog.textContent).toContain("Não deu para mostrar a prévia. Baixe o arquivo para abrir.");
+      cleanup();
+      const undo = onScreen(".drive-pv");
+      try {
+        await renderApp(`/org/${ORG_ID}/drive`, { api });
+        await settle(8);
+        const card = document.querySelector<HTMLElement>(".drive-card:has(.ac-voice)");
+        const pv = card?.querySelector(".drive-pv--audio");
+        expect(pv?.getAttribute("aria-hidden")).toBeNull();
+        expect(card?.querySelector("audio")).toBeNull();
+        // One this browser can't play leaves its type tile, as before.
+        await act(async () => pv?.querySelector<HTMLButtonElement>(".ac-voice__play")?.click());
+        await settle(2);
+        expect(card?.querySelector(".ac-voice")).toBeNull();
+        expect(card?.querySelector(".drive-pv--audio")).toBeNull();
+        expect(card?.querySelector(".drive-pv")?.getAttribute("aria-hidden")).toBe("true");
+        expect(card?.querySelector(".drive-pv__ext")?.textContent).toBe("MP3");
+      } finally {
+        undo();
+      }
+    } finally {
+      globalThis.Audio = RealAudio;
+    }
+    expect(previewKind("audio/mpeg")).toBe("audio");
+    expect(previewKind("audio/x-m4a")).toBe("audio");
+    expect(previewKind("application/octet-stream", "entrevista.m4a")).toBe("audio");
   });
 
   test("SVG and other types are download-only; small text files show their text, read-only", async () => {
@@ -415,6 +488,17 @@ describe("Configurações → Dispositivos (self-host)", () => {
     const card = screen().getByRole("region", { name: "Qual computador cada agente usa" });
     const trigger = within(card).getByRole("combobox", { name: "Computador de Ada" });
     expect(trigger.textContent).toContain("Computador deste servidor");
+  });
+
+  test("which computer each agent uses: the right hand's row only says its computer, for admins too", async () => {
+    const api = createFakeApi(withRightHand(seedState()));
+    fakeMachinesOf.get(api)?.pair({ name: "Escritório" });
+    await renderApp(`/org/${ORG_ID}/settings/computers`, { api });
+    await settle(8);
+    const card = screen().getByRole("region", { name: "Qual computador cada agente usa" });
+    expect(within(card).getByRole("combobox", { name: "Computador de Ada" })).toBeTruthy();
+    expect(within(card).queryByRole("combobox", { name: "Computador de Lodi" })).toBeNull();
+    expect(card.textContent).toContain("Lodi");
   });
 
   test("members see each agent's computer but don't pick for agents they don't own", async () => {
@@ -688,10 +772,44 @@ describe("an agent's folder request in the chat (ADR 0036 §8)", () => {
     await settle(10);
     const ask = document.querySelector('[data-message-id="m-ask"]') as HTMLElement;
     expect(ask.textContent).toContain("Ada pediu a pasta loja-v5 no MacBook do Walter. Esperando a resposta lá.");
-    expect(ask.querySelector(".machine-command__code")?.textContent).toBe(params.command);
+    // The command is the way without the app: folded.
+    const fold = ask.querySelector("details");
+    expect(fold?.open).toBe(false);
+    expect(fold?.querySelector("summary")?.textContent).toBe("Sem o app lá? Use o Terminal");
+    expect(fold?.querySelector(".machine-command__code")?.textContent).toBe(params.command);
     const ok = document.querySelector('[data-message-id="m-ok"]') as HTMLElement;
     expect(ok.textContent).toContain("Liberado: Ada já pode usar loja-v5 no MacBook do Walter");
     expect(ok.querySelector(".machine-command__code")).toBeNull();
+  });
+
+  test("a computer the agentes.chat app runs: Liberar no computador opens the request there, and no command", async () => {
+    const state = seedState();
+    const api = createFakeApi(state);
+    const m = fakeMachinesOf.get(api)?.pair({ name: "MacBook do Walter", os: "darwin", folderPick: true }) as Machine;
+    const base = state.messages[0] as (typeof state.messages)[number];
+    state.messages.push({
+      ...base,
+      id: "m-ask",
+      threadId: null,
+      author: { type: "agent", id: ADA_ID },
+      body: "Ada asked for a folder.",
+      mentionedAgentIds: [],
+      meta: {
+        bodyCode: "machine_access_requested",
+        bodyParams: params,
+        machineAccess: { machineId: m.id, requestId: "0193aaaa-bbbb-7ccc-8ddd-eeeeffff0001" },
+      },
+      createdAt: new Date().toISOString(),
+    });
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
+    await settle(10);
+    const ask = document.querySelector('[data-message-id="m-ask"]') as HTMLElement;
+    expect(ask.querySelector(".machine-command__code")).toBeNull();
+    await act(async () => fireEvent.click(within(ask).getByRole("button", { name: "Liberar no computador" })));
+    await settle(4);
+    expect(state.calls.filter((c) => c.method === "machines.askFolder").map((c) => c.args)).toEqual([
+      [ORG_ID, m.id, { requestId: "0193aaaa-bbbb-7ccc-8ddd-eeeeffff0001" }],
+    ]);
   });
 
   test("the notice codes the chat knows", () => {
@@ -741,7 +859,7 @@ describe("the computer page: pause, folders and tools (ADR 0036)", () => {
 
   test("its facts start at the card's edge, under the portrait, whatever the portrait's width", async () => {
     await open();
-    expect(document.querySelector(".ac-card > .dv-facts")?.textContent).toContain("macOS");
+    expect(document.querySelector(".ac-card > details.ac-disclosure .dv-facts")?.textContent).toContain("macOS");
     const css = await Bun.file(new URL("../src/layout.css", import.meta.url).pathname).text();
     expect(css).toContain("\n.machine-page__facts {\n  display: flex;");
     // No indent past a portrait: a tower is half as wide as a laptop.
@@ -861,13 +979,64 @@ describe("the computer page: pause, folders and tools (ADR 0036)", () => {
     expect(reduceCalls(state)).toEqual([[ORG_ID, m.id, { disableTool: "claude" }]]);
     expect((tools.querySelector('[data-tool="claude"]') as HTMLElement).textContent).toContain("Desligado");
 
-    // To grant: on the computer (the app), the terminal command as a fallback; no grant button.
+    // An app too old to pick a folder from here: on the computer (the app), the terminal command folded as the way
+    // without it; no grant button.
     expect(screen().queryByRole("button", { name: /^(Liberar|Ligar)/ })).toBeNull();
     const grant = screen().getByRole("region", { name: "Para liberar mais" });
     expect(grant.textContent).toContain("abra o app do agentes.chat nele (Preferências → Pastas).");
-    expect(grant.textContent).toContain("Sem o app? No terminal do computador:");
-    expect(grant.querySelector(".machine-command__code")?.textContent).toBe(
+    const fold = grant.querySelector("details");
+    expect(fold?.open).toBe(false);
+    expect(fold?.querySelector("summary")?.textContent).toBe("Sem o app lá? Use o Terminal");
+    expect(fold?.querySelector(".machine-command__code")?.textContent).toBe(
       "agentes-runner folders allow <pasta> --agent <agente>",
+    );
+  });
+
+  test("Liberar uma pasta: the app on the computer opens its folder picker there, and the card waits for the folder", async () => {
+    const { state, m, machines, socket } = await open({ folderPick: true });
+    const grant = screen().getByRole("region", { name: "Para liberar mais" });
+    expect(grant.textContent).toContain("O app do agentes.chat abre a escolha de pasta no");
+    // The command is for a computer without the app: none here.
+    expect(grant.querySelector("details")).toBeNull();
+    expect(grant.textContent).not.toContain("agentes-runner");
+    await click(within(grant).getByRole("button", { name: "Liberar uma pasta" }));
+    await settle(4);
+    expect(state.calls.filter((c) => c.method === "machines.askFolder").map((c) => c.args)).toEqual([
+      [ORG_ID, m.id, {}],
+    ]);
+    expect(within(grant).getByRole("status").textContent).toBe(`Esperando a escolha da pasta no ${m.name}`);
+    // The person there picks a folder already allowed (DOCS, for nobody yet): its agents change, not the count.
+    const folders = [
+      { path: LOJA, agents: [ADA_ID] },
+      { path: DOCS, agents: [ADA_ID] },
+    ];
+    machines.patch(m.id, { access: { ...(m.access as NonNullable<Machine["access"]>), folders } });
+    await act(async () => socket.push(orgEvent({ type: "machine.updated", machineId: m.id, access: true })));
+    await settle(4);
+    expect(within(grant).queryByRole("status")).toBeNull();
+  });
+
+  test("a Windows computer: what holds Codex there joins its ⓘ when it is less than MXC, never as a line", async () => {
+    const codexHint = async (codexSandbox: Machine["codexSandbox"]) => {
+      cleanup();
+      await open({
+        name: "Estudio-PC",
+        os: "windows",
+        codexSandbox,
+        access: { folders: [], tools: { claude: true, codex: true, commands: true } },
+      });
+      const tools = screen().getByRole("region", { name: "Ferramentas" });
+      return { text: hintOf("Codex", tools).text, shown: shownText(tools) };
+    };
+    const plain = "Como o Claude Code, com uma conta do ChatGPT. Só nas pastas liberadas.";
+    for (const sandbox of ["mxc", null] as const) expect((await codexHint(sandbox)).text).toBe(plain);
+    const partial = await codexHint("unelevated");
+    expect(partial.text).toBe(
+      `${plain} Neste Windows, os comandos do Codex só escrevem nas pastas dos agentes, mas a internet fica bloqueada só em parte para eles. O Windows\u00a011\u00a024H2 ou mais novo, com as atualizações em dia, bloqueia por completo.`,
+    );
+    expect(partial.shown).not.toContain("Neste Windows");
+    expect((await codexHint("none")).text).toBe(
+      `${plain} O Windows do Estudio-PC não consegue isolar os comandos do Codex. Escolha o Claude ou uma chave de API, ou atualize esse computador para o Windows\u00a011\u00a024H2 ou mais novo, com as atualizações em dia.`,
     );
   });
 
@@ -929,7 +1098,7 @@ describe("the computer page: pause, folders and tools (ADR 0036)", () => {
       return screen().getByRole("region", { name: "Para liberar mais" }).textContent;
     };
     expect(await grantText({ os: "windows", name: "PC da Ana" })).toContain(
-      "abra o app do agentes.chat nele (Preferências → Pastas).Sem o app? No terminal do computador:",
+      "abra o app do agentes.chat nele (Preferências → Pastas).Sem o app lá? Use o Terminal",
     );
     const linux = await grantText({ os: "linux", name: "Servidor", mode: "system" });
     expect(linux).toContain("Liberar é no próprio computador, no Terminal dele, como administrador:");

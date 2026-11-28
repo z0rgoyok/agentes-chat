@@ -24,6 +24,9 @@ const CODE_BLOCK = /\.blocks\.\d+\.code$/;
 export const PLAIN_COMMAND_ALLOWED: Readonly<Record<string, string>> = {
   "vault.field.keyNamePlaceholder": "an input's placeholder, which shows no markup",
   "scopes.github_git_write.label": "a permission's name, also joined into plain lists and approval sentences",
+  "scopes.gitlab_git_write.label": "a permission's name, also joined into plain lists and approval sentences",
+  "scopes.bitbucket_git_write.label": "a permission's name, also joined into plain lists and approval sentences",
+  "scopes.git_git_write.label": "a permission's name, also joined into plain lists and approval sentences",
   "palette.changeModelKeywords": "search words, never shown",
   "palette.keysKeywords": "search words, never shown",
 };

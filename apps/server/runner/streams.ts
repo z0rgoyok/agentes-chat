@@ -99,6 +99,8 @@ export function openDataSocket(opts: {
   onClosed?: () => void;
   /** The stream's bytes once it is ready, as they go `up` to the server and come `down`. */
   count?: (way: "up" | "down", bytes: number) => void;
+  /** `EGRESS_SHARE_PROTOCOL`: the hello asks for a connection there through a computer a person lent. */
+  egress?: { host: string; port: number };
 }): Promise<DataSocket> {
   return new Promise((resolve, reject) => {
     if (typeof WebSocket === "undefined") {
@@ -144,11 +146,11 @@ export function openDataSocket(opts: {
       clearTimeout(timer);
       opts.signal?.removeEventListener("abort", abort);
     };
-    const fail = (message: string) => {
+    const fail = (message: string, closeCode?: number) => {
       if (ready || ended) return;
       ended = true;
       settle();
-      reject(new RunnerError("internal", message));
+      reject(Object.assign(new RunnerError("internal", message), closeCode === undefined ? {} : { closeCode }));
       // Some runtimes dispatch `close` from inside `close()`: the rejection above is the one that counts.
       quietly(() => ws.close());
     };
@@ -161,7 +163,10 @@ export function openDataSocket(opts: {
     opts.signal?.addEventListener("abort", abort, { once: true });
 
     ws.addEventListener("open", () => {
-      quietly(() => ws.send(JSON.stringify({ type: "stream.hello", token: opts.token, streamId: opts.streamId })));
+      const egress = opts.egress ? { egress: opts.egress } : {};
+      quietly(() =>
+        ws.send(JSON.stringify({ type: "stream.hello", token: opts.token, streamId: opts.streamId, ...egress })),
+      );
     });
     ws.addEventListener("message", (ev) => {
       const data: unknown = ev.data;
@@ -186,7 +191,7 @@ export function openDataSocket(opts: {
     });
     ws.addEventListener("close", (ev) => {
       clearInterval(pinger);
-      if (!ready) return fail(`The server refused the stream (${ev.code}${ev.reason ? ` ${ev.reason}` : ""})`);
+      if (!ready) return fail(`The server refused the stream (${ev.code}${ev.reason ? ` ${ev.reason}` : ""})`, ev.code);
       if (ended) return;
       ended = true;
       opts.onClosed?.();
@@ -212,18 +217,21 @@ export class DataSockets {
 
   async dial(
     streamId: string,
-    kind: "desktop" | "terminal" | "browserView" | "phone",
+    kind: "desktop" | "terminal" | "browserView" | "phone" | "egress",
     signal?: AbortSignal,
+    egress?: { host: string; port: number },
   ): Promise<DataSocket> {
     const { relayed, ...dial } = this.opts;
-    // Phones are only reached by single-user runners, which count nothing.
-    const bytes = kind === "phone" ? undefined : relayed?.[kind];
+    // Phones are only reached by single-user runners, which count nothing; a lent connection's bytes are counted by
+    // whoever lends it and, on the workspace's computer, by its network guard.
+    const bytes = kind === "phone" || kind === "egress" ? undefined : relayed?.[kind];
     const turn = this.turn;
     let socket: DataSocket | null = null;
     socket = await openDataSocket({
       ...dial,
       streamId,
       ...(signal ? { signal } : {}),
+      ...(egress ? { egress } : {}),
       ...(bytes
         ? {
             count: (way: "up" | "down", n: number) => {

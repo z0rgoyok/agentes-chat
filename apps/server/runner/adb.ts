@@ -24,6 +24,31 @@ export function sdkRoots(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home
 export const findSdk = (env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home: string) =>
   sdkRoots(env, platform, home).find((r) => existsSync(r)) ?? null;
 
+/** The SDK's Android emulator (`<sdk>/emulator/emulator`), or null. */
+export function findEmulator(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home: string) {
+  const exe = platform === "win32" ? "emulator.exe" : "emulator";
+  for (const root of sdkRoots(env, platform, home)) {
+    const file = path.join(root, "emulator", exe);
+    if (existsSync(file)) return file;
+  }
+  return null;
+}
+
+/**
+ * The AVD in `emulator -list-avds` an emulator showed as `model` (its AVD name with spaces for underscores, as
+ * `parseAndroidFacts` reads it), or null. The emulator prints its own warnings among the names.
+ */
+export function avdOf(listAvds: string, model: string): string | null {
+  const avds = listAvds
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => /^[\w.-]+$/.test(l));
+  return avds.find((a) => a === model) ?? avds.find((a) => a.replace(/_/g, " ") === model) ?? null;
+}
+
+/** `emulator-5554` → 5554: the console port an emulator is started on again, so it comes back as the same serial. */
+export const emulatorPort = (serial: string) => Number(/^emulator-(\d+)$/.exec(serial)?.[1] ?? 0) || null;
+
 /** `adb` from an SDK's platform-tools, else the first on `dirs` (the PATH). */
 export function findAdb(env: NodeJS.ProcessEnv, platform: NodeJS.Platform, home: string, dirs: string[]) {
   const exe = platform === "win32" ? "adb.exe" : "adb";

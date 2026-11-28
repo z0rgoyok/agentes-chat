@@ -428,7 +428,7 @@ describe("the operator's reads", () => {
   }
 
   test("the overview: totals, days, connectors with accounts keyed like their tools, Composio and its month, the product", async () => {
-    await world();
+    const w = await world();
     const r = range();
     const a = await operatorAnalytics(f.db, r);
     expect(a.since).toBe(
@@ -536,6 +536,30 @@ describe("the operator's reads", () => {
       events: 2,
       // Not the one made the month before.
       connections: 1,
+      // The month's per workspace: the idle one asked for an approval only, and Composio billed the other its events.
+      orgs: [
+        {
+          orgId: f.org.id,
+          connectors: [{ connector: "gmail", label: "Gmail" }],
+          calls: 2,
+          errors: 0,
+          executions: 3,
+          failures: 1,
+          events: 0,
+          connections: 1,
+        },
+        {
+          orgId: w.other.id,
+          connectors: [{ connector: "gmail", label: "Gmail" }],
+          calls: 0,
+          errors: 0,
+          executions: 0,
+          failures: 0,
+          events: 2,
+          connections: 0,
+        },
+      ],
+      orgsMore: false,
     });
     expect(a.product).toEqual({
       days: [{ day: r.today, runs: 2, tasks: 1, activeWorkspaces: 2, newWorkspaces: 1, signUps: 1 }],

@@ -51,7 +51,7 @@ import {
   useReducedMotion,
 } from "@/ui";
 import { router } from "@/ui/navigation";
-import { UndoProposal } from "../agents/InstructionProposalCard";
+import { ApplyProposal, UndoProposal } from "../agents/InstructionProposalCard";
 import { proposalOutcome } from "../agents/logic";
 import { useCardTop, useMessageCardFrame } from "../chat/look";
 import { chatHref } from "../links/logic";
@@ -623,6 +623,10 @@ function FixRow({
         <Animated.View entering={reduced ? undefined : DONE_IN} style={styles.side}>
           <UndoProposal id={proposal.id} row />
         </Animated.View>
+      ) : proposal?.applicable && state !== "skipped" ? (
+        <View style={styles.side}>
+          <ApplyProposal id={proposal.id} row />
+        </View>
       ) : null}
     </View>
   );

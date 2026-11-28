@@ -4,6 +4,7 @@ import { type ArtifactDeps, createFileArtifact, deleteArtifact } from "../artifa
 import { sha256 } from "../crypto";
 import { markChannelRead, openPersonAgentDm } from "../dms";
 import { ConflictError, NotFoundError, TooManyError, ValidationError } from "../errors";
+import { surfaceWordsMeta } from "../message-origin";
 import { fileIdsOf, MAX_MESSAGE_ATTACHMENTS, postPersonMessage, sentWithClientId } from "../messages";
 import { getMembership } from "../organizations";
 import { personLocale } from "../requester";
@@ -33,6 +34,7 @@ export const surfaceClientId = (surfaceId: string, inboundId: string) =>
 /** Voice-note refusals that still let the recording through as a plain file. */
 const VOICE_AS_FILE_CODES = new Set([
   "voice.unavailable",
+  "voice.plan",
   "voice.too_large",
   "voice.bad_duration",
   "voice.limit",
@@ -156,7 +158,8 @@ export async function postFromSurface(deps: SurfaceInboundDeps, input: SurfacePo
     const fits =
       voice.bytes.length <= SURFACE_VOICE_MAX_BYTES &&
       voice.bytes.length <= VOICE_BYTES_PER_SECOND * Math.ceil(voice.durationMs / 1000);
-    if (fits && deps.voice) {
+    // No engine on the server: a voice message would reach the agent as a note it can't hear, so the file goes.
+    if (fits && deps.voice && deps.voice.engines().length > 0) {
       try {
         await acceptVoiceClip(deps.voice, userId, orgId, dm.id, {
           audio: voice.bytes,
@@ -200,7 +203,8 @@ export async function postFromSurface(deps: SurfaceInboundDeps, input: SurfacePo
       attachments,
       replyTo: await replyInDm(db, orgId, dm.id, input.replyTo),
       clientId,
-      meta: { via, ...(input.forwarded ? { readOutside: true } : {}) },
+      origin: "surface",
+      meta: { via, ...surfaceWordsMeta(via) },
     },
   ).catch(async (error: unknown) => {
     await discard();

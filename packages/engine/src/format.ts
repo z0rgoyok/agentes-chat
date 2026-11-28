@@ -9,6 +9,37 @@ export const cutText = (text: string, max: number) => text.slice(0, max).replace
 /** `cutText` for text people read: a cut ends in "…", never passing for the whole. */
 export const cutMarked = (text: string, max: number) => (text.length > max ? `${cutText(text, max - 1)}…` : text);
 
+/**
+ * A JSON object or array as compact JSON within `max` characters, its longest strings shortened first (each cut one
+ * ends in "…"): every key, number and short value stays, where a cut at the end drops whole fields. Null when the text
+ * isn't one, when even its keys alone don't fit, or when written again it would say another number (an id past 2^53).
+ */
+export function shortenJson(text: string, max: number): string | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof value !== "object" || value === null || changesNumbers(value)) return null;
+  const capped = (cap: number) =>
+    JSON.stringify(value, (_key, v) => (typeof v === "string" && v.length > cap ? `${cutText(v, cap)}…` : v));
+  if (capped(0).length > max) return null;
+  let [lo, hi] = [0, text.length];
+  while (lo < hi) {
+    const mid = Math.ceil((lo + hi) / 2);
+    if (capped(mid).length <= max) lo = mid;
+    else hi = mid - 1;
+  }
+  return capped(lo);
+}
+
+/** A parsed JSON value holding a number that `JSON.stringify` would not write back as it was read. */
+const changesNumbers = (v: unknown): boolean =>
+  typeof v === "number"
+    ? !Number.isFinite(v) || (Number.isInteger(v) && !Number.isSafeInteger(v))
+    : typeof v === "object" && v !== null && Object.values(v).some(changesNumbers);
+
 /** A sentence's words as they compare: lower case, no accents, no punctuation or emoji, single spaces. */
 export const plainWords = (s: string) =>
   s
@@ -271,3 +302,104 @@ export function inertLinks(text: string): string {
 /** A JSON value with every string in it made inert (`inertLinks`). */
 export const inertJson = <T>(value: T): T =>
   JSON.parse(JSON.stringify(value, (_key, v) => (typeof v === "string" ? inertLinks(v) : v)));
+
+/** Whole seconds from an ISO time to `now`, never negative; null when there is no readable time. */
+export const secondsBefore = (now: Date, at: string | null | undefined) =>
+  at && Number.isFinite(Date.parse(at)) ? Math.max(0, Math.round((now.getTime() - Date.parse(at)) / 1000)) : null;
+
+/**
+ * Markdown longer than `max` as consecutive parts of at most `max` characters, cut between paragraphs, never inside a
+ * fenced code block unless the block alone is longer: then between its lines, each part closing the fence and the next
+ * opening it again as it was opened. A line longer than a part is cut at a space, else anywhere (never inside an
+ * emoji). Text within `max` comes back whole.
+ */
+export function splitMarkdown(text: string, max: number): string[] {
+  if (text.length <= max) return [text];
+  const parts: string[] = [];
+  let part = "";
+  for (const block of markdownBlocks(text))
+    for (const piece of fitBlock(block, max)) {
+      if (part && part.length + 2 + piece.length <= max) part += `\n\n${piece}`;
+      else {
+        if (part) parts.push(part);
+        part = piece;
+      }
+    }
+  if (part) parts.push(part);
+  return parts;
+}
+
+// Any indent: a fence in a nested list item sits deeper than CommonMark's three spaces. A backtick fence's info string
+// holds no backtick ("```x``` and more" is inline code).
+const FENCE_OPEN = /^\s*(`{3,}(?!.*`)|~{3,})/;
+
+/** Markdown's paragraphs and fenced code blocks, in order; a fence nobody closed runs to the end. */
+function markdownBlocks(text: string) {
+  const blocks: { lines: string[]; fence?: { open: string; close: string } }[] = [];
+  let lines: string[] = [];
+  const flush = () => {
+    if (lines.length > 0) blocks.push({ lines });
+    lines = [];
+  };
+  const all = text.split("\n");
+  for (let i = 0; i < all.length; i++) {
+    const line = all[i] as string;
+    const marker = FENCE_OPEN.exec(line)?.[1];
+    if (marker) {
+      flush();
+      const body: string[] = [];
+      let close = marker;
+      for (i++; i < all.length; i++) {
+        const t = (all[i] as string).trim();
+        if (t.length >= marker.length && t === marker.charAt(0).repeat(t.length)) {
+          close = all[i] as string;
+          break;
+        }
+        body.push(all[i] as string);
+      }
+      blocks.push({ lines: body, fence: { open: line, close } });
+    } else if (line.trim() === "") flush();
+    else lines.push(line);
+  }
+  flush();
+  return blocks;
+}
+
+/** A block as pieces of at most `max` characters: whole when it fits, else cut between its lines. */
+function fitBlock(block: { lines: string[]; fence?: { open: string; close: string } }, max: number): string[] {
+  const { fence } = block;
+  const whole = fence ? [fence.open, ...block.lines, fence.close].join("\n") : block.lines.join("\n");
+  if (whole.length <= max) return [whole];
+  const room = fence ? max - fence.open.length - fence.close.length - 2 : max;
+  // A fence line that leaves little room is cut like text: the parts must stay within `max`.
+  if (!fence || room < max / 2) return packLines(fence ? whole.split("\n") : block.lines, max);
+  return packLines(block.lines, room).map((c) => `${fence.open}\n${c}\n${fence.close}`);
+}
+
+function packLines(lines: string[], room: number): string[] {
+  const chunks: string[] = [];
+  let chunk: string | null = null;
+  for (const line of lines)
+    for (const piece of cutLine(line, room)) {
+      if (chunk !== null && chunk.length + 1 + piece.length <= room) chunk += `\n${piece}`;
+      else {
+        if (chunk !== null) chunks.push(chunk);
+        chunk = piece;
+      }
+    }
+  if (chunk !== null) chunks.push(chunk);
+  return chunks;
+}
+
+function cutLine(line: string, room: number): string[] {
+  const out: string[] = [];
+  let rest = line;
+  while (rest.length > room) {
+    const space = rest.lastIndexOf(" ", room);
+    const cut = space >= room / 2 ? space : room > 1 && /[\uD800-\uDBFF]/.test(rest.charAt(room - 1)) ? room - 1 : room;
+    out.push(rest.slice(0, cut));
+    rest = rest.slice(space === cut ? cut + 1 : cut);
+  }
+  out.push(rest);
+  return out;
+}

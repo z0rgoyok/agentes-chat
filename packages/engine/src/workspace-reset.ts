@@ -30,8 +30,8 @@ const KEPT_COLUMNS = { ...STANDING_COLUMNS, deletionHoldAt: organizations.deleti
 
 /**
  * Tenant tables a reset leaves as they are: the workspace's settings, its people and how they join (and the apps they
- * have open), their own settings there, AI accounts, computers, connectors, the Vault (people's own logins among them)
- * and storage, usage and the audit. `blobs` is a storage: the
+ * have open), their own settings there, AI accounts and what their keys' models may write, computers, connectors, the
+ * Vault (people's own logins among them) and storage, usage and the audit. `blobs` is a storage: the
  * erased files' bytes leave it through their store. `outbox` keeps only the jobs of `RESET_KEEPS_JOBS`, and
  * `outbox_dedupe` every key, as the outbox's finished rows do.
  */
@@ -55,6 +55,7 @@ export const RESET_KEEPS = [
   "support_requests",
   "feedback_files",
   "provider_credentials",
+  "model_output_limits",
   "machines",
   "machine_accounts",
   "machine_provisioning",
@@ -64,6 +65,8 @@ export const RESET_KEEPS = [
   "machine_rpc",
   "connector_connections",
   "connector_tool_pins",
+  // Kept connectors' tool names in a language: words, never anything made in the workspace.
+  "tool_label_words",
   "custom_tools",
   "oauth_clients",
   "oauth_states",
@@ -78,6 +81,8 @@ export const RESET_KEEPS = [
   "storage_migrations",
   "app_grants",
   "app_tokens",
+  // An integration app (ADR 0251) is the workspace's connection, like a connector: its channels go with the channels.
+  "integration_apps",
   "oauth_app_requests",
   "blobs",
   "usage_records",
@@ -104,6 +109,7 @@ export const RESET_KEEPS_JOBS = [
   "connector.forget_accounts",
   "vault.sync",
   "machine.tasks_offline",
+  "machine.down_notice",
   "machine.wake_overdue",
   "storage.migrate",
   "feedback.send",
@@ -120,8 +126,10 @@ export const RESET_TOMBSTONES = ["agents", "right_hand_seats"] as const;
  * `MESSAGE_BATCH` at a time and then whatever came meanwhile.
  */
 export const RESET_ERASES = [
+  "integration_app_channels",
   "agent_actions",
   "agent_budget_periods",
+  "agent_checkouts",
   "agent_consultations",
   "agent_groups",
   "agent_learning_days",
@@ -138,6 +146,7 @@ export const RESET_ERASES = [
   "artifact_uploads",
   "artifact_versions",
   "artifacts",
+  "ask_kinds",
   "autonomy_signals",
   "block_states",
   "browser_handoffs",
@@ -216,8 +225,10 @@ export const RESET_ERASES = [
   "search_documents",
   "secret_requests",
   "skill_files",
+  "skill_uses",
   "skills",
   "surface_deliveries",
+  "surface_page_links",
   "team_action_checks",
   "team_actions",
   "telegram_updates",

@@ -23,6 +23,7 @@ export const SIDEBAR_ITEMS = [
   "routines",
   "calendar",
   "team",
+  "skills",
   "dashboards",
   "code",
   "taskManager",
@@ -41,6 +42,7 @@ export const PERSONAL_SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "issues",
   "threads",
   "team",
+  "skills",
   "wiki",
   "dashboards",
   "code",
@@ -273,26 +275,74 @@ export const SIDEBAR_PIN_LIMIT = 5;
 export const SIDEBAR_PIN_KINDS = ["agents", "channels", "people"] as const;
 export type SidebarPins = Record<(typeof SIDEBAR_PIN_KINDS)[number], string[]>;
 
+/** At most this many favorites ("Favoritos", ADR 0260). */
+export const SIDEBAR_FAVORITE_LIMIT = 50;
+/** What a favorite is: `agent:<id>`, `channel:<id>` or `person:<user id>`. */
+export const SIDEBAR_FAVORITE_KINDS = ["agent", "channel", "person"] as const;
+/** At most this many channel sections per person, each with at most `SIDEBAR_SECTION_CHANNELS` channels. */
+export const SIDEBAR_SECTION_LIMIT = 50;
+export const SIDEBAR_SECTION_CHANNELS = 500;
+/** A section's name, as typed, at most this long. */
+export const SIDEBAR_SECTION_NAME_MAX = 40;
+/** Mensagens diretas lists everyone in the workspace (`all`) or only the people and agents I talked to (`recent`). */
+export const SIDEBAR_DM_SHOWS = ["all", "recent"] as const;
+export type SidebarDmShow = (typeof SIDEBAR_DM_SHOWS)[number];
+
+/** A channel section of one person's sidebar (ADR 0260): its name and its channels, in order. */
+export interface SidebarChannelSection {
+  id: string;
+  name: string;
+  channelIds: string[];
+}
+
 /**
- * How the person sees the sidebar's agents and what they pinned (`view` in the same `sidebar_items` row): the AGENTES
- * order, whether a manager shows the agents that don't talk to them, and the pinned agents, channels and people (agent,
- * channel and user ids, in order). `pins: null` means never saved: the apps pin the person's own agents then.
+ * How the person sees the sidebar and what they keep in it (`view` in the same `sidebar_items` row): the agents' order
+ * and whether a manager shows the agents that don't talk to them; the old per-section pins (ADR 0080's "Fixar no
+ * topo", read only to start `favorites`); `favorites`, Favoritos in order (`null`: never saved, the apps start it from
+ * the pins); `sections`, the person's own channel sections (`null`: never saved, none); `dms`, who Mensagens diretas
+ * lists.
  */
 export interface SidebarView {
   agentSort: AgentSort;
   showAllAgents: boolean;
   pins: SidebarPins | null;
+  favorites: string[] | null;
+  sections: SidebarChannelSection[] | null;
+  dms: SidebarDmShow;
 }
 
-const ids = (raw: unknown) =>
-  Array.isArray(raw)
-    ? [...new Set(raw.filter((x): x is string => typeof x === "string" && x.length > 0 && x.length <= 64))].slice(
-        0,
-        SIDEBAR_PIN_LIMIT,
-      )
-    : [];
+const isId = (x: unknown): x is string => typeof x === "string" && x.length > 0 && x.length <= 64;
+const ids = (raw: unknown, limit = SIDEBAR_PIN_LIMIT) =>
+  Array.isArray(raw) ? [...new Set(raw.filter(isId))].slice(0, limit) : [];
 
-/** Only what the apps know, each pin list once per id and at most `SIDEBAR_PIN_LIMIT`: a row is never trusted as is. */
+const favoriteOk = (x: unknown): x is string => {
+  if (typeof x !== "string") return false;
+  const at = x.indexOf(":");
+  return (SIDEBAR_FAVORITE_KINDS as readonly string[]).includes(x.slice(0, at)) && isId(x.slice(at + 1)) && at > 0;
+};
+
+/** Each section once, a name, each channel in one section only; empty sections go (ADR 0260 §2). */
+function sectionsOf(raw: unknown): SidebarChannelSection[] | null {
+  if (!Array.isArray(raw)) return null;
+  const seenSections = new Set<string>();
+  const seenChannels = new Set<string>();
+  const out: SidebarChannelSection[] = [];
+  for (const s of raw) {
+    if (out.length >= SIDEBAR_SECTION_LIMIT) break;
+    if (!s || typeof s !== "object") continue;
+    const { id, name, channelIds } = s as Record<string, unknown>;
+    if (!isId(id) || seenSections.has(id) || typeof name !== "string") continue;
+    const clean = name.trim().slice(0, SIDEBAR_SECTION_NAME_MAX);
+    const channels = ids(channelIds, SIDEBAR_SECTION_CHANNELS).filter((c) => !seenChannels.has(c));
+    if (!clean || channels.length === 0) continue;
+    seenSections.add(id);
+    for (const c of channels) seenChannels.add(c);
+    out.push({ id, name: clean, channelIds: channels });
+  }
+  return out;
+}
+
+/** Only what the apps know, each list once per id and within its limit: a row is never trusted as is. */
 export function sidebarViewOf(raw: unknown): SidebarView {
   const v = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const sort = (AGENT_SORTS as readonly unknown[]).includes(v.agentSort) ? (v.agentSort as AgentSort) : "workspace";
@@ -302,7 +352,18 @@ export function sidebarViewOf(raw: unknown): SidebarView {
           SIDEBAR_PIN_KINDS.map((k) => [k, ids((v.pins as Record<string, unknown>)[k])]),
         ) as SidebarPins)
       : null;
-  return { agentSort: sort, showAllAgents: v.showAllAgents === true, pins };
+  const favorites = Array.isArray(v.favorites)
+    ? [...new Set(v.favorites.filter(favoriteOk))].slice(0, SIDEBAR_FAVORITE_LIMIT)
+    : null;
+  const dms = (SIDEBAR_DM_SHOWS as readonly unknown[]).includes(v.dms) ? (v.dms as SidebarDmShow) : "all";
+  return {
+    agentSort: sort,
+    showAllAgents: v.showAllAgents === true,
+    pins,
+    favorites,
+    sections: sectionsOf(v.sections),
+    dms,
+  };
 }
 
 /** The person's sidebar view in this workspace. */
@@ -320,11 +381,16 @@ export async function setMySidebarView(
   db: Database,
   orgId: string,
   userId: string,
-  view: SidebarView,
+  view: Partial<SidebarView>,
 ): Promise<SidebarView> {
   await requirePermission(db, userId, orgId, "read");
-  const clean = sidebarViewOf(view);
   const items = organizationMembers.sidebarItems;
+  // A field the caller left out stays as stored: an app built before Favoritos and sections (ADR 0260) sends a view
+  // without them, and would otherwise empty them.
+  const [row] = await db.select({ items }).from(organizationMembers).where(mine(orgId, userId));
+  const stored = (row?.items as Record<string, unknown> | undefined)?.[VIEW_KEY];
+  const given = Object.fromEntries(Object.entries(view).filter(([, value]) => value !== undefined));
+  const clean = sidebarViewOf({ ...(stored && typeof stored === "object" ? stored : {}), ...given });
   await db
     .update(organizationMembers)
     .set({ sidebarItems: sql`${items} || jsonb_build_object(${VIEW_KEY}::text, ${JSON.stringify(clean)}::jsonb)` })

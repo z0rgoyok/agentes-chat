@@ -106,6 +106,14 @@ describe("aiChoiceRows: one list for every picker", () => {
     ]);
   });
 
+  test("Lodi's A do workspace carries the workspace's default key, so its row says which it is", () => {
+    const target = { kind: "lodi", agentId: "l", scope: "mine" } as const;
+    const [withKey] = aiChoiceRows(hub([], [key("k1"), key("k2", { isDefault: true })]), ctx({ target }));
+    expect([withKey?.type, withKey?.apiKey?.id]).toEqual(["workspace", "k2"]);
+    const [noKey] = aiChoiceRows(hub([], [key("k1")]), ctx({ target }));
+    expect(noKey?.apiKey).toBeUndefined();
+  });
+
   test("the logins of one account are one row, the one thinking selected", () => {
     const h = hub([account("l1", { sameAs: "l1" }), account("l2", { sameAs: "l1" })]);
     const rows = aiChoiceRows(h, ctx({ current: { brain: "claude_code", account: "l2" } }));
@@ -210,7 +218,9 @@ describe("what a row chooses and saves", () => {
       ["auto", false],
       ["claude-a", true],
     ]);
-    expect(aiChoiceEfforts(k)).toEqual(["low", "medium", "high"]);
+    // A model the catalog doesn't list takes up to high; Claude 5.5's row lists every level.
+    expect(aiChoiceEfforts(k, "claude-a", [])).toEqual(["low", "medium", "high"]);
+    expect(aiChoiceEfforts(k, "claude-opus-5-5", [])).toEqual(["low", "medium", "high", "xhigh", "max"]);
   });
 
   test("an API agent keeps its own account and model when its effort changes", () => {
@@ -266,6 +276,32 @@ describe("what a row chooses and saves", () => {
       ),
     ).toEqual({ brain: "model", model: "x/y" });
     expect(currentOf({ kind: "agents", agentIds: ["a"] }, {})).toBeNull();
+  });
+
+  test("on the API, the key its calls take is the one chosen, though nobody made it the default; never saved", () => {
+    const brain = { brain: "model" as const, account: null, model: null, effort: null, computer: null };
+    const agent = { kind: "agent" as const, agentId: "a" };
+    const chosen = (keys: AiHubKey[], current: ReturnType<typeof currentOf>) =>
+      aiChoiceRows(hub([], keys), ctx({ current }))
+        .filter((r) => r.selected)
+        .map((r) => r.key);
+    // The key the server says it thinks with (its own, or its provider's newest with no default).
+    const detail = { model: "claude-a", credentialId: null };
+    const now = currentOf(agent, { brain: { ...brain, keyId: "k2" }, agent: detail });
+    expect(now).toMatchObject({ brain: "model", usesKey: "k2" });
+    expect(chosen([key("k1"), key("k2")], now)).toEqual(["key:k2"]);
+    // A save takes no key from it: the agent keeps following its provider's.
+    expect(now?.key).toBeNull();
+    const [defaultRow] = aiChoiceRows(hub([], [key("k1", { isDefault: true }), key("k2")]), ctx({ current: now }));
+    if (!defaultRow) throw new Error("default key row");
+    expect(aiChoiceOf(defaultRow, now)).toEqual({ brain: "model", key: null, model: "auto", effort: null });
+    // An older server says nothing: the default, as before, and none without one.
+    const older = currentOf(agent, { brain, agent: detail });
+    expect(chosen([key("k1"), key("k2")], older)).toEqual([]);
+    expect(chosen([key("k1", { isDefault: true }), key("k2")], older)).toEqual(["key:k1"]);
+    // A key just picked wins over the one in use; a plan has none.
+    expect(chosen([key("k1"), key("k2")], { brain: "model", key: "k1", usesKey: "k2" })).toEqual(["key:k1"]);
+    expect(currentOf(agent, { brain: { ...brain, brain: "claude_code", keyId: "k2" } })).not.toHaveProperty("usesKey");
   });
 });
 

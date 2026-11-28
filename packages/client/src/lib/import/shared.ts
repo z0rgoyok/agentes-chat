@@ -224,6 +224,35 @@ export const normalizePath = (path: string) =>
     .replace(/^(?:\.\/|\/)+/, "")
     .replace(/\/{2,}/g, "/");
 export const baseName = (path: string) => path.split("/").pop() ?? path;
+
+/**
+ * A file or folder an agent's text points at on a computer: `~/…`, `./…`, `../…`, `C:\…`, or an absolute path under a
+ * root that holds people's files (`/Users/…`, `/home/…`). Any other absolute path is more often an API route or a
+ * site's page (`/api/v1/users`, `/docs/intro`) than a file, so it is none; nor is a web address, a Markdown link's
+ * target, "e/ou" or a date ("24/11").
+ */
+const PATH_MENTION =
+  /(?<![\p{L}\p{N}_:/.~\\-])(?<!\]\()(?:~[\\/]|\.\.?[\\/]|[A-Za-z]:\\|\/(?:Users|home|root|Volumes|mnt|media|srv|opt|data)\/)[^\s`'"<>()[\]{},;|*]+/gu;
+
+export const pathsMentioned = (text: string): string[] => [
+  ...new Set(
+    [...text.matchAll(PATH_MENTION)].map((m) => m[0].replace(/[.,:;!?]+$/, "")).filter((p) => /[\p{L}\p{N}]/u.test(p)),
+  ),
+];
+
+/** Whether `names` (an import's files, relative to its root) hold the file or folder `path` points at, by its tail. */
+export function pathImported(path: string, names: readonly string[]): boolean {
+  const parts = path
+    .replace(/^~[\\/]|^[A-Za-z]:\\/, "")
+    .split(/[\\/]/)
+    .filter((p) => p && p !== "." && p !== "..");
+  for (let k = 0; k < parts.length; k++) {
+    const tail = parts.slice(k).join("/");
+    if (names.some((n) => n === tail || n.startsWith(`${tail}/`) || n.endsWith(`/${tail}`) || n.includes(`/${tail}/`)))
+      return true;
+  }
+  return false;
+}
 export const dirName = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 /** `path` read from `dir`, `..` resolved; null when it leaves the root. */
 export function resolvePath(dir: string, path: string): string | null {
@@ -419,7 +448,9 @@ const KEY_FORMATS: [RegExp, string][] = [
   [/\bAKIA[0-9A-Z]{16}\b/g, REDACTED],
   [/\bxox[abprs]-[A-Za-z0-9-]{10,}/gi, REDACTED],
   [/\bAIza[0-9A-Za-z_-]{30,}/g, REDACTED],
-  [/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, REDACTED],
+  // A JWT's first part runs to the end of its run of letters, digits, `_` and `-`, so one starts only at the first
+  // `eyJ` starting a word in that run: the lazy lookbehind skips a later one, which would read on to the run's end.
+  [/\beyJ(?<!\beyJ[A-Za-z0-9_-]*?eyJ)[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g, REDACTED],
   [/\b(bearer)\s+[A-Za-z0-9._~+/=-]{20,}/gi, `$1 ${REDACTED}`],
 ];
 const SECRET_PATTERNS: [RegExp, string][] = [

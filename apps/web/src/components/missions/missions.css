@@ -1114,10 +1114,10 @@ a.mi-pr:hover {
   white-space: nowrap;
   color: var(--faint);
 }
+/* A quoted line: quieter words, no bar at its side. */
 .mi-md__quote {
   margin-top: 6px;
   color: var(--muted);
-  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--ink) 18%, transparent);
 }
 .mi-md__p {
   margin-top: 4px;

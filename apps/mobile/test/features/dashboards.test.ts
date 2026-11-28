@@ -17,6 +17,7 @@ import {
   barWords,
   bleedPoints,
   bleedSeries,
+  bleedTip,
   boardMenuKeys,
   confirmTitle,
   dashboardWaitingCard,
@@ -603,8 +604,27 @@ describe("the widget card", () => {
     expect(bleedSeries(line, false)).toEqual([1, 2]);
     expect(bleedSeries(line, true)).toBeNull();
     expect(bleedSeries({ ...line, note: "up" }, false)).toBeNull();
+    // On the home's strip a line always runs along the foot: its last value and note stand above it.
+    expect(bleedSeries({ ...line, note: "up" }, false, true)).toEqual([1, 2]);
     expect(bleedSeries({ kind: "bars", labels: ["a"], values: [1] }, false)).toBeNull();
     expect(bleedSeries(null, false)).toBeNull();
+  });
+
+  test("a tapped point of the trend says its date and the value with the number's unit, as the chat's points do", () => {
+    const kpi = bleedTip(
+      { kind: "kpi", value: 3, prefix: "R$", spark: [1200, 1800], sparkLabels: ["1 nov", "8 nov"] },
+      "pt-BR",
+    );
+    expect(kpi?.(1)).toBe("8 nov · R$ 1.800");
+    // No labels: the value alone; a suffix reads after it.
+    expect(bleedTip({ kind: "kpi", value: 3, suffix: "%", spark: [4, 5] }, "en")?.(0)).toBe("4%");
+    // A prefix and a suffix both read: a value in thousands never loses its "k".
+    expect(bleedTip({ kind: "kpi", value: 3, prefix: "$", suffix: "k", spark: [41.5, 45.3] }, "en")?.(1)).toBe(
+      "$ 45.3 k",
+    );
+    expect(bleedTip({ kind: "line", labels: ["a", "b"], values: [1, 2.5], unit: "ms" }, "en")?.(1)).toBe("b · 2.5 ms");
+    expect(bleedTip({ kind: "bars", labels: ["a"], values: [1] }, "en")).toBeNull();
+    expect(bleedTip(null, "en")).toBeNull();
   });
 
   test("the edge-to-edge line starts at the left edge, leaves room for its square and for the fade", () => {
@@ -754,6 +774,29 @@ describe("one of many, on a pushed screen", () => {
     expect(widget).toContain("onPress: pickSchedule");
     expect(widget).not.toContain('open === "');
     expect(existsSync(join(import.meta.dir, "../../app/(app)/(main)/widget-edit/[id].tsx"))).toBe(true);
+  });
+
+  test("New widget: the card shows the widget, its settings are rows under it, the action at the page's foot", () => {
+    const create = src("dashboards/NewWidgetScreen.tsx");
+    // Nothing but the title and the ask in the card: no bell, no size switch, no footer of tiny picks.
+    expect(create).toContain("footer={null}");
+    expect(create).not.toContain('accessibilityRole="switch"');
+    expect(create).not.toContain("<PushedHeader");
+    for (const row of [
+      'label={t("dashboards.newWidget.who")}',
+      'label={t("dashboards.newWidget.format")}',
+      '<SizeRow key="size" value={sized} onChange={setSize} />',
+      'label={t("dashboards.newWidget.updates")}',
+      "toggle={alert}",
+      '<GroupedField key="condition" label={t("widgets.alert.condition")}>',
+    ])
+      expect(create).toContain(row);
+    expect(create).toContain('t("mobile.dashboards.newWidget.testReal")');
+    expect(create).toContain('t("mobile.dashboards.newWidget.addHome")');
+    // The home's strip ends on "Add" (who edits the board) beside "See all".
+    const strip = src("chats/HomeWidgets.tsx");
+    expect(strip).toMatch(/\{canAdd \? \(\s*<StripButton icon="plus" label=\{t\("widgets\.add\.word"\)\}/);
+    expect(strip).toContain('<StripButton icon="right" label={t("dashboards.seeAll")}');
   });
 
   test("a board's screens: no bare spinner, a way to retry, and the menu in the app's sheet", () => {

@@ -324,7 +324,7 @@ html:not([data-pointer]) .cal-chip:focus-visible {
   }
 }
 /*
- * A meeting keeps its name in half a week's day at 1280 (two at once) and beside a run at 1440 with the side panel
+ * A meeting keeps its name in half a week's day at 1280 (two at once) and beside a reminder at 1440 with the side panel
  * open: it wraps there, a long word at its syllables. Narrower (a phone's week, three at once, two beside the panel at
  * 1280) a word a line would be all it says: it is its face, its name in its label, hover and details.
  */
@@ -367,25 +367,16 @@ html:not([data-pointer]) .cal-chip:focus-visible {
   }
 }
 /* A person's face on a tinted item: the surface's own white tile, so it stands out of the tint. */
-.cal-chip:is(.cal-chip--block, .cal-chip--run, .cal-chip--bar, [data-allday]) .ac-who > .ac-avatar[data-kind="person"] {
+.cal-chip:is(.cal-chip--block, .cal-chip--moment, .cal-chip--bar, [data-allday])
+  .ac-who
+  > .ac-avatar[data-kind="person"] {
   background: var(--raised);
 }
-/*
- * Side by side, 2px apart and from the column's edges (`layoutDay`): each of `--cols` columns as wide, but a column of
- * routine runs alone beside a meeting (`data-thin`) gives 60px of its share to the meeting, never narrower than a face,
- * so the meeting keeps room for its name. A day narrower than that (a phone's week) shares evenly.
- */
-.cal-week__col > :is(.cal-chip--block, .cal-week__runs) {
-  --gaps: calc(2px * (var(--cols) + 1));
-  --even: calc((100% - var(--gaps)) / var(--cols));
-  --thin: min(var(--even), max(32px, var(--even) - 60px));
-  --wide: calc((100% - var(--gaps) - var(--thins) * var(--thin)) / (var(--cols) - var(--thins)));
-  --before: calc(var(--thin-before) * var(--thin) + (var(--col) - var(--thin-before)) * var(--wide));
-  left: calc(2px * (var(--col) + 1) + var(--before));
+/* Side by side, 2px apart and from the column's edges (`layoutDay`): each of `--cols` columns as wide. */
+.cal-week__col > :is(.cal-chip--block, .cal-week__moment) {
+  --wide: calc((100% - 2px * (var(--cols) + 1)) / var(--cols));
+  left: calc(2px * (var(--col) + 1) + var(--col) * var(--wide));
   width: var(--wide);
-}
-.cal-week__col > .cal-week__runs[data-thin] {
-  width: var(--thin);
 }
 /*
  * A meeting: from its start to its end, its title first and whole, its time under it only where the slot has room
@@ -429,48 +420,25 @@ html:not([data-pointer]) .cal-chip:focus-visible {
   }
 }
 /*
- * A routine's run or a reminder: a moment, one line at its time across the column. Runs whose lines would meet stack
- * 2 apart, two at most, then "+N rotinas" (`runStacks`). A narrow column keeps the face and the whole name, the time
- * gives way (the run's place on the grid says it).
+ * A reminder: a moment, one line at its time across the column. A narrow column keeps the face and the whole name,
+ * the time gives way (its place on the grid says it).
  */
-.cal-week__runs {
+.cal-week__moment {
   position: absolute;
   z-index: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
   container-type: inline-size;
 }
-.cal-chip--run {
+.cal-chip--moment {
   min-height: 20px;
   padding: 2px 6px;
   font-size: 12px;
 }
 @container (max-width: 119.5px) {
-  .cal-chip--run .cal-chip__time {
+  .cal-chip--moment .cal-chip__time {
     display: none;
   }
-}
-.cal-week__more {
-  align-self: flex-start;
-  padding: 0 6px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: none;
-  color: var(--ink-muted);
-  font: inherit;
-  font-size: 11.5px;
-  font-weight: 600;
-  line-height: 18px;
-  cursor: pointer;
-}
-.cal-week__more:hover,
-.cal-week__more[aria-pressed="true"] {
-  background: var(--plate-soft);
-}
-html:not([data-pointer]) .cal-week__more:focus-visible {
-  outline: none;
-  box-shadow: var(--field-ring);
 }
 /*
  * All day, or across days: the same tint as a bar over its days, the name on as many lines as it needs. Its lane's bars
@@ -535,58 +503,6 @@ html:not([data-pointer]) .cal-week__more:focus-visible {
   height: 6px;
   cursor: ns-resize;
 }
-.cal-runs {
-  list-style: none;
-  margin: 2px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-/* With the agent's face, an `.ac-iconline`. */
-.cal-runs__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  min-width: 0;
-}
-.cal-runs__text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.cal-runs__name {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
-  overflow-wrap: anywhere;
-}
-.cal-runs__foot {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  margin-top: 2px;
-}
-
-/* Routines that run often: one lane each, as on the Rotinas horizon */
-.cal-week__bars--routines {
-  padding: 0;
-}
-/* The day columns run through the routines too, so each line sits under its days. */
-.cal-week__bars--routines .cal-week__barlane {
-  grid-auto-rows: auto;
-  row-gap: 0;
-  padding: 6px 0;
-  background-image: linear-gradient(to right, var(--line) 1px, transparent 1px);
-  background-size: calc(100% / var(--cols)) 100%;
-}
-.cal-week__gutter--top {
-  align-items: flex-start;
-  padding-top: 12px;
-}
 /* On the first lane of bars, however many there are: the 14px mark in the middle of a 22px bar, on the gutter's end as
    the hours are. */
 .cal-week__gutter--lane {
@@ -594,60 +510,6 @@ html:not([data-pointer]) .cal-week__more:focus-visible {
   padding-top: 4px;
   padding-right: 6px;
 }
-.cal-band {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  margin: 0;
-  padding: 3px 0 0;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.cal-band:hover,
-.cal-band[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--sunken) 50%, transparent);
-}
-html:not([data-pointer]) .cal-band:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring);
-}
-/* A long name wraps under itself, its cadence on its first line: never a "…" that hides which routine it is. */
-.cal-band__label {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  min-height: 20px;
-  padding: 2px 10px 0;
-  line-height: 16px;
-}
-.cal-band__label b {
-  min-width: 0;
-  overflow-wrap: anywhere;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--muted);
-}
-.cal-band:hover .cal-band__label b {
-  color: var(--ink);
-}
-.cal-band__cadence {
-  flex: none;
-  font-size: 12px;
-  color: var(--faint);
-  white-space: nowrap;
-}
-.cal-band__track {
-  position: relative;
-  display: block;
-  height: 30px;
-}
-
 /* Details popover: the menu's room and corner (`.ac-popover`), its words further in, its buttons back on the room. */
 .cal-pop.ac-popover {
   --menu-pad: var(--space-2);
@@ -698,9 +560,6 @@ html:not([data-pointer]) .cal-band:focus-visible {
 }
 .cal-details__row > :last-child {
   min-width: 0;
-}
-.cal-details__result {
-  display: flex;
 }
 .cal-details__people {
   list-style: none;

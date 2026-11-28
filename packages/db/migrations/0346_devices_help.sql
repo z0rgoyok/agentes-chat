@@ -1,0 +1,1 @@
+ALTER TABLE "organization_settings" ADD COLUMN "devices_help" boolean DEFAULT true NOT NULL;

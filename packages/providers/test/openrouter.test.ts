@@ -237,6 +237,34 @@ describe("effort", () => {
 });
 
 describe("OpenRouter adapter (Chat Completions, scripted transport)", () => {
+  test("a tool result's PDF goes as its own text; its picture, which this connection can't take, as a note", async () => {
+    setOpenRouterModels(models());
+    const { fetcher, requests } = scripted({ body: sse([delta({ content: "ok" }, "stop")]) });
+    const words = '<external_data source="file plano.pdf">\nMeta: 40 clientes.\n</external_data>';
+    const turn = (images: { mediaType: string; data: string; name?: string; text?: string }[]) =>
+      call(
+        {
+          messages: [
+            { role: "user", content: "o que tem?" },
+            { role: "assistant", content: [{ type: "tool_use", id: "call_0", name: "read_artifact", input: {} }] },
+            { role: "user", content: [{ type: "tool_result", toolUseId: "call_0", content: "plano.pdf", images }] },
+          ],
+        },
+        fetcher,
+      ).result;
+    const pdf = { mediaType: "application/pdf", data: "JVBERi0=", name: "plano.pdf", text: words };
+    expect((await turn([pdf])).imagesLeftOut).toBeUndefined();
+    const sent = (requests[0]?.body.messages ?? []) as { role: string; content: string }[];
+    const tool = sent.find((m) => m.role === "tool");
+    expect(tool?.content).toContain(
+      "The PDF plano.pdf is not shown to you as pages: this agent's AI (~z-ai/glm-latest)",
+    );
+    expect(tool?.content).toContain(words);
+    expect(tool?.content).not.toContain("is not shown to you:");
+    expect((await turn([pdf, { mediaType: "image/png", data: "UE5H" }])).imagesLeftOut).toBe(true);
+    expect(JSON.stringify(requests[1]?.body.messages)).toContain("The picture is not shown to you: this agent's AI");
+  });
+
   test("the request: attribution, the key, system and tools, tool round trips, its own reasoning sent back", async () => {
     setOpenRouterModels(models());
     const reasoning = [{ type: "reasoning.text", text: "Look at the PR.", signature: "sig-1", index: 0, format: "x" }];

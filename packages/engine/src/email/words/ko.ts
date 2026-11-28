@@ -589,6 +589,28 @@ export const words: EmailWords = {
       why: (surface) => `${surface}이(가) agentes.chat 계정에 연결되어 있었기 때문에 이 이메일을 보내드립니다.`,
       picture: "더 이상 휴대폰에 없는 어시스턴트",
     },
+    pinReset: {
+      subject: (surface) => `${surface} PIN 설정`,
+      preheader: "채팅 앱에서 작업을 승인할 때 쓰는 PIN을 정하세요.",
+      headline: (surface) => `${surface} PIN 설정`,
+      body: (surface) =>
+        `${surface}에서 작업을 승인할 때 쓰는 PIN을 정하는 링크 요청이 있었습니다. 본인이라면 이 버튼으로 열리는 페이지에서 정하세요.`,
+      button: "내 PIN 정하기",
+      small:
+        "이 링크는 한 시간 동안 한 번만 작동합니다. 본인이 아니라면 이 이메일을 무시하세요. 아무것도 바뀌지 않습니다.",
+      why: (surface) => `${surface}이(가) agentes.chat 계정에 연결되어 있기 때문에 이 이메일을 보내드립니다.`,
+    },
+    pinLocked: {
+      subject: (surface) => `${surface} PIN이 잠겼습니다`,
+      preheader: "PIN을 세 번 연속 잘못 입력했습니다. 채팅 앱에서의 승인이 잠시 멈췄습니다.",
+      headline: (surface) => `${surface} PIN이 잠겼습니다`,
+      body: (surface, time) =>
+        `누군가 ${surface}에서 작업을 승인하려고 잘못된 PIN을 세 번 연속 입력했습니다. ${surface}에서의 승인은 ${time} 동안 멈춥니다.`,
+      lockedFor: ["15분", "1시간", "24시간"],
+      small: (surface) =>
+        `본인이었다면 나중에 다시 시도하세요. 본인이 아니라면 알림 설정에서 ${surface} 연결을 해제해 아무도 그곳에서 승인할 수 없게 하세요.`,
+      button: "알림 설정 열기",
+    },
   },
   supportReply: {
     subject: "도움 요청에 대한 답변",

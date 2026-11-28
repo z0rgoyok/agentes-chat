@@ -8,6 +8,7 @@ import {
   useRoles,
   useUnarchiveChannel,
 } from "@agenteschat/client";
+import { hidesAgentPage } from "@agenteschat/client/lib/agent-facts";
 import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { editsAgent, managesAgent, opensDm } from "@agenteschat/client/lib/audience";
 import { errorText } from "@agenteschat/client/lib/errors";
@@ -15,10 +16,12 @@ import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { leavesChannel, managesChannel } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { leaves, removes } from "@agenteschat/client/lib/roles";
+import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { useDirectory } from "@/hooks/useDirectory";
 import { useMyRoleIds } from "@/hooks/useMyRoleIds";
-import { useSidebarPins } from "@/hooks/useSidebarPins";
+import { useSidebarFavorites } from "@/hooks/useSidebarPins";
 import { requestChannelDetails } from "@/lib/channel-details";
 import { copyText, type MenuEntry } from "@/lib/context-menu";
 import { useToast } from "@/lib/toast";
@@ -51,7 +54,7 @@ export function useRestoreChannel() {
     onDone?.();
     void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId: org.id, channelId: channel.id } });
     void unarchive.mutateAsync(channel.id).then(
-      () => toast.show(t("channel.restored", { channel: channel.name })),
+      () => toast.show(t(modeKey(org, "channel.restored"), { channel: channel.name })),
       () => undefined,
     );
   };
@@ -75,7 +78,7 @@ export function useArchiveChannelWithUndo() {
       void navigate({ to: "/org/$orgId", params: { orgId: org.id } });
     void archive.mutateAsync(channel.id).then(
       () =>
-        toast.show(t("channel.archived", { channel: channel.name }), "info", {
+        toast.show(t(modeKey(org, "channel.archived"), { channel: channel.name }), "info", {
           label: t("channelCategories.undo"),
           run: () => restore.run(channel),
         }),
@@ -159,7 +162,7 @@ function useMention() {
 
 /**
  * A channel (sidebar row, channel header): mark read, its details (edit for who manages it), `extra` (the sidebar's
- * Mover para… and Nova categoria), copy link, archive.
+ * Mudar de setor), copy link, archive.
  */
 export function useChannelMenu() {
   const { t } = useTranslation();
@@ -170,11 +173,12 @@ export function useChannelMenu() {
   const mute = useMuteChannel(org.id);
   const archive = useArchiveChannelWithUndo();
   const leave = useLeaveChannelWithUndo();
-  const pins = useSidebarPins();
+  const favorites = useSidebarFavorites();
   return (c: Channel, extra: MenuEntry[] = []): MenuEntry[] => {
     const manages = managesChannel(c, me.user.id, org);
     return [
-      { kind: "header", label: `#${c.name}` },
+      // A personal workspace's group conversation goes by its name as written (ADR 0159).
+      { kind: "header", label: isPersonal(org) ? c.name : `#${c.name}` },
       ...markRead(c.id, c.unreadCount ?? 0),
       // Muted, it never looks unread to me (a mention of me still counts).
       ...(c.isMember
@@ -202,7 +206,7 @@ export function useChannelMenu() {
           void navigate({ to: "/org/$orgId/c/$channelId", params: { orgId: org.id, channelId: c.id } });
         },
       },
-      ...(c.isMember ? [pins.entry("channels", c.id)] : []),
+      ...(c.isMember || c.visibility === "public" ? [favorites.entry("channel", c.id)] : []),
       ...extra,
       { kind: "separator" },
       {
@@ -252,8 +256,9 @@ export function useAgentMenu() {
   const copyHandle = useCopyHandle();
   const copyId = useCopyId();
   const mention = useMention();
-  const pins = useSidebarPins();
+  const favorites = useSidebarFavorites();
   const myRoleIds = useMyRoleIds();
+  const dir = useDirectory(org.id);
   /** `extra`: the sidebar row's own items (Mudar de grupo), after Fixar no topo. */
   return (
     a: Pick<
@@ -294,13 +299,18 @@ export function useAgentMenu() {
             },
           ] satisfies MenuEntry[])
         : []),
-      {
-        kind: "item",
-        id: "profile",
-        label: t("profile.viewProfile"),
-        icon: "agent",
-        run: () => (openPanel ? openPanel(a.id) : page()),
-      },
+      // A teammate's private agent whose page doesn't open for me: no way to a page that isn't there.
+      ...(hidesAgentPage(dir.agentById.get(a.id))
+        ? []
+        : ([
+            {
+              kind: "item",
+              id: "profile",
+              label: t("profile.viewProfile"),
+              icon: "agent",
+              run: () => (openPanel ? openPanel(a.id) : page()),
+            },
+          ] satisfies MenuEntry[])),
       ...(openComputer
         ? ([
             {
@@ -313,7 +323,7 @@ export function useAgentMenu() {
           ] satisfies MenuEntry[])
         : []),
       // The right hand has its own row on top of the sidebar.
-      ...(isRightHand(a) ? [] : [pins.entry("agents", a.id)]),
+      ...(isRightHand(a) ? [] : [favorites.entry("agent", a.id)]),
       ...mention(a.handle),
       ...copyHandle(a.handle),
       ...markRead(dm?.channelId, dm?.unread ?? 0),
@@ -374,7 +384,7 @@ export function usePersonMenu() {
   const copyHandle = useCopyHandle();
   const copyId = useCopyId();
   const mention = useMention();
-  const pins = useSidebarPins();
+  const favorites = useSidebarFavorites();
   const viewer = { role: org.role, rank: org.rank, userId: me.user.id, permissions: org.permissions };
   return (p: { userId: string; name: string; handle?: string | null }, openCard?: () => void): MenuEntry[] => {
     const dm = dms?.find((d) => d.with.id === p.userId);
@@ -401,7 +411,7 @@ export function usePersonMenu() {
             { kind: "item", id: "profile", label: t("profile.viewProfile"), icon: "person", run: openCard },
           ] satisfies MenuEntry[])
         : []),
-      ...(mine ? [] : [pins.entry("people", p.userId)]),
+      ...(mine ? [] : [favorites.entry("person", p.userId)]),
       ...mention(handle),
       ...copyHandle(handle),
       ...markRead(dm?.channelId, dm?.unread ?? 0),

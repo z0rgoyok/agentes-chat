@@ -21,6 +21,10 @@ test("what the workspace does: the onboarding's step 2, the business types saved
   // The setup card's own screen for it is gone: the onboarding asks it once.
   expect(src("agents/setup/SetupStepScreen.tsx")).not.toContain("BUSINESS_TYPES");
   expect(BUSINESS_TYPES.at(-1)).toBe("other");
+  // "Outra coisa" with no sentence: why Continue waits, in sight under the field (as the web's `example`).
+  expect(step).toContain(
+    '{other && !text ? <GroupedFooter>{t("agentSetup.firstRun.about.otherNeeded")}</GroupedFooter> : null}',
+  );
 });
 
 test("a conversation draws the team card and the answers to tap under a right hand's question", () => {

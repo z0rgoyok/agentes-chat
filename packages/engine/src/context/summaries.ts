@@ -5,9 +5,11 @@ import { cutText, cutTextEnd } from "../format";
 import type { ModelGateway } from "../gateway";
 import type { IntentWriter } from "../intent-line";
 import { createLlmJudge, type Judge } from "../judge";
+import { ownTyped } from "../message-origin";
 import type { Message } from "../messages";
 import { cheapModelForOrg } from "../router";
 import { createLlmScheduleReader, type ScheduleReader } from "../schedule-reader";
+import type { ToolLabelWriter } from "../tool-label-words";
 import { neutralizeUntrusted } from "../untrusted";
 import { isPersonalWorkspace } from "../workspace-mode";
 import { type ContextItem, insertContextItem, type MemoryJudging, supersede } from "./items";
@@ -32,6 +34,8 @@ export interface ContextDeps {
   schedules?: ScheduleReader;
   /** The working line's first words at a run's start (`intent-line.ts`); absent: none. */
   intents?: IntentWriter;
+  /** Connector tools' names in a person's language (`tool-label-words.ts`); default: the org's cheap model. */
+  toolLabels?: ToolLabelWriter;
   /** Where learning's failures are reported (ADR 0104, `reportLearnFailure`); absent: not reported. */
   errors?: ErrorReporter;
 }
@@ -86,10 +90,11 @@ export async function summaryModelReady(
 
 /**
  * Content from outside the org (webhooks, system notices) is untrusted, and so is an agent's message
- * relaying what it read outside (`meta.readOutside`, ADR 0117): memory built from it stays low trust.
+ * relaying what it read outside (`meta.readOutside`, ADR 0117), and a person's message they didn't type in our apps
+ * (`ownTyped`, ADR 0250: a token's, an AI app's, a bridge's): memory built from it stays low trust.
  */
-export const isTrustedMessage = (m: Pick<Message, "authorType"> & { meta?: Message["meta"] | null }) =>
-  (m.authorType === "person" || m.authorType === "agent") && m.meta?.readOutside !== true;
+export const isTrustedMessage = (m: Pick<Message, "authorType" | "origin"> & { meta?: Message["meta"] | null }) =>
+  m.authorType === "person" ? ownTyped(m) : m.authorType === "agent" && m.meta?.readOutside !== true;
 
 export interface ThreadView {
   root: Message;
@@ -188,11 +193,29 @@ export async function currentThreadSummary(db: Database, orgId: string, threadRo
  * than the current summary covers. New versions supersede old ones. Usage
  * kind `summary`, billed to the org.
  */
-export async function ensureThreadSummary(
+export function ensureThreadSummary(
   deps: ContextDeps,
   orgId: string,
   threadRootId: string,
   options: { minMessages?: number; force?: boolean; text?: string } = {},
+): Promise<ContextItem | null> {
+  if (options.text) return summarizeThread(deps, orgId, threadRootId, options);
+  // One summary of a thread written at a time per process: the one a turn starts beside it and its own `get_summary`.
+  const key = `${orgId}:${threadRootId}:${options.force === true}:${options.minMessages ?? ""}`;
+  const writing = summaryWrites.get(key);
+  if (writing) return writing;
+  const write = summarizeThread(deps, orgId, threadRootId, options).finally(() => summaryWrites.delete(key));
+  summaryWrites.set(key, write);
+  return write;
+}
+
+const summaryWrites = new Map<string, Promise<ContextItem | null>>();
+
+async function summarizeThread(
+  deps: ContextDeps,
+  orgId: string,
+  threadRootId: string,
+  options: { minMessages?: number; force?: boolean; text?: string },
 ): Promise<ContextItem | null> {
   const thread = await loadThread(deps.db, orgId, threadRootId);
   if (!thread) return null;

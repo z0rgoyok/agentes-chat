@@ -38,7 +38,9 @@ import { failedOffline } from "@/chat/offline";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { HelpLink } from "@/components/HelpLink";
 import { type ImportFocus, ImportSheet, type ImportSheetKind, useFocusOn } from "@/components/ImportSheet";
+import { arrivals } from "@/components/lodi-cursor/arrivals";
 import { useOrg } from "@/components/org-context";
+import { holdReload } from "@/lib/app-version";
 import {
   type AgentFile,
   type ImportFile,
@@ -74,6 +76,7 @@ import {
   itemId,
   kindsLine,
   MANY_FILES,
+  madeByImport,
   NOT_GITHUB,
   picksOf,
   todoLine,
@@ -97,6 +100,7 @@ const TODO_ICON: Record<BundleTodo["kind"], IconName> = {
   secret: "key",
   model: "settings",
   file: "file",
+  path: "file",
   webhook: "link",
 };
 /** Why the agents' files stay behind, in the order they're listed. */
@@ -173,7 +177,11 @@ export function useImportFlow(orgId: string | null) {
     if (!copying) return;
     const ask = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", ask);
-    return () => window.removeEventListener("beforeunload", ask);
+    const release = holdReload();
+    return () => {
+      window.removeEventListener("beforeunload", ask);
+      release();
+    };
   }, [copying]);
   // Agents whose files were sent to the Drive, so a later apply (a retry) sends only those it brought.
   const sent = useRef(new Set<string>());
@@ -347,6 +355,7 @@ export function useImportFlow(orgId: string | null) {
       );
       focus.current = "report";
       setReport(items);
+      arrivals.add(madeByImport(items));
       const arrived = agentsArrived(planned.items, items, pick, sent.current);
       for (const [key, id] of arrived) agentIds.current.set(key, id);
       setSeen((s) => s && new Set([...s, ...arrived.values()]));
@@ -1085,7 +1094,7 @@ function TodoLink({ kind, orgId }: { kind: BundleTodo["kind"]; orgId: string }) 
       </Link>
     );
   }
-  if (kind === "file") {
+  if (kind === "file" || kind === "path") {
     return (
       <Link to="/org/$orgId/drive" params={{ orgId }} className="ac-link imp-todo__link">
         {label}

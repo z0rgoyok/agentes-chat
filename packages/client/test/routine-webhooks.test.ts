@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { githubHookLink, WEBHOOK_TEST_MS, webhookTestState } from "../src/lib/routine-webhooks";
+import { githubHookLink, runCallText, WEBHOOK_TEST_MS, webhookTestState } from "../src/lib/routine-webhooks";
 
 const at = (ms: number) => new Date(ms).toISOString();
 const T = Date.parse("2026-11-06T12:00:00Z");
@@ -24,4 +24,11 @@ test("Testar: waiting, green on a call with the right secret, refused on another
   expect(webhookTestState({ receivedAt: at(T - 86_400_000), refusedAt: null }, T, T + 1000)).toBe("waiting");
   expect(webhookTestState({ receivedAt: null, refusedAt: at(T + 500) }, T, T + 1000)).toBe("refused");
   expect(webhookTestState({ receivedAt: at(T + 900), refusedAt: at(T + 500) }, T, T + 1000)).toBe("working");
+});
+
+test("a run's call reads as its headers, a blank line, then its body, JSON one value a line", () => {
+  const call = { headers: { "linear-event": "Issue" }, body: '{"data":{"id":"ISS-1"}}', binary: false };
+  expect(runCallText(call)).toBe('linear-event: Issue\n\n{\n  "data": {\n    "id": "ISS-1"\n  }\n}');
+  expect(runCallText({ ...call, body: "plain text" })).toBe("linear-event: Issue\n\nplain text");
+  expect(runCallText({ headers: {}, body: "", binary: true })).toBe("");
 });

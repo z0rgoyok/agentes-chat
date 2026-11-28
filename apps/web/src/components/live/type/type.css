@@ -1,0 +1,95 @@
+/*
+ * Fonts and text styles in live files (ADR 0220 §8): the font list's button and rows, the swatches of the text style
+ * and effects menus, the file's fonts dialog.
+ */
+
+/* In a toolbar the font list is a narrow ghost button with the font's name, cut with an ellipsis. */
+.lf-fontsel.ac-select {
+  width: auto;
+  flex: none;
+}
+.lf-fontsel--bar .ac-select__trigger {
+  width: auto;
+  min-width: 112px;
+  max-width: 152px;
+  height: var(--control-h-sm);
+  padding: 0 var(--space-1) 0 var(--space-2);
+  gap: var(--space-1);
+  border-color: transparent;
+  background: transparent;
+  color: var(--ink);
+  font-size: var(--control-fs-sm);
+  border-radius: var(--control-r-sm);
+}
+.lf-fontsel--bar .ac-select__trigger:hover {
+  background: var(--plate);
+}
+.lf-fontsel__name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lf-fontsel__foot {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  line-height: 20px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/*
+ * A row: the family in its own face, a note (its role, where it came from) at the end, on the list's own 20 px line
+ * so a family drawn larger keeps the menu's row height.
+ */
+.lf-fontrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  min-width: 0;
+}
+.lf-fontrow__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 17px;
+  line-height: 20px;
+}
+.lf-fontrow__note {
+  flex: none;
+  line-height: 20px;
+  font-size: var(--text-xs);
+  color: var(--ink-muted);
+}
+
+/* "Aa": the text style menu's button. */
+.lf-aa {
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+/* A color or gradient chip in a menu row (the empty one stands for none). */
+.lf-swatch {
+  display: inline-block;
+  width: 20px;
+  height: 14px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.lf-filefonts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.lf-filefonts__note {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--ink-muted);
+}

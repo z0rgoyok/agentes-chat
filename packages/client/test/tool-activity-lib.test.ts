@@ -17,7 +17,7 @@ test("a secret request's text names who asked; one posted before that reads with
   expect(serverBody(t, "…", meta({ name: "BILLING_API_KEY" }))).toBe("chat.body.secret_requestAnon");
 });
 
-test("a computer brain cut mid-turn says what it already did in the person's words, never the tools' names", async () => {
+test("a computer brain cut mid-turn says why and the way on in the person's words, never the tools it ran", async () => {
   const { resources } = await import("@agenteschat/i18n");
   const i18next = (await import("i18next")).default;
   const lang = (lng: string) => {
@@ -25,17 +25,26 @@ test("a computer brain cut mid-turn says what it already did in the person's wor
     void instance.init({ lng, fallbackLng: "en", resources, initAsync: false });
     return instance.t;
   };
-  const meta = {
+  const cut = (code: string, text = "") => ({
     brainInterrupted: {
       brain: "claude_code",
-      text: "",
+      code,
+      text,
       tools: ["run_code", "mcp__agentes__update_plan", "github_list_issues", "run_code"],
     },
-  };
-  expect(serverBody(lang("pt-BR"), "…", meta, "pt-BR")).toBe(
-    "_O Claude Code parou antes de terminar. Já feito, sem repetir: rodou código no PC, atualizou o plano e consultou o GitHub._",
+  });
+  expect(serverBody(lang("pt-BR"), "…", cut("canceled"), "pt-BR")).toBe(
+    "_O computador parou o Claude Code antes de terminar. Peça de novo para continuar._",
   );
-  expect(serverBody(lang("en"), "…", meta, "en")).toBe(
-    "_Claude Code stopped before finishing. Already done, not repeated: ran code on the PC, updated the plan, and checked GitHub._",
+  expect(serverBody(lang("en"), "…", cut("canceled"), "en")).toBe(
+    "_The computer stopped Claude Code before it finished. Ask again to continue._",
   );
+  expect(serverBody(lang("en"), "…", cut("timeout"), "en")).toBe(
+    "_Claude Code ran past its time limit and stopped before finishing. Ask again to continue._",
+  );
+  expect(serverBody(lang("en"), "…", cut("executor_crashed", "Installing Go now."), "en")).toBe(
+    "Installing Go now.\n\n_Claude Code stopped before finishing. Ask again to continue._",
+  );
+  for (const lng of ["pt-BR", "en", "de", "ja"])
+    expect(serverBody(lang(lng), "…", cut("canceled"), lng)).not.toMatch(/GitHub|update_plan|run_code/);
 });

@@ -13,7 +13,8 @@ import {
 } from "@agenteschat/client";
 import { errorText, runFailureLine } from "@agenteschat/client/lib/errors";
 import { joinNames, sentAtLine } from "@agenteschat/client/lib/format";
-import { mayConnectAi, plansNotYoursOf } from "@agenteschat/client/lib/no-ai";
+import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { mayConnectAi, noAiReceiptLine, plansNotYoursOf } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
 import { retryAnswer } from "@agenteschat/client/lib/retry-answer";
 import { deciderOf, everyoneLineOf } from "@agenteschat/client/lib/routing";
@@ -215,6 +216,13 @@ export function MessageReceipts({ message, part }: { message: Message; part: "ch
   const mayConnect = mayConnectAi(only ? dir.agentById.get(only) : null, me.user.id, org);
   // Every plan here serves only someone else: the agent's card has the way out, so the line only says whose.
   const notYours = plansNotYoursOf(aiStatus, only);
+  // What is really in the way, when its run said (a plan it has that can't think now, its CLI missing…).
+  const noAiLine = only ? noAiReceiptLine(receipt?.failures?.[only]) : null;
+  const noAiText = notYours
+    ? t("noAi.notYours.receipt", notYours)
+    : noAiLine && only
+      ? t(noAiLine.key, { ...agentGrammar(name(only)), model: noAiLine.model })
+      : t("noAi.receipt");
   const mentionNeeded = status?.kind === "nobody" && status.mentionNeeded === true;
   const statusText =
     status === null
@@ -224,7 +232,7 @@ export function MessageReceipts({ message, part }: { message: Message; part: "ch
         : status.kind === "no_ai"
           ? held
             ? t("noAi.kept.receipt")
-            : t("noAi.receipt")
+            : noAiText
           : status.kind === "platform_cap"
             ? t("receipts.platformCap")
             : t(`receipts.${status.kind}`, { count: status.agents.length, names: names(status.agents) });
@@ -392,8 +400,8 @@ export function MessageReceipts({ message, part }: { message: Message; part: "ch
       {status?.kind === "no_ai" && !held && (
         <KeptAnswer message={message} kept={receipt?.server?.kept === true}>
           <span className="ac-receipt__words">
-            <span>{notYours ? t("noAi.notYours.receipt", notYours) : t("noAi.receipt")}</span>
-            {connect && mayConnect && !notYours && (
+            <span>{noAiText}</span>
+            {connect && mayConnect && !notYours && (noAiLine?.connect ?? true) && (
               <ReceiptAction>
                 <button
                   type="button"

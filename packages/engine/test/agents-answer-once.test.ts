@@ -79,10 +79,9 @@ test("an ok, a thanks or an 'I'll wait' gets at most a reaction; a question card
   const run = await channelRun();
   const options = { maxMessages: 10, toolsAvailable: true, askUser: true, react: true };
   const text = systemText((await buildRunContext(f.db, run, f.agent, options)).system);
-  expect(text).toContain(
-    '"ok, go ahead", "I\'ll wait"; in Portuguese "valeu", "perfeito", "ok, pode seguir", "aguardo"',
-  );
+  expect(text).toContain('"perfect", "I\'ll wait"; in Portuguese "valeu", "perfeito", "aguardo"');
   expect(text).toContain("Never react and also reply, not even to say what you'll do next");
+  expect(text).toContain('A go-ahead ("ok, go ahead", "pode seguir") is not this: do the work.');
   expect(text).toContain("Never for an approval an action's card asks, and never the question in your text too.");
 });
 

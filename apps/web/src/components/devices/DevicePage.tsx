@@ -1,19 +1,40 @@
-import type { ComputerDevice, DeviceAudience, Machine, PhoneDevice } from "@agenteschat/client";
-import { useMachinePause, useMachines } from "@agenteschat/client";
+import type {
+  ComputerDevice,
+  ComputerMaintenance,
+  DeviceAudience,
+  Machine,
+  PermissionNeed,
+  PhoneDevice,
+} from "@agenteschat/client";
+import { useAuthConfig, useMachinePause, useMachines } from "@agenteschat/client";
 import {
   deviceName,
+  doctorShown,
   findPhone,
   iosOf,
   iphoneOverWifi,
+  lendingDevice,
   mayChangeTasks,
-  osName,
+  permissionWaitLines,
   personInControl,
   phoneLink,
   phoneSystem,
+  powerChoice,
+  processorText,
+  RUNNER_DOCTOR_COMMAND,
+  RUNNER_UPDATE_COMMAND,
+  SPILL_USES,
+  shareInternetHint,
+  shareInternetText,
+  spillOfUse,
+  spillUseOf,
   statusLook,
   statusSentence,
+  systemText,
   taskChoices,
   taskLimitLine,
+  tasksAutoText,
+  terminalInstall,
 } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { clockAt } from "@agenteschat/client/lib/format";
@@ -21,6 +42,7 @@ import { isPaused, PAUSE_CHOICES, pauseChoiceText, pausedByText, pauseUntil } fr
 import { can } from "@agenteschat/client/lib/permissions";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import {
+  Alert,
   Avatar,
   Button,
   Card,
@@ -37,19 +59,28 @@ import {
   ProviderLogo,
   Select,
   Switch,
+  Tip,
 } from "@agenteschat/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { MachineAccessCards, MachineAgents, MachineFactsExtra, MachinePage } from "@/components/Machines";
+import { CommandBlock, MaintenanceHint } from "@/components/machine-bits";
 import { PrefRow } from "@/components/NoticePrefs";
 import { useOrg } from "@/components/org-context";
 import { OrgMark } from "@/components/ProfilePhoto";
+import { useDirectory } from "@/hooks/useDirectory";
 import { useToast } from "@/lib/toast";
 import { ConnectDialog, type ConnectStart } from "./ConnectDialog";
 import { WifiIphoneOffer } from "./ConnectPhone";
-import { DeviceRemoveDialog, DeviceRenameDialog, DeviceRowView, type DeviceTarget } from "./DevicesSection";
+import {
+  DeviceRemoveDialog,
+  DeviceRenameDialog,
+  DeviceRowView,
+  type DeviceTarget,
+  usePowerAction,
+} from "./DevicesSection";
 import { PhoneLive } from "./PhoneLive";
 import { DevicePortrait, Facts, StatusPill, useOwner } from "./parts";
 import { useDevices, useStopPhone, useUpdateComputer, useUpdatePhone } from "./queries";
@@ -155,6 +186,8 @@ function StatusLine({
   action,
   ios,
   text,
+  maintenance,
+  cli,
 }: {
   status: PhoneDevice["status"];
   host?: string;
@@ -164,16 +197,21 @@ function StatusLine({
   ios?: string | null;
   /** In place of the status's own sentence, as typed (it carries a person's name). */
   text?: string | null;
+  /** What we do to the computer (ADR 0257): its line, with its ⓘ. */
+  maintenance?: ComputerMaintenance | null;
+  /** Installed from the Terminal (`terminalInstall`). */
+  cli?: boolean;
 }) {
   const { t, i18n } = useTranslation();
-  const sentence = text ?? statusSentence(t, i18n.language, status, { host, hostOs, ios });
+  const sentence = text ?? statusSentence(t, i18n.language, status, { host, hostOs, ios, maintenance, cli });
   const label = status.kind === "in_use" && status.label ? status.label : null;
   if (!sentence && !action) return null;
   return (
     <div className="dv-statusline" data-status={statusLook(status)} role="status">
-      <span className="dv-statusline__text">
+      <span className={maintenance ? "dv-statusline__text ac-hintline" : "dv-statusline__text"}>
         {text ?? (sentence && codeAndBold(sentence, "cb", [host]))}
         {label && <small> · {label}</small>}
+        {maintenance && <MaintenanceHint maintenance={maintenance} />}
       </span>
       {action}
     </div>
@@ -281,6 +319,24 @@ function Toolchains({ tools }: { tools: Record<string, string> }) {
 }
 
 /**
+ * An OS permission the computer waits on: what and where, that it is allowed in the agentes.chat app there (the only
+ * place it can be), and which agent asked it for what.
+ */
+function PermissionWait({ need, computer }: { need: PermissionNeed; computer: string }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const agents = useDirectory(org.id).agentById;
+  const words = permissionWaitLines(t, need, computer, need.agentId ? agents.get(need.agentId)?.name : undefined);
+  return (
+    <Alert tone="neutral" icon="lock" className="dv-permission">
+      <strong className="dv-permission__title">{words.title}</strong>
+      {words.next}
+      {words.asked && <small className="dv-permission__asked">{words.asked}</small>}
+    </Alert>
+  );
+}
+
+/**
  * A computer someone connected: its state and one action, facts and toolchains; who can use it, how many tasks at once
  * and whether it belongs to the workspace; the phones it reaches; then its folders and tools; Remove. The workspace
  * computer keeps its own page.
@@ -291,6 +347,7 @@ function ComputerPage({ machineId }: { machineId: string }) {
   const toast = useToast();
   const devices = useDevices(org.id);
   const machines = useMachines(org.id);
+  const auth = useAuthConfig();
   const update = useUpdateComputer(org.id);
   const back = useBackToList();
   const [renaming, setRenaming] = useState<DeviceTarget | null>(null);
@@ -316,6 +373,11 @@ function ComputerPage({ machineId }: { machineId: string }) {
         : d.status;
   const owner = d.ownerUserId === me.user.id;
   const admin = can(org, "configure");
+  const lending = lendingDevice(devices.data?.devices);
+  const internet = d.shareInternet;
+  // Someone else's lends now: its owner may pick this one instead (on again moves it first).
+  const mayPick = internet?.on === true && !internet.inUse && lending !== null && owner;
+  const helpOff = devices.data?.devicesHelp === false;
   const tasksEditable = mayChangeTasks(d, me.user.id, admin);
   const pausedFromApps = status.kind === "paused" ? pausedByText(t, i18n.language, machine?.paused, me.user.id) : null;
   const pausable = machine?.canManage && machine.online ? machine : null;
@@ -328,26 +390,35 @@ function ComputerPage({ machineId }: { machineId: string }) {
   // This server's own computer stops being used here (and can be again), it isn't removed.
   const host = d.machineKind === "host";
   const removeWords = host ? t("machines.host.stop") : t("devices.remove");
-  // At a glance its system (and when it was last seen while offline); its size, toolchains, way out and folder are
-  // behind "Detalhes".
-  const facts = [
-    { label: t("devices.facts.system"), value: osName(t, d.os) },
-    ...(d.status.kind === "offline" && d.lastSeenAt
+  // At a glance when it was last seen while offline; its system, size, toolchains, way out and folder are behind
+  // "Detalhes".
+  const facts =
+    d.status.kind === "offline" && d.lastSeenAt
       ? [{ label: t("devices.facts.lastSeen"), value: clockAt(i18n.language, d.lastSeenAt) }]
-      : []),
-  ];
+      : [];
+  const processor = processorText(t, d);
   const more = [
-    ...(d.cpus ? [{ label: t("devices.facts.cpu"), value: String(d.cpus) }] : []),
+    { label: t("devices.facts.system"), value: systemText(t, d) },
+    ...(processor
+      ? [
+          {
+            label: t("devices.facts.cpu"),
+            value: processor.cores ? (
+              <Tip tip={processor.cores} look="ac-msg__tip" tabIndex={0}>
+                {processor.name}
+                <span className="ac-visually-hidden">, {processor.cores}</span>
+              </Tip>
+            ) : (
+              processor.name
+            ),
+          },
+        ]
+      : []),
     ...(d.memoryGb ? [{ label: t("devices.facts.memory"), value: t("devices.memory", { gb: d.memoryGb }) }] : []),
     ...(Object.keys(d.toolchains).length > 0
       ? [{ label: t("devices.facts.toolchains"), value: <Toolchains tools={d.toolchains} />, wide: true }]
       : []),
   ];
-  const extra = Boolean(
-    machine &&
-      ((machine.workspace && machine.mode !== "system") ||
-        (machine.kind === "managed" && (machine.networkTransition || (machine.online && machine.egress?.ip)))),
-  );
   return (
     <>
       <BackToDevices />
@@ -394,23 +465,40 @@ function ComputerPage({ machineId }: { machineId: string }) {
         />
         <StatusLine
           status={status}
-          text={pausedFromApps ?? (status.kind === "busy" ? taskLimitLine(t, d, tasksEditable) : null)}
+          text={
+            pausedFromApps ?? (status.kind === "busy" && !d.maintenance ? taskLimitLine(t, d, tasksEditable) : null)
+          }
+          maintenance={d.maintenance}
+          cli={terminalInstall(machine)}
         />
+        {(d.permissions ?? []).map((need) => (
+          <PermissionWait key={need.permission} need={need} computer={d.name} />
+        ))}
         {pausable && !pausable.remotePause && <span className="small muted">{t("machines.remotePause.outdated")}</span>}
-        <Facts facts={facts} />
-        {status.kind === "paused" && !pausedFromApps && <span className="small muted">{t("machines.pausedHint")}</span>}
-        {more.length > 0 || extra || d.systemMode ? (
-          <Disclosure summary={t("common.details")}>
-            {more.length > 0 && <Facts facts={more} />}
-            {machine && <MachineFactsExtra machine={machine} />}
-            {d.systemMode ? (
-              <p className="ac-setnote ac-iconline">
-                <Icon name="code" size={14} />
-                <span>{t("machines.agentUsers")}</span>
-              </p>
-            ) : null}
+        {machine?.canManage && machine.update && (
+          <>
+            <span className="small muted">{t(`machines.runnerBehind.${machine.update}`, { computer: d.name })}</span>
+            {machine.update === "command" && <CommandBlock command={RUNNER_UPDATE_COMMAND} />}
+          </>
+        )}
+        {machine?.canManage && doctorShown(status, machine) && (
+          <Disclosure summary={t("devices.technical.title")}>
+            <span className="small muted">{t("devices.technical.doctor")}</span>
+            <CommandBlock command={RUNNER_DOCTOR_COMMAND} />
           </Disclosure>
-        ) : null}
+        )}
+        {facts.length > 0 && <Facts facts={facts} />}
+        {status.kind === "paused" && !pausedFromApps && <span className="small muted">{t("machines.pausedHint")}</span>}
+        <Disclosure summary={t("common.details")}>
+          <Facts facts={more} />
+          {machine && <MachineFactsExtra machine={machine} />}
+          {d.systemMode ? (
+            <p className="ac-setnote ac-iconline">
+              <Icon name="code" size={14} />
+              <span>{t("machines.agentUsers")}</span>
+            </p>
+          ) : null}
+        </Disclosure>
         {machine && <MachineAgents machine={machine} />}
       </Card>
       {/* Who may change it: its owner and the admins. Everyone else reads. */}
@@ -427,8 +515,35 @@ function ComputerPage({ machineId }: { machineId: string }) {
             hint={t("devices.who.computerHint")}
             onChange={(audience: DeviceAudience) => save({ id: d.id, audience })}
           />
+          {/* Tasks start on room there: what's running and what still fits, and the owner's Push harder. */}
+          {d.taskRoom && (
+            <PrefRow
+              id="dv-pc-tasks"
+              icon="layers"
+              label={t("devices.maxTasks")}
+              hint={t("devices.tasksAutoHint")}
+              status={tasksAutoText(t, d)}
+            />
+          )}
+          {d.taskRoom && tasksEditable && d.machineKind === "connected" && (
+            <PrefRow
+              id="dv-pc-push"
+              icon="power"
+              label={t("devices.pushHarder")}
+              hint={t("devices.pushHarderHint")}
+              control={
+                <Switch
+                  id="dv-pc-push-switch"
+                  checked={d.taskRoom.pushHarder}
+                  // The computer applies it: offline, nothing would.
+                  disabled={status.kind === "offline"}
+                  onCheckedChange={(on) => save({ id: d.id, pushHarder: on })}
+                />
+              }
+            />
+          )}
           {/* Only once the computer says its limit: a guess here would be a setting that changes nothing. */}
-          {d.maxTasks !== null && (
+          {!d.taskRoom && d.maxTasks !== null && (
             <PrefRow
               id="dv-pc-tasks"
               icon="layers"
@@ -449,27 +564,101 @@ function ComputerPage({ machineId }: { machineId: string }) {
               }
             />
           )}
-          {/* Spill-over: its owner turns these on; an admin may only turn them off. A server install never takes it. */}
-          {d.mayManage &&
-            d.machineKind === "connected" &&
-            !d.systemMode &&
-            (["own", "others"] as const).map((key) => (
-              <PrefRow
-                key={key}
-                id={`dv-pc-spill-${key}`}
-                icon={key === "own" ? "bolt" : "audiencePeople"}
-                label={t(key === "own" ? "devices.spillOwn" : "devices.spillOthers")}
-                hint={t(key === "own" ? "devices.spillOwnHint" : "devices.spillOthersHint")}
-                control={
-                  <Switch
-                    id={`dv-pc-spill-${key}-switch`}
-                    checked={d.spill[key]}
-                    disabled={!owner && !d.spill[key]}
-                    onCheckedChange={(on) => save({ id: d.id, spill: { [key]: on } })}
-                  />
-                }
-              />
-            ))}
+          {/* Its help, its owner's one choice: never, only as backup, or first for their own agents' work. The workspace's
+              switch off wins. Never a server install's. */}
+          {owner && d.machineKind === "connected" && !d.systemMode && (
+            <PrefRow
+              id="dv-pc-spill"
+              icon="bolt"
+              label={t("devices.helpUse")}
+              hint={t(d.belongsToWorkspace ? "devices.helpUseTeamHint" : "devices.helpUseHint")}
+              status={helpOff ? t("devices.spillWorkspaceOff") : undefined}
+              control={
+                <Select
+                  size="sm"
+                  align="end"
+                  aria-label={t("devices.helpUse")}
+                  disabled={helpOff}
+                  value={helpOff ? "off" : spillUseOf(d)}
+                  onValueChange={(use) => save({ id: d.id, spill: spillOfUse(use) })}
+                  options={SPILL_USES.map((use) => ({ value: use, label: t(`devices.helpUses.${use}`) }))}
+                />
+              }
+            />
+          )}
+          {/* Someone else's computer: an admin may only turn its help off. */}
+          {!owner && d.mayManage && d.machineKind === "connected" && !d.systemMode && (
+            <PrefRow
+              id="dv-pc-spill"
+              icon="bolt"
+              label={t("devices.spillOwn")}
+              hint={t(d.belongsToWorkspace ? "devices.spillTeamHint" : "devices.spillOwnHint")}
+              status={helpOff ? t("devices.spillWorkspaceOff") : undefined}
+              control={
+                <Switch
+                  id="dv-pc-spill-switch"
+                  checked={d.spill.own && !helpOff}
+                  disabled={helpOff || !d.spill.own}
+                  onCheckedChange={(own) => save({ id: d.id, spill: { own } })}
+                />
+              }
+            />
+          )}
+          {/* Its owner lends its internet to the workspace's computer; an admin may only stop it (ADR 0237). */}
+          {internet && (d.mayManage || internet.on) && (
+            <PrefRow
+              id="dv-pc-internet"
+              icon="globe"
+              label={t("devices.shareInternet")}
+              hint={shareInternetHint(t, auth.data)}
+              status={shareInternetText(t, d, lending)}
+              {...(mayPick
+                ? {
+                    // Beside a button the row's words are no label: the switch names itself.
+                    actions: (
+                      <>
+                        <Button size="sm" onClick={() => save({ id: d.id, shareInternet: true })}>
+                          {t("devices.shareInternetPick")}
+                        </Button>
+                        <Switch
+                          id="dv-pc-internet-switch"
+                          aria-label={t("devices.shareInternet")}
+                          checked
+                          onCheckedChange={(on) => save({ id: d.id, shareInternet: on })}
+                        />
+                      </>
+                    ),
+                  }
+                : {
+                    control: (
+                      <Switch
+                        id="dv-pc-internet-switch"
+                        checked={internet.on}
+                        disabled={!d.mayManage || (!owner && !internet.on)}
+                        onCheckedChange={(on) => save({ id: d.id, shareInternet: on })}
+                      />
+                    ),
+                  })}
+            />
+          )}
+          {/* Under the switch while it lends: nothing of the agents' goes their usual way, AI calls included. Its
+              owner's to turn on, as the switch is; an admin may only turn it off. */}
+          {internet?.on && internet.only !== undefined && (d.mayManage || internet.only) && (
+            <PrefRow
+              id="dv-pc-internet-only"
+              nested
+              label={t("devices.shareInternetOnly")}
+              hint={t("devices.shareInternetOnlyHint")}
+              control={
+                <Switch
+                  id="dv-pc-internet-only-switch"
+                  checked={internet.only}
+                  disabled={!d.mayManage || (!owner && !internet.only)}
+                  onCheckedChange={(on) => save({ id: d.id, internetOnly: on })}
+                />
+              }
+            />
+          )}
           {admin && d.machineKind === "connected" && (
             <PrefRow
               id="dv-pc-belongs"
@@ -554,6 +743,7 @@ function PhonePage({ phoneId }: { phoneId: string }) {
   const devices = useDevices(org.id);
   const update = useUpdatePhone(org.id);
   const stop = useStopPhone(org.id);
+  const power = usePowerAction();
   const back = useBackToList();
   const [renaming, setRenaming] = useState<DeviceTarget | null>(null);
   const [removing, setRemoving] = useState<DeviceTarget | null>(null);
@@ -566,6 +756,7 @@ function PhonePage({ phoneId }: { phoneId: string }) {
   const { phone: p, host } = found;
   const target: DeviceTarget = { kind: "phone", device: p };
   const owner = p.ownerUserId === me.user.id;
+  const powers = powerChoice(p);
   // A person in control gives it back on its screen instead.
   const canStop =
     p.status.kind === "in_use" &&
@@ -593,6 +784,16 @@ function PhonePage({ phoneId }: { phoneId: string }) {
         onClick={() => setConnect({ step: p.platform === "ios" ? "iphone" : "android", hostId: host.id })}
       >
         {t("devices.showMe")}
+      </Button>
+    ) : powers ? (
+      <Button
+        size="sm"
+        icon={powers === "start" ? "play" : "power"}
+        loading={power.pending}
+        disabled={power.pending}
+        onClick={() => power.run(p, powers === "start")}
+      >
+        {t(powers === "start" ? "devices.power.start" : "devices.power.stop")}
       </Button>
     ) : undefined;
   const link = phoneLink(t, p);

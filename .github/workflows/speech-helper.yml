@@ -1,0 +1,138 @@
+# agentes-speech (tools/speech-helper): its tests on every change, and on a `speech-helper-v*` tag its five builds and
+# the models it loads, mirrored from their pinned sources and checked against models.txt, in one GitHub release with
+# manifest.json (every file's sha256 and size). The core downloads from that release and checks each file.
+name: Speech helper
+
+on:
+  pull_request:
+    paths:
+      - "tools/speech-helper/**"
+      - ".github/workflows/speech-helper.yml"
+  push:
+    tags: ["speech-helper-v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The helper runs on macOS 11 and later.
+  MACOSX_DEPLOYMENT_TARGET: "11.0"
+
+jobs:
+  test:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-22.04
+    defaults:
+      run:
+        working-directory: tools/speech-helper
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: tools/speech-helper
+          # Registry only: sherpa-onnx-sys unpacks its libraries under target/, which a restored target loses.
+          cache-targets: false
+      - name: sherpa-onnx's static libraries, with retries (its build script tries once)
+        run: bash fetch-sherpa.sh x86_64-unknown-linux-gnu "$RUNNER_TEMP/sherpa" >> "$GITHUB_ENV"
+      - run: cargo test --release --locked
+      - name: models.txt's header says its total
+        run: |
+          python3 -c '
+          import sys
+          lines = open("models.txt").read().splitlines()
+          total = sum(int(l.split()[1]) for l in lines if l.strip() and not l.startswith("#"))
+          sys.exit(0 if f"{total:,} bytes" in "\n".join(lines) else f"the header should say {total:,} bytes")'
+
+  build:
+    if: github.event_name != 'pull_request'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: aarch64-apple-darwin, os: macos-15 }
+          - { target: x86_64-apple-darwin, os: macos-15 }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+          # glibc 2.35 and later: Ubuntu 22.04+, Debian 12+ (the Docker image is Debian 13).
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04-arm }
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: tools/speech-helper
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: tools/speech-helper
+          # Registry only: sherpa-onnx-sys unpacks its libraries under target/, which a restored target loses.
+          cache-targets: false
+          key: ${{ matrix.target }}
+      - name: sherpa-onnx's static libraries, with retries (its build script tries once)
+        run: bash fetch-sherpa.sh ${{ matrix.target }} "$RUNNER_TEMP/sherpa" >> "$GITHUB_ENV"
+      - run: cargo build --release --locked --target ${{ matrix.target }}
+      - name: Name it for its target
+        run: |
+          set -eu
+          ext=""; [ "${{ runner.os }}" = Windows ] && ext=".exe"
+          mkdir -p out
+          cp "target/${{ matrix.target }}/release/agentes-speech$ext" "out/agentes-speech-${{ matrix.target }}$ext"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: agentes-speech-${{ matrix.target }}
+          path: tools/speech-helper/out/*
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/speech-helper-v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Mirror the models, checked against models.txt
+        run: |
+          set -eu
+          grep -Ev '^(#|$)' tools/speech-helper/models.txt | while read -r sum bytes path url; do
+            file="dist/$(echo "$path" | tr / -)"
+            curl -fsSL --retry 5 --retry-all-errors -o "$file" "$url"
+            echo "$sum  $file" | sha256sum -c --quiet -
+            [ "$(stat -c %s "$file")" = "$bytes" ]
+          done
+          cp tools/speech-helper/NOTICE dist/NOTICE.txt
+      - name: manifest.json and SHA256SUMS
+        run: |
+          set -eu
+          cd dist
+          sha256sum -- * > SHA256SUMS
+          python3 - "${GITHUB_REF_NAME}" > manifest.json <<'PY'
+          import hashlib, json, os, sys
+          models = []
+          for line in open("../tools/speech-helper/models.txt"):
+              if line.strip() and not line.startswith("#"):
+                  sha, size, path, _ = line.split()
+                  models.append({"path": path, "file": path.replace("/", "-"), "sha256": sha, "bytes": int(size)})
+          helpers = {}
+          for name in sorted(os.listdir(".")):
+              if name.startswith("agentes-speech-"):
+                  target = name.removeprefix("agentes-speech-").removesuffix(".exe")
+                  data = open(name, "rb").read()
+                  helpers[target] = {"file": name, "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)}
+          json.dump({"version": sys.argv[1], "helpers": helpers, "models": models}, sys.stdout, indent=2)
+          PY
+          cat manifest.json
+      - name: The release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes "agentes-speech and the models it loads (tools/speech-helper). manifest.json lists every file's sha256."

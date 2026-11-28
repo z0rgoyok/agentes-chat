@@ -87,6 +87,38 @@ test("a 3-call tool loop: working text goes to the steps, never live; the answer
   expect(calls).toEqual(["Começo verificando o ambiente.", "Go não está instalado. Vou tentar o compilador C.", null]);
 });
 
+test("notes the API keeps apart from the text (progress updates) narrate the work as its text would, never the reply", async () => {
+  const env = envTool();
+  f = await setup({
+    toolSources: [env.source],
+    reply: (req) =>
+      turns(req) === 0
+        ? {
+            chunks: [],
+            notes: ["Primeiro confiro o ambiente. Depois compilo."],
+            toolUses: [{ name: "check_env", input: {} }],
+          }
+        : { chunks: ["Falta o Go."] },
+  });
+  const events = f.listen(f.general.id);
+  await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+    body: "@dev compila o projeto",
+  });
+  await drainOutbox(f.db, f.handlers);
+  // The call's step line says it; the reply doesn't.
+  const said = events.flatMap((e) => ("said" in e && e.said ? [e.said] : []));
+  expect(said).toEqual(["Primeiro confiro o ambiente"]);
+  const timeline = await listMessages(f.db, f.owner.id, f.org.id, f.general.id);
+  expect(timeline.map((m) => m.body)).toEqual(["@dev compila o projeto", "Falta o Go."]);
+  const steps = await f.db.select().from(schema.agentRunSteps);
+  const narrated = steps
+    .filter((s) => s.kind === "model_call")
+    .flatMap((s) =>
+      (s.data as { narration?: string }).narration ? [(s.data as { narration: string }).narration] : [],
+    );
+  expect(narrated).toEqual(["Primeiro confiro o ambiente. Depois compilo."]);
+});
+
 test("a short answer shows whole in its message, with no tool call to wait for", async () => {
   f = await setup({ reply: () => ({ chunks: ["Tudo ", "certo."] }) });
   const events = f.listen(f.general.id);

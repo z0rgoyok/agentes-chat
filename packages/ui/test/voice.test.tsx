@@ -205,3 +205,13 @@ describe("the wave's handle", () => {
     }
   });
 });
+
+test("the speed chips of a voice message and a video keep one width as the speed goes round (nothing beside them moves)", async () => {
+  const css = await Bun.file(new URL("../src/styles/components.css", import.meta.url).pathname).text();
+  for (const chip of [".ac-voice__speed", ".ac-video__speed"]) {
+    const rule = css.split(`\n${chip} {`)[1]?.split("}")[0] ?? "";
+    expect(rule).toContain("width: 36px;");
+    expect(rule).toContain("padding: 0;");
+    expect(rule).toContain("text-align: center;");
+  }
+});

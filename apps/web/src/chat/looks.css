@@ -342,9 +342,7 @@
  * one at the bottom left, 3px under the bubble. A request that stands as a line (`.rq-open`, `.rq-done`) keeps its line,
  * and the agents' line (`.ag-rc--talk`) its own.
  */
-.ac-msg[data-look="bubbles"]:not(.ac-msg--own)
-  .ac-msg__body
-  :is(.ag-rc:not(.ag-rc--talk), .ag-rcg, .ac-workline.handed-line, .rq) {
+.ac-msg[data-look="bubbles"]:not(.ac-msg--own) .ac-msg__body :is(.ag-rc:not(.ag-rc--talk), .ag-rcg, .rq) {
   background: var(--msg-bubble);
   box-shadow: none;
   border-radius: 6px 18px 18px 6px;
@@ -352,7 +350,7 @@
 .ac-msg[data-look="bubbles"]:not(.ac-msg--own) .rq > .ac-approval__sky {
   display: none;
 }
-.ac-msg.ac-msg[data-look="bubbles"]:not(.ac-msg--own) .ac-msg__body > .ac-msg__text ~ :is(.ag-rcs, .handed-line, .rq) {
+.ac-msg.ac-msg[data-look="bubbles"]:not(.ac-msg--own) .ac-msg__body > .ac-msg__text ~ :is(.ag-rcs, .rq) {
   margin-top: 3px;
 }
 /* The body's rule in this look: a tab stands on its bubble, not a part's gap off it. */

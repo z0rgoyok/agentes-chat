@@ -11,7 +11,6 @@ import {
   EmptyState,
   EYE,
   glowTones,
-  holdSkiesWhileAway,
   mix,
   PixelSky,
   parseColor,
@@ -25,6 +24,7 @@ import {
   softTones,
   spriteTone,
   startSky,
+  watchSight,
 } from "../src";
 import { CLEAR_PX } from "../src/sky/engine";
 import { type CalmZone, lightToward, opaque, placeSprite, riseColumn, spriteNear } from "../src/sky/math";
@@ -182,7 +182,7 @@ describe("the sky's loop", () => {
 
   test("held while nobody looks: no input for a while stills every sky, and the first input moves them again", async () => {
     const page = await skyPage(false);
-    const stop = holdSkiesWhileAway(40);
+    const stop = watchSight(40);
     try {
       page.frames(500);
       expect(skiesHeld()).toBe(false);

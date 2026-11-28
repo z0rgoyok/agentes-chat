@@ -2,7 +2,7 @@ import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
 import { type SwipeAction, SwipeRow } from "@/ui";
-import type { RowAction } from "../categories/menus";
+import type { RowAction } from "../channel-sectors/menus";
 import { useColors } from "../shared/hooks";
 import { ConversationItem } from "./ConversationRowView";
 import type { ConversationRow } from "./logic";
@@ -51,7 +51,7 @@ export const HomeRow = memo(function HomeRow({
     if (pinLabel === null) return null;
     const pin: SwipeAction = {
       label: pinLabel,
-      icon: "pin",
+      icon: "star",
       color: c.agent,
       ink: c.onAgent,
       // The menu's own action, as it stands when the pane is pressed.

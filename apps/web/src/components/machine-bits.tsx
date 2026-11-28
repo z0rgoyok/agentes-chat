@@ -1,7 +1,9 @@
-import type { MachineOs } from "@agenteschat/client";
+import type { ComputerMaintenance, MachineOs } from "@agenteschat/client";
 import { useMachines } from "@agenteschat/client";
+import { maintenanceDetails, maintenanceLine, maintenanceShort } from "@agenteschat/client/lib/computer-maintenance";
 import { computerKind } from "@agenteschat/client/lib/machines";
-import { Button, Chip, ComputerIcon, Icon } from "@agenteschat/ui";
+import { endSentence } from "@agenteschat/client/lib/text";
+import { Button, Chip, ComputerIcon, Icon, type IconName, InfoHint } from "@agenteschat/ui";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
@@ -23,13 +25,57 @@ export function MachineIcon({ machineId, size = 14 }: { machineId: string | null
   return m ? <ComputerIcon kind={computerKind(m.os)} size={size} /> : <Icon name="computer" size={size} />;
 }
 
-/** Online / Offline, with an icon (never a colored dot). */
-export function MachineChip({ online }: { online: boolean }) {
+const MAINTENANCE_ICON: Record<string, IconName> = {
+  moving: "swap",
+  restarting: "refresh",
+  updating: "download",
+  converting: "database",
+};
+
+/**
+ * Online / Offline, with an icon (never a colored dot). Away for what we do to it (ADR 0257: a move, a restart…), it
+ * says that instead, and an ⓘ beside it tells why, since when, about when it is back and what still works; online
+ * while a move copies it, the ⓘ says it may be slower.
+ */
+export function MachineChip({
+  online,
+  maintenance = null,
+}: {
+  online: boolean;
+  maintenance?: ComputerMaintenance | null;
+}) {
   const { t } = useTranslation();
-  return (
+  const away = !online && maintenance?.away ? maintenance : null;
+  const chip = away ? (
+    <Chip icon={MAINTENANCE_ICON[away.kind] ?? "cog"} className="machine-chip">
+      {maintenanceShort(t, away)}
+    </Chip>
+  ) : (
     <Chip icon={online ? "check" : "dash"} className="machine-chip">
       {online ? t("machines.online") : t("machines.offline")}
     </Chip>
+  );
+  const told = away ?? (online && maintenance && !maintenance.away ? maintenance : null);
+  if (!told) return chip;
+  return (
+    <span className="ac-hintline">
+      {chip}
+      <MaintenanceHint maintenance={told} />
+    </span>
+  );
+}
+
+/** The ⓘ of what we do to the computer: its line, why, since when, about when it is back, what still works. */
+export function MaintenanceHint({ maintenance }: { maintenance: ComputerMaintenance }) {
+  const { t, i18n } = useTranslation();
+  const now = new Date();
+  return (
+    <InfoHint name={t("machines.maintenance.about")}>
+      {[
+        endSentence(maintenanceLine(t, maintenance, now)),
+        ...maintenanceDetails(t, i18n.language, maintenance, now),
+      ].join(" ")}
+    </InfoHint>
   );
 }
 
@@ -49,13 +95,16 @@ function useCopy() {
   };
 }
 
-/** "Prefiro no Terminal": under a one-click button, the same switch as a command, folded until asked for. */
-export function TerminalFallback({ command }: { command: string | null }) {
+/**
+ * "Prefiro no Terminal": under a one-click button, the same switch as a command, folded until asked for. `label`
+ * names the fold where the command is the way without the app ("Sem o app lá? Use o Terminal").
+ */
+export function TerminalFallback({ command, label }: { command: string | null; label?: string }) {
   const { t } = useTranslation();
   if (!command) return null;
   return (
     <details className="cflow__more">
-      <summary>{t("machines.access.preferTerminal")}</summary>
+      <summary>{label ?? t("machines.access.preferTerminal")}</summary>
       <div className="cflow__key">
         <CommandBlock command={command} />
       </div>

@@ -9,7 +9,7 @@ import {
   Schema,
   type TagParseRule,
 } from "prosemirror-model";
-import { cssColorHex } from "../rich/schema";
+import { cssColorHex, typeMarkCss } from "../rich/schema";
 
 /**
  * The document schema as ProseMirror's (ADR 0200): node and mark names and attributes come from `DOC_SCHEMA_SPEC` of
@@ -297,8 +297,26 @@ export const docSchema = new Schema({
           ? ["a", { href: mark.attrs.href, rel: "noopener noreferrer nofollow", target: "_blank" }, 0]
           : ["span", 0],
     },
+    // The type marks (ADR 0220 §3), drawn as slides and canvases draw them.
+    font: { ...spec.marks.font, toDOM: (mark: Mark): DOMOutputSpec => typeSpan("font", mark.attrs.font) },
+    size: { ...spec.marks.size, toDOM: (mark: Mark): DOMOutputSpec => typeSpan("size", mark.attrs.size) },
+    weight: { ...spec.marks.weight, toDOM: (mark: Mark): DOMOutputSpec => typeSpan("weight", mark.attrs.weight) },
+    highlight: {
+      ...spec.marks.highlight,
+      toDOM: (mark: Mark): DOMOutputSpec => typeSpan("highlight", mark.attrs.color),
+    },
+    tracking: {
+      ...spec.marks.tracking,
+      toDOM: (mark: Mark): DOMOutputSpec => typeSpan("tracking", mark.attrs.tracking),
+    },
+    caps: { ...spec.marks.caps, toDOM: (): DOMOutputSpec => typeSpan("caps", true) },
   },
 });
+
+function typeSpan(name: Parameters<typeof typeMarkCss>[0], value: unknown): DOMOutputSpec {
+  const css = typeMarkCss(name, value);
+  return css ? ["span", { style: css }, 0] : ["span", 0];
+}
 
 /** The schema's node types, typed (every one exists: they come from `DOC_SCHEMA_SPEC`). */
 export const N = docSchema.nodes as Record<keyof typeof spec.nodes, NodeType>;

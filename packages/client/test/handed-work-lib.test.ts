@@ -53,7 +53,7 @@ describe("a handed work's line under the reply that handed it (F1)", () => {
     const h = handedLine(en, work(), ctx);
     expect(h).toMatchObject({
       tone: "working",
-      state: "working on it",
+      state: "working",
       facts: ["step\u00a03\u00a0of\u00a05", "2\u00a0min"],
     });
     expect(h.stop).toEqual({ runId: "run-atlas" });
@@ -72,10 +72,11 @@ describe("a handed work's line under the reply that handed it (F1)", () => {
     expect(handedLine(en, waiting, { ...ctx, meId: "joao" }).state).toBe("waiting for an answer");
   });
 
-  test("done: how long it took and See the result, nothing to stop", () => {
+  test("done: its state, how long it took and See the result, nothing to stop", () => {
     const done = work({ status: "done", state: null, finishedAt: ago(0), startedAt: ago(10), resultMessageId: "r-1" });
     const h = handedLine(en, done, ctx);
-    expect(h).toMatchObject({ tone: "done", state: "done in 10\u00a0min", facts: [] });
+    // The state's badge, then how long it took.
+    expect(h).toMatchObject({ tone: "done", state: "done", facts: ["10\u00a0min"] });
     expect(h.result).toEqual({ messageId: "r-1", label: "See the result" });
     expect(h.stop).toBeNull();
   });

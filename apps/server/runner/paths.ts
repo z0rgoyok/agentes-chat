@@ -1,10 +1,19 @@
-import { lstatSync } from "node:fs";
+import { lstatSync, mkdirSync } from "node:fs";
 import { lstat, mkdir, readdir, readlink, realpath, rename } from "node:fs/promises";
 import path from "node:path";
 import { isSecretRead } from "@agenteschat/adapters/command-policy";
 import type { AgentScope } from "@agenteschat/adapters/machine-protocol";
 import { expandHome } from "./config";
 import { errnoCode, RunnerError } from "./errors";
+
+/**
+ * The env that gives a run's CLI, and every command under it, a temp folder of its own (made here): two runs of one
+ * agent at once never share files through /tmp. Under the system's temp folder, where a turn may write by itself.
+ */
+export function runTmpEnv(dir: string, platform: NodeJS.Platform = process.platform): Record<string, string> {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return platform === "win32" ? { TMPDIR: dir, TEMP: dir, TMP: dir } : { TMPDIR: dir };
+}
 
 /** Agents see their computer's root as `/workspace`; on the machine it is the workspace folder. */
 const AGENT_ROOT = "/workspace";

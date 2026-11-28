@@ -1,17 +1,18 @@
-import type { VaultImportResult, VaultScope } from "@agenteschat/client";
+import type { VaultAccess, VaultImportResult, VaultScope } from "@agenteschat/client";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { Button, Dialog, DialogBody, DialogFooter, Icon, Locked, Segmented, SettingNote } from "@agenteschat/ui";
 import { type DragEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
 import { useVaultImport } from "./data";
-import { CSV_MAX_BYTES } from "./lib";
+import { CSV_MAX_BYTES, defaultAccess } from "./lib";
+import { AccessBlock } from "./VaultAccess";
 import "./vault.css";
 
 /*
  * "Import" (ADR 0144): a passwords file exported by a browser or a password manager, read here in the browser, counted
- * by the server first (nothing written), then imported into Personal or Team. The file's text lives in this dialog
- * only, and goes when it closes.
+ * by the server first (nothing written), then imported into Personal or Team with the access chosen here for the new
+ * logins. The file's text lives in this dialog only, and goes when it closes.
  */
 
 type Stage = "pick" | "review" | "done";
@@ -71,6 +72,7 @@ export function VaultImportDialog({
   const [csv, setCsv] = useState<string | null>(null);
   const [fileName, setFileName] = useState("");
   const [scope, setScope] = useState<VaultScope>(canManageTeam ? startScope : "personal");
+  const [access, setAccess] = useState<VaultAccess>(() => defaultAccess(canManageTeam ? startScope : "personal"));
   const [preview, setPreview] = useState<VaultImportResult | null>(null);
   const [result, setResult] = useState<VaultImportResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -98,12 +100,14 @@ export function VaultImportDialog({
   };
   const pickScope = (next: VaultScope) => {
     setScope(next);
+    // Each scope's own starting access: a choice made for the other one doesn't carry.
+    setAccess(defaultAccess(next));
     // What counts as already saved depends on where they go: count again.
     if (csv) void count(csv, next);
   };
   const confirm = async () => {
     if (!csv) return;
-    const r = await importer.run({ csv, scope, dryRun: false });
+    const r = await importer.run({ csv, scope, dryRun: false, access });
     if (!r) return;
     setResult(r);
     // Imported: the file's text has nothing left to do here.
@@ -196,10 +200,18 @@ export function VaultImportDialog({
                       { value: "team", label: t(modeKey(org, "vault.scope.team")) },
                     ]}
                   />
-                  <span className="ac-field__example">
-                    {scope === "team" ? t("vault.import.asTeam") : t("vault.import.asPersonal")}
-                  </span>
                 </div>
+              )}
+              {preview.added > 0 && (
+                <AccessBlock
+                  scope={scope}
+                  access={access}
+                  editable
+                  onChange={(next) => {
+                    setAccess(next);
+                    return true;
+                  }}
+                />
               )}
               <SettingNote icon="alert">{t("vault.import.deleteFile")}</SettingNote>
             </>

@@ -1,14 +1,20 @@
 import type { StorageConfig, StorageTestResult } from "@agenteschat/client";
 import {
+  useMachines,
   useSaveStorage,
   useStartMigration,
   useStorage,
   useStorageMigration,
   useTestStorage,
 } from "@agenteschat/client";
+import { mayAsk } from "@agenteschat/client/lib/audience";
 import { settingsFrozen } from "@agenteschat/client/lib/deletion";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { formatBytes } from "@agenteschat/client/lib/files";
+import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { computerStorage } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
+import { rightHandOf } from "@agenteschat/client/lib/right-hand";
 import { storageUsageLine } from "@agenteschat/client/lib/storage";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -26,11 +32,13 @@ import {
   Locked,
   SkeletonList,
   Text,
+  useTheme,
   useToast,
 } from "@/ui";
 import { Note } from "../ai/parts";
+import { useOpenDm } from "../new/useOpenDm";
 import { LoadFailed } from "../shared/FirstUse";
-import { useColors, useEdition } from "../shared/hooks";
+import { useColors, useDirectory, useEdition } from "../shared/hooks";
 import { successHaptic } from "../shared/parts";
 import { platformText, type S3Form, s3FormOf, s3Missing, storageKey, toS3Input } from "./logic";
 import { confirmAction, Gap, Meter, NEXT_FIELD, SettingsPage, useUnsavedGuard } from "./parts";
@@ -96,7 +104,70 @@ export function StorageScreen() {
           {choice === "s3" ? <BucketForm config={config} /> : null}
         </>
       ) : null}
+      {admin ? <ComputerStorage /> : null}
     </SettingsPage>
+  );
+}
+
+/**
+ * The workspace's own Cloud computer's disk, as the web's: a bar by what takes it, a row per kind with its amount, then
+ * what is free; near full, the way out (the right hand asked to clear caches and temporary files).
+ */
+function ComputerStorage() {
+  const { t, i18n } = useTranslation();
+  const { orgId, org } = useOrg();
+  const { scheme } = useTheme();
+  const { sunken } = useColors();
+  const openDm = useOpenDm();
+  const lodi = rightHandOf(useDirectory().agents);
+  const storage = computerStorage(useMachines(orgId).data?.find((m) => m.kind === "managed")?.disk ?? null);
+  if (!storage) return null;
+  const size = (gb: number) => formatBytes(i18n.language, gb * 2 ** 30);
+  const color = (p: (typeof storage.parts)[number]) => (scheme === "dark" ? p.dark : p.light);
+  return (
+    <>
+      <GroupedHeader>{t("storage.computer.title")}</GroupedHeader>
+      <GroupedList>
+        <View style={styles.progress}>
+          <Meter
+            value={storage.usedGb}
+            max={storage.sizeGb}
+            label={t("storage.computer.bar")}
+            segments={storage.parts.map((p) => ({ key: p.key, value: p.gb, color: color(p) }))}
+          />
+          <Text variant="footnote" tone="muted">
+            {t("storage.computer.used", { used: size(storage.usedGb), size: size(storage.sizeGb) })}
+          </Text>
+        </View>
+        {storage.parts.map((p) => (
+          <GroupedRow
+            key={p.key}
+            leading={<View style={[styles.swatch, { backgroundColor: color(p) }]} />}
+            label={t(`storage.computer.part.${p.key}`)}
+            value={size(p.gb)}
+          />
+        ))}
+        {storage.parts.length > 0 ? (
+          // Free in the track's own color, so its label starts where the kinds' do.
+          <GroupedRow
+            leading={<View style={[styles.swatch, { backgroundColor: sunken }]} />}
+            label={t("storage.computer.part.free")}
+            value={size(storage.freeGb)}
+          />
+        ) : null}
+        {storage.full && lodi && mayAsk(org, lodi) ? (
+          <GroupedRow
+            icon="message"
+            label={t("common.askAgent", agentGrammar(lodi.name))}
+            onPress={() => void openDm({ agentId: lodi.id }, { compose: true, text: t("storage.computer.ask") })}
+          />
+        ) : null}
+      </GroupedList>
+      {storage.parts.length === 0 ? <GroupedFooter>{t("storage.computer.measuring")}</GroupedFooter> : null}
+      {storage.full ? (
+        <GroupedFooter>{t("storage.computer.full", { free: size(storage.freeGb) })}</GroupedFooter>
+      ) : null}
+    </>
   );
 }
 
@@ -373,6 +444,7 @@ const styles = StyleSheet.create({
   note: { paddingHorizontal: 4, paddingTop: 10 },
   input: { flex: 1, paddingVertical: 12, paddingHorizontal: 0 },
   progress: { gap: 8, paddingHorizontal: 14, paddingVertical: 14 },
+  swatch: { width: 10, height: 10, borderRadius: 2 },
   error: { paddingTop: 8, paddingHorizontal: 16 },
   buttons: { gap: 10, paddingTop: 20 },
 });

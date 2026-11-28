@@ -1,7 +1,13 @@
 import type { AgentQuestion, MemoryUpdate, Proposal, SecretRequest, SecretToVaultInput } from "@agenteschat/client";
-import { useCardProposals, useModelLabel, useSaveSecretToVault, useUndoProposal } from "@agenteschat/client";
+import {
+  useApplyProposal,
+  useCardProposals,
+  useModelLabel,
+  useSaveSecretToVault,
+  useUndoProposal,
+} from "@agenteschat/client";
 import { questionWaitsOn } from "@agenteschat/client/lib/agent-questions";
-import { formatTime, whenAt } from "@agenteschat/client/lib/format";
+import { formatTime, upperFirst, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { MAX_MESSAGE_LENGTH } from "@agenteschat/client/lib/message-length";
 import { messagePath } from "@agenteschat/client/lib/message-links";
@@ -208,10 +214,11 @@ export function proposalsOutcome(t: TFunction, rows: Proposal[], meId: string): 
 export const proposalEndedAt = (p: Pick<Proposal, "undoneAt" | "decidedAt">) => p.undoneAt ?? p.decidedAt;
 
 /**
- * "Undo" on a change that was applied (ADR 0219), for whoever may make that change: put back as them, the row then
- * reads undone. A failure (it changed since) is the app's toast in their words. Nothing when it can't be undone.
+ * The one action on a decided change, for whoever may make it: "Undo" on one that was applied (ADR 0219), put back as
+ * them; "Apply anyway" on one the review left out, applied as them. The row then reads undone or applied by them. A
+ * failure (it changed since) is the app's toast in their words. Nothing when neither applies.
  */
-export function ProposalUndo({
+export function ProposalAction({
   p,
   variant = "ghost",
   className,
@@ -223,16 +230,19 @@ export function ProposalUndo({
   const { t } = useTranslation();
   const { org } = useOrg();
   const undo = useUndoProposal(org.id);
-  if (!p.undoable) return null;
+  const apply = useApplyProposal(org.id);
+  const act = p.undoable ? undo : p.applicable ? apply : null;
+  if (!act) return null;
   return (
     <Button
       size="sm"
       variant={variant}
       className={className}
-      loading={undo.isPending}
-      onClick={() => undo.mutate(p.id)}
+      loading={act.isPending}
+      disabled={undo.isPending || apply.isPending}
+      onClick={() => act.mutate(p.id)}
     >
-      {t("proposals.undo")}
+      {t(p.undoable ? "proposals.undo" : "proposals.applyAnyway")}
     </Button>
   );
 }
@@ -250,7 +260,8 @@ export function InlineProposal({ proposalId }: { proposalId: string }) {
   if (!p) return null;
   const agentName = (id: string) => dir.anyAgent(id)?.name ?? t("channel.unknownAgent");
   const name = agentName(proposerOf(p));
-  const target = proposalTarget(t, p, agentName, org);
+  // Written to follow "propõe ·", lowercase in most languages: a title starts with a capital.
+  const target = upperFirst(proposalTarget(t, p, agentName, org), i18n.language);
   const reviewing = isReviewing(p);
   const diff = (
     <ProseDiff label={t("proposals.changeLabel")} lines={diffLines(p.before.split("\n"), p.after.split("\n"))} />
@@ -324,7 +335,7 @@ function proposalAnswer(t: TFunction, locale: string, rows: Proposal[], meId: st
     text: proposalsOutcome(t, rows, meId),
     note: only?.review ?? undefined,
     time: at ? whenAt(t, locale, at) : undefined,
-    action: only ? <ProposalUndo p={only} /> : undefined,
+    action: only ? <ProposalAction p={only} /> : undefined,
   };
 }
 
@@ -377,7 +388,7 @@ export function ProposalGroup({ proposalIds }: { proposalIds: string[] }) {
             </span>
             <span className="ac-mediarow__end">
               <span className="proposal-row__status">{proposalOutcome(t, p, me.user.id)}</span>
-              <ProposalUndo p={p} />
+              <ProposalAction p={p} />
             </span>
             {(!isText(p) || p.review) && (
               <span className="ac-mediarow__body">
@@ -727,12 +738,12 @@ export function SecretCard({
   const failed = async (err: unknown) => {
     const away = secretRefusalKey(err);
     if (away) return setError(t(away, { agent: agentName, time: formatTime(i18n.language, current.expiresAt) }));
-    if ((err as { status?: number }).status !== 409) return setError(t("secret.failed"));
+    if ((err as { status?: number }).status !== 409) return setError(t("secret.failed", { agent: agentName }));
     const fresh = await api.secrets.get(org.id, current.id).catch(() => null);
     const closed = secretClosedBy(err, current, fresh);
     if (closed) return live.secretAnswered(closed);
     if (fresh) live.secretAnswered(fresh);
-    setError(t(fresh ? "secret.changed" : "secret.failed"));
+    setError(t(fresh ? "secret.changed" : "secret.failed", { agent: agentName }));
   };
   // The newer card, when this conversation shows it; else where it is.
   const showNewer = async () => {

@@ -33,32 +33,26 @@ const cancels = (state: ReturnType<typeof seedState>) => state.calls.filter((c) 
 const esc = () => act(async () => fireEvent.keyDown(window, { key: "Escape" }));
 
 describe("Parar is immediate", () => {
-  test("the line above the box, no row yet or its row out of view: its face, name and step, 'Ver' once the row shows; the composer stops it", async () => {
+  test("the conversation's last row: its face with its rings, name, step and its stop; the composer stops it too", async () => {
     const { state, ev } = await open((s) => {
       const ada = s.agents.find((a) => a.id === ADA_ID);
       if (ada) (ada as { appearance?: unknown }).appearance = { color: "amber", accessory: "hat" };
     });
     await ev({ type: "agent.run", ...ids, status: "running" });
     await settle(3);
-    // At work it has no row: the line above the composer speaks for it.
-    const bar = document.querySelector('.ac-typing[data-active="true"]') as HTMLElement;
-    // Its row isn't in the conversation yet: its face and its step, no "Ver" (nothing to go back to).
-    expect(bar.querySelector(".ac-avatar--agent")).not.toBeNull();
-    expect(bar.querySelector(".ac-typing__text")?.textContent).toBe("Ada pensando…");
-    expect(within(bar).queryByRole("button", { name: "Ver" })).toBeNull();
-    // No thinking row comes later either: still no "Ver" while it has no words.
-    await act(() => new Promise((r) => setTimeout(r, 2100)));
-    expect(within(bar).queryByRole("button", { name: "Ver" })).toBeNull();
-    // No stop of its own: the composer's button stops it, never a second one beside it.
-    expect(within(bar).queryByRole("button", { name: "Parar" })).toBeNull();
-    // Writing brings no row either: the bar still speaks for it, still with no "Ver".
+    // At work it has no row of its own: the conversation's last row speaks for it, in its colour.
+    const tail = document.querySelector(".working-tail") as HTMLElement;
+    const orbit = tail.querySelector(".ac-orbit") as HTMLElement;
+    expect(orbit.querySelector(".ac-avatar--agent")).not.toBeNull();
+    expect(orbit.style.getPropertyValue("--orbit-l1")).not.toBe("");
+    expect(tail.querySelector(".ac-typing__text")?.textContent).toBe("Ada pensando…");
+    // It is at the end already: nothing to go back to.
+    expect(within(tail).queryByRole("button", { name: "Ver" })).toBeNull();
     await ev({ type: "agent.typing", ...ids });
     await settle(3);
-    expect(bar.querySelector(".ac-avatar--agent")).not.toBeNull();
-    expect(bar.querySelector(".ac-typing__text")?.textContent).toBe("Ada escrevendo…");
-    expect(within(bar).queryByRole("button", { name: "Ver" })).toBeNull();
-    // The composer's stop, one click, nothing asked.
-    await act(async () => fireEvent.click(screen().getByRole("button", { name: "Parar a Ada" })));
+    expect(tail.querySelector(".ac-typing__text")?.textContent).toBe("Ada escrevendo…");
+    // Its row's stop, one click, nothing asked.
+    await act(async () => fireEvent.click(within(tail).getByRole("button", { name: "Parar" })));
     await settle(2);
     expect(screen().queryByRole("dialog")).toBeNull();
     expect(cancels(state)).toHaveLength(1);

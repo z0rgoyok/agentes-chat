@@ -1,6 +1,7 @@
 import { and, desc, type Executor, eq, inArray, isNull, or, schema, sql } from "@agenteschat/db";
 import { type AuthorityRun, fedByRoutine, type RunAuthority, runAuthority, transcriptKeys } from "./authority";
 import { caches, cachesEnabled } from "./cache";
+import { ownTypedSql } from "./message-origin";
 import { postedBySql } from "./message-place";
 
 const { agentRuns, agentRunSteps, messages } = schema;
@@ -77,7 +78,8 @@ export interface OutsideMemo {
 
 /**
  * Whether a run read content from outside the org (ADR 0117): its computer brain fetched the web itself, one of its
- * tool results came from outside (the gateway's `outside` mark), or its conversation already relays outside content
+ * tool results came from outside (the gateway's `outside` mark), its prompt holds connected servers' own instructions
+ * (`Transcript.readServerNotes`), or its conversation already relays outside content
  * (`conversationReadOutside`). What such a run posts carries `meta.readOutside`, so the next agent reads it as
  * relayed and memory built from it stays low trust. It never stops, asks or refuses anything by itself. Once true it
  * stays true, so it is remembered per run (`caches.readOutsideRuns`); `memo` keeps the conversation's answer for the
@@ -100,10 +102,11 @@ export async function runReadOutside(
   return read;
 }
 
-/** What the run read with its own calls, its conversation aside. */
+/** What the run read itself, its conversation aside: its own calls, and servers' instructions in its prompt. */
 async function readOutsideItself(db: Executor, run: OutsideRun): Promise<boolean> {
   const tried = run.transcript?.harnessTried;
   return (
+    run.transcript?.readServerNotes === true ||
     (Array.isArray(tried) && tried.some((l) => typeof l === "string" && HARNESS_OUTSIDE.test(l))) ||
     stepReadOutside(db, run)
   );
@@ -155,7 +158,7 @@ async function outsideRun(db: Executor, orgId: string, runId: string) {
       orgId: agentRuns.orgId,
       triggerMessageId: agentRuns.triggerMessageId,
       background: agentRuns.background,
-      transcript: transcriptKeys("steeredBy", "harnessTried"),
+      transcript: transcriptKeys("steeredBy", "harnessTried", "readServerNotes"),
     })
     .from(agentRuns)
     .where(and(eq(agentRuns.orgId, orgId), eq(agentRuns.id, runId)));
@@ -170,8 +173,9 @@ const PERSON_WORDS_LIMIT = 200;
 
 /**
  * What people wrote in a conversation (its thread and the channel's top level), newest first, joined: an address,
- * handle or credential found here was written by a person, not read from outside. A person's message marked
- * `meta.readOutside` (sent through an AI app, ADR 0119) is left out.
+ * handle or credential found here was written by a person, not read from outside. Only what they typed in our apps
+ * counts (`ownTyped`, ADR 0250): a message posted with a token, sent through an AI app (ADR 0119) or bridged in is left
+ * out.
  */
 export async function personWords(
   db: Executor,
@@ -186,9 +190,8 @@ export async function personWords(
       and(
         eq(messages.orgId, orgId),
         eq(messages.channelId, channelId),
-        eq(messages.authorType, "person"),
+        ownTypedSql(),
         isNull(messages.deletedAt),
-        sql`coalesce(${messages.meta}->>'readOutside', '') <> 'true'`,
         threadId
           ? or(isNull(messages.threadId), eq(messages.id, threadId), eq(messages.threadId, threadId))
           : isNull(messages.threadId),

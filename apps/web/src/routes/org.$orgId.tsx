@@ -1,10 +1,14 @@
-import { useMe } from "@agenteschat/client";
+import { useApi, useMe } from "@agenteschat/client";
 import { membershipIn, settingUp } from "@agenteschat/client/lib/guards";
 import { can } from "@agenteschat/client/lib/permissions";
+import { useToolLabelSource } from "@agenteschat/client/lib/tool-labels";
+import { MorphRoom } from "@agenteschat/ui";
 import { createFileRoute, Outlet, redirect, useNavigate, useRouterState } from "@tanstack/react-router";
 import { useEffect, useRef } from "react";
+import { useTranslation } from "react-i18next";
 import { requireUserIn } from "@/app/guards";
 import { usePageTextSize } from "@/chat/look";
+import { ServerUpdateNotice } from "@/components/AboutSettings";
 import { useFollowPickedAgent } from "@/components/AppIconPicker";
 import { Arrival } from "@/components/arrival/Arrival";
 import { FeedbackHost } from "@/components/arrival/FeedbackDialog";
@@ -17,8 +21,11 @@ import { DesktopDragStrip } from "@/components/DesktopDragStrip";
 import { MenuBarActions } from "@/components/DesktopMenus";
 import { DesktopTitleBar } from "@/components/DesktopTitleBar";
 import { DetailsHost } from "@/components/DetailsHost";
+import { InvitedBanner } from "@/components/InvitedBanner";
 import { InviteDialogProvider } from "@/components/invite/InviteDialog";
 import { LeaveChannelDialog } from "@/components/LeaveChannelDialog";
+import { useHoldBannerWaits } from "@/components/lodi-cursor/arrivals";
+import { LodiCursor } from "@/components/lodi-cursor/LodiCursor";
 import { OutageNotices } from "@/components/MachineOutages";
 import { NavDrawerProvider, NavScrim, ShellBar } from "@/components/NavDrawer";
 import { NoticeIsland } from "@/components/NoticeIsland";
@@ -26,6 +33,7 @@ import { PushOpens } from "@/components/NotificationOpen";
 import { NotMember } from "@/components/NotMember";
 import { NewAgentProvider } from "@/components/new-agent/new-agent-context";
 import { OrgProvider } from "@/components/org-context";
+import { ReconnectPill } from "@/components/ReconnectPill";
 import { RemoveMemberProvider } from "@/components/RemoveMember";
 import { Sidebar } from "@/components/Sidebar";
 import { BootSplash } from "@/components/Sky";
@@ -78,9 +86,13 @@ function OrgLayout() {
   const focused =
     (/\/agents\/new\/?$/.test(path) && can(membership, "create_agents")) ||
     (LIVE_FILE_PATH.test(path) && PRESENTING.test(href));
+  const bannerWaits = useHoldBannerWaits();
   // Notifications in this browser (ADR 0071), when already on: the server hears of them again, quietly.
   useWebPushRefresh(me.user.id);
   useServerLocale(me.user);
+  // Connector tools' names in the person's language on the work lines, written for this workspace.
+  const { i18n } = useTranslation();
+  useToolLabelSource(i18n, orgId, useApi().connectors.toolLabels);
   // …and the ones it still shows for what was already read elsewhere close.
   useWebPushClear();
   usePageTextSize(membership?.chatPrefs);
@@ -151,7 +163,9 @@ function OrgLayout() {
                     <NewAgentProvider>
                       <div className="shell">
                         <CommandMenu />
+                        <LodiCursor />
                         <LeaveChannelDialog />
+                        <ReconnectPill />
                         {!focused && (
                           <>
                             <NavScrim />
@@ -164,13 +178,16 @@ function OrgLayout() {
                     says so (ADR 0088 §7), in the Criar agente flow too: its work stopped, nothing else is news. */}
                         <div className={focused ? "shell__work shell__work--bare" : "shell__work"}>
                           {membership.deletion && <DeletingBanner />}
+                          {/* Coming or going, the page glides under them: nothing pushes it in one frame. */}
                           {!focused && !membership.deletion && (
-                            <>
+                            <MorphRoom pace="panel" className="shell__notices">
                               <ConfirmEmailBanner />
-                              <HoldBanner />
+                              <InvitedBanner />
+                              {/* Lodi's cursor shows a new team land first, then the page glides under the banner. */}
+                              {!bannerWaits && <HoldBanner />}
                               <ComputerSetupNotice />
                               <OutageNotices />
-                            </>
+                            </MorphRoom>
                           )}
                           <div className="shell__pages">
                             <ComputerDialogProvider>
@@ -180,6 +197,7 @@ function OrgLayout() {
                                 {!focused && <NoticeIsland />}
                                 <Arrival />
                                 <FeedbackHost />
+                                <ServerUpdateNotice />
                                 <Outlet />
                               </DetailsHost>
                             </ComputerDialogProvider>

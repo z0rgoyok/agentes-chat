@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { writeFileSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { CliInstaller, type CliInstallerOptions, cliInstaller, gitBashPath } from "../../runner/cli-install";
 import { CLAUDE_INSTALL_PS1_URL, CLAUDE_INSTALL_URL, CODEX_RELEASES } from "../../runner/install-script";
@@ -46,8 +46,11 @@ test("an install runs the vendor's installer, then looks again with ~/.local/bin
   expect(env.PATH).toBe(`/usr/bin:/bin:${path.join(root, ".local", "bin")}`);
 });
 
-test("a failing installer ends failed with its own last line; one the look can't find, still_missing", async () => {
-  const bad = make("echo 'Downloading...'; echo 'curl: (6) Could not resolve host: claude.ai' >&2; exit 6");
+test("a failing installer ends failed with its last line on stderr; one the look can't find, still_missing", async () => {
+  // Its two pipes come in no set order: stderr says why, whatever stdout says after it.
+  const bad = make(
+    "echo 'Downloading...'; echo 'curl: (6) Could not resolve host: claude.ai' >&2; sleep 0.1; echo 'Cleaning up'; exit 6",
+  );
   bad.installer.start("claude");
   await waitFor(() => bad.installer.state()?.state === "failed");
   expect(bad.installer.state()).toEqual({
@@ -74,6 +77,39 @@ test("root (system mode) and a system with no installer answer unsupported, runn
   expect(make("exit 0", { uid: 0 }).installer.start("claude")).toEqual({ tool: "claude", state: "unsupported" });
   const codexWindows = make("exit 0", { platform: "win32", installer: cliInstaller });
   expect(codexWindows.installer.start("codex")).toEqual({ tool: "codex", state: "unsupported" });
+});
+
+test("system mode: the install is the runner's copy for every agent, never the vendor's installer as root", async () => {
+  const asked: string[] = [];
+  const agents = make('touch "$HOME/ran"', {
+    uid: 0,
+    fetch: async (tool) => {
+      asked.push(tool);
+    },
+  });
+  expect(agents.installer.start("codex")).toEqual({ tool: "codex", state: "running" });
+  await waitFor(() => agents.installer.state()?.state === "done");
+  expect(asked).toEqual(["codex"]);
+  expect(agents.looked).toEqual(["codex"]);
+  expect(existsSync(path.join(agents.root, "ran"))).toBe(false);
+  // A fetch that failed says why in its own words; one the agents still can't reach after it, still_missing.
+  const failing = make("exit 0", {
+    uid: 0,
+    fetch: async () => {
+      throw new Error("Couldn't get Codex ready on this computer: the disk is full.");
+    },
+  });
+  failing.installer.start("codex");
+  await waitFor(() => failing.installer.state()?.state === "failed");
+  expect(failing.installer.state()).toEqual({
+    tool: "codex",
+    state: "failed",
+    message: "Couldn't get Codex ready on this computer: the disk is full.",
+  });
+  const unreached = make("exit 0", { uid: 0, fetch: async () => {} }, false);
+  unreached.installer.start("claude");
+  await waitFor(() => unreached.installer.state()?.state === "failed");
+  expect(unreached.installer.state()).toEqual({ tool: "claude", state: "failed", cause: "still_missing" });
 });
 
 test("Claude Code on Windows without Git for Windows: said before anything is installed", () => {

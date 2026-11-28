@@ -199,6 +199,12 @@
   min-height: var(--control-h-md);
   padding-block: calc((var(--control-h-md) - 2px - 20px) / 2);
 }
+/* Its chevron on the first line's capitals, as `.ac-iconline` puts an icon, also once the trigger grows a line. */
+.ac-select__trigger.invite-role > .ac-select__chev {
+  align-self: flex-start;
+  /* The middle of the value's 20px line (`.invite-role__value`). */
+  translate: 0 calc(10px - var(--cap-mid) - 50%);
+}
 .invite-role__value {
   display: flex;
   flex-wrap: wrap;

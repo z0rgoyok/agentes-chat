@@ -101,6 +101,30 @@ describe("the setup checklist in a new agent's DM", () => {
   });
 });
 
+describe("the setup checklist on a new agent's page", () => {
+  test("its × closes it whatever is left, and it stays closed; its chat keeps its own", async () => {
+    const state = withSetup(seedState(), ["who", "how"]);
+    await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api: createFakeApi(state) });
+    await settle(8);
+    const page = card();
+    expect(page?.dataset.place).toBe("profile");
+    // Its apps are still left.
+    expect(page?.textContent).toContain("4 de 5");
+    await click(within(page as HTMLElement).getByRole("button", { name: "Fechar" }));
+    expect(state.calls).toContainEqual({ method: "agents.closeSetup", args: [ORG_ID, ADA_ID] });
+    expect(card()).toBeNull();
+    cleanup();
+    await renderApp(`/org/${ORG_ID}/agents/${ADA_ID}`, { api: createFakeApi(state) });
+    await settle(8);
+    expect(card()).toBeNull();
+    cleanup();
+    await openDm(state);
+    expect(card()?.dataset.place).toBe("dm");
+    // In its chat it is the first message: no × there.
+    expect(within(card() as HTMLElement).queryByRole("button", { name: "Fechar" })).toBeNull();
+  });
+});
+
 describe("a template agent's greeting", () => {
   test("in its own role, never 'Você me pediu', and never a doubled period", async () => {
     const state = seedState();

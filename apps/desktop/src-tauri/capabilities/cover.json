@@ -1,11 +1,12 @@
 {
   "identifier": "cover",
-  "description": "The main window's cover (cover.rs): a page of the app over the server's page. It may drag the window, ask which server is open, load it again once it is reachable, or step aside; for the server here, start it, turn reach off, copy its details or send a report of them, read Tailscale's state (whether there is its app to open) or open Tailscale; for a server out of reach or the server here stopped, open the welcome window or another server of the app's list. Nothing of the server's page, the runners or this computer.",
+  "description": "The main window's cover (cover.rs): a page of the app over the server's page. It may drag the window, ask which server is open, load it again once it is reachable, step aside, or stay over a server whose app API this app doesn't speak; for the server here, start it, turn reach off, copy its details or send a report of them (with this computer's system, size, the web view's memory and the opening's time), read Tailscale's state (whether there is its app to open) or open Tailscale; for a server out of reach or the server here stopped, open the welcome window or another server of the app's list. Nothing of the server's page, the runners or this computer.",
   "webviews": ["main-cover"],
   "permissions": [
     "core:window:allow-start-dragging",
     "allow-cover-retry",
     "allow-cover-hide",
+    "allow-cover-hold",
     "allow-cover-server",
     "allow-cover-details",
     "allow-servers-get",
@@ -17,6 +18,7 @@
     "allow-problem-report-parts",
     "allow-problem-report-on",
     "allow-problem-report-send",
+    "allow-problem-report-facts",
     "allow-show-window",
     "allow-tailscale-status",
     "allow-tailscale-open"

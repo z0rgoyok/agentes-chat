@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-01
-- Code: `packages/engine/src/burst.ts` (`waitForBurst`), `executor.ts` (the wait before the first turn, `deliverSteering(beforeStart)`, `widenRequest`), `live-steer.ts` (`renderSteered` `beforeStart`), `context.ts` ("# How to reply"), `steering.ts` (live delivery only for computer brains), `talker.ts` (`talkerPolicy`), `apps/server/src/engine.ts` (`quietMs`)
+- Code: `packages/engine/src/burst.ts` (`waitWhileTyping`), `cancel.ts` (`rerouteBurst`), `executor.ts` (the typing hold before the first turn and before a first short reply, `deliverSteering(beforeStart)`, `widenRequest`), `live-steer.ts` (`renderSteered` `beforeStart`), `context.ts` ("# How to reply"), `steering.ts` (live delivery only for computer brains), `talker.ts` (`talkerPolicy`), `apps/server/src/engine.ts` (`quietMs`)
 
 ## Context
 
@@ -112,3 +112,18 @@ Measured before shipping with Jev on the eval's 72 lines (written for it, no con
 ## Addendum (2026-11-19, 3): the line before slow work
 
 ADR 0207 lets a run post one short line of what it will do before slow work (`say_now`), and the line keeps to this record: while a person's message waits unread in the run's inbox it isn't posted (the run reads the message next and answers all of it in one message, so the line never answers a conversation that has moved on); the call is a way of talking (`TALK_TOOLS`), so a run that has only said its line is still a conversation (`runAtWork`, the addendum above); and an answer posted early (`answerNow`) or at the turn's end drops leading sentences that only repeat the line (`withoutSaidNow`).
+
+## Addendum (2026-11-25): no fixed wait before replying
+
+Decision 1 and the router's quiet wait (ADR 0013) made every reply wait: a lone "bom dia" waited 2.5 s, later 1.2 s and 0.5 s past the person's message when they weren't typing, before the router decided or the run's first model call. Chat assistants start on a message at once; a timer for a message nobody is writing only delays every reply. This addendum replaces decision 1.
+
+1. **Start at once.** The router decides on a person's message as soon as its job runs (`continuedSoon` still lets their next message, when it is already there in a busy queue, decide for both, and the person's messages right before one are still read with it: `ROUTER_QUIET_MS` is now only how close messages are to be one request). A run started on a mention, a DM or a router's pick builds its context and makes its first model call at once. The delayed `message.route_quiet` job, the typing grace (`TYPING_GRACE_MS`) and `quietByTyping` are gone.
+2. **Follow-ups join the run.** What the same person sends in that conversation before the run's first model call joins its inbox and is read with it, as plain conversation lines (decision 2); what comes after reaches the turn under way as messages sent mid-run always have (a model brain's next step, a computer brain live, the triage of the addendum of 2026-11-18, 2). A first short reply written while the person wrote is rewritten with what they added (the addendum of 2026-11-19), so "oi" then "preciso de X" a second later gets one answer, to X.
+3. **Typing holds, nothing else does** (`waitWhileTyping`). Only while the apps show the person typing in that conversation (a `user.typing` frame, voice recording included, since their last message there and within its `TYPING_TTL_MS`, 5 s) does a run started on their message hold its first model call, until they send it or stop, at most `BURST_MAX_WINDOWS` × `quietMs` (10 s) from the trigger; Parar or a shutdown ends it at once. The same hold comes before posting the run's first short reply (`OVERTAKEN_MAX_CHARS`), so what they are typing is read before that reply goes out. No frame heard: no wait and no statement. A message from a connected AI app (`meta.via`, ADR 0119) never waits: no typing comes from there. Claude's API pre-warm (ADR 0043) runs during a hold only.
+4. **Re-route before anything shows** (`rerouteBurst`, run when a run on a person's message starts, not in a DM). When the follow-up went to another agent, by an @mention or the router's pick (the triage releasing it from the first run's inbox included), within `quietMs` of the message the router gave to the first agent, and that run has posted nothing and didn't get the follow-up too, the first run stops with `rerouted`: no stop line, its unread messages handed on as with any stop. A run the person started by naming the agent (a mention, a DM) is theirs to keep, and one that already spoke is left as it is.
+
+Consequences:
+- The router's stage on a run is its own decision time (`routerMs`, tens of milliseconds on rules, a Jev or small-model call otherwise), never a wait. A lone message's first model call starts as soon as its context is built.
+- A person who sends "oi" and nothing else gets an answer a second or two sooner; one who sends "oi" and then their request gets one answer, either because the request was in before the first call, because they were typing it, or because the short greeting was rewritten.
+- A follow-up for another agent may cost the first agent's cut call (its usage is recorded, as for any stop).
+- Covered by `queueing.test.ts` ("messages in a row", "a follow-up for another agent re-routes"), `router.test.ts` (decided at once; "o build quebrou" then "de novo"), `live-steer.test.ts`, `token-trim.test.ts` (B10) and the autonomy scenarios S54 and S55.

@@ -1,4 +1,4 @@
-import type { AppNotification } from "@agenteschat/client";
+import { type AppNotification, useAskMachineFolder, useMachines, useRefuseFolderRequest } from "@agenteschat/client";
 import { type DeviceNotice, deviceNoticeOf, joinFacts } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { firstName } from "@agenteschat/client/lib/format";
@@ -15,7 +15,7 @@ import { TYPED_VALUES } from "@/i18n";
 import { useToast } from "@/lib/toast";
 import { JoinRequestDialog } from "./dialogs";
 import { osMark } from "./parts";
-import { useDecideAccess, useDenyRequest, useDevices, useStopPhone } from "./queries";
+import { useDecideAccess, useDenyRequest, useDevices, useStopPhone, useUpdateComputer } from "./queries";
 import { ToolOneClickButton } from "./ToolOneClick";
 
 /** The agent and the person it works for, as a notice names them: "Lia (for Rui)", or the agent alone. */
@@ -52,6 +52,7 @@ export function DeviceHeadline({ n, dir }: { n: AppNotification; dir: Dir }) {
     "device.tool_request": "devices.notice.toolRequest",
     "device.cli_request": "devices.notice.cliRequest",
     "device.folder_request": "devices.notice.folderRequest",
+    "device.internet_shared": "devices.notice.internetShared",
   }[d.kind];
   return <Trans i18nKey={key as never} values={values} components={{ b: <b /> }} {...TYPED_VALUES} />;
 }
@@ -107,12 +108,15 @@ export function deviceNoticeLine(t: TFunction, n: AppNotification): string | nul
   // The server writes a joining computer's facts as one line (`latest.text`: "Linux · 203.0.113.7 · Frankfurt").
   if (d.join?.os)
     return joinFacts(t, { hostname: d.join.name, os: d.join.os, arch: "", ip: d.join.ip, location: d.join.location });
+  if (d.kind === "device.internet_shared") return t("devices.notice.internetSharedLine");
   return d.text;
 }
 
 /**
  * A device notice's own decision, in the row: Let it join or Deny a computer, Stop an agent on the person's phone,
- * Allow once, Always or No to someone's agent asking for a device.
+ * Allow once, Always or No to someone's agent asking for a device, Turn off a computer's internet lent to the agents,
+ * No to a folder an agent waits for, and where the agentes.chat app runs that computer, Allow on the computer, which
+ * opens the request there (it is allowed only on the computer itself).
  */
 export function DeviceNoticeActions({ n, inline = false }: { n: AppNotification; inline?: boolean }) {
   const { t } = useTranslation();
@@ -122,11 +126,17 @@ export function DeviceNoticeActions({ n, inline = false }: { n: AppNotification;
   const deny = useDenyRequest(org.id);
   const stop = useStopPhone(org.id);
   const decide = useDecideAccess(org.id);
+  const update = useUpdateComputer(org.id);
+  const refuse = useRefuseFolderRequest(org.id);
+  const show = useAskMachineFolder(org.id);
   const [joining, setJoining] = useState(false);
   const d = deviceNoticeOf(n);
+  const folderAsk = d?.kind === "device.folder_request" && !n.doneAt;
+  const computer = useMachines(org.id, folderAsk).data?.find((m) => m.id === d?.machineId);
   if (!d || n.doneAt) return null;
   const fail = (err: unknown) => toast.show(errorText(t, err), "error");
-  const busy = deny.isPending || stop.isPending || decide.isPending;
+  const busy =
+    deny.isPending || stop.isPending || decide.isPending || update.isPending || refuse.isPending || show.isPending;
   const request = d.requestId ? devices.data?.requests.find((r) => r.id === d.requestId) : undefined;
   const answer = (decision: "once" | "always" | "no") =>
     d.requestId &&
@@ -193,6 +203,70 @@ export function DeviceNoticeActions({ n, inline = false }: { n: AppNotification;
           machineName={d.device}
           cli={installableCli(d.tool ?? "") ?? "claude"}
         />
+      </Wrap>
+    );
+  if (d.kind === "device.internet_shared" && d.machineId)
+    return (
+      <Wrap inline={inline} onClick={keep}>
+        <Button
+          size="sm"
+          loading={update.isPending}
+          disabled={busy}
+          onClick={() =>
+            d.machineId &&
+            update.mutate(
+              { id: d.machineId, shareInternet: false },
+              {
+                onSuccess: () => toast.show(t("devices.notice.internetOffDone", { deviceName: d.device })),
+                onError: fail,
+              },
+            )
+          }
+        >
+          {t("devices.notice.internetOff")}
+        </Button>
+      </Wrap>
+    );
+  if (d.kind === "device.folder_request" && d.machineId && d.requestId)
+    return (
+      <Wrap inline={inline} onClick={keep}>
+        {computer?.folderPick && (
+          <Button
+            size="sm"
+            variant="primary"
+            icon="computer"
+            loading={show.isPending}
+            disabled={busy}
+            onClick={() =>
+              d.machineId &&
+              d.requestId &&
+              show.mutate(
+                { machineId: d.machineId, requestId: d.requestId },
+                {
+                  onSuccess: () => toast.show(t("devices.notice.folderShown", { deviceName: d.device })),
+                  onError: fail,
+                },
+              )
+            }
+          >
+            {t("devices.notice.folderOnComputer")}
+          </Button>
+        )}
+        <Button
+          size="sm"
+          loading={refuse.isPending}
+          disabled={busy}
+          onClick={() =>
+            d.machineId &&
+            d.requestId &&
+            refuse.mutate(
+              { machineId: d.machineId, requestId: d.requestId },
+              { onSuccess: () => toast.show(t("devices.notice.decided.no")), onError: fail },
+            )
+          }
+        >
+          {t("devices.notice.no")}
+        </Button>
       </Wrap>
     );
   if (d.kind === "device.access_request" && d.requestId)

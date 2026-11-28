@@ -405,6 +405,24 @@ Team from its page (`POST /vault/items/{id}/move`, `moveVaultItem`):
 Left out: moving several items at once, moving a password manager's item, renaming keys on import, importing a
 `.env` into a password manager, and other file formats (YAML, TOML, a shell script's logic).
 
+### 12. An import's access, and many items at once
+
+A passwords file of a thousand logins imported into the team used to come in open to everyone (the default of §2),
+with no way to narrow them but one page at a time. Two changes close that:
+
+- **The passwords import asks for the access** of its new logins, with the control a single item has (the web's
+  review step; `access` on `POST /vault/import`, absent meaning the scope's default). A login already saved keeps
+  its own, as a replaced `.env` key does (§11).
+- **Select** in a tab of items (web and phone) turns the rows into choices, with "Select all" over what the search
+  and kind filter show. "Change access" gives every chosen item one access (`PUT /vault/items/bulk/access`,
+  `setVaultItemsAccess`); "Delete" deletes them after one confirmation (`POST /vault/items/bulk/delete`,
+  `deleteVaultItems`). Each item is checked as a single one is: a personal item takes only the agents, an external
+  one stops following its connection's access, and a password manager's item still in it isn't deleted. What the
+  person doesn't manage is left and counted in `kept`, never refused as a whole. One audit line per call
+  (`vault.items_changed`, `vault.items_deleted`: the count and the first 50 ids) and an edit on each changed item.
+
+Left out: undoing an import as one step (rows carry no import id; selecting and deleting them does the same).
+
 ## Consequences
 
 - Agents find what they need before asking (`vault_list`), and a password typed once in a card can serve the next

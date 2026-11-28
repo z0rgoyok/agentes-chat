@@ -20,12 +20,13 @@ import { orderAccounts, orderPlaces } from "@agenteschat/client/lib/ai-accounts"
 import { accountShortName, hubAccountsInOrder } from "@agenteschat/client/lib/ai-choice";
 import { computerNameOf } from "@agenteschat/client/lib/computer";
 import { errorText } from "@agenteschat/client/lib/errors";
-import { firstName, joinNames } from "@agenteschat/client/lib/format";
+import { firstName, joinNames, namesText } from "@agenteschat/client/lib/format";
 import { planMeterText } from "@agenteschat/client/lib/plan-usage";
 import { planName, planOf } from "@agenteschat/client/lib/plans";
 import { isEveryone, sortRoles } from "@agenteschat/client/lib/roles";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import {
+  AvatarStack,
   Button,
   Card,
   CardHeader,
@@ -50,8 +51,9 @@ import {
   Switch,
 } from "@agenteschat/ui";
 import type { TFunction } from "i18next";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { AgentAvatar } from "@/components/AgentAvatar";
 import { PlanHold, usePlanHold } from "@/components/ai/plan-hold";
 import { useConnectAi, useMayConnectAi } from "@/components/connect-ai-context";
 import { ErrorState, LoadingList } from "@/components/Loading";
@@ -65,10 +67,12 @@ import "@/components/plan-usage.css";
 import "./ai-hub.css";
 
 /*
- * Configurações › IA e uso › "Contas de IA": every plan account on the workspace's computers, whoever connected it,
- * one quiet line each (its maker's mark, its name, its plan and whose it is, its state at the end). A line opens the
- * account: its limits and its three permissions (Gerenciar, Usar em agentes, Atender todos), with its actions behind
- * ⋯. "Ordem de uso" opens which account the agents go to next at a limit, and the API-key switch.
+ * Configurações › IA e uso › "Contas de IA": one list of everything the agents think with, in the account picker's
+ * groups: the viewer's accounts, the team's, then the workspace's API keys (`keys`). An account is one quiet line (its
+ * maker's mark, its name, its plan and whose it is, the agents that think with it, its state at the end) that opens
+ * it: its limits and its three permissions (Gerenciar, Usar em agentes, Atender todos), with its actions behind ⋯.
+ * "Adicionar conta" (Connect) adds a plan or a key; "Ordem de uso" opens which account the agents go to next at a
+ * limit, and the API-key switch.
  */
 
 /** The login that speaks for an account: the one shared by its agents, else its first. */
@@ -82,9 +86,12 @@ const newestUsage = (logins: readonly AiHubAccount[]) =>
     .filter((u): u is NonNullable<typeof u> => u !== null)
     .sort((x, y) => Date.parse(y.at) - Date.parse(x.at))[0] ?? null;
 
-/** "Max · de João": its plan, whose it is. */
+/** "Max · de João": its plan, whose it is (the viewer's own needs no name: it is in "Suas contas"). */
 function facts(t: TFunction, a: AiHubAccount): string {
-  return [a.plan ? planName(a.plan) : null, a.ownerName ? t("aiHub.of", { name: firstName(a.ownerName) }) : null]
+  return [
+    a.plan ? planName(a.plan) : null,
+    a.ownerName && !a.mine ? t("aiHub.of", { name: firstName(a.ownerName) }) : null,
+  ]
     .filter(Boolean)
     .join(" · ");
 }
@@ -130,8 +137,33 @@ function AccountState({ a, meter }: { a: AiHubAccount; meter: boolean }) {
   );
 }
 
-/** "Contas de IA": the accounts card, opening each account and the order of use. */
-export function AiAccountsTab() {
+/** "Lia e Dev pensam com ela": the agents an account thinks for, their faces first. */
+function AccountAgents({ logins }: { logins: readonly AiHubAccount[] }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const ids = [...new Set(logins.flatMap((l) => l.usedByIds ?? []))];
+  const names = [...new Set(logins.flatMap((l) => l.usedBy))];
+  if (names.length === 0) return <span className="aa-agents">{t("aiHub.thinksNone")}</span>;
+  return (
+    <span className="aa-agents">
+      {ids.length > 0 && (
+        <AvatarStack aria-hidden="true">
+          {ids.slice(0, 4).map((id) => (
+            <AgentAvatar key={id} agentId={id} name={dir.agentById.get(id)?.name ?? ""} size="xs" />
+          ))}
+        </AvatarStack>
+      )}
+      <span>{t("aiHub.thinks", { count: names.length, names: namesText(t, names, 2) })}</span>
+    </span>
+  );
+}
+
+/**
+ * "Contas de IA": the accounts card, in groups (the viewer's, the team's, the API keys: `keys`, drawn by Settings),
+ * opening each account and the order of use.
+ */
+export function AiAccountsTab({ keys }: { keys?: ReactNode }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const api = useApi();
@@ -163,9 +195,45 @@ export function AiAccountsTab() {
   const shown = blocks.find((b) => b.some((l) => l.id === open));
   const connect = connectAi && mayConnect && !hold && (
     <Button size="sm" icon="plus" onClick={() => connectAi.open({})}>
-      {t("aiAccounts.page.connect")}
+      {t("aiHub.choice.add")}
     </Button>
   );
+  // No plan yet: the empty state invites one (over the keys, if any), its button the way in.
+  const nothing = blocks.length === 0;
+  const row = (logins: AiHubAccount[]) => {
+    const a = lead(logins);
+    const title = accountShortName(t, a);
+    const sub = facts(t, a);
+    return (
+      <div key={a.id} className="plan-row">
+        <button
+          type="button"
+          className="plan-row__head ac-foldrow__head"
+          aria-haspopup="dialog"
+          onClick={() => setOpen(a.id)}
+        >
+          <ProviderLogo id={a.provider ?? a.kind} size="sm" off={a.status !== "active"} />
+          <span className="plan-acct__name">
+            <span className="plan-row__title" title={title}>
+              {title}
+            </span>
+            {sub && (
+              <span className="plan-row__facts" title={sub}>
+                <span className="plan-row__owner">{sub}</span>
+              </span>
+            )}
+          </span>
+          <AccountState a={{ ...a, usage: newestUsage(logins) }} meter />
+          <AccountAgents logins={logins} />
+          <Icon name="chevronRight" size={16} className="plan-row__chevron" />
+        </button>
+      </div>
+    );
+  };
+  const groups = [
+    { key: "yours", blocks: blocks.filter((b) => lead(b).mine) },
+    { key: "others", blocks: blocks.filter((b) => !lead(b).mine) },
+  ] as const;
   return (
     <Card aria-labelledby="sec-ai-accounts">
       <CardHeader
@@ -174,7 +242,7 @@ export function AiAccountsTab() {
         title={t("aiHub.accounts")}
         hint={{ name: t("common.about", { label: t("aiHub.accounts") }), text: t("aiHub.accountsHint") }}
         action={
-          blocks.length > 0 && (
+          !nothing && (
             <span className="aa-acts">
               {hub.order.length > 0 && (
                 <Button
@@ -194,7 +262,7 @@ export function AiAccountsTab() {
         }
       />
       {hold && <PlanHold hold={hold} />}
-      {blocks.length === 0 && !hold && (
+      {nothing && !hold && (
         <EmptyState
           size="panel"
           agent={look}
@@ -203,7 +271,7 @@ export function AiAccountsTab() {
             connectAi &&
             mayConnect && (
               <Button variant="primary" icon="plus" onClick={() => connectAi.open({})}>
-                {t("aiAccounts.page.connect")}
+                {t("aiHub.choice.add")}
               </Button>
             )
           }
@@ -211,39 +279,16 @@ export function AiAccountsTab() {
           {t(mayConnect ? "usageViews.accounts.empty" : "aiAccounts.page.emptyViewer")}
         </EmptyState>
       )}
-      {blocks.length > 0 && (
-        <List className="plan-rows aa-list">
-          {blocks.map((logins) => {
-            const a = lead(logins);
-            const title = accountShortName(t, a);
-            const sub = facts(t, a);
-            return (
-              <div key={a.id} className="plan-row">
-                <button
-                  type="button"
-                  className="plan-row__head ac-foldrow__head"
-                  aria-haspopup="dialog"
-                  onClick={() => setOpen(a.id)}
-                >
-                  <ProviderLogo id={a.provider ?? a.kind} size="sm" off={a.status !== "active"} />
-                  <span className="plan-acct__name">
-                    <span className="plan-row__title" title={title}>
-                      {title}
-                    </span>
-                    {sub && (
-                      <span className="plan-row__facts" title={sub}>
-                        <span className="plan-row__owner">{sub}</span>
-                      </span>
-                    )}
-                  </span>
-                  <AccountState a={{ ...a, usage: newestUsage(logins) }} meter />
-                  <Icon name="chevronRight" size={16} className="plan-row__chevron" />
-                </button>
-              </div>
-            );
-          })}
-        </List>
+      {groups.map(
+        (group) =>
+          group.blocks.length > 0 && (
+            <section key={group.key} className="aa-group" aria-label={t(`aiHub.choice.groups.${group.key}`)}>
+              <p className="aa-group__label">{t(`aiHub.choice.groups.${group.key}`)}</p>
+              <List className="plan-rows aa-list">{group.blocks.map(row)}</List>
+            </section>
+          ),
       )}
+      {keys}
       {shown && <AccountDialog logins={shown} onClose={() => setOpen(null)} />}
       {ordering && <OrderDialog hub={hub} onClose={() => setOrdering(false)} />}
     </Card>

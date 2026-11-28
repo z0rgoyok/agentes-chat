@@ -33,7 +33,7 @@ import { CUSTOM_PROVIDER } from "@agenteschat/client/lib/endpoints";
 import { errorText, holdText, keyRefusal } from "@agenteschat/client/lib/errors";
 import { NAMES_SHOWN, namesText } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { brainTool, cliCommandWayOut, installableCli } from "@agenteschat/client/lib/machines";
+import { brainTool, cliCommandWayOut, installableCli, machineTitle } from "@agenteschat/client/lib/machines";
 import {
   type AiChoice,
   ALL_AGENTS,
@@ -44,6 +44,7 @@ import {
   freePlanAccount,
   gateDims,
   gateLine,
+  hostConnecting,
   kindOf,
   ownSignInFor,
   PLAN_CHOICES,
@@ -103,7 +104,15 @@ import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from 
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { ConnectHave, type HaveItem, HaveRow, haveId, renameOf, sortHave } from "@/components/arrival/ConnectHave";
+import {
+  ConnectHave,
+  type HaveItem,
+  HaveRow,
+  haveId,
+  haveMark,
+  renameOf,
+  sortHave,
+} from "@/components/arrival/ConnectHave";
 import { ToolOffWayOut } from "@/components/devices/ToolOneClick";
 import { useOrg } from "@/components/org-context";
 import { KeyMismatch, KeyRefused, ProviderSelect } from "@/components/ProviderKey";
@@ -112,7 +121,7 @@ import { useDirectory } from "@/hooks/useDirectory";
 import { useRenameAccount } from "@/hooks/useRenameAccount";
 import { useToast } from "@/lib/toast";
 import { AddAccount, OpenPage, Step, StepTitle } from "./AddAccountFlow";
-import { CliMissing } from "./CliMissing";
+import { CliCheckAgain, CliMissing } from "./CliMissing";
 import { EndpointForm } from "./EndpointForm";
 import { PlanReplies, usePlanRepliesShown } from "./PlanReplies";
 import { PlanHold, usePlanHold } from "./plan-hold";
@@ -206,6 +215,7 @@ export function AiPicker({
   choice,
   onPick,
   dims,
+  offSystem,
   panel,
   have,
   keySelect,
@@ -214,6 +224,8 @@ export function AiPicker({
   choice: AiChoice | null;
   onPick: (choice: AiChoice) => void;
   dims?: (choice: PlanChoice) => boolean;
+  /** The computer's system where a plan doesn't run there (`planOffSystem`): its row says so before it is picked. */
+  offSystem?: (choice: PlanChoice) => string | null;
   panel: ReactNode;
   have?: (panel: ReactNode) => ReactNode;
   keySelect?: ReactNode;
@@ -248,11 +260,19 @@ export function AiPicker({
           value={choice ?? undefined}
           onValueChange={onPick}
           matches={(o, q) => matchesWords(planPickText(t, o.value), q)}
-          options={PLAN_CHOICES.map((c) => ({
-            value: c,
-            label: planLabel(t, c),
-            leading: <ProviderLogo id={planMark(c)} size="xs" off={dims?.(c)} />,
-          }))}
+          // Plans that don't run on the computer's system go last, under a heading that says so: every row stays
+          // one line tall.
+          options={[...PLAN_CHOICES.filter((c) => !offSystem?.(c)), ...PLAN_CHOICES.filter((c) => offSystem?.(c))].map(
+            (c) => {
+              const off = offSystem?.(c);
+              return {
+                value: c,
+                label: planLabel(t, c),
+                leading: <ProviderLogo id={planMark(c)} size="xs" off={dims?.(c)} />,
+                ...(off ? { group: t("connectAi.offSystemGroup", { system: off }) } : {}),
+              };
+            },
+          )}
         />
       )}
       {choice !== null && panel}
@@ -292,7 +312,7 @@ export function useExistingAi({
   agent: PlanAgent;
   credentials: readonly Credential[];
   toEveryone?: boolean;
-  /** The account the agent is set to think with is listed too: it has no AI, so that sign-in ended or never began. */
+  /** The account the agent is set to think with is listed too while signed out: that sign-in ended or never began. */
   withOwn?: boolean;
   onUsed: (agentId: string, used: ExistingUsed) => void;
 }) {
@@ -306,7 +326,12 @@ export function useExistingAi({
   const [busy, setBusy] = useState(false);
   const [refused, setRefused] = useState<ReturnType<typeof keyRefusal>>(null);
   const view = gates.view?.agentId === agent.id ? gates.view : undefined;
-  const rows = view ? existingAi(withOwn ? { ...view, account: null } : view, credentials) : null;
+  // Its own account only while signed out (signing in again is the way out): one still signed in is already what it
+  // thinks with, so picking it again changes nothing.
+  const own = view?.accounts.find((a) => a.id === view.account);
+  const rows = view
+    ? existingAi(withOwn && own?.status !== "active" ? { ...view, account: null } : view, credentials)
+    : null;
   const save = async (run: () => Promise<ExistingUsed>) => {
     setBusy(true);
     setRefused(null);
@@ -656,8 +681,6 @@ export interface PlanPanelProps {
    * the caller). Elsewhere, choosing it saves it for the agent at once.
    */
   own?: { chosen: boolean; onChoose: (own: boolean) => void };
-  /** This server's own computer, picked a step before and not connected yet. */
-  hostConnecting?: boolean;
   /** The person came because the computer just got ready (its email, its notification): said first, once it is. */
   justReady?: boolean;
   /**
@@ -739,11 +762,14 @@ function SayStage({ stage, onStage }: { stage: PlanStage; onStage: ((stage: Plan
   return null;
 }
 
-/** `usePlanGates` for a person who owns no agent yet: each plan's gate on the computer it would sign in on. */
-export function useGatesWithoutAgent(orgId: string, on: boolean) {
+/**
+ * `usePlanGates` for a person who owns no agent yet: each plan's gate on the computer it would sign in on. `poll` as
+ * `usePlanGates`'s, so a computer that connects lights its plans up without an event.
+ */
+export function useGatesWithoutAgent(orgId: string, on: boolean, poll: number | false = false) {
   const { org } = useOrg();
-  const ai = useAiAccounts(orgId, on);
-  const machines = useMachines(orgId, on);
+  const ai = useAiAccounts(orgId, on, poll);
+  const machines = useMachines(orgId, on, poll);
   const setupQ = useComputerSetup(orgId);
   const edition = computerEdition(setupQ.data);
   const setup = setupView(setupQ.data, setupQ.dataUpdatedAt);
@@ -792,8 +818,17 @@ export function PlanWithoutAgent({
   const has = added ?? freePlanAccount(gates.accounts, choice);
   const title = planTitle(t, choice);
   const cloud = gates.edition === "cloud";
-  const name = cloud ? computerName(t, org.name, managedOf(machines.data), isPersonal(org)) : (computer?.name ?? "");
-  const steps = gate.state === "ready" || gate.state === "preparing" || (gate.state === "offline" && signingIn);
+  const row = machines.data?.find((m) => m.id === computer?.machineId);
+  // The server's own computer has no name until its runner's first sync: said as that computer meanwhile.
+  const name = cloud
+    ? computerName(t, org.name, managedOf(machines.data), isPersonal(org))
+    : machineTitle(row ?? { name: computer?.name ?? "" }, t("machines.host.label"));
+  // The steps stay in view, their computer actions off, while the computer reconnects under a sign-in or connects
+  // for the first time.
+  const steps =
+    gate.state === "ready" ||
+    gate.state === "preparing" ||
+    (gate.state === "offline" && (signingIn || hostConnecting(gate, row)));
   // Only whoever connected the computers there signs a plan in on them: a computer of their own is the way on.
   const elsewhere = gate.state === "locked" && !cloud;
   const pairsOwn = elsewhere && can(org, "pair_computers");
@@ -1050,7 +1085,6 @@ function PlanSteps({
   everyAgent,
   target,
   own,
-  hostConnecting,
   justReady,
   said = false,
   replies,
@@ -1123,10 +1157,12 @@ function PlanSteps({
     if (gate.state === "preparing") markWaited();
   }, [gate.state, markWaited]);
 
+  const machineRow = machines.data?.find((m) => m.id === view?.computer?.machineId);
+  // The server's own computer has no name until its runner's first sync: said as that computer meanwhile.
   const computer =
     edition === "cloud"
       ? computerName(t, org.name, managedOf(machines.data), isPersonal(org))
-      : (view?.computer?.name ?? "");
+      : machineTitle(machineRow ?? { name: view?.computer?.name ?? "" }, t("machines.host.label"));
   const refresh = (agentIds: string[]) => {
     for (const key of [
       ...agentIds.map((id) => keys.agentBrain(org.id, id)),
@@ -1332,15 +1368,18 @@ function PlanSteps({
       coding={coding}
       edition={edition}
       said={said}
-      hostConnecting={hostConnecting}
       signingIn={signingIn}
       onKey={onKey}
       onComputer={onComputer}
     />
   );
 
-  // The steps stay in view while they wait (their computer actions off); a reason alone otherwise.
-  const steps = ready || gate.state === "preparing" || (gate.state === "offline" && (hostConnecting || signingIn));
+  // The steps stay in view while they wait (their computer actions off): the computer reconnecting under a sign-in, or
+  // the server's own connecting for the first time; a reason alone otherwise.
+  const steps =
+    ready ||
+    gate.state === "preparing" ||
+    (gate.state === "offline" && (signingIn || hostConnecting(gate, machineRow)));
   const ownable = ready && !login && ownSignInFor(choice, view, gates.row);
   // The shared sign-in's plan, where the computer says it ("Claude Max").
   const ownPlan = planWordOf(gates.row?.own?.[kind]?.plan ?? null);
@@ -1377,7 +1416,7 @@ function PlanSteps({
       ),
       whose: t("connectAi.chat.yours"),
       group: { key: "mine", label: t("connectAi.chat.mine") },
-      mark: <ProviderLogo id={a.provider ?? a.kind} size="xs" />,
+      mark: haveMark(a.provider ?? a.kind),
       usage: a.usage,
       rename: renameOf(t, a, view?.computer?.machineId, rename),
     })),
@@ -1625,7 +1664,6 @@ function GateWait({
   computer,
   edition,
   said,
-  hostConnecting,
   signingIn,
   onKey,
   onComputer,
@@ -1639,7 +1677,6 @@ function GateWait({
   computer: string;
   edition: Edition | null;
   said: boolean;
-  hostConnecting?: boolean;
   signingIn: boolean;
   onKey: () => void;
   /** None on the onboarding (`PlanPanelProps.onComputer`). */
@@ -1713,7 +1750,8 @@ function GateWait({
         )}
       </div>
     );
-  } else if (gate.state === "offline" && hostConnecting && !signingIn) {
+  } else if (hostConnecting(gate, row) && !signingIn && !hold) {
+    // The server's own computer, just added with the workspace: it connects by itself, so no key is offered yet.
     wait = line(<Spinner size={14} />, t("connectAi.wait.connecting"));
   } else if (
     why &&
@@ -1734,7 +1772,7 @@ function GateWait({
     );
   } else if (
     gate.state === "unsupported" &&
-    (gate.reason === "not_installed" || gate.reason === "cant_start") &&
+    (gate.reason === "not_installed" || gate.reason === "cant_start" || gate.reason === "cli_outdated") &&
     !hold &&
     row &&
     row.kind !== "managed" &&
@@ -1744,12 +1782,26 @@ function GateWait({
     // the line to run there.
     wait = <CliMissing machine={row} kind={kind} computer={computer} reason={gate.reason} useKey={keyButton} />;
   } else if (why && !(gate.state === "offline" && signingIn)) {
+    // A program there that won't start, on a computer someone connected: its own words, then a look once it's fixed.
+    const recheck =
+      gate.state === "unsupported" &&
+      gate.reason === "cant_start" &&
+      !hold &&
+      row?.kind !== "managed" &&
+      row?.cliInstall;
     wait = (
       <>
         <SettingNote icon={why.rechecks ? "clock" : "alert"} live={why.rechecks}>
           {why.text}
         </SettingNote>
-        {!hold && useKey}
+        {recheck && row ? (
+          <div className="ac-acts">
+            <CliCheckAgain machine={row} />
+            {useKey}
+          </div>
+        ) : (
+          !hold && useKey
+        )}
       </>
     );
   } else if (gate.state === "missing") {

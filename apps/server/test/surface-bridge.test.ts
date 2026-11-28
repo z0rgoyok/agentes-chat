@@ -340,6 +340,26 @@ test("the whole loop: a message in, the right hand's reply listed with its file,
   expect(await again.json()).toEqual({ sent: 0, unsent: 0, late: [reply.id] });
 });
 
+test("a nudge is listed only with nudges=true, and taken like any delivery (ADR 0234)", async () => {
+  await linked();
+  const [link] = await t.db.select().from(schema.surfaceLinks).where(eq(schema.surfaceLinks.externalId, SENDER));
+  if (!link?.orgId) throw new Error("no link");
+  await t.db
+    .insert(schema.notifications)
+    .values({ orgId: link.orgId, userId: link.userId, kind: "agent_reply", groupKey: `test:${crypto.randomUUID()}` });
+  const [nudge] = await t.db
+    .insert(schema.surfaceDeliveries)
+    .values({ orgId: link.orgId, linkId: link.id, kind: "nudge" })
+    .returning();
+  expect((await listed()).some((d) => d.id === nudge?.id)).toBe(false);
+  const asked = (await (await bridge("/deliveries?nudges=true")).json()) as {
+    deliveries: (Listed & { nudge: unknown })[];
+  };
+  expect(asked.deliveries.find((d) => d.id === nudge?.id)).toMatchObject({ kind: "nudge", nudge: { unread: 1 } });
+  const taken = await bridge("/deliveries/taken", { json: { sent: [], unsent: [nudge?.id] } });
+  expect(await taken.json()).toEqual({ sent: 0, unsent: 1, late: [] });
+});
+
 test("deliveries refuse a wrong or operator token and bad bodies", async () => {
   for (const token of [OPERATOR, "w".repeat(48)]) {
     expect((await bridge("/deliveries", { token })).status).toBe(401);

@@ -135,7 +135,7 @@ describe("a session's screens", () => {
   });
 
   test("every screen of a session lands back on Code when its address is wrong, never on a blank screen", () => {
-    for (const file of ["index.tsx", "files.tsx", "file.tsx", "diff.tsx", "people.tsx"])
+    for (const file of ["index.tsx", "files.tsx", "file.tsx", "diff.tsx", "people.tsx", "terminal.tsx"])
       expect(route(`coding/[sessionId]/${file}`)).toContain('<LandOn href="/coding" />');
     // A commit's diff needs a commit's hash.
     expect(route("coding/[sessionId]/diff.tsx")).toContain("/^[0-9a-f]{7,40}$/i");

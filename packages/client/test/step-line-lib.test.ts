@@ -33,7 +33,9 @@ const ended = (toolUseId: string) => ({ type: "agent.tool", ...base, tool: null,
 
 test("its own words for the call show quoted, only once the turn has gone on for a while", () => {
   const events = [call("b1", "browser_open", "Vou abrir o Play Console")];
-  expect(stepAfter(events, 2000)).toBe("usando o navegador…");
+  expect(stepAfter(events, 1000)).toBe("usando o navegador…");
+  // A second and a half in: soon enough to tell what it does while the reply still feels quick.
+  expect(stepAfter(events, 1500)).toBe("“Vou abrir o Play Console”");
   expect(stepAfter(events, STEP_WORDS_AFTER_MS)).toBe("“Vou abrir o Play Console”");
   // Still what it is on after the call ended, while it thinks about what it found.
   expect(stepAfter([...events, ended("b1")], STEP_WORDS_AFTER_MS)).toBe("“Vou abrir o Play Console”");
@@ -69,4 +71,29 @@ test("the computer's permission check keeps the command it lets through as the s
 test("a call waiting on a person says so before any words", () => {
   const held = { type: "agent.tool", ...base, tool: null, toolUseId: "q1", held: true };
   expect(stepAfter([call("q1", "ask_user", "Vou perguntar"), held], 9000)).toBe("esperando aprovação…");
+});
+
+test("a long step before the model has the turn says what it is, then gives the line back", () => {
+  const code = { type: "agent.phase", ...base, phase: "code" };
+  const over = { type: "agent.phase", ...base, phase: null };
+  expect(stepAfter([code], 3000)).toBe("atualizando o código…");
+  // Ahead of what it is about to do: the wait is on its checkouts right now.
+  expect(stepAfter([{ type: "agent.intent", ...base, text: "Procurando o e-mail" }, code], 3000)).toBe(
+    "atualizando o código…",
+  );
+  expect(stepAfter([code, over], 3000)).toBe("pensando…");
+  // A call running says itself, and a phase this app doesn't know changes nothing.
+  expect(stepAfter([code, call("b1", "search_context")], 3000)).toBe("buscando no histórico…");
+  expect(stepAfter([{ ...code, phase: "warming" }], 3000)).toBe("pensando…");
+});
+
+test("a call means the update is over, even when its end never arrived", () => {
+  const code = { type: "agent.phase", ...base, phase: "code" };
+  expect(stepAfter([code, call("b1", "search_context"), ended("b1")], 1000)).toBe("pensando…");
+});
+
+test("the agent waiting inside its turn for its checkouts' update reads as the same line", () => {
+  // The bridge names our tool with its server's prefix; the line is the same either way.
+  expect(stepAfter([call("w1", "wait_for_code")], 1000)).toBe("atualizando o código…");
+  expect(stepAfter([call("w1", "mcp__agentes__wait_for_code")], 1000)).toBe("atualizando o código…");
 });

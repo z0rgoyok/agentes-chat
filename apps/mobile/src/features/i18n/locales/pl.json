@@ -4,24 +4,17 @@
     "send": "Wyślij"
   },
   "categories": {
-    "title": "Kategorie",
-    "where": "Gdzie widać #{{channel}}",
-    "whereHelp": "Zmienia się dla wszystkich. Skład kanału zostaje bez zmian.",
-    "create": "Utwórz",
-    "endOfList": "Trafi na koniec listy u wszystkich.",
-    "channelCount_one": "{{count}} kanał",
-    "channelCount_few": "{{count}} kanały",
-    "channelCount_many": "{{count}} kanałów",
-    "channelCount_other": "{{count}} kanału",
-    "none": "Nie ma jeszcze kategorii.",
-    "manageHint": "Kolejność, nazwy i usuwanie",
-    "deleteTitle": "Usunąć {{name}}?",
-    "order": "Miejsce na liście",
     "up": "Przesuń w górę",
     "down": "Przesuń w dół",
-    "position": "{{at}} z {{count}}.",
-    "channelPosition": "{{at}} z {{count}}.",
-    "itsChannels": "Kanały"
+    "channelPosition": "{{at}} z {{count}}."
+  },
+  "sections": {
+    "title": "Sekcja",
+    "where": "Gdzie #{{channel}} jest dla ciebie",
+    "whereHelp": "Zmienia się tylko twoja lista. Każdy układa własne sekcje.",
+    "none": "Bez sekcji",
+    "order": "Miejsce w sekcji",
+    "tooLong": "Użyj najwyżej 40 znaków."
   },
   "blocks": {
     "send": "Wyślij",
@@ -74,6 +67,21 @@
     "raw": "Oryginał",
     "more": "Zobacz wszystkie wiersze ({{count}})",
     "gone": "Ten kod nie jest już otwarty."
+  },
+  "table": {
+    "label_one": "Tabela · {{count}} wiersz",
+    "label_few": "Tabela · {{count}} wiersze",
+    "label_many": "Tabela · {{count}} wierszy",
+    "label_other": "Tabela · {{count}} wiersza",
+    "title": "Tabela",
+    "rows_one": "{{count}} wiersz",
+    "rows_few": "{{count}} wiersze",
+    "rows_many": "{{count}} wierszy",
+    "rows_other": "{{count}} wiersza",
+    "copy": "Kopiuj tabelę",
+    "copied": "Skopiowano tabelę",
+    "more": "Zobacz wszystkie wiersze ({{count}})",
+    "gone": "Ta tabela nie jest już otwarta."
   },
   "time": {
     "today": "Dzisiaj",
@@ -199,11 +207,11 @@
       "text": "Serwer może nie działać albo być poza twoją siecią. Czaty pojawią się same, gdy wróci.",
       "kept": "Pokazujemy to, co było już w aplikacji."
     },
-    "pinned": "Przypięte",
+    "favorites": "Ulubione",
     "recent": "Ostatnie",
     "view": {
       "title": "Pokaż rozmowy",
-      "sectors": "Działy",
+      "sections": "Sekcje",
       "dms": "Wiadomości bezpośrednie",
       "channels": "Kanały"
     },
@@ -897,6 +905,7 @@
   },
   "agent": {
     "talk": "Czat",
+    "responsible": "Odpowiedzialna osoba",
     "task": "Zadanie",
     "owner": "właściciel: {{name}}",
     "cantTalk": "Ten agent nie pracuje z tobą.",
@@ -1015,6 +1024,7 @@
       "admin_ask_channel_agent": "{{names}} prosi o dodanie {{agent}} do #{{label}}",
       "admin_ask_create_agents": "{{names}} prosi o możliwość tworzenia agentów",
       "admin_ask_webhook": "{{names}} prosi o skonfigurowanie webhooka {{service}} dla rutyn",
+      "admin_ask_voice": "{{names}} prosi o włączenie wiadomości głosowych",
       "routine_paused_one": "Rutyna wstrzymana",
       "routine_paused_few": "Rutyny wstrzymane",
       "routine_paused_many": "Rutyny wstrzymane",
@@ -1145,6 +1155,14 @@
       "computer_no_chrome_few": "Komputery potrzebują Google Chrome. Pobierz go z google.com/chrome",
       "computer_no_chrome_many": "Komputery potrzebują Google Chrome. Pobierz go z google.com/chrome",
       "computer_no_chrome_other": "Komputery potrzebują Google Chrome. Pobierz go z google.com/chrome",
+      "computer_down_one": "Komputer nie odpowiada",
+      "computer_down_few": "Komputer nie odpowiada",
+      "computer_down_many": "Komputer nie odpowiada",
+      "computer_down_other": "Komputer nie odpowiada",
+      "computer_back_one": "Komputer znów działa",
+      "computer_back_few": "Komputer znów działa",
+      "computer_back_many": "Komputer znów działa",
+      "computer_back_other": "Komputer znów działa",
       "app_created_one": "Aplikacja AI coś dla ciebie utworzyła",
       "app_created_few": "Aplikacje AI coś dla ciebie utworzyły",
       "app_created_many": "Aplikacje AI coś dla ciebie utworzyły",
@@ -1686,6 +1704,15 @@
     "next": {
       "pr": "Gałąź wypchnięta, jeszcze bez pull requesta",
       "mergeLocal": "Gotowa do scalenia z {{base}}"
+    },
+    "terminal": {
+      "keys": "Klawisze terminala",
+      "keyboard": "Klawiatura",
+      "pasteHint": "Wklej do terminala to, co skopiowano",
+      "key": {
+        "CtrlC": "Control-C, przerwij",
+        "CtrlD": "Control-D, koniec wejścia"
+      }
     }
   },
   "taskManager": {
@@ -2296,6 +2323,7 @@
       "tool_request": "{{names}} prosi Cię o włączenie: {{tool}} na {{device}}",
       "cli_request": "{{names}} prosi o zainstalowanie {{tool}} na Twoim {{device}}",
       "folder_request": "{{names}} prosi Cię o folder {{path}} na {{device}}",
+      "internet_shared": "Agenci otwierają teraz strony przez internet komputera {{device}}",
       "allowOnce": "Zezwól raz",
       "always": "Zawsze zezwalaj: {{name}}",
       "no": "Nie",
@@ -3044,11 +3072,12 @@
     },
     "formatAuto": "{{name}} wybiera najlepszą",
     "newWidget": {
-      "alerts": "Alert włączony",
       "realData": "Prawdziwe dane",
       "editAsk": "Zmień prośbę",
       "asked": "„{{ask}}”",
-      "autoFormat": "Forma automatyczna"
+      "testReal": "Testuj na prawdziwych danych",
+      "addHome": "Dodaj do Startu",
+      "addTo": "Dodaj do: {{where}}"
     },
     "agentPick": {
       "search": "Szukaj agentów",
@@ -3522,7 +3551,8 @@
       "workspaceSub": "Klucz API workspace'u",
       "key": "Klucz API",
       "keyDefault": "domyślny workspace'u",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} przestaje z niego korzystać."
     },
     "missionAi": "AI",
     "missionLocked": "Kto wykonuje pracę, wybiera się przed startem. Model można zmienić w każdej chwili."

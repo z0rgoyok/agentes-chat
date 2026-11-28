@@ -8,6 +8,7 @@ import {
   type MailAdapters,
 } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
+import { desktopBackLink } from "@agenteschat/engine";
 import { browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer;
@@ -293,7 +294,8 @@ test("Gmail started in the desktop app: the browser without our session hands th
   fake.composio.activate(gmail.ca, "owner@gmail.com");
   const back = await callback(gmail.accountId);
   expect(back.status).toBe(302);
-  expect(back.headers.get("location")).toBe(
+  expect(new URL(back.headers.get("location") ?? "").pathname).toBe("/desktop/back");
+  expect(desktopBackLink(back.headers.get("location") ?? "")).toBe(
     `agenteschat://desktop/connectors/oauth?org=${orgId}&state=mail&code=connected`,
   );
   const { accounts } = (await (await api("/mail/accounts")).json()) as {
@@ -310,10 +312,10 @@ test("Gmail started in the desktop app: the browser without our session hands th
   const refused = await start(true);
   const remote = fake.composio.state.accounts.get(refused.ca);
   if (remote) remote.status = "failed";
-  expect((await callback(refused.accountId)).headers.get("location")).toBe(
+  expect(desktopBackLink((await callback(refused.accountId)).headers.get("location") ?? "")).toBe(
     `agenteschat://desktop/connectors/oauth?org=${orgId}&state=mail&code=failed`,
   );
-  expect((await callback(crypto.randomUUID())).headers.get("location")).toBe(
+  expect(desktopBackLink((await callback(crypto.randomUUID())).headers.get("location") ?? "")).toBe(
     "agenteschat://desktop/connectors/oauth?state=mail&code=failed",
   );
 

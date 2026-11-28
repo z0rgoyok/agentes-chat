@@ -19,6 +19,7 @@ import {
   MenuItem,
   MenuSeparator,
   PageHeader,
+  Refreshing,
   SearchField,
   Segmented,
   Toolbar,
@@ -52,8 +53,8 @@ import "./threads.css";
  * channel) and no counts on the tabs (the API doesn't give them).
  */
 
-const actorsOf = (t: ThreadInfo): { type: ThreadActor["type"]; id: string }[] =>
-  t.participants.flatMap((p) => (p.id ? [{ type: p.type, id: p.id }] : []));
+const actorsOf = (t: ThreadInfo): { type: "person" | "agent"; id: string }[] =>
+  t.participants.flatMap((p) => (p.id && p.type !== "app" ? [{ type: p.type, id: p.id }] : []));
 
 export function ThreadsPage({ initialTab, initialChannel }: { initialTab?: ThreadsTab; initialChannel?: string }) {
   const { t } = useTranslation();
@@ -280,51 +281,53 @@ export function ThreadsPage({ initialTab, initialChannel }: { initialTab?: Threa
             onClear={clearFilters}
           />
         )}
-        {!missions && list.isPending && <LoadingList count={5} />}
-        {!missions && list.isError && !list.data && (
-          <ErrorState error={list.error} onRetry={() => void list.refetch()} />
-        )}
-        {!missions && list.isSuccess && threads.length === 0 && (
-          <ThreadsEmpty tab={tab} filtered={filtered} onClear={clearFilters} onAll={() => setTab("all")} />
-        )}
-        {!missions && threads.length > 0 && (
-          <div className="ac-groups threads-groups" data-selecting={picked.size > 0 || undefined}>
-            {byPlace(threads).map((group) => {
-              const shut = collapsed.has(group.key);
-              const label = group.dm ? t("threads.dms") : `#${group.name}`;
-              return (
-                <section key={group.key} className="threads-group" aria-label={label}>
-                  <GroupHeading
-                    className="threads-group__head"
-                    title={
-                      <button type="button" aria-expanded={!shut} onClick={() => toggleGroup(group.key)}>
-                        <Icon name="chevronDown" size={14} className="threads-group__chev" />
-                        <Icon name={group.dm ? "person" : "channel"} size={14} />
-                        {group.dm ? label : group.name}
-                      </button>
-                    }
-                    count={group.threads.length}
-                  />
-                  {!shut && (
-                    <div className="list-card">
-                      {group.threads.map((thread) => (
-                        <ThreadRow
-                          key={thread.id}
-                          thread={thread}
-                          open={thread.id === openId}
-                          picked={picked.has(thread.id)}
-                          onOpen={() => setOpenId(openId === thread.id ? null : thread.id)}
-                          onGo={() => go(thread)}
-                          onPick={() => toggle(thread.id)}
-                          onAction={(action) => controls.request([thread], action)}
-                        />
-                      ))}
-                    </div>
-                  )}
-                </section>
-              );
-            })}
-          </div>
+        {!missions && (
+          <Refreshing busy={list.isPlaceholderData} label={t("common.loading")}>
+            {list.isPending && <LoadingList count={5} />}
+            {list.isError && !list.data && <ErrorState error={list.error} onRetry={() => void list.refetch()} />}
+            {list.isSuccess && threads.length === 0 && (
+              <ThreadsEmpty tab={tab} filtered={filtered} onClear={clearFilters} onAll={() => setTab("all")} />
+            )}
+            {threads.length > 0 && (
+              <div className="ac-groups threads-groups" data-selecting={picked.size > 0 || undefined}>
+                {byPlace(threads).map((group) => {
+                  const shut = collapsed.has(group.key);
+                  const label = group.dm ? t("threads.dms") : `#${group.name}`;
+                  return (
+                    <section key={group.key} className="threads-group" aria-label={label}>
+                      <GroupHeading
+                        className="threads-group__head"
+                        title={
+                          <button type="button" aria-expanded={!shut} onClick={() => toggleGroup(group.key)}>
+                            <Icon name="chevronDown" size={14} className="threads-group__chev" />
+                            <Icon name={group.dm ? "person" : "channel"} size={14} />
+                            {group.dm ? label : group.name}
+                          </button>
+                        }
+                        count={group.threads.length}
+                      />
+                      {!shut && (
+                        <div className="list-card">
+                          {group.threads.map((thread) => (
+                            <ThreadRow
+                              key={thread.id}
+                              thread={thread}
+                              open={thread.id === openId}
+                              picked={picked.has(thread.id)}
+                              onOpen={() => setOpenId(openId === thread.id ? null : thread.id)}
+                              onGo={() => go(thread)}
+                              onPick={() => toggle(thread.id)}
+                              onAction={(action) => controls.request([thread], action)}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            )}
+          </Refreshing>
         )}
         {!missions && list.hasNextPage && (
           <Button className="threads-more" loading={list.isFetchingNextPage} onClick={() => void list.fetchNextPage()}>
@@ -547,7 +550,7 @@ function ThreadRow({
 }
 
 /** Who carries the thread: the mission's agent, else the agent who spoke last, else the last agent in it, else whoever started it. */
-function leadOf(thread: ThreadInfo): { type: ThreadActor["type"]; id: string } {
+function leadOf(thread: ThreadInfo): { type: "person" | "agent"; id: string } {
   if (thread.mission) return { type: "agent", id: thread.mission.agentId };
   const lastAuthor = thread.lastMessage?.author;
   if (lastAuthor?.type === "agent" && lastAuthor.id) return { type: "agent", id: lastAuthor.id };
@@ -570,7 +573,11 @@ function byPlace(threads: ThreadInfo[]) {
   return [...groups.values()];
 }
 
-const lastActor = (a: ThreadActor) => ({ type: a.type, id: a.id ?? "" });
+/** An app (ADR 0251) has no face here: its line names it as nobody's (no member, no agent). */
+const lastActor = (a: ThreadActor) => ({
+  type: a.type === "app" ? ("person" as const) : a.type,
+  id: a.type === "app" ? "" : (a.id ?? ""),
+});
 
 function ThreadsEmpty({
   tab,

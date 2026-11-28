@@ -1,6 +1,6 @@
+import { formatList } from "@agenteschat/i18n/format";
 import type { TFunction } from "i18next";
 import type { OrgRole, PermissionArea, Person, RowHolders } from "../api/types";
-import { joinNames } from "./format";
 import { can, type RolePermission } from "./permissions";
 
 /**
@@ -480,12 +480,6 @@ export function summaryKeys(role: OrgRole, everyone: OrgRole | undefined): RoleP
   return SUMMARY_ORDER.filter((k) => own.has(k) && !base.has(k));
 }
 
-/** "a, b e c" in the person's language; the phone's JavaScript engine has no `Intl.ListFormat`. */
-const wordList = (t: TFunction, locale: string, items: string[]) =>
-  typeof Intl.ListFormat === "function"
-    ? new Intl.ListFormat(locale, { style: "long", type: "conjunction" }).format(items)
-    : joinNames(items, t);
-
 /** An area's level as said on screen: `everyone`'s lowest is "Nada", any other role's "Como Todos". */
 export const levelLabel = (t: TFunction, role: Pick<OrgRole, "kind">, level: AreaLevel) =>
   level === "none" && isEveryone(role) ? t("rolesPage.levels.nothing") : t(`rolesPage.levels.${level}`);
@@ -495,8 +489,7 @@ export function areaLine(t: TFunction, locale: string, role: OrgRole, area: Perm
   if (!isEveryone(role) && role.permissions.includes("administrator")) return t("rolesPage.viaAdmin");
   const reach = areaReach(role, area, everyone);
   return reach.length
-    ? wordList(
-        t,
+    ? formatList(
         locale,
         reach.map((k) => t(`permissions.${k as RolePermission}.short`)),
       )
@@ -511,9 +504,9 @@ export function roleSummary(t: TFunction, locale: string, role: OrgRole, everyon
   if (keys.length > 3) words.push(t("rolesPage.summary.more", { count: keys.length - 3 }));
   if (isEveryone(role))
     return keys.length
-      ? t("rolesPage.summary.everyone", { list: wordList(t, locale, words) })
+      ? t("rolesPage.summary.everyone", { list: formatList(locale, words) })
       : t("rolesPage.summary.everyoneNone");
-  return keys.length ? t("rolesPage.summary.extra", { list: wordList(t, locale, words) }) : t("rolesPage.summary.none");
+  return keys.length ? t("rolesPage.summary.extra", { list: formatList(locale, words) }) : t("rolesPage.summary.none");
 }
 
 /** A person's rank: their highest role's position (an owner above all, `Infinity` with none). */

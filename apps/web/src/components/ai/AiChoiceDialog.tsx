@@ -1,6 +1,7 @@
 import { useAiChoice } from "@agenteschat/client";
 import type { AiChoiceTarget } from "@agenteschat/client/lib/ai-choice";
 import { Button, Dialog, DialogBody, DialogFooter, Icon, ProviderLogo } from "@agenteschat/ui";
+import { useNavigate } from "@tanstack/react-router";
 import type { CSSProperties, ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { TeamScene } from "@/components/arrival/TeamScene";
@@ -20,7 +21,8 @@ export interface AiChoiceLink {
 /**
  * "Quem pensa" as one dialog for an agent's header and for Lodi: the agent under its sky with the AI's mark at the
  * trail's end, the title, the one picker (Conta, Modelo, Esforço; each change saved at once), a line or two that lead
- * elsewhere, and who the choice is for in the footer.
+ * elsewhere, and who the choice is for in the footer. The account list's foot: "Adicionar conta" where the caller has a
+ * way to add one (`onAdd`, after this dialog closes), and "Gerenciar contas" (Settings, Contas de IA).
  */
 export function AiChoiceDialog({
   open,
@@ -31,6 +33,7 @@ export function AiChoiceDialog({
   note,
   links = [],
   disabled = false,
+  onAdd,
   children,
 }: {
   open: boolean;
@@ -43,6 +46,8 @@ export function AiChoiceDialog({
   links?: readonly AiChoiceLink[];
   /** Nothing changes for now (a billing hold). */
   disabled?: boolean;
+  /** "Adicionar conta": where an account is added for this choice, once this dialog has closed. */
+  onAdd?: () => void;
   /** Notes over the picker (a billing hold, what the AI can't do now). */
   children?: ReactNode;
 }) {
@@ -66,6 +71,7 @@ export function AiChoiceDialog({
           links={links}
           disabled={disabled}
           onClose={onClose}
+          {...(onAdd ? { onAdd } : {})}
         >
           {children}
         </Body>
@@ -82,6 +88,7 @@ function Body({
   links,
   disabled,
   onClose,
+  onAdd,
   children,
 }: {
   agent: { id: string; name: string };
@@ -91,10 +98,12 @@ function Body({
   links: readonly AiChoiceLink[];
   disabled: boolean;
   onClose: () => void;
+  onAdd?: () => void;
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
   const { org } = useOrg();
+  const navigate = useNavigate();
   const state = useAiChoice(org.id, target);
   const row = rowOfChoice(state.rows, state.current) ?? state.selected;
   const mark = row?.account?.provider ?? row?.account?.kind ?? row?.apiKey?.provider ?? null;
@@ -135,7 +144,22 @@ function Body({
           </div>
           <DialogBody>
             {children}
-            <AiChoiceFields state={state} disabled={disabled} />
+            <AiChoiceFields
+              state={state}
+              disabled={disabled}
+              {...(onAdd
+                ? {
+                    onAdd: () => {
+                      onClose();
+                      onAdd();
+                    },
+                  }
+                : {})}
+              onManage={() => {
+                onClose();
+                void navigate({ to: "/org/$orgId/settings/$section", params: { orgId: org.id, section: "usage" } });
+              }}
+            />
             {links.length > 0 && (
               <div className="bd-lines">
                 {links.map((l) => (

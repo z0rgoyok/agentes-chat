@@ -15,6 +15,7 @@ import {
   MAX_MESSAGE_LENGTH,
   putAsset,
   putMarkPicture,
+  readFileFonts,
   renameLiveFile,
   requireActiveMembership,
   requireLiveFile,
@@ -45,8 +46,19 @@ const ArtifactParams = OrgParams.extend({ artifactId: z.uuid() });
 const isUuid = (value: string) => z.uuid().safeParse(value).success;
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength).toString("base64");
 
-/** What an asset may be: pictures only, whatever was stored, so nothing else is ever served from here. */
-const ASSET_TYPES = new Set(["image/png", "image/jpeg", "image/webp", "image/gif"]);
+/**
+ * What an asset may be: pictures and the file's own fonts (ADR 0220 §2, the type its bytes gave), whatever was stored,
+ * so nothing else is ever served from here.
+ */
+const ASSET_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "font/ttf",
+  "font/otf",
+  "font/woff",
+]);
 /**
  * An SVG picture (stored as the sanitizer rebuilt it, ADR 0196 §8) is served with a CSP that runs and loads nothing,
  * also when it is opened on its own in a tab: the apps only ever show it as a picture.
@@ -78,8 +90,28 @@ const LiveAsset = z
     size: z.number().int(),
     width: z.number().int().nullable(),
     height: z.number().int().nullable(),
+    font: z
+      .object({
+        family: z.string(),
+        style: z.string(),
+        weight: z.number().int(),
+        italic: z.boolean(),
+      })
+      .nullable()
+      .optional()
+      .openapi({ description: "A font (ADR 0220 §2): its family, style and weight as its own file names them." }),
   })
   .openapi("LiveAsset");
+
+const LiveFileFont = z
+  .object({
+    id: z.string().openapi({ description: "The asset's id; the file names it `asset:<id>`." }),
+    family: z.string(),
+    style: z.string(),
+    weight: z.number().int(),
+    italic: z.boolean(),
+  })
+  .openapi("LiveFileFont");
 
 const PresenceEntry = z
   .object({
@@ -554,7 +586,25 @@ export function liveRoutes(deps: AppDeps) {
     },
   );
 
-  // A picture's bytes: named by its id and never changed, so cached for good; only ever served as a picture.
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/organizations/{orgId}/artifacts/{artifactId}/fonts",
+      tags,
+      security,
+      summary: "A live file's own fonts (fonts brought from the Drive), for its font list",
+      description: "One row per font file, regular faces first; each is served like a picture (`GET …/assets/{id}`).",
+      request: { params: ArtifactParams },
+      responses: { 200: json(z.object({ fonts: z.array(LiveFileFont) }), "The file's fonts"), ...errors },
+    }),
+    async (c) => {
+      const { orgId, artifactId } = c.req.valid("param");
+      const fonts = await readFileFonts(liveDeps(), person(c.get("user").id), orgId, artifactId);
+      return c.json({ fonts: fonts.map((f) => ({ id: f.id, ...fontView(f) })) }, 200);
+    },
+  );
+
+  // A picture's or a font's bytes: named by its id and never changed, so cached for good; only ever served as itself.
   app.get("/organizations/:orgId/artifacts/:artifactId/assets/:assetId", async (c) => {
     const orgId = c.req.param("orgId");
     const artifactId = c.req.param("artifactId");
@@ -739,13 +789,14 @@ function onePerPeer(list: readonly Present[]): Present[] {
   return [...byPeer.values()];
 }
 
-/** What the apps get of a picture. */
+/** What the apps get of a picture or a font. */
 function assetView(asset: {
   id: string;
   contentType: string;
   size: number;
   width: number | null;
   height: number | null;
+  font?: { family: string; style: string; weight: number; italic: boolean } | null;
 }) {
   return {
     id: asset.id,
@@ -753,7 +804,13 @@ function assetView(asset: {
     size: asset.size,
     width: asset.width ?? null,
     height: asset.height ?? null,
+    font: asset.font ? fontView(asset.font) : null,
   };
+}
+
+/** A font as the apps get it: what names and draws it, not its license words. */
+function fontView(font: { family: string; style: string; weight: number; italic: boolean }) {
+  return { family: font.family, style: font.style, weight: font.weight, italic: font.italic };
 }
 
 type Media = Record<string, { type: string; bytes?: Uint8Array; url?: string }>;

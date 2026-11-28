@@ -181,8 +181,19 @@ describe("answering and opening", () => {
     });
     expect(
       openTarget(notification({ id: "3", kind: "dm", actors: [{ type: "agent", id: "ada" }], source: { dmId: "d" } })),
-    ).toEqual({ to: "/org/$orgId/dm/agent/$agentId", params: { agentId: "ada" } });
-    // An agent's request in my DM with it: that DM (the web has no channel page for a DM).
+    ).toEqual({ to: "/org/$orgId/c/$channelId", params: { channelId: "d" } });
+    // A delegated agent's report posted in the right hand's DM: that DM, by its channel, never the writer's own DM.
+    expect(
+      openTarget(
+        notification({
+          id: "3r",
+          kind: "agent_reply",
+          actors: [{ type: "agent", id: "nova" }],
+          source: { channelId: "lodi-dm", dmId: "lodi-dm", messageId: "r" },
+        }),
+      ),
+    ).toEqual({ to: "/org/$orgId/c/$channelId", params: { channelId: "lodi-dm" }, search: { m: "r" } });
+    // An agent's request in my DM with it: that DM, by its channel (whose page opens the DM's own).
     const asked = notification({
       id: "3h",
       kind: "browser_handoff",
@@ -190,8 +201,8 @@ describe("answering and opening", () => {
       source: { channelId: "d", dmId: "d", messageId: "h", handoffId: "h", agentId: "ada" },
     });
     expect(openTarget(asked)).toEqual({
-      to: "/org/$orgId/dm/agent/$agentId",
-      params: { agentId: "ada" },
+      to: "/org/$orgId/c/$channelId",
+      params: { channelId: "d" },
       search: { m: "h" },
     });
     expect(opensOnComputer(asked)).toBeNull();

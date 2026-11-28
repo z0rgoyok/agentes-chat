@@ -345,6 +345,19 @@ describe("where it goes", () => {
     expect(top.style.top).toBe(`${8 + 32 + TIP_GAP}px`);
   });
 
+  test("in a column of tiles that asks for it, beside its element on the right, centred on it", async () => {
+    wide(1280);
+    const column = page(`<div data-tip-side="right"><button title="Drive">${ICON}</button></div>`);
+    const tile = column.firstElementChild as HTMLElement;
+    place(tile, box(12, 200, 40, 40));
+    await over(tile);
+    await tick(TITLE_TIP_OPEN_MS);
+    const shown = tip() as HTMLElement;
+    expect(shown.style.left).toBe(`${52 + TIP_GAP}px`);
+    expect(shown.style.top).toBe(`${200 + 20 - TIP.height / 2}px`);
+    expect(shown.dataset.side).toBe("right");
+  });
+
   test("inside a 320px window, the edges' room kept", async () => {
     wide(320);
     const right = await open(box(280, 100, 32, 32));

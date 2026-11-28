@@ -144,6 +144,8 @@ test("the plan's notifications have their own Activity line in both languages, n
       "browser_profile_request",
       "computer_disk_full",
       "computer_no_chrome",
+      "computer_down",
+      "computer_back",
       "desktop_taken",
       "plan_lent",
       "plan_serves",

@@ -112,10 +112,14 @@
   --out: cubic-bezier(0.2, 0.8, 0.2, 1);
   /* A side panel's slide (the phone's sheet curve). */
   --drawer: cubic-bezier(0.32, 0.72, 0, 1);
-  /* Durations: fast for presses, menus and exits, base for dialogs, toasts and arrivals, panel for a panel's slide. */
+  /* What moves or resizes while it stays on screen (a card's height, the page gliding under a notice). */
+  --move: cubic-bezier(0.65, 0, 0.35, 1);
+  /* Durations: fast for presses, menus and exits, base for dialogs, toasts and arrivals, panel for a panel's slide,
+     morph for a card or row changing size in place. */
   --dur-fast: 140ms;
   --dur-base: 180ms;
   --dur-panel: 240ms;
+  --dur-morph: 260ms;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;

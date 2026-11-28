@@ -10,14 +10,17 @@ import {
   useDecideApprovals,
   usePostMessage,
   useRun,
+  useRunApprovalNow,
 } from "@agenteschat/client";
 import {
   APPROVAL_REASON_MAX,
   approvalLines,
+  approvalPhase,
+  approveAllByAgent,
   approveAllScope,
   byAsked,
   type LinePlace,
-  RUNNING_FOR_MS,
+  PHASE_STATUS,
 } from "@agenteschat/client/lib/approval-card";
 import { aheadPhase, approveAlwaysOffered } from "@agenteschat/client/lib/approval-kind";
 import { approvalWords } from "@agenteschat/client/lib/approval-origin";
@@ -93,6 +96,7 @@ import {
 } from "@/components/ApprovalItem";
 import { WhenAsksLink } from "@/components/ApprovalsLevelDialog";
 import { ConnectorIcon } from "@/components/ConnectorIcon";
+import { DetailsLink } from "@/components/details-link";
 import { EmailLetter } from "@/components/EmailLetter";
 import { useOrg } from "@/components/org-context";
 import { colorOf, prepareBurst } from "@/components/Sky";
@@ -108,41 +112,14 @@ import "./approvals.css";
 const TTL_MS = 24 * 3_600_000;
 const URGENT_MS = 3_600_000;
 
-/**
- * Where an approval goes on this screen. `queued`: approved, its turn not come yet (a request the agent asked before
- * it on its card still waits or runs); `notRun`: approved, but one asked before it was refused or expired after that.
- */
-export type ApprovalPhase =
-  | "waiting"
-  | "queued"
-  | "running"
-  | "scheduled"
-  | "done"
-  | "failed"
-  | "notRun"
-  | "refused"
-  | "expired"
-  | "canceled";
-
-/** `place`: where it stands on its card (`approvalLine`); without it, an approved one runs from its decision. */
-export function approvalPhase(a: Approval, now = Date.now(), place?: LinePlace): ApprovalPhase {
-  if (a.status === "pending") return "waiting";
-  if (a.status === "approved") {
-    if (a.result?.notRunAfter) return "notRun";
-    if (a.result) return a.result.ok ? "done" : "failed";
-    if (a.executedAt) return "done";
-    // Approved ahead: it waits for its time, when its routine's run does it.
-    if (aheadPhase(a) === "scheduled") return "scheduled";
-    if (place?.waitsOn) return "queued";
-    const since = place?.freeSince ?? a.decidedAt;
-    return now - (since ? new Date(since).getTime() : 0) < RUNNING_FOR_MS ? "running" : "done";
-  }
-  return a.status;
-}
-
 /** Each request's place on its card (`approvalLine`), for the rows and the review under them. */
 const LinesContext = createContext<ReadonlyMap<string, LinePlace>>(new Map());
 const useLinePlace = (a: Approval) => useContext(LinesContext).get(a.id);
+/** Where each of `list`'s requests stands (`approvalLines`), for the rows and reviews under it. */
+export function ApprovalLinesProvider({ list, children }: { list: readonly Approval[]; children: ReactNode }) {
+  const lines = useMemo(() => approvalLines([...list]), [list]);
+  return <LinesContext.Provider value={lines}>{children}</LinesContext.Provider>;
+}
 /** A request with its place on its card ("Criar issue (1 de 2)"): two requests of one kind tell apart by it. */
 const titleOnCard = (t: TFunction, b: Approval, place: Pick<LinePlace, "position" | "count"> | undefined) =>
   place && place.count > 1
@@ -469,7 +446,17 @@ export function HoldToApprove({
  * may decide (one joining during the click is never approved unseen). Held when any of them is high risk.
  * Nothing when fewer than two are theirs: each item's own buttons do. `children` sit between the two ("Aprovar sempre").
  */
-export function ApproveAll({ items, label, children }: { items: Approval[]; label?: string; children?: ReactNode }) {
+export function ApproveAll({
+  items,
+  label,
+  refuseLabel,
+  children,
+}: {
+  items: Approval[];
+  label?: string;
+  refuseLabel?: string;
+  children?: ReactNode;
+}) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const decide = useDecideApprovals(org.id);
@@ -495,9 +482,96 @@ export function ApproveAll({ items, label, children }: { items: Approval[]; labe
         loading={decide.isPending && decide.variables?.decision === "refuse"}
         onClick={() => decide.mutate({ ids, decision: "refuse" })}
       >
-        {t("approval.all.refuse")}
+        {refuseLabel ?? t("approval.all.refuse")}
       </Button>
     </>
+  );
+}
+
+/**
+ * An approved request still waiting for one asked before it (`approvalLine`): that request by name, which opens in
+ * place, and what moves it: deciding that one where this person may, or "Rodar este agora" when it is another run's
+ * (`canRunNow`).
+ */
+export function HeldLine({ approval: a, waitsOn }: { approval: Approval; waitsOn: Approval }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const decide = useDecideApproval(org.id);
+  const runNow = useRunApprovalNow(org.id);
+  const busy = useApprovalsDeciding(org.id, [a.id, waitsOn.id]);
+  // Its own run's request is decided where it stands, beside it: only another run's gets buttons here.
+  const other = waitsOn.runId !== a.runId;
+  const decidable = other && waitsOn.status === "pending" && waitsOn.canDecide === true;
+  const freeable = other && a.canRunNow === true;
+  return (
+    <span className="ap-held">
+      <span className="ap-held__text">
+        <Trans
+          i18nKey="approval.held.waiting"
+          components={{
+            link: (
+              <DetailsLink item={{ kind: "approval", id: waitsOn.id }} className="ac-link">
+                {approvalTitle(t, waitsOn)}
+              </DetailsLink>
+            ),
+          }}
+        />
+      </span>
+      {(decidable || freeable) && (
+        <span className="ac-acts ap-held__acts">
+          {decidable && <ApproveButton approval={waitsOn} />}
+          {decidable && (
+            <Button
+              size="sm"
+              disabled={busy}
+              loading={decide.isPending}
+              onClick={() => decide.mutate({ id: waitsOn.id, decision: "refuse" })}
+            >
+              {t("approval.refuse")}
+            </Button>
+          )}
+          {freeable && (
+            <Button size="sm" disabled={busy} loading={runNow.isPending} onClick={() => runNow.mutate({ id: a.id })}>
+              {t("approval.held.runNow")}
+            </Button>
+          )}
+        </span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * "Aprovar todos" / "Recusar todos" per agent, over all of its cards: one line for each agent with two or more
+ * requests this person may decide (`approveAllByAgent`), deciding exactly those, as each card's "Aprovar tudo" does.
+ */
+export function ApproveAllByAgent({ list }: { list: readonly Approval[] }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const groups = approveAllByAgent(list);
+  if (groups.length === 0) return null;
+  return (
+    <ul className="ap-agents" aria-label={t("approval.byAgent.approve")}>
+      {groups.map((g) => {
+        const name = dir.agentById.get(g.agentId)?.name ?? t("channel.unknownAgent");
+        return (
+          <li key={g.agentId} className="ap-agents__row ac-tailrow">
+            <span className="ap-agents__who ac-who">
+              <AgentAvatar agentId={g.agentId} name={name} size="xs" />
+              {t("approval.byAgent.head", { count: g.ids.length, name })}
+            </span>
+            <span className="ac-acts">
+              <ApproveAll
+                items={g.items}
+                label={t("approval.byAgent.approve")}
+                refuseLabel={t("approval.byAgent.refuse")}
+              />
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -956,22 +1030,6 @@ function ReviewBody({ approval: a, channel }: { approval: Approval; channel: str
   );
 }
 
-/** The `approvals.status.*` word of each phase. */
-const PHASE_STATUS: Record<
-  Exclude<ApprovalPhase, "waiting">,
-  "approved" | "failed" | "refused" | "expired" | "running" | "canceled" | "scheduled" | "queued" | "notRun"
-> = {
-  queued: "queued",
-  notRun: "notRun",
-  running: "running",
-  scheduled: "scheduled",
-  done: "approved",
-  failed: "failed",
-  refused: "refused",
-  expired: "expired",
-  canceled: "canceled",
-};
-
 /**
  * The decision, in one bar of buttons: Refuse and Approve ("Aprovar sempre" before them where its kind offers it), what
  * each lets the agent do in its tip (Approve: once, with these values); refusing opens the reason in its place. Pinned
@@ -1007,13 +1065,7 @@ function DecisionBar({
     return (
       <div className={cx("ap-bar", floating && "ap-bar--float")}>
         <p className="ap-bar__text">
-          {t("approvals.queuedLine", {
-            title: titleOnCard(
-              t,
-              waitsOn,
-              place?.waitsOnAt ? { position: place.waitsOnAt, count: place.count } : undefined,
-            ),
-          })}
+          <HeldLine approval={a} waitsOn={waitsOn} />
         </p>
       </div>
     );

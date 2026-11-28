@@ -30,7 +30,7 @@ export interface ConnectorTool {
   /**
    * Where the agent's own words go on GitHub (ADR 0156): a `body` gets the agent's signature line when given
    * (`always`: an empty one too), a commit message (`message`, a merge's `commit_message`) the agent's own
-   * `Co-authored-by` and the person's credit when given.
+   * `Co-Authored-By` and the person's credit when given.
    */
   sign?: { field: "body" | "message" | "commit_message"; always?: true };
   /** A sensitive tool of ours that asks every time: no "Aprovar sempre" (it spends money or lets people in). */
@@ -75,6 +75,12 @@ export interface ConnectorDefinition {
    * through `createNativeConnectorToolSource`.
    */
   native?: true;
+  /**
+   * A git host (ADR 0227) that runs at an address of one's own: `optional` where the connector's own address is the
+   * vendor's site (GitLab), `required` where there is no such site (a git server by address). The connection keeps it
+   * as its `server_url`.
+   */
+  address?: "optional" | "required";
   /** Sent with every request to its MCP server, besides the sign-in. */
   headers?: Record<string, string>;
   scopes: Record<string, ConnectorScope>;
@@ -431,6 +437,103 @@ export const CONNECTOR_CATALOG: Record<string, ConnectorDefinition> = {
         askAlways: true,
         title: "Send a video to the TikTok drafts",
       },
+    },
+  },
+  // The other git hosts (ADR 0227): served by the same git tools and proxy as GitHub's, through `git/hosts`.
+  gitlab: {
+    id: "gitlab",
+    category: "dev",
+    label: "GitLab",
+    description: "Repositories and merge requests on GitLab.com or a GitLab of your own.",
+    serverUrl: "https://gitlab.com",
+    // Sign-in on gitlab.com where this server has its application there; a token always, and for a GitLab of one's
+    // own (each one would need an application of its own).
+    auth: ["oauth", "api_key"],
+    oauth: {
+      authorizeUrl: "https://gitlab.com/oauth/authorize",
+      tokenUrl: "https://gitlab.com/oauth/token",
+      // `api` for the questions and merge requests, `write_repository` for git over HTTPS.
+      scopes: ["api", "write_repository"],
+      scopeSeparator: " ",
+    },
+    native: true,
+    address: "optional",
+    scopes: {
+      "git.read": s(
+        "Clone repositories (git)",
+        "Clone and update repositories on the agent's computer with git, through our proxy; the token never enters the machine.",
+      ),
+      "git.write": s(
+        "Push branches (git push)",
+        "Push commits to agentes/{agent}/… branches: never to the default branch, no force push, no tags. Deleting branches and pushing to someone else's branch ask for approval first.",
+      ),
+      "pr.write": s("Open merge requests", "Open merge requests from a pushed branch. Merging stays with people."),
+    },
+    tools: {
+      gitlab_git_clone: { scope: "git.read", ours: true },
+      gitlab_open_pull_request: { scope: "pr.write", ours: true },
+      gitlab_delete_branches: { scope: "git.write", ours: true },
+      gitlab_request_branch_push: { scope: "git.write", ours: true },
+    },
+  },
+  bitbucket: {
+    id: "bitbucket",
+    category: "dev",
+    label: "Bitbucket",
+    description: "Repositories and pull requests on Bitbucket Cloud.",
+    serverUrl: "https://bitbucket.org",
+    auth: ["oauth", "api_key"],
+    oauth: {
+      authorizeUrl: "https://bitbucket.org/site/oauth2/authorize",
+      tokenUrl: "https://bitbucket.org/site/oauth2/access_token",
+      // The consumer registered with Bitbucket carries the scopes (account, repositories and pull requests, write):
+      // none goes on the request, and the client signs in with HTTP Basic.
+      scopes: [],
+      clientAuth: "basic",
+      pkce: false,
+    },
+    native: true,
+    scopes: {
+      "git.read": s(
+        "Clone repositories (git)",
+        "Clone and update repositories on the agent's computer with git, through our proxy; the token never enters the machine.",
+      ),
+      "git.write": s(
+        "Push branches (git push)",
+        "Push commits to agentes/{agent}/… branches: never to the default branch, no force push, no tags. Deleting branches and pushing to someone else's branch ask for approval first.",
+      ),
+      "pr.write": s("Open pull requests", "Open pull requests from a pushed branch. Merging stays with people."),
+    },
+    tools: {
+      bitbucket_git_clone: { scope: "git.read", ours: true },
+      bitbucket_open_pull_request: { scope: "pr.write", ours: true },
+      bitbucket_delete_branches: { scope: "git.write", ours: true },
+      bitbucket_request_branch_push: { scope: "git.write", ours: true },
+    },
+  },
+  git: {
+    id: "git",
+    category: "dev",
+    label: "Git server",
+    description: "Repositories on a git server by its address: Gitea, Forgejo, a company's own.",
+    // Never opened: every connection carries its own address.
+    serverUrl: "https://git.invalid",
+    auth: ["api_key"],
+    native: true,
+    address: "required",
+    scopes: {
+      "git.read": s(
+        "Clone repositories (git)",
+        "Clone and update repositories on the agent's computer with git, through our proxy; the token never enters the machine.",
+      ),
+      "git.write": s(
+        "Push branches (git push)",
+        "Push commits to agentes/{agent}/… branches: never to the default branch, no force push, no tags. Pushing to someone else's branch asks for approval first.",
+      ),
+    },
+    tools: {
+      gitserver_git_clone: { scope: "git.read", ours: true },
+      gitserver_request_branch_push: { scope: "git.write", ours: true },
     },
   },
   telegram: {

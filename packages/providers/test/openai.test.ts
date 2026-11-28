@@ -160,7 +160,7 @@ describe("OpenAI adapter (Responses API, scripted transport)", () => {
       max_output_tokens: 900,
       store: false,
       include: ["reasoning.encrypted_content"],
-      reasoning: { effort: "low" },
+      reasoning: { effort: "low", summary: "auto" },
       stream: true,
     });
     expect(((req?.body.tools ?? []) as { name: string }[]).map((t) => t.name)).toEqual(["a", "b"]);
@@ -258,7 +258,89 @@ describe("OpenAI adapter (Responses API, scripted transport)", () => {
       return requests[0]?.body.reasoning;
     };
     expect(await effortOf("gpt-6-luna")).toEqual({ effort: "none" });
-    expect(await effortOf("gpt-6.1-sol")).toEqual({ effort: "low" });
+    expect(await effortOf("gpt-6.1-sol")).toEqual({ effort: "low", summary: "auto" });
+  });
+
+  test("reasoning summaries: asked for, told as notes; an organization refused them gets the call without", async () => {
+    const thought = {
+      type: "reasoning",
+      id: "rs_1",
+      summary: [{ type: "summary_text", text: "Looking up the invoice first." }],
+      encrypted_content: "enc",
+    };
+    const summarized = sse([
+      { type: "response.created", response: baseResponse({ status: "in_progress", output: [] }) },
+      { type: "response.output_item.added", output_index: 0, item: { ...thought, summary: [] } },
+      {
+        type: "response.reasoning_summary_part.added",
+        item_id: "rs_1",
+        output_index: 0,
+        summary_index: 0,
+        part: { type: "summary_text", text: "" },
+      },
+      {
+        type: "response.reasoning_summary_text.delta",
+        item_id: "rs_1",
+        output_index: 0,
+        summary_index: 0,
+        delta: "Looking up the invoice first.",
+      },
+      {
+        type: "response.reasoning_summary_text.done",
+        item_id: "rs_1",
+        output_index: 0,
+        summary_index: 0,
+        text: "Looking up the invoice first.",
+      },
+      {
+        type: "response.reasoning_summary_part.done",
+        item_id: "rs_1",
+        output_index: 0,
+        summary_index: 0,
+        part: { type: "summary_text", text: "Looking up the invoice first." },
+      },
+      { type: "response.output_item.done", output_index: 0, item: thought },
+      { type: "response.completed", response: baseResponse({ output: [thought] }) },
+    ]);
+    const { fetcher, requests } = scripted(summarized);
+    const notes: string[] = [];
+    await createOpenAIProvider({ fetch: fetcher, maxRetries: 0 }).stream(
+      { model: "gpt-6.1-sol", system: "s", messages: [{ role: "user", content: "hi" }], maxTokens: 10, effort: "high" },
+      { apiKey: "k", onDelta: () => {}, onNote: (n) => notes.push(n) },
+    );
+    expect(requests[0]?.body.reasoning).toEqual({ effort: "high", summary: "auto" });
+    expect(notes).toEqual(["Looking up the invoice first."]);
+
+    // Refused once for the summaries: sent again without them.
+    const sent: Record<string, unknown>[] = [];
+    const refusing = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      sent.push(body);
+      if ((body.reasoning as { summary?: string }).summary)
+        return new Response(
+          JSON.stringify({
+            error: {
+              message: "Your organization must be verified to generate reasoning summaries.",
+              type: "invalid_request_error",
+            },
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        );
+      return new Response(summarized, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as unknown as typeof fetch;
+    await createOpenAIProvider({ fetch: refusing, maxRetries: 0 }).stream(
+      { model: "gpt-6.1-sol", system: "s", messages: [{ role: "user", content: "hi" }], maxTokens: 10, effort: "high" },
+      { apiKey: "k", onDelta: () => {} },
+    );
+    expect(sent.map((b) => b.reasoning)).toEqual([{ effort: "high", summary: "auto" }, { effort: "high" }]);
+
+    // Off by the server's setting: not asked.
+    const off = scripted(summarized);
+    await createOpenAIProvider({ fetch: off.fetcher, maxRetries: 0, progressNotes: false }).stream(
+      { model: "gpt-6.1-sol", system: "s", messages: [{ role: "user", content: "hi" }], maxTokens: 10, effort: "high" },
+      { apiKey: "k", onDelta: () => {} },
+    );
+    expect(off.requests[0]?.body.reasoning).toEqual({ effort: "high" });
   });
 
   test("a broken stream reports the output received so far", async () => {

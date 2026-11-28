@@ -291,13 +291,17 @@ html:not([data-pointer]) .auth__quiet:focus-visible {
   text-align: center;
   text-wrap: balance;
 }
-/* The sign-in code the person matches between the app window and the browser. */
+/* The sign-in code the person matches between the app window and the browser: the code on its own line, never broken,
+   its explanation centred under it. */
 .auth__code {
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
   padding: 10px 0 2px;
 }
 .auth__codeValue {
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 28px;
   font-weight: 700;
@@ -372,6 +376,24 @@ html:not([data-pointer]) .auth__quiet:focus-visible {
   max-width: 100%;
   object-fit: contain;
   object-position: left center;
+}
+/* The lockup's plate, as a workspace's `.org-mark`: only where the page would hide the ink. It bleeds into the gutter,
+   so the logo and the column below keep their places with or without it. */
+:root:not([data-theme="dark"]) .auth__host-logo[data-ink="light"],
+[data-theme="dark"] .auth__host-logo:not([data-ink="light"]) {
+  box-sizing: content-box;
+  padding: var(--space-1) var(--space-2);
+  margin: calc(-1 * var(--space-1)) calc(-1 * var(--space-2));
+  border-radius: var(--radius-md);
+}
+.auth__host-logo[data-ink="light"] {
+  background: #1c1c1b;
+}
+[data-theme="dark"] .auth__host-logo {
+  background: #ffffff;
+}
+[data-theme="dark"] .auth__host-logo[data-ink="light"] {
+  background: none;
 }
 .auth__host-name {
   display: block;
@@ -453,4 +475,43 @@ html:not([data-pointer]) .auth__quiet:focus-visible {
   text-wrap: pretty;
   /* A name with no spaces (an address, a workspace's name) breaks where it must, never past the column. */
   overflow-wrap: anywhere;
+}
+
+/* The error screens (`ErrorScreen`, `NotFoundScreen`): the agent saying what happened, on a slot of one size so its
+   sticker (props above its head) and its avatar stand on the same line, then the title, and under the way out a small
+   line of what else there is to know (the report's code, the wait). */
+.auth__face {
+  display: grid;
+  place-items: end center;
+  width: 112px;
+  height: 104px;
+}
+.auth__face > .ac-sticker {
+  margin-bottom: -6px;
+}
+/* The avatar's 112 px hero drawn at the sticker's body size; scaled, so its canvas keeps its own shape. */
+.auth__face > .ac-avatar--xl {
+  transform: scale(0.6);
+  transform-origin: 50% 100%;
+  margin-bottom: 4px;
+}
+.auth__notice > .auth__face + h1 {
+  margin-top: var(--space-2);
+}
+.auth__line {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.auth__line b {
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.02em;
+}
+.auth__line-copy {
+  margin-left: -4px;
 }

@@ -154,8 +154,9 @@ describe("who may sign up", () => {
     expect(await isSignupAllowed(db, "ana@acme.com", CLOSED)).toBe(false);
     // A pending workspace invitation, as before.
     const { organization } = await createOrganization(db, owner, { name: "Acme" });
-    await createInvitation(db, owner, organization.id, { email: "Ana@Acme.com", role: "member" });
-    expect(await signupAdmission(db, " ANA@acme.com ", CLOSED)).toBe("invitation");
+    // Made and read at the test's clock: made at the real one, it would outlive `at(400 * DAY)` once that date is near.
+    await createInvitation(db, owner, organization.id, { email: "Ana@Acme.com", role: "member" }, T0);
+    expect(await signupAdmission(db, " ANA@acme.com ", CLOSED, { now: T0 })).toBe("invitation");
     expect(await signupAdmission(db, "ana@acme.com", CLOSED, { now: at(400 * DAY) })).toBeNull();
   });
 

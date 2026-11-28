@@ -1,4 +1,20 @@
 {
+  "permissionAsk": {
+    "title": "agentes.chat a besoin de {{permission}}",
+    "done": "Je l’ai autorisé",
+    "later": "Pas maintenant",
+    "trayTitle": "En attente de {{permission}}",
+    "why": {
+      "app_management": "Les agents en ont besoin pour modifier des apps sur ce {{device}}.",
+      "screen": "Les agents en ont besoin pour faire des captures d’écran de ce {{device}}.",
+      "accessibility": "Les agents en ont besoin pour cliquer et taper dans les apps de ce {{device}}.",
+      "disk": "Les agents en ont besoin pour ouvrir vos fichiers sans que macOS demande pour chaque dossier.",
+      "network": "Les agents en ont besoin pour joindre les téléphones et appareils de votre réseau.",
+      "camera": "Les agents en ont besoin pour utiliser la caméra de ce {{device}}.",
+      "microphone": "Les agents en ont besoin pour utiliser le micro de ce {{device}}.",
+      "automation": "Les agents en ont besoin pour piloter d’autres apps sur ce {{device}}."
+    }
+  },
   "device": {
     "mac": "Mac",
     "windows": "PC",
@@ -7,6 +23,11 @@
   "windowTitle": {
     "welcome": "Bienvenue",
     "prefs": "Préférences"
+  },
+  "background": {
+    "title": "agentes.chat reste ouvert",
+    "bodyMac": "Il se trouve dans la barre des menus, en haut de l'écran. Ouvrez-le ou quittez-le depuis là.",
+    "bodyTray": "Il se trouve dans la zone de notification. Ouvrez-le ou quittez-le depuis là."
   },
   "common": {
     "cancel": "Annuler",
@@ -68,6 +89,12 @@
         "capturing": "fait une capture d'écran",
         "tabs": "change d'onglet"
       }
+    },
+    "apps": {
+      "title": "{{agent}} utilise {{app}}",
+      "detail": "Votre souris et votre clavier restent à vous",
+      "stop": "Arrêter",
+      "stopped": "{{agent}} n'utilise plus vos apps"
     },
     "label": "agentes.chat",
     "now": "Maintenant",
@@ -133,12 +160,17 @@
     "allowedOne": "{{folder}} autorisé pour {{agent}}",
     "allowedAll": "{{folder}} autorisé pour tous les agents",
     "denied": "Refusé. {{agent}} le signale dans la discussion.",
+    "answerFailed": "Impossible de répondre à cette demande : {{message}}",
     "notifTitle": "{{agent}} veut utiliser le dossier {{folder}}",
     "allowedTitle": "{{name}} a activé {{tool}} depuis agentes.chat",
     "allowedBody": "Si ce n'était pas vous, annulez ici.",
     "allowedUndo": "Annuler",
     "allowedOk": "Compris",
     "allowedUndone": "De nouveau désactivé : {{tool}}",
+    "pickTitle": "{{name}} demande un dossier pour les agents",
+    "pickTitleAgent": "{{name}} demande un dossier pour {{agent}}",
+    "pickBody": "Choisissez le dossier à autoriser sur ce {{device}}.",
+    "pickChoose": "Choisir un dossier",
     "quitTitle": "Quitter agentes.chat ?",
     "quitBody": "Les agents ne peuvent pas utiliser ce {{device}} quand l'app est fermée. Ce qui tourne déjà se termine et envoie le résultat quand vous la rouvrez.",
     "quitHereBody": "agentes.chat s'arrête sur ce {{device}} : personne ne peut l'utiliser, ici, sur votre téléphone ou celui de vos collègues, tant que vous ne rouvrez pas l'app.",
@@ -236,7 +268,7 @@
     "openTailscale": "Ouvrir Tailscale",
     "getTailscale": "Obtenir Tailscale",
     "usage": "Envoyer des statistiques d'utilisation anonymes à agentes.chat",
-    "usageText": "Des comptages comme le nombre de personnes, d'agents, la taille des machines, les jetons d'IA utilisés et le volume de données envoyées et reçues par les navigateurs des agents. Jamais de messages, fichiers, noms ou sites.",
+    "usageText": "Des comptages comme le nombre de personnes, d'agents, la taille des machines, les jetons d'IA utilisés, le volume de données envoyées et reçues par les navigateurs des agents et la vitesse à laquelle les apps s'ouvrent et répondent. Jamais de messages, fichiers, noms ou sites.",
     "start": "Commencer",
     "setting": "Tout se prépare",
     "rest": "Quand vous fermez l'app, vos agents se reposent. Ils reviennent dès que vous la rouvrez.",
@@ -459,6 +491,16 @@
     "linkBody": "Si vous n'avez rien demandé, choisissez Plus tard.",
     "waiting": "En attente que {{by}} le laisse entrer…",
     "done": "Connecté à {{org}}",
+    "share": "Laisser tout l'espace de travail l'utiliser",
+    "internet": "Les agents utilisent la connexion internet de cet ordinateur",
+    "internetOn": "Les sites et serveurs que les agents joignent voient votre emplacement",
+    "internetOff": "Coupé : les agents utilisent leur connexion habituelle",
+    "internetHint": "Les agents du workspace passent par la connexion de cet ordinateur : sites web, git, SSH, bases de données et autres connexions TCP. Jamais rien sur votre propre réseau, ni d’e-mail sur le port 25. L’IA des agents, les résolutions de noms, les appels et le reste du trafic UDP utilisent leur connexion habituelle, comme tout le reste tant que cet ordinateur est hors ligne.",
+    "internetHintProxy": "Le navigateur des agents du workspace et les programmes qui suivent les réglages de proxy (git via HTTPS, curl, la plupart des outils en ligne de commande) passent par la connexion de cet ordinateur. SSH, les clients de base de données et les autres programmes qui ignorent les réglages de proxy utilisent leur connexion habituelle, comme l’IA des agents, les résolutions de noms et le trafic UDP. Jamais rien sur votre propre réseau, ni d’e-mail sur le port 25. Tant que cet ordinateur est hors ligne, tout utilise la connexion habituelle.",
+    "internetOnly": "Utiliser uniquement l’internet de cet ordinateur",
+    "internetOnlyHint": "Les agents utilisent uniquement l’internet de cet ordinateur, leur IA comprise, et jamais la connexion habituelle. Tant qu’il est hors ligne, ils n’ont pas d’internet jusqu’à son retour.",
+    "shareOff": "Vous seul pour l'instant",
+    "shareHint": "Les agents de tout le monde dans {{org}} peuvent y lancer des tâches, avec votre utilisateur.",
     "addFolders": "Ajouter des dossiers",
     "expired": "Ce lien a expiré. Créez-en un nouveau dans Appareils.",
     "openDevices": "Ouvrir Appareils",
@@ -502,6 +544,9 @@
     "grokDesc": "Écrit et modifie du code dans les dossiers autorisés, avec votre compte Grok.",
     "antigravityName": "Antigravity CLI",
     "antigravityDesc": "Écrit et modifie du code dans les dossiers autorisés, avec votre compte Gemini.",
+    "devinName": "Devin CLI",
+    "devinDesc": "Écrit et modifie du code dans les dossiers autorisés, avec votre compte Devin.",
+    "devinWindows": "Devin ne fonctionne pas encore sous Windows : ici, sa CLI ne sépare pas la connexion de chaque compte. Les agents pensent avec Devin sur un ordinateur Mac ou Linux.",
     "found": "Trouvé",
     "notFound": "Introuvable",
     "loggedOut": "Non connecté",
@@ -793,6 +838,7 @@
       "brainMax": "Conversations ouvertes",
       "brainMaxDesc": "Combien restent ouvertes dans chaque espace de travail. Plus il y en a, plus elles répondent vite, mais elles utilisent plus de mémoire.",
       "brainIdle": "Fermer une conversation inactive après",
+      "mixed": "Pas pareil partout : {{values}}. Une modification ici s'applique à tous.",
       "folder": "Dossier des agents",
       "folderDesc": "Un dossier par espace de travail, avec un dossier pour chaque agent."
     }

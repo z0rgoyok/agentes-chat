@@ -103,7 +103,7 @@ describe("a screen in a pane (ADR 0212)", () => {
     expect(header).toContain("onPress: () => latest.current.actions?.[i]?.onPress()");
     // The bar changes only when what it shows does; the screen's own views redraw in their slots.
     expect(header).toContain("const titleSlot = useHeaderSlot(titleView);");
-    expect(header).toContain("}, [plain, titleSlot, leftSlot, rightSlot, leadSlot]);");
+    expect(header).toContain("}, [plain, titleSlot, leftSlot, rightSlot, leadSlot, scrollY, scrollFrom, scrollTo]);");
     // A screen leaving takes its bar away, never one the next screen already set.
     expect(header).toContain("return () => bar.clear(state);");
     expect(body(pane, "clear(was) {", "},")).toContain("if (bar !== was) return;");
@@ -130,7 +130,9 @@ describe("a screen in a pane (ADR 0212)", () => {
       "return IOS && !props.drawnTitle ? <SystemTitleScreen {...props} /> : <DrawnTitleScreen {...props} />;",
     );
     const drawn = screen.slice(screen.indexOf("function DrawnTitleScreen("));
-    expect(drawn).toContain("usePaneHeader({ title: paneTitle, left, leftActions, actions, over: true });");
+    expect(drawn).toMatch(/usePaneHeader\(\{\s*title: paneTitle,\s*left,\s*leftActions,\s*actions,\s*over: true,/);
+    // Its material comes in with the list, as the title does (the list never reads through a clear bar).
+    expect(drawn).toContain("scroll: { y, from: BAR_TITLE_FROM, to: BAR_TITLE_TO },");
     expect(drawn).toContain("{pane ? null : <Stack.Screen options={options} />}");
   });
 

@@ -1,4 +1,5 @@
 import { type ArtifactRef, newClientId } from "@agenteschat/client";
+import { can } from "@agenteschat/client/lib/permissions";
 import { playSound } from "@agenteschat/client/lib/sounds";
 import { VOICE_MAX_MS, VOICE_MIN_MS } from "@agenteschat/client/lib/voice";
 import { Skia } from "@shopify/react-native-skia";
@@ -16,7 +17,9 @@ import { useTranslation } from "react-i18next";
 import { AccessibilityInfo, Alert, AppState, Linking } from "react-native";
 import { useSharedValue } from "react-native-reanimated";
 import { appAudio, voiceAudio } from "@/lib/audio-mode";
+import { paysHere } from "@/lib/store";
 import { allowFeedbackWhileRecording } from "@/lib/voice-session";
+import { useOrgMaybe } from "@/providers/org";
 import { haptics, useToast } from "@/ui";
 import { levelOf, peaksOf, START_SOUND_MS, secondsLeft, takeBack } from "./logic";
 import { joinM4a } from "./m4a";
@@ -62,6 +65,13 @@ export interface VoiceTarget {
   authorId: string;
   /** Whether this person may record now (`/voice/allowed`); null while unknown. */
   allowed: boolean | null;
+  /** Not allowed because the workspace has no plan in force (`reason: "plan"`). */
+  needsPlan?: boolean;
+  /**
+   * Asked as the hold starts, before anything records: true when the app showed something instead (the first take
+   * where voice doesn't become text yet, `VoiceSetupSheet`), and the next hold records.
+   */
+  ask?: () => boolean;
   afterSend: () => void;
   /**
    * Right before a take goes: what goes with it, the text typed beside it and the files waiting above the field, once
@@ -81,6 +91,26 @@ const removeFile = (uri: string) => {
   } catch {}
 };
 
+/** Tells the sender why a recording can't go: the plan says where it is chosen, in words only (App Store 3.1.1). */
+export function useSayVoiceRefusal() {
+  const { t } = useTranslation();
+  const toast = useToast();
+  const mayPay = paysHere(can(useOrgMaybe()?.org ?? null, "manage_billing"));
+  return useCallback(
+    (reason: VoiceRefusal) =>
+      toast(
+        reason === "plan"
+          ? {
+              title: t("voice.plan"),
+              subtitle: t(mayPay ? "connectAi.billingWeb" : "standing.billing.askAdmin"),
+              icon: "x",
+            }
+          : { title: t(reason === "limit" ? "voice.limit" : "voice.notSent"), icon: "x" },
+      ),
+    [mayPay, t, toast],
+  );
+}
+
 /**
  * One recording, from the press to the send. A wave and a clock tick twenty times a second on a timer: the wave goes
  * straight to Skia through a shared value, and only a new second renders.
@@ -93,6 +123,7 @@ export function useVoiceTake(target: VoiceTarget) {
   const { t, i18n } = useTranslation();
   const toast = useToast();
   const qc = useQueryClient();
+  const sayRefusal = useSayVoiceRefusal();
   const recorder = useAudioRecorder(RECORDING);
   const [phase, setPhaseState] = useState<VoicePhase>("idle");
   const [seconds, setSeconds] = useState(0);
@@ -149,11 +180,11 @@ export function useVoiceTake(target: VoiceTarget) {
   const refused = useCallback(
     (reason: VoiceRefusal, item?: VoiceSend) => {
       haptics.warning();
-      toast({ title: t(reason === "limit" ? "voice.limit" : "voice.notSent"), icon: "x" });
+      sayRefusal(reason);
       const back = item ? takeBack(item, targetRef.current) : null;
       if (back) targetRef.current.takeBack?.(back);
     },
-    [t, toast],
+    [sayRefusal],
   );
 
   const stopTimer = useCallback(() => {
@@ -429,9 +460,10 @@ export function useVoiceTake(target: VoiceTarget) {
   /** The hold reached its time. A first use only asks: the next hold records. */
   const start = useCallback(async () => {
     if (phaseRef.current !== "idle" || starting.current) return;
+    if (targetRef.current.ask?.()) return;
     if (targetRef.current.allowed === false) {
       haptics.warning();
-      toast({ title: t("voice.limit"), icon: "x" });
+      sayRefusal(targetRef.current.needsPlan ? "plan" : "limit");
       return;
     }
     starting.current = true;
@@ -472,7 +504,7 @@ export function useVoiceTake(target: VoiceTarget) {
     } finally {
       starting.current = false;
     }
-  }, [cancel, record, reset, send, setPhase, t, toast]);
+  }, [cancel, record, reset, sayRefusal, send, setPhase, t, toast]);
 
   /** The finger came up: a hold sends; a lock already took over. */
   const release = useCallback(() => {

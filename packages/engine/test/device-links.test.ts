@@ -61,7 +61,13 @@ test("a connect link: a one-line install that works once, asks its maker, and jo
   const state = await connectLinkState({ db: f.db }, rui.id, f.org.id, link.id);
   expect(state).toMatchObject({
     status: "asking",
-    request: { name: "build-box", os: "linux", ip: "203.0.113.20", location: "Lisbon, PT", linkId: link.id },
+    request: {
+      name: "Computador Linux do rui",
+      os: "linux",
+      ip: "203.0.113.20",
+      location: "Lisbon, PT",
+      linkId: link.id,
+    },
   });
   const requestId = state.request?.id as string;
   // The maker hears it, waiting; so do admins in the list, never other members.
@@ -69,7 +75,7 @@ test("a connect link: a one-line install that works once, asks its maker, and jo
     {
       userId: rui.id,
       waiting: true,
-      source: { requestId, label: "build-box" },
+      source: { requestId, label: "Computador Linux do rui" },
       // The system as a code too: the app draws its mark from it and says its name in the person's language.
       latest: {
         title: "Acme",
@@ -109,7 +115,7 @@ test("a computer link starts Only the maker; deny refuses the computer; an expir
   const requestId = (await connectLinkState({ db: f.db }, rui.id, f.org.id, link.id)).request?.id as string;
   const { machineId } = await approveDeviceJoin(deps(), rui.id, f.org.id, requestId);
   const [machine] = await f.db.select().from(schema.machines).where(eq(schema.machines.id, machineId));
-  expect(machine).toMatchObject({ name: "build-box", audienceMode: "owner" });
+  expect(machine).toMatchObject({ name: "Computador Linux do rui", audienceMode: "owner" });
   expect(await pollDeviceToken(deps(), started.deviceCode)).toMatchObject({ ok: true });
 
   const second = await createConnectLink({ db: f.db }, PUBLIC_URL, rui.id, f.org.id, "computer");

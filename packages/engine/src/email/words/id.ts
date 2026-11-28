@@ -604,6 +604,27 @@ export const words: EmailWords = {
       why: (surface) => `Kamu menerima email ini karena ${surface} pernah ditautkan ke akun agentes.chat kamu.`,
       picture: "Asistenmu, tidak lagi di ponselmu",
     },
+    pinReset: {
+      subject: (surface) => `Pilih PIN ${surface} kamu`,
+      preheader: "Pilih PIN yang menyetujui tindakan dari aplikasi chat kamu.",
+      headline: (surface) => `Pilih PIN ${surface} kamu`,
+      body: (surface) =>
+        `Ada yang meminta tautan untuk memilih PIN yang kamu pakai untuk menyetujui tindakan dari ${surface}. Kalau itu kamu, pilih PIN di halaman yang dibuka tombol ini.`,
+      button: "Pilih PIN saya",
+      small: "Tautan ini berlaku sekali, selama satu jam. Kalau bukan kamu, abaikan email ini. Tidak ada yang berubah.",
+      why: (surface) => `Kamu menerima email ini karena ${surface} ditautkan ke akun agentes.chat kamu.`,
+    },
+    pinLocked: {
+      subject: (surface) => `PIN ${surface} kamu terkunci`,
+      preheader: "Tiga kali PIN salah berturut-turut. Menyetujui dari aplikasi chat kamu dijeda untuk sementara.",
+      headline: (surface) => `PIN ${surface} kamu terkunci`,
+      body: (surface, time) =>
+        `Seseorang memasukkan PIN yang salah tiga kali berturut-turut untuk menyetujui tindakan dari ${surface}. Menyetujui dari ${surface} dijeda selama ${time}.`,
+      lockedFor: ["15 menit", "1 jam", "24 jam"],
+      small: (surface) =>
+        `Kalau itu kamu, coba lagi nanti. Kalau bukan, putuskan tautan ${surface} di pengaturan notifikasi kamu, supaya tidak ada yang bisa menyetujui dari sana.`,
+      button: "Buka pengaturan notifikasi",
+    },
   },
   supportReply: {
     subject: "Jawaban untuk permintaan bantuanmu",

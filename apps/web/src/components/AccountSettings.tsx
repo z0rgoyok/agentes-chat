@@ -7,6 +7,7 @@ import {
   useMe,
   useSetAgentStyle,
   useSetShowActivity,
+  useSettings,
 } from "@agenteschat/client";
 import { formatTimeLeft } from "@agenteschat/client/lib/actions";
 import {
@@ -618,6 +619,7 @@ export function ProfileDialog({ focus, onClose }: { focus: "name" | "timezone" |
   const [handle, setHandle] = useState("");
   const [zone, setZone] = useState("");
   const [useOrgZone, setUseOrgZone] = useState(false);
+  const orgZone = useSettings(org.id).data?.timezone;
   const [error, setError] = useState<string | null>(null);
   const [ask, setAsk] = useState(false);
   useEffect(() => {
@@ -692,7 +694,7 @@ export function ProfileDialog({ focus, onClose }: { focus: "name" | "timezone" |
               hint={{ name: t("common.about", { label: t("shell.timezone") }), text: t("shell.timezoneHelp") }}
               error={!zoneOk ? t("shell.timezoneInvalid") : undefined}
             >
-              <ZoneSelect value={zone || "UTC"} disabled={useOrgZone} onChange={setZone} />
+              <ZoneSelect value={(useOrgZone && orgZone) || zone || "UTC"} disabled={useOrgZone} onChange={setZone} />
             </Field>
             <span className="row" style={{ gap: 8, alignItems: "center" }}>
               <Checkbox id="me-zone-org" checked={useOrgZone} onCheckedChange={setUseOrgZone} />

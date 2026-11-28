@@ -14,6 +14,11 @@ test("the take-control question stacks its buttons: take control, then Cancelar 
   ]);
 });
 
+test("a cover's card is opaque: the sky and the picture under it never show behind its words", async () => {
+  const box = declarations(await sheet("components/browser/browser.css"), ".brw-dim__box");
+  expect(box).toContainEqual(["background", "var(--raised)"]);
+});
+
 test("a card's last settings row is as deep under its control as above its title, over the card's foot", async () => {
   const css = await sheet("layout.css");
   // The rows reach the card's edges (`--card-pad`) and the card spaces its children by `--space-3`: over a foot the

@@ -1,14 +1,10 @@
 import { type CSSProperties, createElement, type SVGProps } from "react";
 import { PixelSpinner } from "../components/PixelSpinner";
 import { cx } from "../cx";
-import { extraIcons } from "./extra";
-import { sourceIcons } from "./source";
+import { iconShapes } from "./data";
 import type { IconShape } from "./types";
 
-export const icons: Record<keyof typeof sourceIcons | keyof typeof extraIcons, IconShape[]> = {
-  ...sourceIcons,
-  ...extraIcons,
-};
+export const icons = iconShapes;
 
 export type IconName = keyof typeof icons;
 export const iconNames = Object.keys(icons) as IconName[];

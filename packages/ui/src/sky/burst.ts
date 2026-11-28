@@ -107,6 +107,54 @@ export function pixelBurst(at: { x: number; y: number }, tones: readonly string[
 const CONFETTI_SECONDS = 1.2;
 
 /**
+ * A veil of pixels in `tones` over `el` that sweeps off it, left to right with a little dither, in `ms` (a row that
+ * draws itself in: a team's new channel or agent landing in the sidebar). It draws on a fixed canvas over the element's
+ * box, so the element itself stays real and clickable under it. Reduced motion or no 2D context: nothing, at once.
+ */
+export function pixelVeil(el: Element, tones: readonly string[], ms = 220): Promise<void> {
+  if (prefersReducedMotion() || typeof requestAnimationFrame !== "function" || typeof document === "undefined") {
+    return Promise.resolve();
+  }
+  const box = el.getBoundingClientRect();
+  const canvas = document.createElement("canvas");
+  const ctx = context2d(canvas);
+  if (!ctx || tones.length === 0 || box.width < 1 || box.height < 1) return Promise.resolve();
+  const P = 3;
+  const cols = Math.ceil(box.width / P);
+  const rows = Math.ceil(box.height / P);
+  canvas.className = "ac-sky-burst";
+  canvas.setAttribute("aria-hidden", "true");
+  canvas.width = cols;
+  canvas.height = rows;
+  canvas.style.left = `${box.left}px`;
+  canvas.style.top = `${box.top}px`;
+  canvas.style.width = `${cols * P}px`;
+  canvas.style.height = `${rows * P}px`;
+  document.body.append(canvas);
+  // Each cell leaves when the sweep passes its column, give or take a little.
+  const leaves = Array.from({ length: cols * rows }, (_, i) => ((i % cols) / cols) * 0.75 + Math.random() * 0.25);
+  const color = Array.from({ length: cols * rows }, () => tones[(Math.random() * tones.length) | 0] ?? "#ffffff");
+  const start = performance.now();
+  return new Promise((done) => {
+    const frame = (now: number) => {
+      const t = Math.min(1, (now - start) / ms);
+      ctx.clearRect(0, 0, cols, rows);
+      for (let i = 0; i < leaves.length; i++) {
+        if ((leaves[i] ?? 0) <= t) continue;
+        ctx.fillStyle = color[i] ?? "#ffffff";
+        ctx.fillRect(i % cols, Math.floor(i / cols), 1, 1);
+      }
+      if (t < 1) requestAnimationFrame(frame);
+      else {
+        canvas.remove();
+        done();
+      }
+    };
+    requestAnimationFrame(frame);
+  });
+}
+
+/**
  * Pixel confetti from a point on screen, for a moment that ends something well (the invitations sent, ADR 0090):
  * square pixels in the sky's and the agents' colors and the page's ink, thrown up and falling for about a second on
  * a canvas over the whole window, then removed. Reduced motion or no 2D context: nothing happens.

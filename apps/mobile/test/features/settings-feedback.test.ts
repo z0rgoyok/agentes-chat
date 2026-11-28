@@ -34,12 +34,24 @@ describe("a switch moves as it is tapped", () => {
       }).toEqual({ row, waits: false });
     }
     const computer = flat("features/devices/ComputerSection.tsx");
-    expect(computer).toContain("(spill.isPending ? spill.variables?.[key] : undefined) ?? d.spill[key]");
+    expect(computer).toContain("const spillOn = (spill.isPending ? spill.variables : undefined) ?? d.spill.own;");
     expect(computer).toContain(
       "const belongs = (mark.isPending ? mark.variables : undefined) ?? d.belongsToWorkspace;",
     );
     expect(computer).not.toContain("disabled={mark.isPending}");
     expect(computer).not.toContain("spill.isPending ||");
+  });
+
+  test("a computer whose tasks start on room: Automatic with what fits, and its owner's Push harder switch", () => {
+    const computer = flat("features/devices/ComputerSection.tsx");
+    expect(computer).toContain("sub={tasksAutoText(t, d) ?? undefined}");
+    expect(computer).toContain(
+      "const pushing = (push.isPending ? push.variables : undefined) ?? d.taskRoom?.pushHarder ?? false;",
+    );
+    expect(computer).toContain("{d.taskRoom && tasksEditable && brought ? (");
+    expect(computer).toContain("api.devices.updateComputer(orgId, d.id, { pushHarder: on })");
+    // The count's picker stays only where the computer still decides by a count.
+    expect(computer).toContain("{!d.taskRoom && maxTasks !== null ? (");
   });
 });
 

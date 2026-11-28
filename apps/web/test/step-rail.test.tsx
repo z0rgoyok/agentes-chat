@@ -83,21 +83,48 @@ describe("the step bar on a phone", () => {
   });
 });
 
+describe("a step left for later", () => {
+  test("is marked with a neutral dash, never the done check, and isn't read out as done", () => {
+    const later: RailStep[] = steps.map((s, i) =>
+      i === 3 || i === 5 ? { ...s, later: true, value: "Mais tarde" } : { ...s, value: "Feito" },
+    );
+    const { container } = render(
+      <StepRail label="Passos" steps={later} current={6} onGo={() => {}} doneLabel="(concluído)" />,
+    );
+    const items = [...container.querySelectorAll(".onb__steps > li")];
+    expect(items.map((li) => li.hasAttribute("data-later"))).toEqual([false, false, false, true, false, true, false]);
+    expect(items.map((li) => li.hasAttribute("data-done"))).toEqual([true, true, true, true, true, true, false]);
+    // The later ones draw one glyph, and not the done steps' check.
+    const glyph = (i: number) => items[i]?.querySelector(".onb__n path")?.getAttribute("d");
+    expect(glyph(3)).toBe(glyph(5));
+    expect(glyph(3)).not.toBe(glyph(0));
+    expect(items[3]?.textContent).toBe("ComputadorMais tarde");
+    expect(items[0]?.textContent).toBe("Workspace (concluído)Feito");
+    const css = readFileSync(join(import.meta.dir, "../src/layout.css"), "utf8");
+    expect(css).toContain(".onb__steps li[data-later] .onb__n {\n  color: var(--faint);\n}");
+  });
+});
+
 describe("the step bar on a phone fits its seven steps", () => {
   const css = readFileSync(join(import.meta.dir, "../src/layout.css"), "utf8");
   const phone = css.slice(css.indexOf("/* Phone: the rail is a compact step bar"));
   const rule = (selector: string) => phone.slice(phone.indexOf(`  ${selector} {`)).split("}")[0] ?? "";
   const px = (body: string, prop: string) => Number(new RegExp(`\\n\\s*${prop}:\\s*(\\d+)px`).exec(body)?.[1]);
 
-  test("the setup's: beside the whole logo at 390px (a 219px strip), beside its mark alone below 385px", () => {
+  test("the setup's: beside the logo's mark below 440px (a 262px strip at 390px), as the whole logo leaves too little", () => {
     const step = 24 + 2 * px(rule(".onb:not(.newag) .onb__step"), "padding");
     const gap = px(rule(".onb:not(.newag) .onb__steps"), "gap");
-    expect(7 * step + 6 * gap).toBeLessThanOrEqual(219);
+    const steps = 7 * step + 6 * gap;
+    // 390px less the bar's 16px sides, the account's 32px face, two 12px gaps and the mark (28px) with its 6px sides.
+    const strip = 390 - 2 * 16 - 32 - 2 * 12 - 40;
+    expect(steps).toBeLessThanOrEqual(strip);
+    // The whole logo (its word about 87px more, as the pictures at 390px measured) leaves room for six steps.
+    expect(steps).toBeGreaterThan(strip - 87);
     // The current step's 4px ring shows whole: room around the steps, inside the strip that scrolls.
     expect(
       px(rule(".onb:not(.newag) .onb__steps"), "padding") + px(rule(".onb:not(.newag) .onb__step"), "padding"),
     ).toBe(4);
-    const narrow = phone.slice(phone.indexOf("@media (max-width: 384px)"));
+    const narrow = phone.slice(phone.indexOf("@media (max-width: 439px)"));
     expect(narrow.split("}")[0]).toContain(".onb__brand .ac-logo > :not(.ac-logo__mark) {\n    display: none;");
   });
 

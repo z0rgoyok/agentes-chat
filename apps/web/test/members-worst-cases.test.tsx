@@ -103,7 +103,7 @@ const agentRow = (name: string) =>
   ) as HTMLElement;
 
 describe("Pessoas", () => {
-  test("a row: the name and addresses whole, the roles under them or no roles line, one menu at its end", async () => {
+  test("a row: the name and addresses whole, the roles under them or no roles line, its buttons at its end", async () => {
     await open();
     const maria = personRow(LONG_NAME);
     expect(maria.querySelector(".members-person__ids")?.textContent).toBe(`@maria${LONG_EMAIL}`);
@@ -111,23 +111,24 @@ describe("Pessoas", () => {
     // Nobody's roles: no line for them, not an empty one.
     const bia = personRow("Bia");
     expect(bia.querySelector(".members-roles")).toBeNull();
-    // On the name's line: when they were here, then the menu's place, which ends every row whether it has one or not.
+    // On the name's line: when they were here, then the buttons' place, two of them since this owner has "⋯" here.
     for (const row of [maria, bia, personRow("João"), personRow("Walter")]) {
-      const [seen, menu] = [...row.children].slice(-2) as [HTMLElement, HTMLElement];
+      const [seen, end] = [...row.children].slice(-2) as [HTMLElement, HTMLElement];
       expect(seen.className).toBe("members-person__seen ac-captail ac-captop");
-      expect(menu.className).toBe("members-person__menu ac-captail ac-captop");
-      // The only button of the row besides the face and the name is its menu.
-      expect(within(row).queryByRole("button", { name: /^(Cargos de|Mensagem para) / })).toBeNull();
-      expect(menu.querySelectorAll("button")).toHaveLength(1);
+      expect(end.className).toBe("members-person__menu ac-captail ac-captop members-person__menu--two");
+      expect(within(row).queryByRole("button", { name: /^Cargos de / })).toBeNull();
     }
+    // A message to anyone else in one click, never to oneself.
+    expect(within(bia).getByRole("button", { name: "Mensagem para Bia" })).toBeTruthy();
+    expect(within(personRow("Walter")).queryByRole("button", { name: /^Mensagem para / })).toBeNull();
   });
 
-  test("the owner's menu: a message, the roles to give, removing. Their own row has no message", async () => {
+  test("the owner's ⋯: only what an admin does (roles, the password link, removing). Their own row: the roles", async () => {
     await open();
     // This server sends no email, so its owner also makes a member's new-password link.
     const link = "Gerar link de senha novaPara quando a pessoa esqueceu a senha";
-    expect(await menuOf(personRow("Bia"))).toEqual(["Mensagem direta", "Cargos", link, "Remover do workspace"]);
-    expect(await menuOf(personRow(LONG_NAME))).toEqual(["Mensagem direta", "Cargos", link, "Remover do workspace"]);
+    expect(await menuOf(personRow("Bia"))).toEqual(["Cargos", link, "Remover do workspace"]);
+    expect(await menuOf(personRow(LONG_NAME))).toEqual(["Cargos", link, "Remover do workspace"]);
     expect(await menuOf(personRow("Walter"))).toEqual(["Cargos"]);
   });
 
@@ -148,18 +149,24 @@ describe("Pessoas", () => {
     expect(personRow("Bia").querySelector(".members-roles")?.textContent).toBe("Financeiro");
   });
 
-  test("a member who manages nobody: a message to the others, and no menu on their own row, which keeps its room", async () => {
+  test("a member who manages nobody: a message button on the others' rows, and no ⋯ on any row", async () => {
     const state = worst();
     if (state.me) state.me.user = { ...state.me.user, id: "u-bia", name: "Bia" };
     const org = state.me?.organizations[0];
     if (org) org.role = "member";
-    // Another owner, so leaving is theirs to do.
-    await open(state);
-    expect(await menuOf(personRow("João"))).toEqual(["Mensagem direta"]);
-    const mine = personRow("Bia");
-    const menu = within(mine).queryByRole("button", { name: /^Mais de / });
-    if (menu) expect(await menuOf(mine)).toEqual(["Sair do workspace"]);
-    else expect((mine.lastElementChild as HTMLElement).childElementCount).toBe(0);
+    // Another owner, so leaving is theirs to do (from their profile card or a right click).
+    const { router } = await renderApp(`/org/${ORG_ID}/settings/members`, { api: createFakeApi(state) });
+    await settle(6);
+    for (const row of document.querySelectorAll<HTMLElement>(".members-person")) {
+      expect(within(row).queryByRole("button", { name: /^Mais de / })).toBeNull();
+      expect((row.lastElementChild as HTMLElement).className).toBe("members-person__menu ac-captail ac-captop");
+    }
+    expect(within(personRow("Bia")).queryByRole("button", { name: /^Mensagem para / })).toBeNull();
+    await act(async () =>
+      fireEvent.click(within(personRow("João")).getByRole("button", { name: "Mensagem para João" })),
+    );
+    await settle(4);
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/dm/person/u-joao`);
   });
 });
 

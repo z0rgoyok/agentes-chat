@@ -21,7 +21,7 @@ export const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,63}$/;
  * way to send someone's plan elsewhere.
  */
 export const isReservedSecretName = (name: string) =>
-  /^(ANTHROPIC_|CLAUDE_|OPENAI_|CODEX_|OPENCODE_|XAI_|GROK_|GEMINI_|AGY_|GOOGLE_(?:API_KEY$|GEMINI_|GENAI_)|NODE_|SSL_CERT_|LD_|DYLD_)|_PROXY$/.test(
+  /^(ANTHROPIC_|CLAUDE_|OPENAI_|CODEX_|OPENCODE_|XAI_|GROK_|GEMINI_|AGY_|DEVIN_|WINDSURF_|GOOGLE_(?:API_KEY$|GEMINI_|GENAI_)|NODE_|SSL_CERT_|LD_|DYLD_)|_PROXY$/.test(
     name.toUpperCase(),
   );
 

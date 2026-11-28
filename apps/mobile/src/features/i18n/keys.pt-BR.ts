@@ -13,22 +13,17 @@ export const featureKeysPtBR = {
     send: "Enviar",
   },
   categories: {
-    title: "Categorias",
-    where: "Onde #{{channel}} aparece",
-    whereHelp: "Muda para todo mundo. Quem participa do canal continua igual.",
-    create: "Criar",
-    endOfList: "Entra no fim da lista para todo mundo.",
-    channelCount_one: "{{count}} canal",
-    channelCount_other: "{{count}} canais",
-    none: "Nenhuma categoria ainda.",
-    manageHint: "Ordem, nomes e excluir",
-    deleteTitle: "Excluir {{name}}?",
-    order: "Lugar na lista",
     up: "Subir",
     down: "Descer",
-    position: "{{at}}ª de {{count}}.",
     channelPosition: "{{at}}º de {{count}}.",
-    itsChannels: "Canais",
+  },
+  sections: {
+    title: "Seção",
+    where: "Onde #{{channel}} fica para você",
+    whereHelp: "Só a sua lista muda. Cada pessoa arruma as próprias seções.",
+    none: "Sem seção",
+    order: "Lugar na seção",
+    tooLong: "Use até 40 caracteres.",
   },
   blocks: {
     send: "Mandar",
@@ -80,6 +75,17 @@ export const featureKeysPtBR = {
     raw: "Original",
     more: "Ver as {{count}} linhas",
     gone: "Esse código não está mais aberto.",
+  },
+  table: {
+    label_one: "Tabela · {{count}} linha",
+    label_other: "Tabela · {{count}} linhas",
+    title: "Tabela",
+    rows_one: "{{count}} linha",
+    rows_other: "{{count}} linhas",
+    copy: "Copiar a tabela",
+    copied: "Tabela copiada",
+    more: "Ver as {{count}} linhas",
+    gone: "Essa tabela não está mais aberta.",
   },
   time: {
     today: "Hoje",
@@ -199,13 +205,13 @@ export const featureKeysPtBR = {
       text: "Ele pode estar fora do ar ou fora da sua rede. Suas conversas aparecem sozinhas quando ele voltar.",
       kept: "Mostrando o que já estava no app.",
     },
-    /** Conversas' strip of what the person pinned (the web sidebar's pins), under Início's widgets. */
-    pinned: "Fixados",
+    /** Conversas' strip of the person's Favoritos (the web sidebar's, ADR 0260), under Início's widgets. */
+    favorites: "Favoritos",
     /** Conversas' one list: every chat by its latest activity, with no grouping. */
     recent: "Recentes",
     view: {
       title: "Ver as conversas",
-      sectors: "Setores",
+      sections: "Seções",
       dms: "Mensagens diretas",
       channels: "Canais",
     },
@@ -888,6 +894,8 @@ export const featureKeysPtBR = {
   },
   agent: {
     talk: "Conversar",
+    /** Who answers for it, a row of its profile's card. */
+    responsible: "Responsável",
     task: "Tarefa",
     owner: "responsável: {{name}}",
     cantTalk: "Este agente não atende você.",
@@ -973,6 +981,7 @@ export const featureKeysPtBR = {
       admin_ask_channel_agent: "{{names}} pede para adicionar {{agent}} a #{{label}}",
       admin_ask_create_agents: "{{names}} pede para poder criar agentes",
       admin_ask_webhook: "{{names}} pede para ligar o webhook do {{service}} para rotinas",
+      admin_ask_voice: "{{names}} pede para ligar as mensagens de voz",
       routine_paused_one: "Rotina pausada",
       routine_paused_other: "Rotina pausada",
       routine_stalled_one: "Rotina esperando o computador",
@@ -1042,6 +1051,10 @@ export const featureKeysPtBR = {
       computer_disk_full_other: "O disco de um computador está quase cheio",
       computer_no_chrome_one: "Um computador precisa do Google Chrome. Baixe em google.com/chrome",
       computer_no_chrome_other: "Computadores precisam do Google Chrome. Baixe em google.com/chrome",
+      computer_down_one: "Um computador não está respondendo",
+      computer_down_other: "Um computador não está respondendo",
+      computer_back_one: "Um computador voltou",
+      computer_back_other: "Um computador voltou",
       app_created_one: "Um app de IA criou coisas para você",
       app_created_other: "Um app de IA criou coisas para você",
     },
@@ -1563,6 +1576,15 @@ export const featureKeysPtBR = {
     next: {
       pr: "Branch enviada, ainda sem PR",
       mergeLocal: "Pronta para juntar na {{base}}",
+    },
+    terminal: {
+      keys: "Teclas do terminal",
+      keyboard: "Teclado",
+      pasteHint: "Colar no terminal o que você copiou",
+      key: {
+        CtrlC: "Control-C, interromper",
+        CtrlD: "Control-D, fim da entrada",
+      },
     },
   },
   // The task manager (ADR 0128; the rest of its words are shared, `taskManager.*`).
@@ -2151,6 +2173,7 @@ export const featureKeysPtBR = {
       tool_request: "{{names}} pede para ligar {{tool}} no seu {{device}}",
       cli_request: "{{names}} pede para instalar {{tool}} no seu {{device}}",
       folder_request: "{{names}} pede a pasta {{path}} no seu {{device}}",
+      internet_shared: "Agora os agentes abrem sites pela internet de {{device}}",
       allowOnce: "Permitir uma vez",
       always: "Sempre permitir {{name}}",
       no: "Não",
@@ -2881,11 +2904,12 @@ export const featureKeysPtBR = {
     formatAuto: "{{name}} escolhe o melhor",
     /** New widget's card, which is the form. */
     newWidget: {
-      alerts: "Avisa",
       realData: "Dados de verdade",
       editAsk: "Mudar o pedido",
       asked: "“{{ask}}”",
-      autoFormat: "Formato automático",
+      testReal: "Testar com dados de verdade",
+      addHome: "Adicionar ao Início",
+      addTo: "Adicionar em {{where}}",
     },
     /** "Who looks after it", pushed from New widget's card. */
     agentPick: {
@@ -3338,6 +3362,8 @@ export const featureKeysPtBR = {
       key: "Chave de API",
       keyDefault: "padrão do workspace",
       api: "API",
+      /** Before a pick takes a login another agent thinks with: `agent` is that agent. */
+      asksMove: "{{agent}} deixa de usar esta conta.",
     },
     missionAi: "IA",
     missionLocked: "Quem faz o trabalho é escolhido antes de Iniciar. O modelo muda a qualquer hora.",

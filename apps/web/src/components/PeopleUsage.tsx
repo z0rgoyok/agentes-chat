@@ -62,6 +62,7 @@ import {
   Input,
   Locked,
   Meter,
+  Refreshing,
   RoleMark,
   Segmented,
   Select,
@@ -357,107 +358,109 @@ function PeopleView({ switcher, person, onLimits }: { switcher: ReactNode; perso
           </FilterToggle>
         ))}
       </Toolbar>
-      <p className="pu-summary">
-        <span data-tone="near">{t("peopleUsage.summary.near", { n: counts.near })}</span>
-        {" · "}
-        <span data-tone="at">{t("peopleUsage.summary.at", { n: counts.at })}</span>
-        {" · "}
-        <span>{t("peopleUsage.summary.idle", { n: counts.idle })}</span>
-      </p>
-      {!data.limitsOn && (
-        <p className="pu-hint">
-          <Icon name="info" size={16} />
-          <button type="button" className="ac-link" onClick={onLimits}>
-            {t("peopleUsage.limitsHint")}
-          </button>
+      <Refreshing busy={usage.isPlaceholderData} label={t("common.loading")}>
+        <p className="pu-summary">
+          <span data-tone="near">{t("peopleUsage.summary.near", { n: counts.near })}</span>
+          {" · "}
+          <span data-tone="at">{t("peopleUsage.summary.at", { n: counts.at })}</span>
+          {" · "}
+          <span>{t("peopleUsage.summary.idle", { n: counts.idle })}</span>
         </p>
-      )}
-      <LiveCard live={data.live} />
-      {nobody && period === "month" ? (
-        <EmptyState
-          size="panel"
-          agent={look}
-          title={t("peopleUsage.emptyTitle")}
-          actions={<AskAgentButton variant="primary" />}
-        >
-          {t("peopleUsage.empty")}
-        </EmptyState>
-      ) : (
-        <Card className="pu-table-card">
-          <table className="pu-table">
-            <thead>
-              <tr>
-                {head("name", t("peopleUsage.columns.person"))}
-                <th>{t("peopleUsage.columns.now")}</th>
-                {head("runs", t("peopleUsage.columns.runs"), "pu-num")}
-                <th>{t("peopleUsage.columns.agents")}</th>
-                {head(
-                  "usage",
-                  t("peopleUsage.columns.usage"),
-                  undefined,
-                  // A ≈ in any row: what an estimate is, beside the column's name.
-                  rows.some((p) => p.estimated) && (
-                    <InfoHint name={t("common.about", { label: t("usageViews.apiPrice") })}>
-                      {t("usageViews.apiPriceHint")}
-                    </InfoHint>
-                  ),
-                )}
-                <th>{t("peopleUsage.columns.caresFor")}</th>
-                {head("created", t("peopleUsage.columns.created"), "pu-num")}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((p) => {
-                const role = p.roleIds.map((id) => roleById.get(id)).find(Boolean);
-                return (
-                  <tr key={p.userId} className="pu-row" onClick={() => setOpen(p.userId)}>
-                    <td>
-                      <button type="button" className="pu-person" onClick={() => setOpen(p.userId)}>
-                        <ActorAvatar actor={{ type: "person", id: p.userId }} name={p.name} size="sm" presence />
-                        <span className="pu-person__text">
-                          <span className="pu-person__name">{p.name}</span>
-                          <span className="pu-person__role">
-                            {role ? (
-                              <>
-                                <RoleMark color={role.color} icon={role.icon} size={14} />
-                                {role.name}
-                              </>
-                            ) : p.owner ? (
-                              t("peopleUsage.owner")
-                            ) : (
-                              t("peopleUsage.member")
-                            )}
+        {!data.limitsOn && (
+          <p className="pu-hint">
+            <Icon name="info" size={16} />
+            <button type="button" className="ac-link" onClick={onLimits}>
+              {t("peopleUsage.limitsHint")}
+            </button>
+          </p>
+        )}
+        <LiveCard live={data.live} />
+        {nobody && period === "month" ? (
+          <EmptyState
+            size="panel"
+            agent={look}
+            title={t("peopleUsage.emptyTitle")}
+            actions={<AskAgentButton variant="primary" />}
+          >
+            {t("peopleUsage.empty")}
+          </EmptyState>
+        ) : (
+          <Card className="pu-table-card">
+            <table className="pu-table">
+              <thead>
+                <tr>
+                  {head("name", t("peopleUsage.columns.person"))}
+                  <th>{t("peopleUsage.columns.now")}</th>
+                  {head("runs", t("peopleUsage.columns.runs"), "pu-num")}
+                  <th>{t("peopleUsage.columns.agents")}</th>
+                  {head(
+                    "usage",
+                    t("peopleUsage.columns.usage"),
+                    undefined,
+                    // A ≈ in any row: what an estimate is, beside the column's name.
+                    rows.some((p) => p.estimated) && (
+                      <InfoHint name={t("common.about", { label: t("usageViews.apiPrice") })}>
+                        {t("usageViews.apiPriceHint")}
+                      </InfoHint>
+                    ),
+                  )}
+                  <th>{t("peopleUsage.columns.caresFor")}</th>
+                  {head("created", t("peopleUsage.columns.created"), "pu-num")}
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((p) => {
+                  const role = p.roleIds.map((id) => roleById.get(id)).find(Boolean);
+                  return (
+                    <tr key={p.userId} className="pu-row" onClick={() => setOpen(p.userId)}>
+                      <td>
+                        <button type="button" className="pu-person" onClick={() => setOpen(p.userId)}>
+                          <ActorAvatar actor={{ type: "person", id: p.userId }} name={p.name} size="sm" presence />
+                          <span className="pu-person__text">
+                            <span className="pu-person__name">{p.name}</span>
+                            <span className="pu-person__role">
+                              {role ? (
+                                <>
+                                  <RoleMark color={role.color} icon={role.icon} size={14} />
+                                  {role.name}
+                                </>
+                              ) : p.owner ? (
+                                t("peopleUsage.owner")
+                              ) : (
+                                t("peopleUsage.member")
+                              )}
+                            </span>
                           </span>
+                        </button>
+                      </td>
+                      <td className={p.now ? "pu-now pu-now--live" : "pu-now"}>
+                        <span className={p.now?.place.kind === "private" ? "ac-iconline" : undefined}>
+                          {p.now?.place.kind === "private" && <Icon name="lock" size={14} />}
+                          <span>{nowLine(t, i18n.language, dir, p)}</span>
                         </span>
-                      </button>
-                    </td>
-                    <td className={p.now ? "pu-now pu-now--live" : "pu-now"}>
-                      <span className={p.now?.place.kind === "private" ? "ac-iconline" : undefined}>
-                        {p.now?.place.kind === "private" && <Icon name="lock" size={14} />}
-                        <span>{nowLine(t, i18n.language, dir, p)}</span>
-                      </span>
-                    </td>
-                    <td className="pu-num tabular">{formatInt(i18n.language, p.runs)}</td>
-                    <td>
-                      <Faces
-                        ids={p.agents.map((a) => a.agentId)}
-                        titles={p.agents.map((a) => `${agentName(t, dir, a.agentId)} ${a.share}%`)}
-                      />
-                    </td>
-                    <td className="pu-use">
-                      <UseMeter p={p} />
-                    </td>
-                    <td>
-                      <Faces ids={p.caresFor} />
-                    </td>
-                    <td className="pu-num tabular">{p.created || "—"}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </Card>
-      )}
+                      </td>
+                      <td className="pu-num tabular">{formatInt(i18n.language, p.runs)}</td>
+                      <td>
+                        <Faces
+                          ids={p.agents.map((a) => a.agentId)}
+                          titles={p.agents.map((a) => `${agentName(t, dir, a.agentId)} ${a.share}%`)}
+                        />
+                      </td>
+                      <td className="pu-use">
+                        <UseMeter p={p} />
+                      </td>
+                      <td>
+                        <Faces ids={p.caresFor} />
+                      </td>
+                      <td className="pu-num tabular">{p.created || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Card>
+        )}
+      </Refreshing>
       <PersonDrawer userId={open} onClose={() => setOpen(null)} />
     </>
   );

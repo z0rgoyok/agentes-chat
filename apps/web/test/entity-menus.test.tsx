@@ -51,7 +51,7 @@ const pick = async (name: string) => {
 const sidebarLink = (name: string) => within(nav()).getByRole("link", { name: new RegExp(`^#?${name}\\b`) });
 
 describe("a channel", () => {
-  test("its sidebar row: mark read when unread, edit and arrange (I manage it), copy link, archive; the browser's menu stays shut", async () => {
+  test("its sidebar row: mark read when unread, edit, favorite, a section of mine, copy link, archive; the browser's menu stays shut", async () => {
     const state = seedState();
     const eng = state.channels.find((c) => c.id === ENG_ID);
     if (eng) eng.unreadCount = 3;
@@ -62,8 +62,8 @@ describe("a channel", () => {
       "Marcar como lida",
       "Silenciar canal",
       "Editar canal",
-      "Fixar no topo",
-      "Nova categoria com este canal",
+      "Adicionar aos favoritos",
+      "Nova seção",
       "Copiar link",
       "Sair do canal",
       "Arquivar canal",
@@ -113,7 +113,7 @@ describe("a channel", () => {
     expect(items()).toEqual([
       "Silenciar canal",
       "Editar canal",
-      "Fixar no topo",
+      "Adicionar aos favoritos",
       "Fundo da conversa…",
       "Copiar link",
       "Sair do canal",
@@ -132,7 +132,7 @@ const withDms = () => {
 };
 
 describe("an agent", () => {
-  test("Shift+F10 on its row: talk, profile, pin, copy @, a new group with it, edit (owner or admin), link, id", async () => {
+  test("Shift+F10 on its row: talk, profile, favorite, copy @, edit (owner or admin), link, id", async () => {
     await go(undefined, withDms());
     const row = within(nav()).getByRole("link", { name: /^Ada/ });
     row.focus();
@@ -141,9 +141,8 @@ describe("an agent", () => {
     expect(items()).toEqual([
       "Mensagem direta",
       "Ver perfil",
-      "Fixar no topo",
+      "Adicionar aos favoritos",
       "Copiar @ada",
-      "Novo setor com Ada",
       "Editar agente",
       "Copiar link",
       "Copiar ID",
@@ -169,7 +168,13 @@ describe("a person", () => {
     const row = nav().querySelector('a[href$="/dm/person/u-joao"]');
     if (!row) throw new Error("no row for João");
     await rightClick(row);
-    expect(items()).toEqual(["Mensagem direta", "Fixar no topo", "Copiar @joao", "Remover do workspace", "Copiar ID"]);
+    expect(items()).toEqual([
+      "Mensagem direta",
+      "Adicionar aos favoritos",
+      "Copiar @joao",
+      "Remover do workspace",
+      "Copiar ID",
+    ]);
     await pick("Copiar ID");
     expect(copied.at(-1)).toBe("u-joao");
   });
@@ -230,62 +235,54 @@ describe("typing keeps the browser's menu", () => {
   });
 });
 
-describe("the sidebar's sections, in my order", () => {
+describe("a personal workspace's parts, in my order (a team's list keeps its fixed one, ADR 0260)", () => {
   const blocks = () => [...nav().querySelectorAll<HTMLElement>(".sidebar__block")].map((b) => b.dataset.section);
+  const personal = (over: Parameters<typeof seedState>[0] = {}) => {
+    const state = seedState(over);
+    const org = state.me?.organizations[0];
+    if (org) org.mode = "personal";
+    return state;
+  };
 
-  test("the default order; Mover para baixo on Canais saves the new one; Restaurar ordem padrão goes back", async () => {
-    const { state } = await go();
-    expect(blocks()).toEqual(["tools", "channels", "agents", "people"]);
+  test("Mover para baixo on its conversations saves the new order; Restaurar ordem padrão goes back", async () => {
+    const { state } = await go(`c/${ENG_ID}`, personal());
+    const before = blocks();
+    expect(before.indexOf("channels")).toBeLessThan(before.indexOf("people"));
     await act(async () =>
       fireEvent.click(
-        within(nav()).getByRole("button", { name: "Arraste para mover a seção Canais ou clique para ver as opções" }),
+        within(nav()).getByRole("button", {
+          name: "Arraste para mover a seção Conversas em grupo ou clique para ver as opções",
+        }),
       ),
     );
     await settle(2);
-    expect(within(menu()).getByRole("menuitem", { name: "Mover para cima" }).getAttribute("aria-disabled")).toBe(null);
     await pick("Mover para baixo");
-    expect(blocks()).toEqual(["tools", "agents", "channels", "people"]);
-    expect(state.calls.filter((c) => c.method === "orgs.setSidebarOrder").map((c) => c.args[1])).toEqual([
-      ["tools", "agents", "channels", "people"],
-    ]);
-
+    const after = blocks();
+    expect(after.indexOf("channels")).toBeGreaterThan(after.indexOf("people"));
+    expect(state.calls.filter((c) => c.method === "orgs.setSidebarOrder")).toHaveLength(1);
     await rightClick(within(nav()).getByRole("button", { name: "Mensagens diretas" }));
     await pick("Restaurar ordem padrão");
-    expect(blocks()).toEqual(["tools", "channels", "agents", "people"]);
+    expect(blocks()).toEqual(before);
     expect(state.calls.filter((c) => c.method === "orgs.setSidebarOrder").at(-1)?.args[1]).toBeNull();
-  });
-
-  test("a saved order comes back: agents first; the top one can't go up", async () => {
-    await go(`c/${ENG_ID}`, seedState({ sidebarOrder: ["agents", "people", "tools", "channels"] }));
-    expect(blocks()).toEqual(["agents", "people", "tools", "channels"]);
-    await rightClick(within(nav()).getByRole("button", { name: "Agentes" }));
-    expect(within(menu()).getByRole("menuitem", { name: "Mover para cima" }).hasAttribute("data-disabled")).toBe(true);
   });
 });
 
 describe("dragging in the sidebar", () => {
   test("a section's ghost is its header row, not a long list over the others", async () => {
-    await go();
+    const state = seedState();
+    const org = state.me?.organizations[0];
+    if (org) org.mode = "personal";
+    await go(`c/${ENG_ID}`, state);
     const images: Element[] = [];
     const dataTransfer = { setData: () => {}, setDragImage: (el: Element) => void images.push(el) };
     const grip = within(nav()).getByRole("button", {
-      name: "Arraste para mover a seção Canais ou clique para ver as opções",
+      name: "Arraste para mover a seção Conversas em grupo ou clique para ver as opções",
     });
     await act(async () => fireEvent.dragStart(grip, { dataTransfer }));
     expect(images).toHaveLength(1);
     expect(images[0]?.classList.contains("sidebar__section-head")).toBe(true);
-    expect(images[0]?.textContent).toContain("Canais");
+    expect(images[0]?.textContent).toContain("Conversas em grupo");
     await act(async () => fireEvent.dragEnd(grip, { dataTransfer }));
-    await act(async () =>
-      fireEvent.dragStart(
-        within(nav()).getByRole("button", {
-          name: "Arraste para mover a seção Ferramentas ou clique para ver as opções",
-        }),
-        { dataTransfer },
-      ),
-    );
-    // The tools have no header: the ghost is all of them, which is what moves.
-    expect(images[1]?.classList.contains("sidebar__tools")).toBe(true);
   });
 
   test("one mark where a drag lands, the same for sections, channels, categories and agents", () => {

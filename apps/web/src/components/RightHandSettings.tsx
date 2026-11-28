@@ -19,7 +19,7 @@ import { audienceOf, audiencePatch } from "@agenteschat/client/lib/audience";
 import { modelRows } from "@agenteschat/client/lib/brain-picker";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { handleAfterRename } from "@agenteschat/client/lib/new-agent";
+import { handleAfterRename, workspaceBudgetText } from "@agenteschat/client/lib/new-agent";
 
 import { can } from "@agenteschat/client/lib/permissions";
 import { brainPlan } from "@agenteschat/client/lib/plans";
@@ -62,7 +62,7 @@ import { AudienceChoice } from "@/components/AgentAudience";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { LookRows, modelOptions } from "@/components/AgentFields";
 import { RightHandApprovalsCard } from "@/components/ApprovalCover";
-import { AiChoiceDialog, type AiChoiceLink } from "@/components/ai/AiChoiceDialog";
+import { AiChoiceDialog } from "@/components/ai/AiChoiceDialog";
 import { PlanHold, usePlanHold } from "@/components/ai/plan-hold";
 import { useAgentComputer } from "@/components/computer/facts";
 import { useOpenComputer } from "@/components/computer/open";
@@ -142,7 +142,7 @@ const usePlanModelLabel = (view: AgentBrain | undefined) => {
   return view && view.brain !== "model" ? modelRows(t, view, brainPlan(view)).find((r) => r.checked)?.label : undefined;
 };
 
-type PlanKind = "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+type PlanKind = "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
 const planKind = (kind: string | undefined): PlanKind | null => (kind && kind !== "model" ? (kind as PlanKind) : null);
 
 /**
@@ -205,19 +205,6 @@ export function RightHandMineRow({ agent }: { agent: Agent }) {
     </span>
   );
   const g = agentGrammar(agent.name);
-  // On a billing hold nothing connects before the plan, whose one way in is the hold's banner (ADR 0162).
-  const links: AiChoiceLink[] =
-    connectMine && !held
-      ? [
-          {
-            opensDialog: true,
-            label: own
-              ? t("connectAi.chat.other")
-              : t(status.kind === "nobody" ? "rightHand.settings.connectMine" : "rightHand.settings.useMine"),
-            onOpen: connectMine,
-          },
-        ]
-      : [];
   return (
     <>
       <PrefRow
@@ -234,7 +221,9 @@ export function RightHandMineRow({ agent }: { agent: Agent }) {
         target={{ kind: "lodi", agentId: agent.id, scope: "mine" }}
         title={t("rightHand.settings.mineTitle", g)}
         note={t("rightHand.settings.mineOnly", g)}
-        links={links}
+        // "Adicionar conta", at the account list's foot: Connect, its Back opening this again. On a billing hold nothing
+        // connects before the plan, whose one way in is the hold's banner (ADR 0162).
+        {...(connectMine && !held ? { onAdd: connectMine } : {})}
       />
     </>
   );
@@ -347,6 +336,7 @@ function RightHandForm({ agent }: { agent: Agent }) {
   const credentials = useCredentials(org.id, can(org, "manage_credentials"));
   const platform = usePlatformKey(org.id);
   const usesApi = useWorkspaceUsesApi(org.id);
+  const defaultBudget = useSettings(org.id).data?.defaultAgentBudgetUsd;
   const { solo } = usePersonalView();
   const [name, setName] = useState(agent.name);
   const [budget, setBudget] = useState(agent.monthlyBudgetUsd == null ? "" : String(agent.monthlyBudgetUsd));
@@ -388,19 +378,6 @@ function RightHandForm({ agent }: { agent: Agent }) {
   const theirs = (id: string | null | undefined) => (id && id !== me.user.id ? firstOf(id) : undefined);
   // Another AI: the Connect dialog, with every provider to pick from, over this one. On a billing hold nothing connects
   // before the plan (ADR 0162).
-  const links: AiChoiceLink[] =
-    connect && !hold
-      ? [
-          {
-            label: t("connectAi.chat.other"),
-            opensDialog: true,
-            onOpen: () => {
-              setChoosing(false);
-              connect.open({ agentId: agent.id, onBack: () => setChoosing(true) });
-            },
-          },
-        ]
-      : [];
   return (
     <>
       {hold && (
@@ -474,7 +451,7 @@ function RightHandForm({ agent }: { agent: Agent }) {
                     prefix="US$"
                     inputMode="decimal"
                     value={budget}
-                    placeholder={t("rightHand.value.budgetDefault")}
+                    placeholder={workspaceBudgetText(t, i18n.language, defaultBudget)}
                     onChange={(e) => setBudget(e.target.value)}
                     onBlur={saveBudget}
                     onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
@@ -520,7 +497,9 @@ function RightHandForm({ agent }: { agent: Agent }) {
         target={{ kind: "lodi", agentId: agent.id, scope: "workspace" }}
         title={t("rightHand.settings.workspaceTitle", g)}
         note={t("rightHand.settings.workspaceOnly")}
-        links={links}
+        {...(connect && !hold
+          ? { onAdd: () => connect.open({ agentId: agent.id, onBack: () => setChoosing(true) }) }
+          : {})}
         // On a billing hold nothing changes before the plan (ADR 0162).
         disabled={!!hold}
       >

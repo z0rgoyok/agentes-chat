@@ -68,7 +68,7 @@ const computer = (d: Partial<ComputerDevice> & Pick<ComputerDevice, "id" | "name
   ownerUserId: SAM,
   belongsToWorkspace: false,
   systemMode: false,
-  spill: { own: true, others: false },
+  spill: { own: true },
   audience: onlyOwner,
   status: { kind: "ready" },
   maxTasks: 1,

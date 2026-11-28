@@ -5,6 +5,7 @@ import { summedCostNanoUsd } from "@agenteschat/providers";
 import {
   createAgent,
   createOrganization,
+  nextStepAt,
   operatorOrgWorkAnalytics,
   operatorWorkAnalytics,
   ValidationError,
@@ -356,4 +357,56 @@ test("one workspace, per agent; by day past two days; at most 90 days", async ()
 
   const long = { from: new Date(now - 90 * 86_400_000).toISOString().slice(0, 10), to: today };
   await expect(operatorWorkAnalytics(f.db, long)).rejects.toThrow(ValidationError);
+});
+
+test("a wait lasts until the run's next step, read as one index row however many steps follow", async () => {
+  // Years before any dates read here: no other answer counts it.
+  const at = (sec: number) => new Date(Date.UTC(2000, 0, 1, 0, 0, sec));
+  const gone = crypto.randomUUID();
+  const [r] = await f.db
+    .insert(schema.agentRuns)
+    .values({
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      channelId: f.general.id,
+      threadRootId: gone,
+      triggerMessageId: gone,
+      trigger: "mention",
+      hop: 1,
+      createdAt: at(0),
+      status: "done",
+    })
+    .returning();
+  const runId = (r as { id: string }).id;
+  await f.db.insert(schema.agentRunSteps).values(
+    Array.from({ length: 40 }, (_, i) => ({
+      orgId: f.org.id,
+      runId,
+      seq: i + 1,
+      kind: "error" as const,
+      data: i === 0 ? { reason: "brain_unavailable", code: "busy" } : { reason: "other" },
+      createdAt: at(i * 10),
+    })),
+  );
+  type Node = { Alias?: string; "Actual Rows"?: number; Plans?: Node[] };
+  const plan = await f.db.transaction(async (tx) => {
+    // A table this small is read whole otherwise, which says nothing of the index read.
+    await tx.execute(sql`set local enable_seqscan = off`);
+    const until = rowsOf<{ until: Date | string }>(
+      await tx.execute(
+        sql`select ${nextStepAt} as until from agent_run_steps s where s.run_id = ${runId} and s.seq = 1`,
+      ),
+    );
+    expect(new Date(until[0]?.until ?? 0).toISOString()).toBe(at(10).toISOString());
+    const explained = rowsOf<{ "QUERY PLAN": [{ Plan: Node }] }>(
+      await tx.execute(
+        sql`explain (analyze, format json) select ${nextStepAt} from agent_run_steps s where s.run_id = ${runId} and s.seq = 1`,
+      ),
+    );
+    return explained[0]?.["QUERY PLAN"][0].Plan;
+  });
+  const nodes = (node: Node | undefined): Node[] => (node ? [node, ...(node.Plans ?? []).flatMap(nodes)] : []);
+  const next = nodes(plan).filter((node) => node.Alias === "n");
+  expect(next.length).toBe(1);
+  expect(next[0]?.["Actual Rows"]).toBe(1);
 });

@@ -5,7 +5,7 @@ setupDom();
 
 import type { CustomServer, Message } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { connectionLine, openStore, pick, rowMenu, searchStore } from "./catalog";
+import { connectionLine, openStore, pick, rowMenu } from "./catalog";
 import { ADA_ID, ATLAS_ID, createFakeApi, ENG_ID, fakeMailOf, NOW, ORG_ID, seedState } from "./fake-api";
 import { MAIL_PROVIDERS } from "./fakes/mail";
 import { renderApp, screen, settle } from "./render";
@@ -214,9 +214,6 @@ describe("Conectores: Equipe | Pessoal", () => {
     mail.providers = structuredClone(MAIL_PROVIDERS);
     await openConnectors(api);
     const store = await openStore();
-    // GitHub connects for the team only: the store doesn't offer it to who adds their own.
-    await searchStore(store, "GitHub");
-    expect(within(store).queryByRole("button", { name: "Conectar GitHub" })).toBeNull();
     await pick(store, "iCloud");
     const forWhom = within(flow()).getByRole("radiogroup", { name: "Para quem" });
     expect(within(forWhom).getByRole("radio", { name: "Pessoal" }).getAttribute("aria-checked")).toBe("true");

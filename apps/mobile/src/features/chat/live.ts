@@ -43,10 +43,12 @@ import {
   markStopping,
   type OpenConsult,
   openConversation,
+  quietRunsByChannel,
   type ReactionCount,
   type ReceiptsState,
   readConversationListsOncePerBurst,
   readList,
+  recheckRuns,
   reconcileConsults,
   reconcileRuns,
   refreshRepliedThread,
@@ -104,6 +106,8 @@ type Action =
   | { type: "stopping"; runId: string; byUserId: string }
   | { type: "unstopping"; runId: string }
   | { type: "dismiss"; runId: string }
+  /** The server's active runs, asked about runs gone quiet (`recheckRuns`). */
+  | { type: "recheck"; runIds: string[]; active: Parameters<typeof recheckRuns>[2]; at: number }
   | { type: "sweep"; at: number }
   | { type: "typed"; at: number }
   | { type: "unavailable"; event: AgentUnavailableEvent }
@@ -215,6 +219,8 @@ function reduce(state: LiveState, action: Action): LiveState {
       return { ...state, streams: unmarkStopping(state.streams, action.runId) };
     case "dismiss":
       return { ...state, streams: dismissRun(state.streams, action.runId) };
+    case "recheck":
+      return { ...state, streams: recheckRuns(state.streams, action.runIds, action.active, action.at) };
     case "sweep": {
       const stale = staleProvisional(state.streams, action.at, PROVISIONAL_TTL_MS);
       if (stale.length === 0) return state;
@@ -663,28 +669,45 @@ export function useChatLive(orgId: string, channelId: string, enabled: boolean, 
       applyToCache(qc, orgId, channelId, event, meRef.current);
       applyMembershipEvent(qc, orgId, event);
       // A file's cards (a deleted one says so) and an agent's memory list, as on the web.
-      applyConversationEvent(qc, orgId, event);
+      applyConversationEvent(qc, orgId, event, api);
     });
     // Left: shown again, it reads what it missed, as on the web. Back from the background, `onSubscribed` above does.
     return () => {
       off();
       close();
     };
-  }, [connection, enabled, orgId, channelId, qc, dispatch]);
+  }, [connection, enabled, orgId, channelId, qc, dispatch, api]);
 
   // Safety net, as on the web: a "pensando…" the server never confirmed doesn't spin forever; the
-  // conversation resyncs instead (checked every 5 s while there is one).
-  const hasProvisional = Object.values(streams.runs).some((r) => r.provisional && r.channelId === channelId);
+  // conversation resyncs instead. A run gone quiet is asked about, unseen: its end may never have reached the phone, and
+  // its row would stay at work with the reply already posted (checked every 5 s while a run is here).
+  const hasLive = Object.values(streams.runs).some((r) => r.channelId === channelId && r.status !== "failed");
   useEffect(() => {
-    if (!hasProvisional) return;
+    if (!hasLive) return;
+    const checking = new Set<string>();
     const timer = setInterval(() => {
       const at = Date.now();
-      if (staleProvisional(stateRef.current.streams, at, PROVISIONAL_TTL_MS).length === 0) return;
-      dispatch({ type: "sweep", at });
-      void qc.invalidateQueries({ queryKey: ["org", orgId, "channel", channelId] });
+      if (staleProvisional(stateRef.current.streams, at, PROVISIONAL_TTL_MS).length > 0) {
+        dispatch({ type: "sweep", at });
+        void qc.invalidateQueries({ queryKey: ["org", orgId, "channel", channelId] });
+      }
+      const quiet = quietRunsByChannel(stateRef.current.streams, at, checking).get(channelId);
+      if (!quiet) return;
+      for (const id of quiet) checking.add(id);
+      api.agents
+        .activeRuns(orgId, channelId)
+        .then((active) => {
+          dispatch({ type: "recheck", runIds: quiet, active: active ?? undefined, at: Date.now() });
+          if (active && quiet.some((id) => !active.some((a) => a.runId === id)))
+            void qc.invalidateQueries({ queryKey: ["org", orgId, "channel", channelId] });
+        })
+        .catch(() => dispatch({ type: "recheck", runIds: quiet, active: undefined, at: Date.now() }))
+        .finally(() => {
+          for (const id of quiet) checking.delete(id);
+        });
     }, 5000);
     return () => clearInterval(timer);
-  }, [hasProvisional, qc, orgId, channelId, dispatch, stateRef]);
+  }, [hasLive, api, qc, orgId, channelId, dispatch, stateRef]);
 
   const typing = useMemo<LiveTyping>(
     () => ({

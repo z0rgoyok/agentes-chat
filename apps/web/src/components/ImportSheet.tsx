@@ -25,6 +25,7 @@ import {
   InfoHint,
   JourneyScene,
   normalizeAppearance,
+  OptionLinks,
   Segmented,
   Spinner,
   SwapLabel,
@@ -813,29 +814,21 @@ function PathList({
   return (
     <>
       <p className="imp-sheet__text">{t("onboarding.import.sheet.paths.lead")}</p>
-      <ul className="imp-rows imp-choice imp-paths">
-        {paths.map((path) => (
-          <li key={path} className="imp-row imp-row--opens">
-            <button type="button" className="imp-row__open" onClick={() => onPick(path)}>
-              <span className="imp-row__lead" aria-hidden="true">
-                <Icon name={PATH_ICON[path]} size={16} />
-              </span>
-              <span className="imp-row__text">
-                <span className="imp-row__title">
-                  {t(`onboarding.import.sheet.paths.${path}.title`, { app })}
-                  {path === "command" && (
-                    <span className="imp-paths__best"> {t("onboarding.import.sheet.paths.best")}</span>
-                  )}
-                </span>
-                <span className="imp-row__line">{t(`onboarding.import.sheet.paths.${path}.line`)}</span>
-              </span>
-              <span className="imp-row__go" aria-hidden="true">
-                <Icon name="chevronRight" size={16} />
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+      <OptionLinks
+        className="imp-paths"
+        options={paths.map((path) => ({
+          value: path,
+          leading: (
+            <span className="ac-brand ac-brand--sm ac-brand--mono" aria-hidden="true">
+              <Icon name={PATH_ICON[path]} size={16} />
+            </span>
+          ),
+          title: t(`onboarding.import.sheet.paths.${path}.title`, { app }),
+          tag: path === "command" ? t("onboarding.import.sheet.paths.best") : undefined,
+          description: t(`onboarding.import.sheet.paths.${path}.line`),
+          onSelect: () => onPick(path),
+        }))}
+      />
       <p className="imp-note ac-iconline">
         <Icon name="lock" size={16} />
         <span>{t("onboarding.import.sheet.paths.safe", { app })}</span>

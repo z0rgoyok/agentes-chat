@@ -67,13 +67,16 @@ import {
   enableOperatorEvents,
   enableSvgRasterizer,
   ensureRightHands,
+  friendlyMachineNames,
   type GifKey,
+  hasFontFiles,
   isAgentesCloud,
   isBlockedAddress,
   laneLimits,
   memoryBudget,
   meterComposio,
   moveIssueComments,
+  noticeLendingComputers,
   poolNeededFor,
   publicHostAddress,
   publicHttpsFetch,
@@ -84,9 +87,12 @@ import {
   retireMillionSendMailboxes,
   STARTUP_RAMP_MS,
   SURFACE_PREFIX,
+  serverLending,
+  setFontsDir,
   setMessageLinkBase,
   setRestrictionNotices,
   setScreenJudgments,
+  setServerLending,
   setSurface,
   setWorkspaceComputers,
   shareCacheInvalidations,
@@ -104,6 +110,7 @@ import { clientVitals } from "./client-vitals";
 import { buildEngine, type EngineOptions } from "./engine";
 import { watchEventLoopLag } from "./event-loop-lag";
 import { startFreezeWatch } from "./freeze-watch";
+import { trustPeer } from "./http/client-ip";
 import { checkHumanCheckAtBoot, createHumanCheck } from "./http/human-check";
 import { watchLoad } from "./load-shed";
 import { createLogger, type Logger } from "./logger";
@@ -118,6 +125,7 @@ import { takeRouteTimes } from "./route-times";
 import type { AppDeps } from "./routes/app/context";
 import type { BlockActions } from "./routes/app/extras";
 import { workerHealth } from "./routes/health";
+import { reportRunProfile } from "./run-reports";
 import { startTelemetry } from "./telemetry";
 import { releaseOf, version } from "./version";
 import { type BootTask, startWorkers } from "./workers";
@@ -389,6 +397,7 @@ async function boot(
     createModelProviders({
       endpointFetch: allowsPrivateEndpoints(config) ? undefined : publicHttpsFetch(),
       version: release,
+      progressNotes: config.MODEL_PROGRESS_NOTES,
     }),
   );
   if (overridden.length > 0) log.info("adapters overridden by modules", { overridden });
@@ -418,6 +427,9 @@ async function boot(
   // Addresses a workspace names (custom MCP servers, its own bucket, pages agents read) are pinned to public ones at
   // every request, except where the operator lets workspaces reach this server's network.
   allowPrivateOutbound(allowsPrivateEndpoints(config));
+  // ADR 0237: people's computers lend their internet to this server's own computer and its reads of web pages, except
+  // where a provisioner makes the workspaces' computers (the Cloud), which borrow alone.
+  setServerLending(config.MACHINE_PROVISIONING !== "external");
   // The private hosts and ranges the operator named pass every guard for typed addresses (ADR 0210). agentes.chat
   // Cloud never lets a workspace reach a private network, whatever is set.
   const outboundLists = { hosts: config.OUTBOUND_ALLOW_HOSTS, cidrs: config.OUTBOUND_ALLOW_CIDRS };
@@ -463,7 +475,10 @@ async function boot(
     adapters,
     modelProviders,
     onTiming: (name, ms, attrs) => log.info("latency", { metric: name, ms, ...attrs }),
-    onRunProfile: (p) => log.debug("run profile", p),
+    onRunProfile: (p) => {
+      log.debug("run profile", { ...p });
+      void reportRunProfile(errors, p, async (id) => (await engine.machineHub.status(id))?.protocol).catch(() => {});
+    },
     emailArt,
     log,
     errors,
@@ -472,6 +487,8 @@ async function boot(
   await engine.jevKey.ready();
   await engine.githubApp.ready();
   await engine.speech.ready();
+  // Set up here before: the helper again, without waiting for it.
+  void engine.speechLocal?.resume();
   log.info("voice messages", { engines: engine.speech.chain().map((e) => e.id) });
   const vectors = engine.embeddings;
   if (config.EMBEDDINGS_PROVIDER !== "none" && !vectors) {
@@ -545,6 +562,28 @@ async function boot(
         if (moved > 0) log.info("files moved out of agent rooms", { moved });
       },
     },
+    // Where this server lends (ADR 0237), each lending computer's owner hears it once.
+    ...(serverLending()
+      ? [
+          {
+            name: "egress-share-notice-server",
+            once: true,
+            run: async () => {
+              const told = await noticeLendingComputers(database.db);
+              if (told > 0) log.info("lending computers' owners told", { told });
+            },
+          },
+        ]
+      : []),
+    // Computers still called by their host name take their model and owner's name ("MacBook Pro do Tomás").
+    {
+      name: "friendly-machine-names",
+      once: true,
+      run: async () => {
+        const renamed = await friendlyMachineNames(database.db, adapters.pubsub);
+        if (renamed > 0) log.info("computers named after their model and owner", { renamed });
+      },
+    },
   ];
   // A worker (`SERVER_ROLE=worker`) runs jobs only: no app, API, sockets or usage report, its health check alone. Its
   // runs reach computers through the process that holds their socket (`machine_rpc`).
@@ -579,6 +618,9 @@ async function boot(
     }),
   };
   log.info("job slots", { start: slots, upTo: outbox.limits ?? "fixed", memoryBytes, role: config.SERVER_ROLE });
+  // The fonts live files use (ADR 0220): served, measured with and embedded; without them, system fonts.
+  setFontsDir(config.FONTS_DIR ? resolve(config.FONTS_DIR) : null);
+  if (config.FONTS_DIR && !hasFontFiles()) log.warn("fonts", { dir: config.FONTS_DIR, found: false });
   // SVG pictures drawn as PNGs for exports and models (ADR 0196 §8); without it they are left out of those.
   if (!(await enableSvgRasterizer())) log.warn("svg pictures", { drawn: false, because: "resvg didn't load" });
   const workers = startWorkers({
@@ -651,6 +693,7 @@ async function boot(
       gifKey: gifKey ?? undefined,
       githubApp: engine.githubApp,
       speech: engine.speech,
+      speechLocal: engine.speechLocal,
       voice: engine.voice,
       gitProxy: engine.gitProxy,
       pushRelaySender: relayServeSender(direct),
@@ -696,6 +739,7 @@ async function boot(
     overloaded,
     streams: createStreamSockets({ db: database.db, auth, config, broker: engine.streams }),
     live: liveSockets,
+    onTyping: engine.warmWhileTyping,
   });
   const publicUrl = new URL(config.PUBLIC_URL);
   const ownHosts = ownHostsOnly
@@ -732,7 +776,10 @@ async function boot(
         // Bun's default (10 s) cuts a request still waiting on its answer: opening a site in an agent's
         // browser waits for the page, and a closed browser starts first (up to 90 s on the computer).
         idleTimeout: 120,
-        fetch: (req, srv) => ownHostAnswer(req) ?? realtime.fetch(req, srv, (r) => app.fetch(r)),
+        fetch: (req, srv) => {
+          trustPeer(req.headers, srv.requestIP(req)?.address, config.TRUSTED_PROXIES);
+          return ownHostAnswer(req) ?? realtime.fetch(req, srv, (r) => app.fetch(r));
+        },
         websocket: realtime.websocket,
         // What the HTTP app doesn't answer itself: a WebSocket upgrade that failed before the socket opened.
         error(error) {
@@ -791,6 +838,7 @@ async function boot(
     // The switch is the process's: a server started after this one sets its own.
     allowPrivateOutbound(false);
     allowOutbound();
+    setServerLending(false);
     // `/api/health` answers 503 from now on: the proxy's health check takes this instance out before it stops
     // listening, and holds new requests for the next one instead of failing them.
     if (config.SHUTDOWN_DELAY_MS > 0) await Bun.sleep(config.SHUTDOWN_DELAY_MS);

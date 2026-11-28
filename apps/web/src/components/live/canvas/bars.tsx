@@ -12,6 +12,15 @@ import {
 import { Button, type ButtonProps, Icon, type IconName, Menu, MenuItem, MenuSeparator, Popover } from "@agenteschat/ui";
 import { type CSSProperties, type KeyboardEvent, type ReactNode, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { type FontChoices, FontPicker, fontWeights } from "../type/FontPicker";
+import {
+  EffectsMenu,
+  type EffectsPatch,
+  TextStyleMenu,
+  TYPE_WEIGHTS,
+  TypeGlyph,
+  type TypePatch,
+} from "../type/TypeMenus";
 import type { Size } from "./camera";
 import { inkSwatch, rovingKeys } from "./chrome";
 import { DARK_INK, isInk, SOFT } from "./palette";
@@ -32,8 +41,8 @@ import {
 /**
  * The bar over what is selected on a canvas (ADR 0196 §2), with what that kind of thing takes: a picture asks its
  * agent for variations or about it, is cropped, replaced or downloaded; a shape changes form, fill, border and corners
- * and takes a label; an arrow or a line its route, dash, ends, color and label; a note its color; a text its size; a
- * pen stroke its color and size; several kinds what they share. Then Arrange and ⋯ (duplicate, lock, delete) for all.
+ * and effects and takes a label; an arrow or a line its route, dash, ends, color and label; a note its color; a text
+ * its font, its style ("Aa") and its size (ADR 0220 §8); a pen stroke its color and size; several kinds what they share. Then Arrange and ⋯ (duplicate, lock, delete) for all.
  * It sits above the selection, kept inside the plane (below it when there is no room above), with the selection's size
  * under it.
  */
@@ -45,6 +54,10 @@ export type BarAction =
   | { kind: "strokeWidth"; width: number }
   | { kind: "radius"; radius: number }
   | { kind: "size"; size: number }
+  | { kind: "font"; font: string }
+  | { kind: "type"; patch: TypePatch }
+  | { kind: "effects"; patch: EffectsPatch }
+  | { kind: "bringFont" }
   | { kind: "shapeKind"; shapeKind: CanvasShapeKind }
   | { kind: "route"; route: ArrowRoute }
   | { kind: "heads"; heads: HeadsChoice }
@@ -587,11 +600,14 @@ export function SelectionBar({
   shapes,
   agent,
   canAsk,
+  fonts,
   onAction,
 }: {
   shapes: readonly ShapeView[];
   agent: Agent | null;
   canAsk: boolean;
+  /** The font list's choices: the canvas's fonts in use, the file's own. */
+  fonts: FontChoices;
   onAction(action: BarAction): void;
 }) {
   const { t } = useTranslation();
@@ -648,6 +664,24 @@ export function SelectionBar({
         <FillPicker shapes={shapes} onAction={onAction} />
         <StrokePicker shapes={shapes} border onAction={onAction} />
         {rects && <CornersPicker shapes={shapes} onAction={onAction} />}
+        <EffectsMenu
+          look={{ shadow: first.shadow, gradient: first.gradient, dash: first.dash }}
+          scale="canvas"
+          border={shapes.every((s) => s.stroke !== "none")}
+          onChange={(patch) => onAction({ kind: "effects", patch })}
+          trigger={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="cnv-bar__pick"
+              aria-label={t("live.type.effects")}
+              title={t("live.type.effects")}
+            >
+              <Icon name="sparkle" size={18} />
+              <Icon name="chevronDown" size={16} />
+            </Button>
+          }
+        />
       </>
     );
     // Its label goes with Arrange and ⋯.
@@ -678,24 +712,59 @@ export function SelectionBar({
   } else if (type === "note") {
     tools = <NoteColors shapes={shapes} onAction={onAction} />;
   } else if (type === "text") {
+    const style = first.style ?? {};
+    const font = style.font ?? "onest";
     tools = (
-      <div className="cnv-bar__sizes" role="radiogroup" aria-label={t("live.canvas.bar.size")}>
-        {TEXT_SIZES.map((s) => (
-          // biome-ignore lint/a11y/useSemanticElements: a size button in a radio group
-          <button
-            key={s.key}
-            type="button"
-            role="radio"
-            className="cnv-bar__size"
-            aria-checked={shapes.every((sh) => (sh.style?.size ?? 24) === s.size)}
-            aria-label={t(`live.canvas.sizes.${s.key}`)}
-            title={t(`live.canvas.sizes.${s.key}`)}
-            onClick={() => onAction({ kind: "size", size: s.size })}
-          >
-            {t(`live.canvas.sizes.short.${s.key}`)}
-          </button>
-        ))}
-      </div>
+      <>
+        <FontPicker
+          choices={fonts}
+          value={font}
+          onChange={(ref) => onAction({ kind: "font", font: ref })}
+          onBring={() => onAction({ kind: "bringFont" })}
+        />
+        <TextStyleMenu
+          look={{
+            weight: style.weight ?? 400,
+            tracking: style.tracking ?? 0,
+            lineHeight: style.lineHeight ?? null,
+            caps: style.caps === true,
+            highlight: null,
+          }}
+          weights={fontWeights(font, TYPE_WEIGHTS)}
+          highlight={false}
+          onChange={(patch) => onAction({ kind: "type", patch })}
+          trigger={
+            <Button
+              size="sm"
+              variant="ghost"
+              className="cnv-bar__pick"
+              aria-label={t("live.type.text")}
+              title={t("live.type.text")}
+            >
+              <TypeGlyph />
+              <Icon name="chevronDown" size={16} />
+            </Button>
+          }
+        />
+        <Divider />
+        <div className="cnv-bar__sizes" role="radiogroup" aria-label={t("live.canvas.bar.size")}>
+          {TEXT_SIZES.map((s) => (
+            // biome-ignore lint/a11y/useSemanticElements: a size button in a radio group
+            <button
+              key={s.key}
+              type="button"
+              role="radio"
+              className="cnv-bar__size"
+              aria-checked={shapes.every((sh) => (sh.style?.size ?? 24) === s.size)}
+              aria-label={t(`live.canvas.sizes.${s.key}`)}
+              title={t(`live.canvas.sizes.${s.key}`)}
+              onClick={() => onAction({ kind: "size", size: s.size })}
+            >
+              {t(`live.canvas.sizes.short.${s.key}`)}
+            </button>
+          ))}
+        </div>
+      </>
     );
   } else if (type === "draw") {
     tools = <StrokeInks shapes={shapes} onAction={onAction} />;

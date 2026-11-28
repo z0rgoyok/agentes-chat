@@ -15,7 +15,7 @@ import {
   runMatches,
   type Saved,
 } from "@/lib/agent-edit";
-import { ADA_ID, createFakeApi, ENG_ID, GENERAL_ID, NOW, ORG_ID, seedState } from "./fake-api";
+import { ADA_ID, createFakeApi, ENG_ID, GENERAL_ID, LODI_ID, NOW, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { hintOf, shownText } from "./hint";
 import { renderApp, screen, settle } from "./render";
 
@@ -581,9 +581,7 @@ describe("agent page: inline editing and the save bar", () => {
     const row = github.closest("li") as HTMLElement;
     expect(row.textContent).toContain("Alterado");
     expect(row.textContent).toContain("Antes: Sem acesso");
-    // The skills' own level is on the Skills tab, with the skills.
-    expect(screen().queryByRole("radiogroup", { name: "Nível em Skills" })).toBeNull();
-    await openTab(/^Skills/);
+    // The skills' own level is here with every other area; the Skills tab holds the skills.
     const skills = screen().getByRole("radiogroup", { name: "Nível em Skills" });
     const other = within(skills)
       .getAllByRole("radio")
@@ -741,6 +739,55 @@ describe("agent page: inline editing and the save bar", () => {
   });
 });
 
+describe("the right hand's Memory tab (Q22)", () => {
+  test("its learning switch and Forget all, and its memories as Only you and Everyone in #eng", async () => {
+    const state = withRightHand(seedState());
+    const base = state.memories[0];
+    if (!base) throw new Error("no memory");
+    state.memories.push(
+      {
+        ...base,
+        id: "lodi-1",
+        agentId: LODI_ID,
+        kind: "fact",
+        text: "A máquina do Walter é a kestrel.",
+        source: "Anotado pelo agente · 12 out",
+        origin: { by: "agent", name: null, channel: null, at: base.updatedAt },
+        onlyYou: true,
+        learned: true,
+        pinned: false,
+      },
+      {
+        ...base,
+        id: "lodi-2",
+        agentId: LODI_ID,
+        kind: "fact",
+        text: "O staging fica em staging.example.com.",
+        onlyYou: false,
+        learned: true,
+        pinned: false,
+        channelId: ENG_ID,
+        origin: { by: "agent", name: null, channel: "eng", at: base.updatedAt },
+      },
+    );
+    await renderApp(`/org/${ORG_ID}/agents/${LODI_ID}?tab=memory`, { api: createFakeApi(state) });
+    await settle(8);
+    const card = screen().getByRole("region", { name: "Como aprende" });
+    const mine = within(card).getByRole("switch", { name: "Aprende com as suas conversas" });
+    expect(mine.getAttribute("aria-checked")).toBe("true");
+    expect(screen().getByRole("list", { name: "Só você" }).textContent).toContain("kestrel");
+    expect(screen().getByRole("list", { name: "Todo mundo em #eng" }).textContent).toContain("staging");
+
+    await click(mine);
+    expect(state.calls.find((c) => c.method === "orgs.setTeamWeek")?.args[1]).toEqual({ learnOff: true });
+
+    await click(within(card).getByRole("button", { name: "Esquecer" }));
+    const dialog = screen().getByRole("dialog", { name: "Esquecer o que aprendeu com você?" });
+    await click(within(dialog).getByRole("button", { name: "Esquecer tudo" }));
+    expect(state.calls.some((c) => c.method === "memory.forgetRightHandLearned")).toBe(true);
+  });
+});
+
 describe("agent page: memory and proposals", () => {
   /** Nobody decides a proposal any more (ADR 0219): none of the old decision's calls. */
   const decided = (state: ReturnType<typeof seedState>) =>
@@ -848,7 +895,7 @@ describe("agent page: memory and proposals", () => {
     expect(state.memories.find((m) => m.id === mine.id)?.archived).toBe(true);
   });
 
-  test("Dar a outros agentes opens that skill in Skills, only for who may open Skills", async () => {
+  test("the skills it made are on its Skills tab, with the rest it knows: one line there", async () => {
     const made: LearnedSkill = {
       id: "sk-made",
       name: "relatorio-semanal",
@@ -880,13 +927,10 @@ describe("agent page: memory and proposals", () => {
       );
     };
     await open(seedState());
-    expect(screen().getByRole("link", { name: "Dar a outros agentes" }).getAttribute("href")).toBe(
-      `/org/${ORG_ID}/settings/skills?skill=sk-made`,
+    expect(screen().getByText(/criou fica na aba Skills/)).toBeTruthy();
+    expect(screen().getByRole("link", { name: "Ver skills" }).getAttribute("href")).toBe(
+      `/org/${ORG_ID}/agents/${ADA_ID}?tab=skills`,
     );
-    cleanup();
-    // Ada's owner, a member: Travar is theirs, but Skills is for who manages agents.
-    await open(asOwner());
-    expect(screen().getByRole("button", { name: "Travar" })).toBeTruthy();
     expect(screen().queryByRole("link", { name: "Dar a outros agentes" })).toBeNull();
   });
 

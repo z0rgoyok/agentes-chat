@@ -39,12 +39,19 @@ import {
   connectedSummary,
   fromConnection,
   fromServer,
+  isGitHostConnector,
   itemName,
   orgAccessChange,
   outcomeText,
   personalAllowed,
 } from "@agenteschat/client/lib/connected";
-import { humanize, isHttpsUrl, sameServer } from "@agenteschat/client/lib/custom-tools";
+import {
+  humanize,
+  instructionsSave,
+  instructionsView,
+  isHttpsUrl,
+  sameServer,
+} from "@agenteschat/client/lib/custom-tools";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { useHeldWhile } from "@agenteschat/client/lib/hold";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -83,15 +90,19 @@ import {
   Locked,
   OptionList,
   Segmented,
+  SettingRow,
   Skeleton,
+  Switch,
 } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { TFunction } from "i18next";
 import { Fragment, type ReactNode, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
+import { FoldedBody } from "@/chat/FoldedBody";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ConnectorIcon } from "@/components/ConnectorIcon";
+import { offerTaken, RoutineOfferRow, useRoutineOffer, useStartRoutine } from "@/components/ConnectRoutine";
 import { FlowTitle } from "@/components/FlowTitle";
 import { LoadingList, useStepText } from "@/components/Loading";
 import { CommandBlock } from "@/components/machine-bits";
@@ -297,6 +308,8 @@ function ConnectStep({
   const [url, setUrl] = useState(initialUrl ?? "");
   const [label, setLabel] = useState("");
   const [apiKey, setApiKey] = useState("");
+  /** A git host at an address of one's own (a company's GitLab, a git server): asked for with the key. */
+  const [address, setAddress] = useState("");
   const [keyOpen, setKeyOpen] = useState(false);
   const [ownOpen, setOwnOpen] = useState(false);
   const [needsKey, setNeedsKey] = useState<Extract<CustomConnectStart, { status: "needs_key" }> | null>(null);
@@ -343,11 +356,14 @@ function ConnectStep({
   const mine = personal ? { personal: true } : {};
   // The accounts this one joins or replaces: the person's own for a personal one, else the team's.
   const sameOwner = (owner: string | null | undefined) => (personal ? owner === me.user.id : !owner);
+  // The app is the workspace's GitHub: a person's own account is always a sign-in.
   const appOffered =
-    def?.id === "github" && !viaComposio && !mode && !accountOnly && githubApp.data?.installable === true;
+    def?.id === "github" && !viaComposio && !mode && !accountOnly && !personal && githubApp.data?.installable === true;
   const viaApp = appOffered && how === "app";
-  // Read once its form opens: asking takes a request to the server.
-  const own = useOwnOAuthClient(org.id, serverUrl, ownOffered && ownOpen);
+  // Offered before an address is typed, so an admin sees the way exists. Read once its form opens with an https
+  // address: asking takes a request to the server, about that address.
+  const ownReady = !askUrl || isHttpsUrl(url);
+  const own = useOwnOAuthClient(org.id, serverUrl, ownOffered && ownOpen && ownReady);
   // Its form open, the dialog's main button saves the app and goes on to the sign-in.
   const ownForm = ownOffered && ownOpen && own.current.isSuccess;
   const busy = connect.isPending || withKey.isPending || oauth.isPending || installApp.isPending || own.save.isPending;
@@ -426,9 +442,14 @@ function ConnectStep({
     }
   };
   const startApp = () => installApp.mutate(back, { onSuccess: (to) => navigateAway(to) });
+  const typedAddress = def?.address ? address.trim() : "";
+  const addressError =
+    def?.address && (typedAddress ? !isHttpsUrl(typedAddress) : def.address === "required")
+      ? t("connectors.serverUrlInvalid")
+      : undefined;
   const submitKey = () => {
     setTouched("key");
-    if ((askUrl && !isHttpsUrl(url)) || apiKey.trim().length < 8) return;
+    if ((askUrl && !isHttpsUrl(url)) || apiKey.trim().length < 8 || addressError) return;
     if (byAddress) {
       setRefused(null);
       connect.mutate(
@@ -437,7 +458,7 @@ function ConnectStep({
       );
     } else if (def) {
       withKey.mutate(
-        { connector: def.id, apiKey: apiKey.trim(), ...mine },
+        { connector: def.id, apiKey: apiKey.trim(), ...(typedAddress ? { serverUrl: typedAddress } : {}), ...mine },
         {
           onSuccess: (c) =>
             done(fromConnection(c, catalog.data?.connectors ?? []), again ? "reconnected" : "connected"),
@@ -448,8 +469,18 @@ function ConnectStep({
 
   // A Telegram bot connects with the token @BotFather gives, not an API key.
   const telegram = def?.id === "telegram";
-  const keyLabel = telegram ? t("connectFlow.telegram.token") : t("connectors.apiKey");
-  const keyHelp = telegram ? t("connectFlow.telegram.steps") : t("connectors.apiKeyHelp");
+  // A git host (GitLab, Bitbucket, a git server) connects with an access token, and may run at its own address.
+  const gitHost = def?.id === "gitlab" || def?.id === "bitbucket" || def?.id === "git" ? def.id : null;
+  const keyLabel = telegram
+    ? t("connectFlow.telegram.token")
+    : gitHost
+      ? t("connectFlow.git.token")
+      : t("connectors.apiKey");
+  const keyHelp = telegram
+    ? t("connectFlow.telegram.steps")
+    : gitHost
+      ? t(`connectFlow.git.tokenHelp.${gitHost}`)
+      : t("connectors.apiKeyHelp");
   const notApproved = needsKey?.reason === "not_approved";
   const needsKeyAlert = needsKey && (
     <Alert tone="neutral">
@@ -481,6 +512,25 @@ function ConnectStep({
       }}
     >
       {!(notApproved && ownOffered) && needsKeyAlert}
+      {def?.address && gitHost && (
+        <Field
+          label={t("connectFlow.git.address")}
+          id="cflow-address"
+          hint={{
+            name: t("common.about", { label: t("connectFlow.git.address") }),
+            text: t(`connectFlow.git.addressHelp.${gitHost === "git" ? "git" : "gitlab"}`),
+          }}
+          error={touched === "key" ? addressError : undefined}
+        >
+          <Input
+            type="url"
+            autoComplete="off"
+            placeholder={def.address === "optional" ? "https://gitlab.com" : "https://"}
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+          />
+        </Field>
+      )}
       <Field
         label={keyLabel}
         id="cflow-key"
@@ -604,7 +654,7 @@ function ConnectStep({
               />
             </details>
           )}
-          {!viaApp && ownOffered && serverUrl !== "" && (askUrl ? isHttpsUrl(url) : true) && (
+          {!viaApp && ownOffered && (
             <details
               className="cflow__more"
               open={ownOpen}
@@ -612,10 +662,16 @@ function ConnectStep({
                 const opened = (e.currentTarget as HTMLDetailsElement).open;
                 setOwnOpen(opened);
                 if (opened) setKeyOpen(false);
+                if (opened && !ownReady) document.getElementById("cflow-url")?.focus();
               }}
             >
               <summary>{t("connectFlow.ownClient.title")}</summary>
-              {ownOpen && (
+              {ownOpen && !ownReady && (
+                <div className="cflow__key">
+                  <p className="small muted">{t("connectFlow.ownClient.addressFirst")}</p>
+                </div>
+              )}
+              {ownOpen && ownReady && (
                 <OwnClient
                   own={own}
                   guide={guide}
@@ -639,7 +695,7 @@ function ConnectStep({
               : again && unchecked
                 ? t("connectFlow.newAccountUnchecked")
                 : personal
-                  ? t("connectors.personal.done")
+                  ? t(isGitHostConnector(def?.id) ? "connectors.personal.githubDone" : "connectors.personal.done")
                   : t("connectFlow.allCanUse")
         }
       >
@@ -1075,42 +1131,58 @@ function GithubOrgs() {
 /**
  * The end of connecting: who can use it and how many actions ask, in a sentence, with "Pronto". A server whose tools
  * no one gave a level yet says so instead, and "Continuar" saves the levels we suggest: agents get none before that.
- * Tools that couldn't be read are said too, as their step under "Ajustar" says them.
+ * Tools that couldn't be read are said too, as their step under Adjust says them. An app that brings a routine
+ * (ADR 0242) shows it on under that, and Done makes it.
  */
 function DoneStep({ item, onAdjust, onClose }: { item: ConnectedItem; onAdjust: () => void; onClose: () => void }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const { save } = useCustomServerAction(org.id);
   const waiting = item.pending > 0 ? item.server : null;
+  const agents = useAgents(org.id);
+  // Every agent uses a catalog app once it is connected; a server still waiting for its tools brings nothing yet.
+  const offer = useRoutineOffer(waiting ? null : item.def?.id, agents.data, agents.isPending);
+  const startRoutine = useStartRoutine();
   return (
     <ConnectedDone
       text={item.ownerUserId ? t("connectors.personal.done") : connectedSummary(t, item)}
       busy={save.isPending}
       onAdjust={onAdjust}
-      onClose={onClose}
+      onClose={() => {
+        if (offerTaken(offer)) startRoutine(offer);
+        onClose();
+      }}
       primary={
-        waiting && (
-          <Button
-            variant="primary"
-            disabled={save.isPending}
-            loading={save.isPending}
-            onClick={() =>
-              save.mutate(
-                {
-                  id: waiting.id,
-                  label: waiting.label,
-                  tools: reviewDecisions(reviewToolsOf(t, waiting), {}, new Set()),
-                },
-                { onSuccess: onClose },
-              )
-            }
-          >
-            {t("connectFlow.next")}
+        // Done waits for the routine's line to load: pressed now, it would make nothing.
+        offer.loading && !waiting ? (
+          <Button variant="primary" loading>
+            {t("connectFlow.done.ok")}
           </Button>
+        ) : (
+          waiting && (
+            <Button
+              variant="primary"
+              disabled={save.isPending}
+              loading={save.isPending}
+              onClick={() =>
+                save.mutate(
+                  {
+                    id: waiting.id,
+                    label: waiting.label,
+                    tools: reviewDecisions(reviewToolsOf(t, waiting), {}, new Set()),
+                  },
+                  { onSuccess: onClose },
+                )
+              }
+            >
+              {t("connectFlow.next")}
+            </Button>
+          )
         )
       }
     >
       {item.toolsError && <Alert>{t("toolReview.unreadable", { reason: item.toolsError })}</Alert>}
+      <RoutineOfferRow offer={offer} />
     </ConnectedDone>
   );
 }
@@ -1177,6 +1249,40 @@ function catalogReviewTools(t: TFunction, item: ConnectedItem): ReviewTool[] {
 }
 
 /**
+ * A server by address's own instructions (MCP's `instructions`, ADR 0016 addendum of 2026-11-22): a setting whose
+ * switch says whether agents get them, saved with the step's Continuar, then the text as agents read it, as written
+ * (outside words: nothing in them made a link or a chip), in a well, folded as a long text on a page is (`FoldedBody`).
+ * A server that sends none says so, with no switch.
+ */
+function ServerInstructions({
+  server,
+  on,
+  onChange,
+}: {
+  server: CustomServer;
+  on: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const view = instructionsView(t, i18n.language, server, on);
+  if (view.kind === "hidden") return null;
+  if (view.kind === "none") return <SettingRow title={view.title} status={view.status} />;
+  return (
+    <section className="cflow-notes" aria-label={view.title} data-off={view.faded ? true : undefined}>
+      <SettingRow
+        title={view.title}
+        hint={{ name: t("common.about", { label: view.title }), text: view.hint }}
+        status={view.status}
+        htmlFor="cflow-notes-use"
+      >
+        <Switch id="cflow-notes-use" checked={on} onCheckedChange={onChange} />
+      </SettingRow>
+      <FoldedBody body={view.text} plain />
+    </section>
+  );
+}
+
+/**
  * Step 2: "Revise o que o agente pode fazer sozinho".
  * Servers by address: every tool comes classified; the person settles the
  * ones the name can't decide and changes what they want. Ours: read-only, by scope.
@@ -1204,6 +1310,10 @@ function ToolsStep({
   const [labelError, setLabelError] = useState<string | null>(null);
   const tools = server ? reviewToolsOf(t, server) : [];
   const [state, setState] = useState<ToolReviewState>({ levels: {}, decided: new Set() });
+  // Saved with Continuar, beside the tools' levels. An older server leaves it out: on.
+  // Kept from when the step opened: fresher data must not move it under the draft.
+  const [startedOn] = useState(item.server?.useInstructions ?? true);
+  const [useInstructions, setUseInstructions] = useState(startedOn);
   const next = (saved?: CustomServer) => onNext(saved ? fromServer(saved, catalog.data?.connectors ?? []) : item);
   const name = itemName(t, item);
 
@@ -1237,7 +1347,12 @@ function ToolsStep({
       }
     }
     save.mutate(
-      { id: server.id, label: named, tools: reviewDecisions(tools, state.levels, state.decided) },
+      {
+        id: server.id,
+        label: named,
+        tools: reviewDecisions(tools, state.levels, state.decided),
+        ...instructionsSave(server, useInstructions, startedOn),
+      },
       { onSuccess: (saved) => next(saved) },
     );
   };
@@ -1290,6 +1405,7 @@ function ToolsStep({
           ) : (
             <ToolReview name={name} tools={tools} state={state} onChange={setState} onMoved={(m) => toast.show(m)} />
           )}
+          <ServerInstructions server={server} on={useInstructions} onChange={setUseInstructions} />
         </DialogBody>
       </Locked>
       <DialogFooter bar note={reviewNote(t, tools, state)}>

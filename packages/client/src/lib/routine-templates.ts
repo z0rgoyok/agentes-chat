@@ -21,7 +21,7 @@ export type RoutineTemplateArea = (typeof ROUTINE_TEMPLATE_AREAS)[number];
  * of the web's package (`no-dom.test.ts`). What `templateRule` returns is a whole `RecurrenceRule`.
  */
 type Day = "MO" | "TU" | "WE" | "TH" | "FR" | "SA" | "SU";
-interface TemplateRule {
+export interface TemplateRule {
   freq: "hourly" | "daily" | "weekly" | "monthly";
   interval: number;
   times: string[];
@@ -29,14 +29,14 @@ interface TemplateRule {
   byMonthDay?: number[];
 }
 
-const weekdays = (...times: string[]): TemplateRule => ({
+export const weekdays = (...times: string[]): TemplateRule => ({
   freq: "daily",
   interval: 1,
   byWeekday: ["MO", "TU", "WE", "TH", "FR"],
   times,
 });
-const everyDay = (time: string): TemplateRule => ({ freq: "daily", interval: 1, times: [time] });
-const weekly = (day: Day, time: string): TemplateRule => ({
+export const everyDay = (time: string): TemplateRule => ({ freq: "daily", interval: 1, times: [time] });
+export const weekly = (day: Day, time: string): TemplateRule => ({
   freq: "weekly",
   interval: 1,
   byWeekday: [day],
@@ -45,10 +45,11 @@ const weekly = (day: Day, time: string): TemplateRule => ({
 const firstOfMonth = (time: string): TemplateRule => ({ freq: "monthly", interval: 1, byMonthDay: [1], times: [time] });
 
 /** Connector ids (the catalog's): having any one of them is enough. */
-const CRM = ["hubspot", "salesforce", "attio", "close"];
-const HELP_DESK = ["zendesk", "intercom"];
-const PAYMENTS = ["stripe", "mercadopago", "paypal", "square"];
-const ANALYTICS = ["posthog", "mixpanel", "amplitude"];
+export const CRM = ["hubspot", "salesforce", "attio", "close"];
+export const HELP_DESK = ["zendesk", "intercom", "intercom-eu"];
+export const PAYMENTS = ["stripe", "mercadopago", "paypal", "square", "abacatepay", "paddle"];
+export const TASKS = ["linear", "atlassian", "asana", "clickup", "monday", "todoist"];
+export const ANALYTICS = ["posthog", "mixpanel", "amplitude", "himetrica"];
 const SHEETS = ["google-sheets", "airtable"];
 
 export type RoutineTemplate = {
@@ -60,6 +61,8 @@ export type RoutineTemplate = {
   apps?: readonly string[];
   /** Its prompt has a part in brackets only the person can write. */
   blank?: true;
+  /** It reads a connected mailbox (Gmail, Outlook, IMAP), which no catalog connector stands for. */
+  mailbox?: true;
 } & ({ kind: "schedule"; rule: TemplateRule } | { kind: "event"; event: RoutineEvent } | { kind: "email" });
 
 /**
@@ -77,6 +80,7 @@ export const ROUTINE_TEMPLATES = [
   { key: "stalled", area: "sales", kind: "schedule", rule: weekly("MO", "09:00"), apps: CRM },
   { key: "prospects", area: "sales", kind: "schedule", rule: weekly("MO", "08:00"), report: "always" },
   { key: "newEmail", area: "support", kind: "email", report: "always" },
+  { key: "inbox", area: "support", kind: "schedule", rule: weekdays("09:00", "14:00"), mailbox: true },
   { key: "tickets", area: "support", kind: "schedule", rule: weekdays("09:00", "14:00"), apps: HELP_DESK },
   { key: "themes", area: "support", kind: "schedule", rule: weekly("FR", "16:00"), report: "always", apps: HELP_DESK },
   { key: "mentions", area: "marketing", kind: "schedule", rule: weekdays("09:00") },
@@ -113,6 +117,7 @@ export const ROUTINE_TEMPLATES = [
     apps: ["sentry"],
   },
   { key: "prs", area: "tech", kind: "event", event: "github.pr_opened", report: "always", apps: ["github"] },
+  { key: "openPrs", area: "tech", kind: "schedule", rule: weekdays("10:00"), apps: ["github"] },
 ] as const satisfies readonly RoutineTemplate[];
 
 export type RoutineTemplateItem = (typeof ROUTINE_TEMPLATES)[number];
@@ -145,7 +150,7 @@ export interface RoutineTemplateOption {
 }
 
 function needsText(t: TFunction, template: RoutineTemplateItem, apps: ConnectorDef[]) {
-  if (template.kind === "email") return t("routines.presets.needsMailbox");
+  if (template.kind === "email" || "mailbox" in template) return t("routines.presets.needsMailbox");
   if (apps.length === 0) return null;
   const names = apps.map((d) => connectorName(t, d)).join(", ");
   return apps.length === 1

@@ -57,6 +57,17 @@ describe("Auditoria in words (web and phone)", () => {
     expect(set({})).toBe("audit.change.pattern(audit.change.verb.other,audit.change.area.other)");
   });
 
+  test("a Vault change to many items at once says how many; one item's says none", () => {
+    const person = { type: "person" as const, id: "u1", name: "Bia" };
+    const said = (action: string, details: Record<string, unknown>) =>
+      auditSentence(t, row({ actor: person, action, target: { type: "vault", id: null }, details }), "en").text;
+    expect(said("vault.items_changed", { fields: ["access"], count: 1200 })).toBe(
+      "audit.change.vault.items_changed(1200)",
+    );
+    expect(said("vault.items_deleted", { count: 3 })).toBe("audit.change.vault.items_deleted(3)");
+    expect(said("vault.item_deleted", { kind: "login" })).toBe("audit.change.vault.item_deleted");
+  });
+
   test("a billing hold's reason is said in words, never as its code; any other reason as written", () => {
     expect(auditReason(t, standing({ from: "active", to: "hold", reason: "unpaid" }))).toBe(
       "standing.notification.billing.unpaid",

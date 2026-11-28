@@ -26,6 +26,8 @@ import {
 
 export interface FakeReply {
   chunks: string[];
+  /** Progress notes told apart from the text (`StreamOptions.onNote`), before it. */
+  notes?: string[];
   /** Tool calls appended after the text (stop reason becomes `tool_use` unless set). */
   toolUses?: { id?: string; name: string; input: Record<string, unknown> }[];
   /** Extra provider blocks to return (e.g. a fake thinking block), placed first. */
@@ -108,7 +110,7 @@ export function createFakeProvider(
     calls,
     countCalls,
     imageCalls,
-    async stream(request, { apiKey, workspaceId, endpoint, session, onDelta }): Promise<ModelResult> {
+    async stream(request, { apiKey, workspaceId, endpoint, session, onDelta, onNote }): Promise<ModelResult> {
       calls.push({
         request: structuredClone({ ...request, signal: undefined }),
         apiKey,
@@ -121,6 +123,7 @@ export function createFakeProvider(
       const lastMessage = request.messages.at(-1);
       const last = lastMessage ? textOf(lastMessage.content) : "";
       const r = scripted ?? { chunks: ["Echo: ", last.slice(0, 40), "."] };
+      for (const note of r.notes ?? []) onNote?.(note);
       let streamed = 0;
       for (const [i, chunk] of r.chunks.entries()) {
         await Promise.resolve();

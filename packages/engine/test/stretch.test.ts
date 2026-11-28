@@ -24,7 +24,8 @@ import {
   stretchCardOf,
 } from "../src";
 import { deliverNotice } from "../src/delivery";
-import { refusedAtLimit } from "../src/stretch";
+import { retryDelayMs } from "../src/outbox";
+import { pauseStretch, refusedAtLimit } from "../src/stretch";
 import { addMember, type Fixture, setup } from "./fixtures";
 
 /**
@@ -702,4 +703,25 @@ test("Continuar while the agent still works there: that run writes from hop 1 in
     .where(eq(schema.agentRuns.id, handed?.runId ?? ""));
   expect(next).toMatchObject({ triggerMessageId: card.id, stretchId, status: "queued" });
   expect(await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, STRETCH_JOB))).toEqual([]);
+});
+
+test("a held wake-up's card keeps trying for hours: a database outage doesn't leave the work stopped with no card", async () => {
+  f = await setup({});
+  await pauseStretch(f.db, f.org.id, {
+    stretchId: crypto.randomUUID(),
+    channelId: f.general.id,
+    threadId: null,
+    authorAgentId: f.agent.id,
+    runId: null,
+    hop: 2,
+    agentId: f.agent.id,
+    messageId: null,
+    trigger: "mention",
+    stop: { reason: "runs", limit: STRETCH.runs },
+  });
+  const [job] = await f.db.select().from(schema.outbox).where(eq(schema.outbox.kind, STRETCH_JOB));
+  if (!job) throw new Error("no card job");
+  let window = 0;
+  for (let attempt = 1; attempt < job.maxAttempts; attempt++) window += retryDelayMs(attempt);
+  expect(window).toBeGreaterThanOrEqual(3 * 3600_000);
 });

@@ -1,5 +1,6 @@
 import {
   DESKTOP_PROTOCOL,
+  DESKTOP_STARTING_PROTOCOL,
   DESKTOP_SWITCH_PROTOCOL,
   type DesktopMode,
   type PubSub,
@@ -111,6 +112,7 @@ export async function desktopTarget(
     machineId: machine.id,
     ...(agent.scope ? { agent: agent.scope } : { unmade: true }),
     ...(kind === "desktop" && machine.protocol >= DESKTOP_SWITCH_PROTOCOL ? { switches: true } : {}),
+    ...(kind === "desktop" && machine.protocol >= DESKTOP_STARTING_PROTOCOL ? { saysStarting: true } : {}),
     ...(kind === "terminal" && machine.protocol >= TERMINAL_CWD_PROTOCOL ? { takesCwd: true } : {}),
     ...(kind === "terminal" && machine.protocol >= TERMINAL_KEEP_PROTOCOL ? { keeps: true } : {}),
   };

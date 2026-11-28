@@ -1,4 +1,6 @@
 import type { PeerUser } from "../awareness";
+import type { Dash, Gradient, Shadow } from "../effects";
+import type { FontRef, FontWeight } from "../fonts";
 import type { RichDoc } from "../rich/types";
 import type { Box, Point } from "./geometry";
 
@@ -77,11 +79,25 @@ export const STROKE_WIDTH = { min: 1, max: 24 } as const;
 /** A rectangle's corner radius, in world units. */
 export const CORNER_RADIUS = { min: 0, max: 200 } as const;
 
+/**
+ * How a shape's text is drawn (text boxes, notes, a shape's label): ADR 0220 §3 gives every one of them a font, any
+ * weight, vertical alignment, padding, line height, letter spacing and capitals.
+ */
 export interface CanvasTextStyle {
+  /** A catalog id or one of the file's fonts; the canvas's own font when left out. */
+  font?: FontRef;
   size?: number;
   color?: string;
   align?: "left" | "center" | "right";
-  weight?: 400 | 600 | 700;
+  valign?: "top" | "middle" | "bottom";
+  weight?: FontWeight;
+  /** Line height as a multiple of the size. */
+  lineHeight?: number;
+  /** Letter spacing in thousandths of the size. */
+  tracking?: number;
+  caps?: boolean;
+  /** Room between the shape's edge and its text, in canvas units. */
+  padding?: number;
 }
 
 /** How a generated image came to be (ADR 0197). */
@@ -98,12 +114,12 @@ export interface ImageGen {
 }
 
 /**
- * A shape as plain data. Common fields first (`by` and `hidden` included); the rest belong to some types only:
- * image `asset`, `nw`, `nh` (natural size), `alt`, `gen`, `crop`; note `color` and `text`; text `style` and `text`;
- * frame `name`, `fill`; shape `kind`, `fill`, `stroke`, `strokeWidth`, `radius` (drawn on rectangles) and `text` (its
- * label); arrow `from`, `to`, `label`, `dashed`, `route`, `heads`, `stroke`, `strokeWidth`; draw `points`, `stroke`,
- * `strokeWidth`, `tool`; html and file `artifact` (a Drive file id); pending `request`, `index`, `status`, `error`,
- * `prompt` (its `by` is who asked).
+ * A shape as plain data. Common fields first (`by`, `hidden` and `group` included); the rest belong to some types
+ * only: image `asset`, `nw`, `nh` (natural size), `alt`, `gen`, `crop`, `radius`, `shadow`; note `color`, `style` and
+ * `text`; text `style` and `text`; frame `name`, `fill`; shape `kind`, `fill`, `gradient`, `stroke`, `strokeWidth`,
+ * `dash`, `radius` (drawn on rectangles), `shadow`, `style` and `text` (its label); arrow `from`, `to`, `label`,
+ * `dashed`, `route`, `heads`, `stroke`, `strokeWidth`; draw `points`, `stroke`, `strokeWidth`, `tool`; html and file
+ * `artifact` (a Drive file id); pending `request`, `index`, `status`, `error`, `prompt` (its `by` is who asked).
  */
 export interface ShapeView {
   id: string;
@@ -121,6 +137,8 @@ export interface ShapeView {
   by?: PeerUser;
   /** Hidden from view (the layers' eye): kept, never drawn. */
   hidden?: boolean;
+  /** The group it holds together with (ADR 0220 §3). */
+  group?: string;
   text?: RichDoc;
   asset?: string;
   nw?: number;
@@ -135,6 +153,9 @@ export interface ShapeView {
   stroke?: string;
   strokeWidth?: number;
   radius?: number;
+  gradient?: Gradient;
+  dash?: Dash;
+  shadow?: Shadow;
   from?: ArrowEnd;
   to?: ArrowEnd;
   label?: string;

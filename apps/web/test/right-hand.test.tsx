@@ -45,10 +45,11 @@ const click = async (el: Element, rounds = 6) => {
 };
 
 describe("the right hand's row in the sidebar", () => {
-  test("the first row of Agentes, above the pinned agents, with its label as a tag; never under Mensagens diretas", async () => {
+  test("the first row of Mensagens diretas, its label as the tag after its name; a favorite agent stays in Favoritos", async () => {
     const state = withRightHand(seedState());
     seedDm(state, { type: "agent", id: LODI_ID }, { ago: 2 });
     seedDm(state, { type: "agent", id: ADA_ID }, { ago: 5 });
+    seedDm(state, { type: "person", id: "u-joao" }, { ago: 1 });
     state.sidebarView = {
       agentSort: "workspace",
       showAllAgents: false,
@@ -57,31 +58,31 @@ describe("the right hand's row in the sidebar", () => {
     await go(state);
     const row = pinRow();
     expect(row).toBeTruthy();
-    const agents = nav().querySelector<HTMLElement>('[data-section="agents"]');
-    const body = agents?.querySelector(".sidebar__section-body");
+    const dms = nav().querySelector<HTMLElement>('[data-section="people"]');
+    const body = dms?.querySelector(".sidebar__section-body");
+    // First, though João wrote later.
     expect(body?.firstElementChild).toBe(row);
-    expect(nav().querySelector('[data-section="people"]')?.contains(row)).toBe(false);
     expect(row?.getAttribute("href")).toBe(`/org/${ORG_ID}/dm/agent/${LODI_ID}`);
     expect(row?.querySelector(".sidebar__item-label")?.textContent).toBe("Lodi");
-    expect(row?.querySelector(".sidebar__item-role")?.textContent).toBe("seu braço direito");
-    expect(row?.querySelector(".sidebar__item-role")?.classList.contains("ac-tag")).toBe(true);
-    const dms = [...nav().querySelectorAll<HTMLElement>("[data-agent-row]")].map((r) => r.dataset.agentRow);
-    expect(dms[0]).toBe(ADA_ID);
-    expect(dms).not.toContain(LODI_ID);
-    // Closed, Agentes still shows it (the stylesheet keeps `[data-right-hand]` in sight).
-    await click(agents?.querySelector(".sidebar__section-toggle") as HTMLElement);
-    expect(agents?.querySelector(".sidebar__section")?.getAttribute("data-open")).toBe("false");
+    expect(row?.querySelector(".sidebar__kind")?.textContent).toBe("seu braço direito");
+    expect(row?.querySelector(".sidebar__kind")?.classList.contains("ac-tag")).toBe(true);
+    const favorites = nav().querySelector<HTMLElement>('[data-section="favorites"]');
+    expect(favorites?.querySelector(`[data-agent-row="${ADA_ID}"]`)).toBeTruthy();
+    expect(favorites?.contains(row as Node)).toBe(false);
+    // Closed, Mensagens diretas still shows it (the stylesheet keeps `[data-right-hand]` in sight).
+    await click(dms?.querySelector(".sidebar__section-toggle") as HTMLElement);
+    expect(dms?.querySelector(".sidebar__section")?.getAttribute("data-open")).toBe("false");
     expect(body?.firstElementChild).toBe(pinRow());
   });
 
-  test("alone in AGENTES, it offers no first agent to a member who can't create one", async () => {
+  test("with no other agent, it offers no first agent to a member who can't create one", async () => {
     const state = withRightHand(seedState({ agents: [] }));
     const org = state.me?.organizations[0];
     if (org) org.role = "member";
     await go(state);
-    const agents = nav().querySelector<HTMLElement>('[data-section="agents"]');
-    expect(agents?.querySelector(".sidebar__section-body")?.firstElementChild).toBe(pinRow());
-    expect(agents?.textContent).not.toContain("Criar o primeiro agente");
+    const dms = nav().querySelector<HTMLElement>('[data-section="people"]');
+    expect(dms?.querySelector(".sidebar__section-body")?.firstElementChild).toBe(pinRow());
+    expect(dms?.textContent).not.toContain("Novo agente");
   });
 
   test("Novo until it is first opened, then its label; its DM's unread count when it answered", async () => {
@@ -231,11 +232,13 @@ describe("the right hand elsewhere", () => {
     await renderApp(`/org/${ORG_ID}/dm/agent/${LODI_ID}`, { api });
     await settle(8);
     const text = () => document.querySelector(".channel__messages")?.textContent;
-    expect(text()).toContain("Oi, eu sou o Lodi");
+    // The intro lands with the rows, never alone over their skeleton.
+    expect(text()).not.toContain("Oi, eu sou o Lodi");
     expect(text()).not.toContain("Como prefere que eu fale com você?");
     expect(screen().queryByRole("button", { name: "Montar o time" })).toBeNull();
     await act(async () => arrive());
     await settle(8);
+    expect(text()).toContain("Oi, eu sou o Lodi");
     expect(text()).toContain("Você acabou de entrar na Acme.");
     expect(text()).not.toContain("Como prefere que eu fale com você?");
   });

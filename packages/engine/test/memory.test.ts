@@ -20,6 +20,7 @@ import {
   createContextToolSource,
   createFakeJudge,
   createToolGateway,
+  currentThreadSummary,
   decideApproval,
   decideProposal,
   deleteContextItem,
@@ -45,6 +46,7 @@ import {
   reflectThread,
   retrieveForRun,
   revokeConnection,
+  SUMMARY_COMING_NOTE,
   similarity,
   type ToolContext,
   undoAgentAction,
@@ -126,6 +128,19 @@ describe("guardrails", () => {
     ]) {
       expect([text, file(text)]).toEqual([text, false]);
     }
+  });
+
+  test("a long run of JWT starts is read in time, and a JWT it runs into or follows is still found", () => {
+    // Each took seconds when every `eyJ` after a `-` in a long run read the run to its end.
+    const run = "eyJ-".repeat(50_000);
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+    const file = (text: string) => holdsSecret(new TextEncoder().encode(text));
+    const started = performance.now();
+    expect(looksLikeSecret(run)).toBe(false);
+    expect(file(run)).toBe(false);
+    expect(looksLikeSecret(`${run} ${jwt}`)).toBe(true);
+    expect(file(`${run}${jwt}`)).toBe(true);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 
   test("permission-bending text is the judge's call (any language); a failing judge never blocks memory", async () => {
@@ -242,6 +257,44 @@ describe("summaries", () => {
       ["summary", null],
       ["summary", null],
     ]);
+  });
+});
+
+describe("a long thread's summary beside the turn", () => {
+  test("the turn starts without waiting for it: the one kept stands in, or the agent is told get_summary reads it", async () => {
+    let release = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let n = 0;
+    f = await setup({
+      reply: (req) =>
+        req.system.toString().includes("short summaries")
+          ? { chunks: [`Summary v${++n}`], hold: held }
+          : { chunks: ["ok"] },
+      contextTools: true,
+    });
+    await grantScopes(f.db, f.org.id, f.agent.id, [{ connectionId: null, scope: "context:read" }]);
+    const root = await post(f, "planning the launch");
+    for (let i = 0; i < 32; i++) await post(f, `detail ${i}`, root.id);
+    await post(f, "@dev what did we decide?", root.id);
+    // Before, the turn waited for the summary's model call (6 s at p90 for Claude Code runs in production); held
+    // here until released, so a turn that waited would never end.
+    const started = performance.now();
+    await drainOutbox(f.db, f.handlers);
+    expect(performance.now() - started).toBeLessThan(5000);
+    const asked = () => f.provider.calls.filter((c) => !systemText(c.request.system).includes("short summaries"));
+    const first = systemText(asked().at(-1)?.request.system ?? "");
+    expect(first).toContain(SUMMARY_COMING_NOTE);
+    expect(first).not.toContain("# Earlier in this thread (summary)");
+    // Written beside the turn: the next one has it at once.
+    release();
+    for (let i = 0; i < 50 && !(await currentThreadSummary(f.db, f.org.id, root.id)); i++) await Bun.sleep(20);
+    await post(f, "@dev and the date?", root.id);
+    await drainOutbox(f.db, f.handlers);
+    expect(systemText(asked().at(-1)?.request.system ?? "")).toContain("# Earlier in this thread (summary)");
+    // The turn's and its own get_summary share one write: one summary per new message, never two at once.
+    expect(n).toBeLessThanOrEqual(2);
   });
 });
 
@@ -1020,10 +1073,18 @@ describe("proposals for teammates (one card, a row per agent and kind of change)
     );
 
   /**
-   * @dev's run on a message in #general from Ana (or `userId`), or from another agent (no person behind it). The message
+   * @dev's run on a message in #general from Ana (or `userId`), or from another agent (no person behind it). The channel
    * relays outside content, so changes wait on their card; `ownWords`: they apply at once when the person may decide.
    */
   async function runOn(author: "person" | "agent", userId = f.owner.id, ownWords = false): Promise<ToolContext> {
+    if (!ownWords)
+      await insertMessage(f.db, {
+        orgId: f.org.id,
+        channelId: f.general.id,
+        author: { type: "agent", agentId: f.agent.id, runId: null, hop: 1, stretchId: null },
+        body: "The vendor page says the team changed.",
+        meta: { readOutside: true },
+      });
     const trigger = await insertMessage(f.db, {
       orgId: f.org.id,
       channelId: f.general.id,
@@ -1032,7 +1093,6 @@ describe("proposals for teammates (one card, a row per agent and kind of change)
           ? { type: "person", userId }
           : { type: "agent", agentId: f.agent.id, runId: crypto.randomUUID(), hop: 1 },
       body: "muda o time",
-      ...(ownWords ? {} : { meta: { readOutside: true } }),
     });
     const [run] = await f.db
       .insert(schema.agentRuns)
@@ -1458,7 +1518,7 @@ describe("proposals for teammates (one card, a row per agent and kind of change)
     f = await setup();
     const ada = await teammate("ada");
     const lia = await teammate("lia");
-    const atlas = await teammate("atlas", { instructions: "Seja breve.\n\n## Learned\n- Outra." });
+    const atlas = await teammate("atlas", { instructions: "Seja breve.\n\n## Tom\n- Outra." });
     const { proposals } = await proposeFor({
       target: "agent_instructions",
       agentIds: [ada.id, lia.id, atlas.id],
@@ -1597,6 +1657,21 @@ describe("proposals for teammates (one card, a row per agent and kind of change)
     expect(unknown).toMatchObject({
       isError: true,
       content: expect.stringContaining(`Unknown app: Jira. Apps you can name: connector:${linear?.id} (Linear),`),
+    });
+    // The asker's own connection: not given through a card, and the refusal says who gives it and where.
+    await f.db.insert(schema.connectorConnections).values({
+      orgId: f.org.id,
+      connector: "custom:crm",
+      toolPrefix: "crm",
+      label: "Acme CRM",
+      serverUrl: "https://crm.example.com/mcp",
+      authType: "none",
+      ownerUserId: f.owner.id,
+    });
+    const theirs = await propose(ctx, { target: "agents", access: [{ agent: "@ada", app: "Acme CRM", on: true }] });
+    expect(theirs).toMatchObject({
+      isError: true,
+      content: expect.stringContaining("Acme CRM: the person asking connected it as their own"),
     });
     const out = await propose(ctx, {
       target: "agents",

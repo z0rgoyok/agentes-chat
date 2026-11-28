@@ -264,6 +264,39 @@ test("a settings row a member can't decide: only they send it, once, and not onc
   expect((await as(member)(`/proposals/${id}/ask`, { json: {} })).status).toBe(409);
 });
 
+test("a settings row on a person's own AI names that person as who decides it, never the admins", async () => {
+  t = await createTestServer();
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId, agentId } = await seedOrg(owner);
+  const member = await joinByInvitation(t, owner, orgId, "bia@example.com");
+  const [bia] = await t.db.select().from(schema.users).where(eq(schema.users.email, "bia@example.com"));
+  const {
+    proposals: [row],
+  } = await proposeSettings(
+    { db: t.db },
+    {
+      orgId,
+      agentId,
+      targets: [{ agentId, lines: [{ field: "budget", to: 20_000_000_000 }] }],
+      rationale: "opus",
+      requesterId: bia?.id ?? "",
+    },
+  );
+  // As `settingLines` writes the right hand's model for someone who chose their own AI.
+  await t.db
+    .update(schema.contextProposals)
+    .set({ settings: [{ field: "model", from: null, to: "opus", person: bia?.id ?? "" }] })
+    .where(eq(schema.contextProposals.id, row?.id ?? ""));
+  const seen = (await (await member(`/api/app/organizations/${orgId}/proposals?ids=${row?.id}`)).json()) as {
+    proposals: Record<string, unknown>[];
+  };
+  expect(seen.proposals[0]).toMatchObject({
+    requestedBy: { userId: bia?.id },
+    decider: { type: "user", userId: bia?.id },
+  });
+});
+
 test("the server's own lessons reach people without their template, a proposal's reason included", async () => {
   t = await createTestServer();
   const owner = browser(t);

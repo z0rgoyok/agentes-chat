@@ -1,5 +1,5 @@
 import { hoverPointer, movesByKeys, trackInput } from "./device";
-import { EDGE_ROOM, placeTip } from "./floating";
+import { EDGE_ROOM, placeTip, TIP_GAP } from "./floating";
 
 /** How long a mouse or a pen rests on an element before its tip opens. */
 export const TITLE_TIP_OPEN_MS = 500;
@@ -96,6 +96,15 @@ export function installTitleTips(doc: Document = document): () => void {
         box.bottom = pointer.y + 20;
       }
     }
+    // A column of tiles at the window's edge (the sidebar's, `data-tip-side="right"`): beside it, never over the next.
+    if (anchor.closest('[data-tip-side="right"]')) {
+      tip.dataset.side = "right";
+      tip.style.left = `${at.right + TIP_GAP}px`;
+      const middle = (at.top + at.bottom - tip.offsetHeight) / 2;
+      tip.style.top = `${Math.max(EDGE_ROOM, Math.min(middle, win.innerHeight - EDGE_ROOM - tip.offsetHeight))}px`;
+      return;
+    }
+    delete tip.dataset.side;
     // Its layout size: the entrance's transform would measure it smaller.
     const to = placeTip(box, { width: tip.offsetWidth, height: tip.offsetHeight }, "center", win.innerWidth);
     tip.style.left = `${to.left}px`;

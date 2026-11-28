@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
-import { insertMessage, openAgentDm } from "@agenteschat/engine";
+import { insertMessage, openAgentDm, traceHandOff } from "@agenteschat/engine";
 import { browser, createTestServer, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer;
@@ -140,4 +140,75 @@ test("an opened question: its part of the agents' DM, to whoever reads the conve
   const missing = `/api/app/organizations/${orgId}/channels/${channelId}/consultations/${crypto.randomUUID()}`;
   const other = await owner(missing);
   expect(other.status).toBe(404);
+});
+
+test("a hand-off opens from the DM of the agent it was handed to, where it left its trace", async () => {
+  const owner = browser(t);
+  const me = ((await (await signUp(owner, "owner@example.com")).json()) as { user: { id: string } }).user;
+  const { orgId, channelId, agentId, credentialId } = await seedOrg(owner);
+  const infra = (await (
+    await owner(`/api/app/organizations/${orgId}/agents`, {
+      json: { name: "Infra", handle: "infra", instructions: "Cuida do deploy e dos servidores.", credentialId },
+    })
+  ).json()) as { id: string };
+  // The owner has a DM with Infra: the trace goes only into one they have.
+  await owner(`/api/app/organizations/${orgId}/dms`, { json: { agentId: infra.id } });
+  // The owner asked Dev in the channel; Dev's run handed it to Infra.
+  const asked = await insertMessage(t.db, {
+    orgId,
+    channelId,
+    author: { type: "person", userId: me.id },
+    body: "@dev pede pro Infra publicar o staging",
+  });
+  const [asker] = await t.db
+    .insert(schema.agentRuns)
+    .values({
+      orgId,
+      agentId,
+      channelId,
+      threadRootId: asked.id,
+      triggerMessageId: asked.id,
+      trigger: "mention",
+      hop: 0,
+    })
+    .returning();
+  if (!asker) throw new Error("no asking run");
+  const dm = await openAgentDm(t.db, orgId, agentId, infra.id);
+  const note = await insertMessage(t.db, {
+    orgId,
+    channelId: dm.id,
+    author: { type: "agent", agentId, runId: asker.id, hop: 1 },
+    body: "Publica o staging a partir da main.",
+  });
+  const [row] = await t.db
+    .insert(schema.agentConsultations)
+    .values({
+      orgId,
+      kind: "note",
+      askerRunId: asker.id,
+      askerAgentId: agentId,
+      targetAgentId: infra.id,
+      channelId: dm.id,
+      messageId: note.id,
+      waitId: "w3",
+      question: "Publica o staging a partir da main.",
+      chain: [agentId],
+      expiresAt: new Date(Date.now() + 60_000),
+    })
+    .returning();
+  if (!row) throw new Error("no hand-off");
+  const trace = await traceHandOff(t.db, row);
+  expect(trace).not.toBeNull();
+  const opened = await owner(`/api/app/organizations/${orgId}/channels/${trace?.channelId}/consultations/${row.id}`);
+  expect(opened.status).toBe(200);
+  expect(((await opened.json()) as Opened).messages.map((m) => m.body)).toEqual([
+    "Publica o staging a partir da main.",
+  ]);
+  // Another DM of the owner's, with no trace of it: not found.
+  const devDm = (await (await owner(`/api/app/organizations/${orgId}/dms`, { json: { agentId } })).json()) as {
+    channelId: string;
+  };
+  expect(
+    (await owner(`/api/app/organizations/${orgId}/channels/${devDm.channelId}/consultations/${row.id}`)).status,
+  ).toBe(404);
 });

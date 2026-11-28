@@ -5,7 +5,7 @@ import type { AppLocale } from "@agenteschat/i18n/locale";
 import { plainLines } from "@agenteschat/ui/markdown";
 import { runAuthority } from "./authority";
 import { confidentialThreadSql, threadIsConfidential } from "./confidential";
-import { answersHandOffs, consultationOrigin } from "./consultations";
+import { answersHandOffs, consultationOrigin, settleHandedWorkTrace } from "./consultations";
 import { getChannelCached } from "./context";
 import type { ContextDeps } from "./context/summaries";
 import { deliverNotice, publishDelivery } from "./delivery";
@@ -16,6 +16,7 @@ import { cutMarked, cutText } from "./format";
 import { linkIssueToWork, setWorkIssueState } from "./issues";
 import { deliverLive, renderSteered } from "./live-steer";
 import { messageLink } from "./message-links";
+import { ownTyped } from "./message-origin";
 import { insertMessage, type Message, messageView, replyExcerpt } from "./messages";
 import { missionOfThread } from "./missions";
 import { enqueue } from "./outbox";
@@ -30,8 +31,17 @@ import { ago, stepLine } from "./talker-snapshot";
 import { nameConversation } from "./thread-assess";
 import { maskCredentials } from "./tool-detail";
 
-const { agentConsultations, agentQuestions, agentRunSteps, agentWorks, agentRuns, messages, threadFollows, users } =
-  schema;
+const {
+  agentConsultations,
+  agentQuestions,
+  agentRunSteps,
+  agentWorks,
+  agentRuns,
+  channels,
+  messages,
+  threadFollows,
+  users,
+} = schema;
 
 export type WorkRow = typeof agentWorks.$inferSelect;
 export type WorkPlanItem = schema.WorkPlanItem;
@@ -71,6 +81,8 @@ export const WORK_JOB_YIELD_MS = 60 * 60_000;
 
 export const WORK_CHECK_IN_JOB = "agent_work.check_in";
 export const WORK_FOLLOW_UP_JOB = "agent_work.follow_up";
+/** A work ended in a channel with a responsible agent: the lead may take its next step (`tellChannelLead`). */
+export const CHANNEL_LEAD_JOB = "channel.lead_turn";
 export const WORK_IN_BACKGROUND_TOOL = "work_in_background";
 export const POST_UPDATE_TOOL = "post_update";
 export const STEER_WORK_TOOL = "steer_work";
@@ -718,7 +730,7 @@ export async function moveRun(
   const line = await deps.db.transaction(async (tx) => {
     await tx
       .update(agentRuns)
-      .set({ channelId: to.channelId, threadRootId: run.triggerMessageId, updatedAt: now })
+      .set({ channelId: to.channelId, threadRootId: run.triggerMessageId, replyInThread: false, updatedAt: now })
       .where(eq(agentRuns.id, run.id));
     if (run.workId)
       await tx
@@ -1154,12 +1166,30 @@ export async function endWork(
           ? "continued"
           : "ended",
     );
+    // A channel's responsible agent may take the next step (ADR 0095): judged in a job, off this run's ending. Work
+    // handed off goes back to the agent that handed it (`reportHandOffs`).
+    if ((status === "done" || status === "failed") && !work.consultationId) {
+      const [lead] = await tx
+        .select({ id: channels.leadAgentId })
+        .from(channels)
+        .where(and(eq(channels.orgId, work.orgId), eq(channels.id, work.channelId)));
+      if (lead?.id && lead.id !== work.agentId)
+        await enqueue(tx, {
+          orgId: work.orgId,
+          kind: CHANNEL_LEAD_JOB,
+          payload: { workId: work.id, runId: run.id },
+          // Per end: Continuar ends it again in another run.
+          dedupeKey: `${CHANNEL_LEAD_JOB}:${work.id}:${run.id}`,
+          maxAttempts: 3,
+        });
+    }
     const released = await releaseQueuedWorks(tx, work.orgId);
     return { work: closed ?? work, end, released, status };
   });
   if (!ended) return null;
   if (ended.end && deps.pubsub) await publishMessageCreated(deps.pubsub, messageView(ended.end));
   if (ended.work.issueId) await setWorkIssueState(deps, ended.work, { ended: ended.status }).catch(() => null);
+  await settleHandedWorkTrace(deps, ended.work).catch(() => {});
   await announceWork(deps.pubsub, db, ended.work.orgId, ended.work.id);
   for (const id of ended.released) await announceWork(deps.pubsub, db, ended.work.orgId, id);
   return ended.work;
@@ -1275,9 +1305,12 @@ export async function followUpWork(
     const asks = await tx
       .select({
         id: messages.id,
+        authorType: messages.authorType,
         userId: messages.authorUserId,
         channelId: messages.channelId,
         threadId: messages.threadId,
+        origin: messages.origin,
+        meta: messages.meta,
       })
       .from(messages)
       .where(
@@ -1345,6 +1378,8 @@ export async function followUpWork(
               ...(work.title ? { title: work.title } : {}),
               ...(input.stopped ? { stopped: "1" } : {}),
               ...(home ? {} : { away: "1" }),
+              // Not all typed in our apps (ADR 0250): the run it wakes answers them, never learns from them as theirs.
+              ...(theirs.every(ownTyped) ? {} : { relayed: "1" }),
             },
           },
           trigger: run.trigger === "dm" ? "dm" : "mention",

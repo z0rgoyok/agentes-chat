@@ -261,6 +261,9 @@ const TEAM_STATUS_PERSONAL = {
   title: "Check on your agents",
 };
 
+const ONLY_ONE_READER =
+  "Only where one person alone reads you: your private conversation with them, or a routine or widget of theirs that only they see (a widget on their Home or a private board of theirs).";
+
 /**
  * `team_status`: the tool of "what's going on". The right hand's, in the core group so it is there on the first turn
  * of any brain, and only in the person's own DM with it: in a channel, others read the reply. A supervisor's (an agent
@@ -276,7 +279,7 @@ export function createTeamStatusToolSource(): ToolSource {
     describe: () => ({ title: "Check on the team" }),
     async execute(_input, ctx) {
       const person = await rightHandReader(ctx);
-      if (!person) return { content: "Only in your private conversation with a person.", isError: true };
+      if (!person) return { content: ONLY_ONE_READER, isError: true };
       return { content: await teamStatus(ctx.db, ctx.orgId, person) };
     },
   };

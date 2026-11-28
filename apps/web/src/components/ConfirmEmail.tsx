@@ -40,7 +40,7 @@ export function ConfirmEmailScreen({ email }: { email: string }) {
   const leave = useSignOut();
   const resend = useResend(email);
   const [account, setAccount] = useOpenParam("account");
-  useQuery({ ...meQuery(useApi()), refetchInterval: OPENED_POLL_MS });
+  const undelivered = useQuery({ ...meQuery(useApi()), refetchInterval: OPENED_POLL_MS }).data?.user.emailUndelivered;
   const [late, setLate] = useState(false);
   useEffect(() => {
     const timer = window.setTimeout(() => setLate(true), SPAM_HINT_MS);
@@ -75,10 +75,16 @@ export function ConfirmEmailScreen({ email }: { email: string }) {
         <button type="button" className="auth__quiet" disabled={busy} onClick={() => setAccount("email")}>
           {t("auth.confirm.wrongAddress")}
         </button>
-        {late && (
-          <p className="auth__fine" role="status">
-            {t("auth.flow.sentLead")}
+        {undelivered ? (
+          <p className="auth__fine" role="alert">
+            {t(`auth.confirm.undelivered.${undelivered}`, { email })}
           </p>
+        ) : (
+          late && (
+            <p className="auth__fine" role="status">
+              {t("auth.flow.sentLead")}
+            </p>
+          )
         )}
       </div>
       <Suspense fallback={null}>
@@ -105,7 +111,11 @@ export function ConfirmEmailBanner() {
         <Icon name="mail" size={20} className="outage__icon" />
         <span className="outage__text">
           <b>{t("auth.confirm.banner")}</b>
-          <span>{t("auth.confirm.bannerSub", { email: me.user.email })}</span>
+          <span>
+            {me.user.emailUndelivered
+              ? t(`auth.confirm.undelivered.${me.user.emailUndelivered}`, { email: me.user.email })
+              : t("auth.confirm.bannerSub", { email: me.user.email })}
+          </span>
         </span>
         <span className="outage__acts">
           <Button size="sm" disabled={resend.isPending} onClick={() => setAccount("email")}>

@@ -13,3 +13,19 @@ export function tolerateForeignDomEdits() {
     return insertBefore.call(this, node, before?.parentNode === this ? before : null) as T;
   };
 }
+
+/**
+ * Browser autofill and password managers fire `keydown`/`keyup` events with no `key` (a plain `Event`): a shortcut
+ * listener reading `e.key.toLowerCase()` then throws and takes the screen down. Such an event is no key press, so it
+ * stops here, before any other listener (capture on window, registered first).
+ */
+export function dropKeylessKeyEvents(target: Window = window) {
+  for (const type of ["keydown", "keyup"])
+    target.addEventListener(
+      type,
+      (e) => {
+        if (typeof (e as KeyboardEvent).key !== "string") e.stopImmediatePropagation();
+      },
+      true,
+    );
+}

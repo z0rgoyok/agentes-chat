@@ -155,12 +155,23 @@
   grid-area: 1 / 3;
   white-space: nowrap;
 }
-/* The row's menu ends the name's line. A row with none keeps its room, so every row's time ends on one edge: as wide
-   as the button less the plate that reaches past the row's padding line. */
-.members-person__menu {
+/* The message button, then "⋯" when the list has any, end the name's line. Each keeps its place on a row without it,
+   so every row's time ends on one edge, and the last plate reaches past the row's padding line, its icon on it. */
+.members-person > .members-person__menu {
   grid-area: 1 / 4;
-  min-width: calc(var(--control-h-sm) - var(--ghost-plate));
-  margin-inline-start: calc(-1 * var(--space-1));
+  display: grid;
+  grid-template-columns: var(--control-h-sm);
+  column-gap: var(--space-2);
+  margin-inline: calc(-1 * var(--space-1)) calc(-1 * var(--ghost-plate));
+}
+.members-person > .members-person__menu--two {
+  grid-template-columns: repeat(2, var(--control-h-sm));
+}
+.members-person__dm {
+  grid-column: 1;
+}
+.members-person__more {
+  grid-column: 2;
 }
 .members-person > .members-roles {
   grid-area: 3 / 2 / auto / -1;

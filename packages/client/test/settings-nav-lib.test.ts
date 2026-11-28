@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { personalSettingsShort } from "../src/lib/personal-view";
 import { settingsEntry, settingsNav, settingsTabs, teamSettings } from "../src/lib/settings-nav";
 
-/* The settings list: a few entries, each holding sections as tabs, the rest under Advanced. */
+/* The settings list: a few entries, each holding sections as tabs, the rest under Advanced. Skills is a page of its own
+   (ADR 0020, amendment of 2026-11-25), so no section here. */
 
 const ALL = [
   "account",
@@ -18,7 +19,6 @@ const ALL = [
   "usage",
   "billing",
   "connectors",
-  "skills",
   "vault",
   "access",
   "devices",
@@ -50,7 +50,7 @@ describe("a team's list", () => {
     // Cargos is an entry of its own (ADR 0085 addendum of 2026-11-13); People holds Membros and Convites (ADR 0184).
     expect(settingsTabs("members", ALL, short)).toEqual(["members", "invites"]);
     expect(settingsTabs("roles", ALL, short)).toEqual([]);
-    expect(settingsTabs("connectors", ALL, short)).toEqual(["connectors", "skills", "vault", "access"]);
+    expect(settingsTabs("connectors", ALL, short)).toEqual(["connectors", "vault", "access"]);
     expect(settingsTabs("usage", ALL, short)).toEqual([]);
     expect(settingsTabs("devices", ALL, short)).toEqual([]);
     expect(settingsEntry("billing", new Set(ALL), short)).toBe("usage");
@@ -73,7 +73,7 @@ describe("a personal workspace's list", () => {
     const { main, advanced } = settingsNav(sections(ALL), short);
     expect(ids(main)).toEqual(["account", "general", "usage", "connectors", "vault", "devices"]);
     expect(ids(advanced)).toEqual(["members", "roles", "storage", "import", "audit", "about"]);
-    expect(settingsTabs("connectors", ALL, short)).toEqual(["connectors", "skills", "access"]);
+    expect(settingsTabs("connectors", ALL, short)).toEqual(["connectors", "access"]);
     // Inviting someone in works the same: People's Convites tab.
     expect(settingsTabs("members", ALL, short)).toEqual(["members", "invites"]);
   });

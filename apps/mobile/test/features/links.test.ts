@@ -220,6 +220,9 @@ describe("inbox items", () => {
     expect(notificationHref({ ...n, source: { label: "Build box" } })).toBeNull();
     // A computer without Google Chrome (ADR 0133) opens it too.
     expect(notificationHref({ ...n, kind: "computer_no_chrome" })).toBe("/settings/devices/m1");
+    // A computer that isn't answering, or is back (ADR 0241): that computer, where its agents can move elsewhere.
+    expect(notificationHref({ ...n, kind: "computer_down" })).toBe("/settings/devices/m1");
+    expect(notificationHref({ ...n, kind: "computer_back" })).toBe("/settings/devices/m1");
   });
 });
 

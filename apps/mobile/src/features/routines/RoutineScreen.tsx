@@ -2,12 +2,14 @@ import {
   type Routine,
   type RoutineAhead,
   type RoutineRun,
+  useRoutineRunCalls,
   useRoutineRuns,
   useRoutines,
   useRuleDescribe,
 } from "@agenteschat/client";
 import { ownActionName, routineVaultKey, splitOwnActions } from "@agenteschat/client/lib/approval-words";
 import { managesAgent } from "@agenteschat/client/lib/audience";
+import { formatBytes } from "@agenteschat/client/lib/files";
 import { formatTokensShort, formatUsd, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { can } from "@agenteschat/client/lib/permissions";
@@ -30,7 +32,8 @@ import {
   usageParts,
   whereItRuns,
 } from "@agenteschat/client/lib/routine-view";
-import type { ReactNode } from "react";
+import { runCallText } from "@agenteschat/client/lib/routine-webhooks";
+import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, LayoutAnimationConfig, LinearTransition } from "react-native-reanimated";
@@ -57,7 +60,9 @@ import { MissingScreen } from "../dashboards/parts";
 import { chatHref, widgetHref } from "../links/logic";
 import { openSwitchComputer } from "../outages/OutageNotice";
 import { useMachineOutages } from "../outages/queries";
+import { CommandBlock } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
+import { LoadFailed } from "../shared/FirstUse";
 import {
   useColors,
   useDirectory,
@@ -652,6 +657,7 @@ function RunItem({ run: x, routine: r, last }: { run: RoutineRun; routine: Routi
             </Text>
           </Pressable>
         ) : null}
+        {r.canManage && x.calls ? <RunCalls routine={r} run={x} count={x.calls} /> : null}
       </View>
       <Text variant="caption" tone="faint" style={styles.when}>
         {when}
@@ -660,8 +666,56 @@ function RunItem({ run: x, routine: r, last }: { run: RoutineRun; routine: Routi
   );
 }
 
+/** A webhook run's calls as they were kept, the web's for the phone, for who manages the routine: read when opened. */
+function RunCalls({ routine: r, run: x, count }: { routine: Routine; run: RoutineRun; count: number }) {
+  const { t, i18n } = useTranslation();
+  const orgId = useOrgId();
+  const [open, setOpen] = useState(false);
+  const calls = useRoutineRunCalls(orgId, r.id, open ? x.id : null);
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen(!open)}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        hitSlop={{ bottom: 13, left: 13, right: 13 }}
+      >
+        <Text variant="footnote" tone="muted" style={styles.open}>
+          {t(open ? "routines.runCalls.hide" : "routines.runCalls.show", { n: count })}
+        </Text>
+      </Pressable>
+      {open ? (
+        calls.isError ? (
+          <LoadFailed onRetry={() => void calls.refetch()} />
+        ) : !calls.data ? (
+          <SkeletonList rows={1} />
+        ) : (
+          calls.data.map((c) => {
+            const text = runCallText(c);
+            return (
+              <View key={c.n} style={styles.call}>
+                <Text variant="footnote" tone="muted">
+                  {[
+                    `${c.method} ${whenAt(t, i18n.language, c.at)}`,
+                    formatBytes(i18n.language, c.bytes),
+                    ...(c.test ? [t("routines.webhook.callTest")] : []),
+                    ...(c.cut ? [t("routines.runCalls.cut")] : []),
+                    ...(c.binary ? [t("routines.runCalls.binary")] : []),
+                  ].join(" · ")}
+                </Text>
+                {text ? <CommandBlock command={text} copiedTitle={t("routines.runCalls.copied")} /> : null}
+              </View>
+            );
+          })
+        )
+      ) : null}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   screen: { flex: 1 },
+  call: { gap: 4, marginTop: 8 },
   in: { paddingHorizontal: SCREEN_X, paddingTop: 4 },
   bold: { fontWeight: "600" },
   grow: { flex: 1, minWidth: 0 },

@@ -137,7 +137,11 @@ test("two agents talking is one pair row; on a reach line it ends where the list
   expect(value(".consult-pair__lead", "text-overflow")).toBe("ellipsis");
   // On a phone's line the subject leaves the names, the count and the time their room.
   expect(value(".consult-pair", "container-type")).toBe("inline-size");
-  expect(value(".consult-pair__subject", "display")).toBe("none");
+  expect(value(".consult-pair__row:not(.consult-pair__row--handed) .consult-pair__subject", "display")).toBe("none");
+  // Another agent's request in this agent's DM keeps its subject and place there: "por você" and the time go instead.
+  for (const part of ["for", "how", "time"])
+    expect(value(`.consult-pair__row--handed .consult-pair__${part}`, "display")).toBe("none");
+  expect(value(".consult-pair__row>.consult-pair__where", "text-overflow")).toBe("ellipsis");
   expect(value(".consult-pair__word", "flex")).toBeUndefined();
   expect(value(".consult-pair__time", "flex")).toBeUndefined();
   expect(value(".consult-pair__faces", "vertical-align")).toContain("var(--cap-mid)");

@@ -51,6 +51,10 @@ export function menuLabels(t: TFunction): Record<string, string> {
     serversCloud: t("desktop.servers.cloud"),
     // The app's own windows by name, so the Dock's list never shows three "agentes.chat".
     windowWelcome: t("desktop.windowTitle.welcome"),
+    // The first close's notification (background.rs): the Mac's words or the tray's.
+    backgroundTitle: t("desktop.background.title"),
+    backgroundBodyMac: t("desktop.background.bodyMac"),
+    backgroundBodyTray: t("desktop.background.bodyTray"),
     windowPrefs: t("desktop.windowTitle.prefs"),
     workspaceNewsOne: t("desktop.servers.newsOne"),
     workspaceNewsMany: t("desktop.servers.newsMany", { n: "{count}" }),

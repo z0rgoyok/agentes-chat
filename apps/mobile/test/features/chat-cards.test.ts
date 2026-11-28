@@ -70,19 +70,22 @@ describe("a reply's tools sit last", () => {
   });
 });
 
-describe("agents it asked first: quoted at the top of the reply, as a reply quotes a message", () => {
-  test("saved: the quote opens the reply's words, in its bubble or over its words; with none, it stands alone", () => {
+describe("agents it asked first: the web's slim row between hairlines, before the reply", () => {
+  test("saved: the row stands before the reply, which shows its face and name again; a relayed answer stays quoted in its words", () => {
     const row = source("MessageRow.tsx");
-    // In the bubble: the name line, the agents' talk, then the reply's own quote and words.
+    expect(row).toContain("const pairRow = isAgent && m.author.id && paired.length > 0;");
+    expect(row).toContain("const grouped = groupedIn && !quoteAlone && !pairRow;");
+    expect(row).toContain("<ConsultPairRow askerId={m.author.id} channelId={m.channelId} items={paired} />");
+    // Before the reply's own row, never inside its bubble.
+    expect(ascending(at(row, ["<ConsultPairRow askerId={m.author.id}", "{quote && !inBubble ? <QuoteAbove"]))).toBe(
+      true,
+    );
+    expect(row).toContain("const quoteInWords = quoteAlone ? null : relayQuote;");
     expect(
       ascending(
         at(row, ["who(true) : null}", "{quoteInWords}", "{quote ? <QuotePlate reply={quote} onJump={onQuote} />"]),
       ),
     ).toBe(true);
-    // A reply with no words (only cards) shows the quote on its own before it, and its face and name again.
-    expect(row).toContain("const quoteAlone = consultQuote !== null && (!body || Boolean(choiceReply));");
-    expect(row).toContain("const grouped = groupedIn && !quoteAlone;");
-    expect(row).toContain("<ConsultQuote askerId={m.author.id} channelId={m.channelId} items={paired} alone />");
   });
 
   test("a face inside a line of words stands in its sky tile, in its middle", () => {
@@ -105,22 +108,47 @@ describe("agents it asked first: quoted at the top of the reply, as a reply quot
     ).toBe(true);
   });
 
-  test("the quote says no answer: the agent asked, how it went, the question's subject, a chevron", () => {
+  test("the row says no answer: the asker, ⇄, the agent asked, how it went, a chevron; the subject only where it fits", () => {
     const pair = source("ConsultGroup.tsx");
     expect(pair).not.toContain("previewOf");
     expect(pair).not.toContain(".answer");
-    expect(pair).not.toContain("ConsultPairRow");
-    // No colored bar at its left edge: a plate a step off the bubble, the agent's name in its color.
-    expect(pair).not.toContain("quote.bar");
-    expect(pair).toContain('<Text variant="footnote" tone="muted" numberOfLines={2}>');
-    // Standing alone, it says who asked: the asker's name and the arrows.
-    expect(pair).toContain('<Icon name="swap" size={12}');
+    expect(pair).not.toContain("ConsultQuote");
+    // Centered between two hairlines, as the web's `.consult-pair`.
+    expect(pair).toContain('line: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16 },');
+    expect(pair).toContain("rule: { flexGrow: 1, flexBasis: 16, minWidth: 16, height: StyleSheet.hairlineWidth },");
+    expect(
+      ascending(
+        at(pair, [
+          "<AgentFace agentId={askerId} size={PAIR_FACE}",
+          '<Icon name="swap" size={15}',
+          "{pair.faces.slice(0, 3).map(",
+          '<Icon name="right" size={14}',
+        ]),
+      ),
+    ).toBe(true);
+    // A phone's width has no room for the subject (the web hides it under 420): only a hand-off shows it.
+    expect(pair).toContain("handed || roomy ? consultSubject(opened?.question) : null");
+    // There a hand-off's "por você" and its time give way instead, as the web's.
+    expect(pair).toContain("const tight = handed && !roomy;");
+    expect(pair).toContain("{handed && !tight ? (");
+    expect(pair).toContain("{shownTime ? (");
+    expect(pair).toContain("subject: { flexShrink: 1000, minWidth: 0 },");
   });
 
   test("a notice whose reply isn't here is the same quote on its own, not a card with the answer", () => {
     const line = source("EventLine.tsx");
     expect(line).toContain("items={[pairItemOf(consulted.consultation)]}");
     expect(source("cards.tsx")).not.toContain("Consultation");
+  });
+
+  test("another agent's request in this agent's DM is the same quote, its words in the arrows' place, no state while out", () => {
+    const line = source("EventLine.tsx");
+    expect(line).toContain("const handed = handOffOf(message.meta);");
+    expect(line).toMatch(/<ConsultPairRow[^>]+handed\s+askedIn=\{handed\.askedIn\}/);
+    const quote = source("ConsultGroup.tsx");
+    expect(quote).toContain('t("chat.consultPair.askedHere", { context: agentGrammar(to).context })');
+    expect(quote).toContain('t("chat.consultPair.askedIn", { channel: `#');
+    expect(quote).toContain("handed && live ? { ...found, word: null, seconds: null, tone: null } : found");
   });
 
   test("an answer far below its question is the same quote on its own, never a line of words or a pill", () => {
@@ -132,7 +160,7 @@ describe("agents it asked first: quoted at the top of the reply, as a reply quot
 
   test("a hand-off by direct message is the same quote on its reach line, left out of the reply's own", () => {
     const reach = source("ReachLines.tsx");
-    expect(reach).toContain("<ConsultQuote askerId={authorId} channelId={channelId} items={[talk]} alone />");
+    expect(reach).toContain("<ConsultPairRow askerId={authorId} channelId={channelId} items={[talk]} />");
     expect(reach).not.toContain("reach.see");
     // One older than the conversation's list goes back is loaded on its own, never the "Entregue ao" text.
     expect(source("ConsultGroup.tsx")).toContain(
@@ -442,7 +470,7 @@ describe("the secret card on the phone", () => {
     expect(failed.indexOf("secretRefusalKey(err)")).toBeLessThan(failed.indexOf("api.secrets.get(orgId, r.id)"));
     expect(failed).toContain("secretClosedBy(err, r, fresh)");
     expect(failed).toContain("done(closed)");
-    expect(failed).toContain('t(fresh ? "secret.changed" : "secret.failed")');
+    expect(failed).toContain('t(fresh ? "secret.changed" : "secret.failed", { agent: agentName })');
     expect(card).toContain('if (!pending) setValue("");');
     expect(card).toContain('t("secret.seeNewer")');
   });
@@ -502,8 +530,10 @@ describe("an agent's offer card is done for everyone once it's done", () => {
     const install = offer.slice(offer.indexOf("function InstallSkill("), offer.indexOf("\nfunction UpdateSkills("));
     expect(install).toContain("useSkills(orgId)");
     expect(install).toContain('action={t("actionCard.install_skill.open")}');
-    // Its screen's row turns what installs on for the agent that posted it, as on the web.
-    expect(install).toContain("openedFromCard({ url: card.url, agentId })");
+    // Its screen's row turns what installs on for the agent that posted it, as on the web: its link, or its .zip.
+    expect(install).toContain("const source = card.file?.id ?? card.url");
+    expect(install).toContain("openedFromCard({ url: source, agentId })");
+    expect(install).toContain("/settings/skills/new?file=");
     expect(install).toContain("&agent=");
   });
 
@@ -519,7 +549,10 @@ describe("an agent's offer card is done for everyone once it's done", () => {
     expect(routeAgent(link, undefined)).toBeUndefined();
     // The route hands the screen only what `routeAgent` keeps.
     const route = readFileSync(join(import.meta.dir, "../../app/(app)/(main)/settings/skills/new.tsx"), "utf8");
-    expect(route).toContain("forAgentId={routeAgent(url, agent)}");
+    expect(route).toContain("forAgentId={routeAgent(file ?? url, agent)}");
+    // A .zip sent in the conversation: read on the server from Drive, the agent kept the same way.
+    openedFromCard({ url: "f-kit", agentId: "a-dev" });
+    expect(routeAgent("f-kit", "a-dev")).toBe("a-dev");
     // The screen sends it only on an install from the card's link with its row checked, never on a read.
     const screen = readFileSync(join(import.meta.dir, "../../src/features/settings/SkillsScreen.tsx"), "utf8");
     expect(screen).toContain("? { url: link, list, ...mine }");
@@ -537,7 +570,7 @@ describe("no colored bar at a left edge: quotes and plates on the scale's corner
   test("quotes, reports and opened notices sit on a plate with the plates' room, never a left bar", () => {
     const fromSrc = (path: string) => readFileSync(join(import.meta.dir, "../../src", path), "utf8");
     const files = [
-      "features/chat/ConsultGroup.tsx",
+      "features/chat/RelayQuote.tsx",
       "features/chat/MessageText.tsx",
       "features/chat/MessageRow.tsx",
       "features/chat/QuoteLine.tsx",

@@ -427,7 +427,7 @@ describe("Canais and Quem vê", () => {
     ...over,
   });
   const general = channel({ id: "general" });
-  const clientes = channel({ id: "clientes", categoryId: "vendas", position: 1 });
+  const clientes = channel({ id: "clientes", groupId: "vendas", position: 1 });
   const limited = channel({ id: "suporte", visibility: "private", audienceRoleIds: ["suporte", "fin"] });
   const diretoria = channel({ id: "diretoria", visibility: "private", audienceRoleIds: [] });
 
@@ -484,7 +484,7 @@ describe("Canais and Quem vê", () => {
     ]);
   });
 
-  test("grouped as the sidebar: no category first with #general on top, then each category; search by name", () => {
+  test("grouped as the sidebar: no sector first with #general on top, then each sector; search by name", () => {
     const vendas = { id: "vendas", name: "Vendas" };
     const groups = channelGroups([clientes, limited, general, diretoria], [vendas]);
     expect(groups.map((g) => [g.name, g.channels.map((c) => c.name)])).toEqual([
@@ -667,9 +667,9 @@ describe("The order (Cargos' Ordenar), people and new cargos", () => {
   });
 
   test("Membros: a person's sheet offers Cargos; Convidar com este cargo gives every address the cargo", () => {
-    expect(memberActions(false, true, true)).toEqual(["dm", "roles", "remove"]);
+    expect(memberActions(false, true, true)).toEqual(["roles", "remove"]);
     expect(memberActions(true, true, true)).toEqual(["roles", "leave"]);
-    expect(memberActions(false, false)).toEqual(["dm"]);
+    expect(memberActions(false, false)).toEqual([]);
     expect(withAddresses([], "ana@example.com")).toEqual([{ email: "ana@example.com", valid: true }]);
     expect(read("features/members/MembersPage.tsx")).toContain("roles: () => router.push(rolesHref.person(m.userId))");
     expect(read("features/roles/RoleScreen.tsx")).toContain("params: { role: role.id }");
@@ -794,11 +794,11 @@ describe("The worst case: long names, one of each, a hundred cargos, 1,284 peopl
     expect(q.text).toContain(address);
   });
 
-  test("80 channels in categories: grouped, #general first, a search narrows them", () => {
+  test("80 channels in sectors: grouped, #general first, a search narrows them", () => {
     const channels = Array.from({ length: 80 }, (_, i) => ({
       id: `c${i}`,
       name: i === 0 ? "general" : `canal-${i}-do-time-de-atendimento-ao-cliente-nivel-${i % 3}`,
-      categoryId: i % 2 ? "a" : i % 3 ? "b" : null,
+      groupId: i % 2 ? "a" : i % 3 ? "b" : null,
       position: i,
     }));
     const groups = channelGroups(channels, [

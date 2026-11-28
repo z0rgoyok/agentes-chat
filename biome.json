@@ -10,6 +10,7 @@
       "!**/node_modules",
       "!**/dist",
       "!**/migrations/meta",
+      "!scripts/fonts/fonts.lock.json",
       "!**/*.html",
       "!docs/design",
       "!**/routeTree.gen.ts",

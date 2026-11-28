@@ -1,6 +1,6 @@
 [package]
 name = "agentes-desktop"
-version = "0.8.17"
+version = "0.8.20"
 description = "agentes.chat for macOS, Windows and Linux: the Cloud, your own server, and agents on this computer"
 license = "AGPL-3.0-only"
 edition = "2021"
@@ -52,6 +52,15 @@ libc = "0.2"
 rust-ini = "=0.21.1"
 # The site's web view itself (main_window.rs, graphics.rs): the copy Tauri already builds with, at its features.
 webkit2gtk = { version = "2", features = ["v2_40"] }
+# Whether a tray shows the app's icon (background.rs `tray_watched`): the copy the notification plugin already builds
+# with (notify-rust), at its features.
+zbus = { version = "6", default-features = false, features = ["default-rt", "proxy"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+# The main window's page loaded again when its renderer ends (main_window.rs `reload_when_renderer_ends`): the copies
+# Tauri already builds with. The local clock (local_server.rs `local_stamp`): the nightly backup's hour.
+webview2-com = "0.39"
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_System_SystemInformation"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 # The notch window (src/notch.rs): its level, Spaces and frame, and finding the notch.

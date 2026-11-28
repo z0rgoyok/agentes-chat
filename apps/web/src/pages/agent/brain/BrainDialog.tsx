@@ -1,5 +1,6 @@
-import type { AgentBrain, AgentBrainInput, BrainKind, MachineAccount } from "@agenteschat/client";
-import { useAgents, useAiChoice, useApi, useSetComputerTarget, useUpdateAgent } from "@agenteschat/client";
+import type { AgentBrain, AgentBrainInput, BrainKind, MachineAccount, MachineAccountKind } from "@agenteschat/client";
+import { useAgents, useAiChoice, useAiStatus, useApi, useSetComputerTarget, useUpdateAgent } from "@agenteschat/client";
+import { CLI_OF_BRAIN } from "@agenteschat/client/lib/activity";
 import type { BrainScreen } from "@agenteschat/client/lib/agent-edit";
 import { accountInLine } from "@agenteschat/client/lib/ai-accounts";
 import type { AiChoiceRow, AiChoice as AiChoiceValue } from "@agenteschat/client/lib/ai-choice";
@@ -8,15 +9,22 @@ import { EVERYONE_AUDIENCE } from "@agenteschat/client/lib/audience";
 import { type Advanced, advancedDefaults } from "@agenteschat/client/lib/brain-advanced";
 import { contextSize } from "@agenteschat/client/lib/context-limits";
 import { keyRefusal } from "@agenteschat/client/lib/errors";
-import { namesText, rosterText } from "@agenteschat/client/lib/format";
+import { heldWhole, namesText } from "@agenteschat/client/lib/format";
 import { brainTool, cliCommandWayOut, installableCli } from "@agenteschat/client/lib/machines";
-import { type AiChoice, planMark } from "@agenteschat/client/lib/no-ai";
+import {
+  type AiChoice,
+  kindOf,
+  PLAN_CHOICES,
+  type PlanChoice,
+  planLabel,
+  planMark,
+  planOfAccount,
+} from "@agenteschat/client/lib/no-ai";
+import { can as canDo } from "@agenteschat/client/lib/permissions";
 import { usageWhen } from "@agenteschat/client/lib/plan-usage";
 import { geminiPersonal, isPlanId, signInProviderOf } from "@agenteschat/client/lib/plans";
 import { AUTO, isAuto, modelOnKey } from "@agenteschat/client/lib/providers";
-import { sceneTeam } from "@agenteschat/client/lib/right-hand";
 import {
-  AvatarStack,
   Button,
   cx,
   Dialog,
@@ -29,19 +37,17 @@ import {
   SettingNote,
 } from "@agenteschat/ui";
 
-import { Link } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
 import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { AgentAvatar } from "@/components/AgentAvatar";
 import { NO_COMPUTER } from "@/components/AgentComputer";
 import { DEFAULT_KEY } from "@/components/AgentFields";
 import { AddAccount, OpenPage } from "@/components/ai/AddAccountFlow";
-import { AiChoiceFields } from "@/components/ai/AiChoice";
+import { type AiChoiceExtra, AiChoiceFields } from "@/components/ai/AiChoice";
+import { CliFetchLine } from "@/components/ai/CliFetchLine";
 import { CliMissing } from "@/components/ai/CliMissing";
 import { PlanHold } from "@/components/ai/plan-hold";
 import { UseOnAgentsDialog } from "@/components/ai/UseOnAgents";
-import { AudienceCard } from "@/components/arrival/AudienceCard";
-import { HaveList, HaveRow, sortHave } from "@/components/arrival/ConnectHave";
 import { TeamScene, useDawn } from "@/components/arrival/TeamScene";
 import { useConnectAi } from "@/components/connect-ai-context";
 import { ToolOffWayOut } from "@/components/devices/ToolOneClick";
@@ -60,14 +66,17 @@ import "./brain-dialog.css";
 /*
  * "Quem pensa" (ADR 0032 §5, addendum 2026-11-10): the same dialog as Connect from a conversation (ADR 0160,
  * addendum). The sky with the agent awake and the AI's mark at the trail's end, the title, one thing in the middle and
- * a footer that is always the same. It opens on the account in use with its limits, the model and "Mais opções" one
- * line each; or, with that account at its limit, on the accounts with room. Each screen saves its own change: another
- * account (for the others on it too, when it thinks for all of them), the model, how it thinks. After a switch,
- * "Desfazer" puts back what each agent had. Screens slide in from the side they come from, and the dialog's height
- * glides between them.
+ * a footer that is always the same: a note at its start, one button at its end. Its first screen holds the account,
+ * the model and "Mais opções", one line each. Picking another account switches at once: a note under it says so with
+ * "Desfazer", and offers the other agents still on the account it left ("Trocar também"). An account signed out, at its
+ * limit or none at all is said there too, the footer's button being the way out. "Adicionar conta" (the account list's
+ * foot) opens a screen of its own in the same dialog: one line per AI, then that AI's sign-in on the agent's computer,
+ * after which the agent thinks with the new account. Where it can't sign in there (no computer, nobody to sign in, its
+ * CLI missing) and for an API key, Connect takes over, its Back leading here again. Screens slide in from the side they
+ * come from, and the dialog's height glides between them.
  */
 
-type Screen = "glance" | "switch" | "all" | "team" | "limit" | "more" | "computer" | "add" | "done";
+type Screen = "glance" | "more" | "computer" | "add" | "signin";
 
 /** What this agent thought with before a switch, for "Desfazer". */
 interface Before {
@@ -85,15 +94,48 @@ interface Switched {
   row: BrainRow;
   before: Before;
   others: { id: string; name: string; brain: BrainKind; account: string | null; model: string | null }[];
+  /** What it thinks with now, in a sentence: the account ("ana@acme.com"), else the plan or the key. */
+  said: string;
   line: string;
   missed: string[];
   /** "Atende outras pessoas" off after it, as the server put it. */
   onlyOwnerAfter: boolean;
+  /** A sign-in here just brought the account. */
+  added: boolean;
+  /** The others of the person's agents still on the account it left, for "Trocar também". */
+  team: { id: string; name: string }[];
+  /** The account it left, in a sentence. */
+  from: string;
 }
 
 /**
- * `at`: a screen to open on, past the first one, which "back" leads to (a link's, e.g. the notification "Escolher
- * outro modelo" opens the model). One this person can't change opens the first screen.
+ * A sign-in on the agent's computer: a new account of a plan (`choice`), or an account listed here signed in again
+ * (`again`) or for this agent too (`also`).
+ */
+interface Adding {
+  choice?: PlanChoice;
+  row?: BrainRow;
+  again?: MachineAccount;
+  also?: MachineAccount;
+}
+
+/** "Adicionar conta": the three most used AIs first, the other plans folded under one line, an API key last. */
+const ADD_FIRST: readonly PlanChoice[] = ["claude", "chatgpt", "gemini"];
+const ADD_MORE = PLAN_CHOICES.filter((c) => !ADD_FIRST.includes(c));
+/** The accounts that sign in on their maker's page in the browser (a key's plan takes the key pasted instead). */
+const BROWSER_SIGN_IN: readonly MachineAccountKind[] = [
+  "claude_code",
+  "codex",
+  "antigravity",
+  "cursor",
+  "grok",
+  "devin",
+];
+
+/**
+ * `at`: a screen to open on (a link's): "Mais opções" or "Adicionar conta" past the first one, which "back" leads to;
+ * `switch` opens the first one with its account list shown; `model` the first one. One this person can't change opens
+ * the first screen.
  */
 export function BrainDialog({
   onClose,
@@ -102,8 +144,8 @@ export function BrainDialog({
 }: {
   onClose: () => void;
   at?: BrainScreen;
-  /** Opens it again: Connect, which it closes for, comes back to it by its Back. */
-  onReopen?: () => void;
+  /** Opens it again on `at`: Connect, which it closes for, comes back to it by its Back. */
+  onReopen?: (at?: BrainScreen) => void;
 }) {
   const work = useWork();
   // Every screen starts from what is saved: the dialog mounts once it is loaded.
@@ -120,12 +162,13 @@ function BrainFlow({
   view: AgentBrain;
   onClose: () => void;
   at?: BrainScreen;
-  onReopen?: (() => void) | undefined;
+  onReopen?: ((at?: BrainScreen) => void) | undefined;
 }) {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const api = useApi();
   const toast = useToast();
+  const navigate = useNavigate();
   const refresh = useRefresh();
   const adminsOnly = useAdminsLock();
   const { agent, g, saved, can, ownerFirst } = useAgentEdit();
@@ -135,21 +178,49 @@ function BrainFlow({
   const connect = useConnectAi();
   const asks = useWidenAsk(agent);
   const hasOthers = (useAgents(org.id).data ?? []).some((a) => a.id !== agent.id);
+  const aiState = useAiStatus(org.id).data?.agents.find((a) => a.agentId === agent.id);
   // Accounts a sign-in here just brought, before the next fetch has them.
   const [added, setAdded] = useState<MachineAccount[]>([]);
   const [signingIn, setSigningIn] = useState(false);
   const s = useBrainState(view, { added, signingIn });
 
-  // The way through the screens: back pops one, a save lands on the first again. At its limit it opens on the way out,
-  // unless a link asked for a screen of its own (the account and the model are the first screen's).
-  const [trail, setTrail] = useState<Screen[]>(() => {
-    const asked = at === "switch" ? can("brain") : at === "more";
-    return at && asked ? ["glance", at === "switch" ? "switch" : "more"] : [s.waitsAtLimit && !at ? "limit" : "glance"];
-  });
+  // ── adding an account ──
+  // A plan signs in on the agent's computer by its owner (or whoever connected that computer, ADR 0059 §1); a key is
+  // the workspace's, which only who manages keys adds. Anything else goes through Connect, which says what is missing.
+  const signs = view.canManageAccounts && !s.hold && view.computer !== null && view.accountsSupported;
+  const plansAdd = view.canUsePlans && !s.hold && (!!connect || signs);
+  const keysAdd = canDo(org, "manage_credentials") && !s.hold && !!connect;
+  const mayAdd = can("brain") && (plansAdd || keysAdd);
+  const signsHere = (c: PlanChoice) =>
+    signs &&
+    (isPlanId(c)
+      ? s.homeOf(c)?.machineId === work.machineId
+      : view.options.some((o) => o.kind === kindOf(c) && o.available));
+  /** The viewer's accounts of a plan on the agent's computer. */
+  const mineOf = (c: PlanChoice) => s.listed.filter((a) => a.mine && planOfAccount(a) === c);
+
+  // The way through the screens: back pops one, a save lands on the first again.
+  const [trail, setTrail] = useState<Screen[]>(() =>
+    at === "more" ? ["glance", "more"] : at === "add" && mayAdd ? ["glance", "add"] : ["glance"],
+  );
   const screen: Screen = trail[trail.length - 1] ?? "glance";
   const [dir, setDir] = useState<"fwd" | "back">("fwd");
+  const choice = useAiChoice(org.id, { kind: "agent", agentId: agent.id });
+  const [adding, setAdding] = useState<Adding>();
+  const [othersOpen, setOthersOpen] = useState(false);
+  const [arrived, setArrived] = useState<MachineAccount | null>(null);
+  const [more, setMore] = useState<Advanced | null>(null);
+  const [fold, setFold] = useState<"effort" | "speed" | "context" | null>(null);
+  const [machinePick, setMachinePick] = useState<string>();
+  const [copying, setCopying] = useState(false);
+  const [switched, setSwitched] = useState<Switched | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  /** On to another screen: what the first one said about the last change stays behind. */
   const go = (next: Screen) => {
     setDir("fwd");
+    setSwitched(null);
+    setArrived(null);
     setTrail((tr) => [...tr, next]);
   };
   const back = () => {
@@ -161,19 +232,11 @@ function BrainFlow({
     setTrail(["glance"]);
   };
 
-  const [picked, setPicked] = useState<string>();
-  const choice = useAiChoice(org.id, { kind: "agent", agentId: agent.id });
-  const [aim, setAim] = useState<BrainRow>();
-  const [teamToo, setTeamToo] = useState(true);
-  const [adding, setAdding] = useState<{ row: BrainRow; again?: MachineAccount; also?: MachineAccount }>();
-  const [arrived, setArrived] = useState<MachineAccount | null>(null);
-  const [more, setMore] = useState<Advanced | null>(null);
-  const [fold, setFold] = useState<"effort" | "speed" | "context" | null>(null);
-  const [machinePick, setMachinePick] = useState<string>();
-  const [copying, setCopying] = useState(false);
-  const [switched, setSwitched] = useState<Switched | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [footAt, setFootAt] = useState<HTMLElement | null>(null);
+  // A link to the account list opens it once, on the first screen's first showing.
+  const listAsked = useRef(at === "switch" && can("brain"));
+  useEffect(() => {
+    if (screen !== "glance") listAsked.current = false;
+  }, [screen]);
 
   // Opening it is looking at the plans: their usage is looked up again (it comes back as `machine.updated`).
   useEffect(() => {
@@ -197,22 +260,8 @@ function BrainFlow({
     toast.show(keyRefusal(t, e)?.text ?? t("agentPage.work.failed"), "error");
     refresh();
   };
-  const mailNote = (name: string | undefined) => (
-    <span className="ac-iconline">
-      <Icon name="mail" />
-      <span>{t("connectAi.chat.told", { name: name ?? "" })}</span>
-    </span>
-  );
 
   // ── switching ──
-  const selectable = s.rows.filter((r) => !r.off);
-  // The one with most room comes picked; what is in use or can't be picked never is.
-  const selected = s.rows.find((r) => r.id === picked) ?? (picked === s.currentRow?.id ? s.currentRow : undefined);
-  const switchSel = picked !== undefined ? selected : sortHave(selectable)[0];
-  const limitSel = s.offers.find((r) => r.id === picked) ?? s.offers[0];
-  // Picking a full account is allowed: the agent then waits for its plan to renew, said under the list.
-  const switchFull = switchSel?.usage != null && !switchSel.current && planState(switchSel.usage).state === "limited";
-
   /** This agent onto `row`, in the right order: its computer, then who thinks. */
   const saveRow = async (row: BrainRow): Promise<AgentBrain | null> => {
     if (row.kind === "key") {
@@ -250,8 +299,13 @@ function BrainFlow({
     });
   };
 
-  const switchTo = async (row: BrainRow, withTeam: boolean) => {
-    const team = withTeam ? s.team : [];
+  /**
+   * This agent alone onto `row`: the note under the account says so, with "Desfazer", and offers the others of the
+   * person's agents still on the account it left (when the new one thinks for all of them).
+   */
+  const switchTo = async (row: BrainRow, fresh = false) => {
+    const team = s.takesTeam(row) ? s.team.map((a) => ({ id: a.id, name: a.name })) : [];
+    const from = s.currentAccount ? accountInLine(t, s.currentAccount) : (s.currentRow?.title ?? "");
     setBusy(true);
     try {
       const before: Before = {
@@ -263,36 +317,8 @@ function BrainFlow({
         apiModel: saved.model,
         onlyOwner: view.onlyOwner,
       };
-      // What each of the others had, read before anything changes ("Desfazer" puts it back).
-      const theirs = await Promise.all(
-        team.map((a) =>
-          api.agents.brain(org.id, a.id).then(
-            (b) => ({ id: a.id, name: a.name, brain: b.brain, account: b.account, model: b.model }),
-            () => null,
-          ),
-        ),
-      );
       const result = await saveRow(row);
-      const others: Switched["others"] = [];
-      const missed: string[] = [];
-      for (const [i, a] of team.entries()) {
-        const was = theirs[i];
-        // Each by the server's own rules: one it refuses keeps what it had, said by name.
-        const ok =
-          was &&
-          (await api.agents
-            .setBrain(org.id, a.id, {
-              brain: row.brain,
-              account: row.kind === "account" ? (row.account?.id ?? null) : null,
-            })
-            .then(
-              () => true,
-              () => false,
-            ));
-        if (ok && was) others.push(was);
-        else missed.push(a.name);
-      }
-      refresh(team.map((a) => a.id));
+      refresh();
       // Moved onto a plan it answers only its owner from now on (ADR 0059 §5): said, with that owner's name to anyone
       // else. Another account of the same plan changes nobody it answers.
       const owner =
@@ -302,26 +328,32 @@ function BrainFlow({
             : ownerFirst
           : null;
       const movedTo = row.moves ? s.nameOf(row.moves.name) : null;
-      const names = [agent.name, ...others.map((o) => o.name)];
       // In the sentence an unnamed account goes by its maker ("Claude"), never "Unnamed account".
       const said = row.account ? accountInLine(t, row.account) : row.title;
-      const line =
-        names.length > 1
-          ? t("connectAi.doneAll", { names: namesText(t, names, 2), label: said })
-          : t(
-              owner
-                ? movedTo
-                  ? "agentPage.work.saved.brainMovedOwner"
-                  : "agentPage.work.saved.brainOwner"
-                : movedTo
-                  ? "agentPage.work.saved.brainMoved"
-                  : "agentPage.work.saved.brain",
-              { ...g, brain: said, computer: movedTo ?? "", owner: owner ?? "" },
-            );
-      setSwitched({ row, before, others, line, missed, onlyOwnerAfter: result?.onlyOwner ?? view.onlyOwner });
-      setPicked(undefined);
-      setDir("fwd");
-      setTrail(["glance", "done"]);
+      const line = t(
+        owner
+          ? movedTo
+            ? "agentPage.work.saved.brainMovedOwner"
+            : "agentPage.work.saved.brainOwner"
+          : movedTo
+            ? "agentPage.work.saved.brainMoved"
+            : "agentPage.work.saved.brain",
+        { ...g, brain: said, computer: movedTo ?? "", owner: owner ?? "" },
+      );
+      setArrived(null);
+      setSwitched({
+        row,
+        before,
+        others: [],
+        said,
+        line,
+        missed: [],
+        onlyOwnerAfter: result?.onlyOwner ?? view.onlyOwner,
+        added: fresh,
+        team,
+        from,
+      });
+      home();
       // Off the plan it still answers only its owner: one click lets back in whoever it answered before. "Só algumas
       // pessoas ou cargos" with nobody picked has no one to let back in: no action.
       if (row.kind === "key" && view.brain !== "model" && view.onlyOwner) {
@@ -341,6 +373,59 @@ function BrainFlow({
               },
         );
       }
+    } catch (e) {
+      failed(e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /** "Trocar também": the others left on the old account onto the new one, each by the server's own rules. */
+  const switchTeam = async () => {
+    if (!switched || switched.team.length === 0) return;
+    const { row, team } = switched;
+    setBusy(true);
+    try {
+      // What each had, read before anything changes ("Desfazer" puts it back).
+      const theirs = await Promise.all(
+        team.map((a) =>
+          api.agents.brain(org.id, a.id).then(
+            (b) => ({ id: a.id, name: a.name, brain: b.brain, account: b.account, model: b.model }),
+            () => null,
+          ),
+        ),
+      );
+      const others = [...switched.others];
+      const missed: string[] = [];
+      for (const [i, a] of team.entries()) {
+        const was = theirs[i];
+        // One the server refuses keeps what it had, said by name.
+        const ok =
+          was &&
+          (await api.agents
+            .setBrain(org.id, a.id, {
+              brain: row.brain,
+              account: row.kind === "account" ? (row.account?.id ?? null) : null,
+            })
+            .then(
+              () => true,
+              () => false,
+            ));
+        if (ok && was) others.push(was);
+        else missed.push(a.name);
+      }
+      refresh(team.map((a) => a.id));
+      const names = [agent.name, ...others.map((o) => o.name)];
+      setSwitched({
+        ...switched,
+        others,
+        missed,
+        team: [],
+        line:
+          names.length > 1
+            ? t("connectAi.doneAll", { names: namesText(t, names, 2), label: switched.said })
+            : switched.line,
+      });
     } catch (e) {
       failed(e);
     } finally {
@@ -375,7 +460,6 @@ function BrainFlow({
           .catch(() => undefined);
       refresh(others.map((o) => o.id));
       setSwitched(null);
-      home();
       toast.show(t("agentPage.work.brain.v2.undone"));
     } catch (e) {
       failed(e);
@@ -384,28 +468,84 @@ function BrainFlow({
     }
   };
 
-  /** A row picked to switch to: its sign-in first where it needs one, whom it is for where others share the account. */
+  /** A row picked to switch to: its sign-in first where it needs one, else at once. */
   const confirm = (row: BrainRow) => {
     if (row.act === "also" || row.act === "again") {
-      // A sign-in happens on the agent's computer: with none there is nothing to sign in on (its button is off).
+      // A sign-in happens on the agent's computer: with none there is nothing to sign in on.
       if (!row.account || !view.computer) return;
       setAdding(row.act === "also" ? { row, also: row.account } : { row, again: row.account });
-      return go("add");
+      return go("signin");
     }
-    if (s.takesTeam(row)) {
-      setAim(row);
-      setTeamToo(true);
-      return go("team");
-    }
-    void switchTo(row, false);
+    void switchTo(row);
   };
-  const connectOther =
-    view.canUsePlans && connect && !s.hold
-      ? () => {
-          onClose();
-          connect.open({ agentId: agent.id, chat: true, ...(onReopen ? { onBack: onReopen } : {}) });
-        }
-      : null;
+
+  /** The rows of "Quem pensa" an account of the Conta list stands for: by any of its logins. */
+  const matches = (row: AiChoiceRow) => (a: MachineAccount | undefined) =>
+    !!a && (a.id === row.account?.id || (!!a.sameAs && a.sameAs === row.account?.sameAs));
+
+  /** An account picked in the "Conta" select: the way a switch goes here (signing in, undo, the others on it). */
+  const pickAccount = (row: AiChoiceRow) => {
+    const match = s.rows.find((r) =>
+      row.type === "plan"
+        ? r.kind === "account" && matches(row)(r.account)
+        : row.type === "key" &&
+          r.kind === "key" &&
+          (r.keyId === row.apiKey?.id ||
+            (row.apiKey?.isDefault === true && (r.keyId === undefined || r.keyId === DEFAULT_KEY))),
+    );
+    if (match?.current) return;
+    if (match) return confirm(match);
+    setBusy(true);
+    choice
+      .save(choice.choose(row))
+      .then(
+        () => refresh(),
+        (e: unknown) => failed(e),
+      )
+      .finally(() => setBusy(false));
+  };
+
+  /** One of the viewer's signed-out accounts picked in the list: its sign-in again, the one in use's too. */
+  const againFrom = (row: AiChoiceRow) => {
+    const hit = matches(row);
+    if (s.signInAgain && s.currentRow && hit(s.currentAccount) && s.currentAccount) {
+      setAdding({ row: s.currentRow, again: s.currentAccount });
+      return go("signin");
+    }
+    const match = s.rows.find((r) => r.kind === "account" && hit(r.account));
+    if (match) confirm(match);
+  };
+
+  /** Connect on one AI's steps, for what can't sign in here and for a key: its Back opens "Adicionar conta" again. */
+  const connectOn = (start: AiChoice) => {
+    if (!connect) return;
+    onClose();
+    connect.open({ agentId: agent.id, chat: true, start, ...(onReopen ? { onBack: () => onReopen("add") } : {}) });
+  };
+  const addPlan = (c: PlanChoice) => {
+    if (!signsHere(c)) return connectOn(c);
+    setAdding({ choice: c });
+    go("signin");
+  };
+  // What the accounts don't list, from "Quem pensa"'s own rows: its computer's own sign-ins, a plan that would move it to
+  // another computer. Drawn in the same list, each picked the way a switch goes here; one whose program doesn't run
+  // there isn't a way to think at all, so it isn't listed.
+  const extra: AiChoiceExtra[] = s.rows
+    .filter((r) => (r.kind === "own" || r.kind === "plan") && !r.off)
+    .map((r) => ({
+      key: r.id,
+      group: view.canUsePlans || r.free ? "yours" : "others",
+      name: r.title,
+      ...(r.about ? { meta: r.about } : {}),
+      mark: r.mark,
+      usage: r.usage,
+      onPick: () => confirm(r),
+    }));
+  /** "Gerenciar contas": every account in Settings (Contas de IA). */
+  const manage = () => {
+    onClose();
+    void navigate({ to: "/org/$orgId/settings/$section", params: { orgId: org.id, section: "usage" } });
+  };
 
   // What a chosen model needs from its plan's account, with where to give it.
   const needs = s.planModels.find((m) => m.value === s.shownModel)?.needs;
@@ -507,29 +647,6 @@ function BrainFlow({
     s.kind !== "model" && s.currentRow?.kind === "plan" && view.accountsSupported && view.computer !== null;
   const copyOn = copyFrom !== null && hasOthers && !thinksWithNothing;
 
-  /** An account picked in the "Conta" select: the way a switch goes here (who else moves, signing in, undo). */
-  const pickAccount = (row: AiChoiceRow) => {
-    const match = s.rows.find((r) =>
-      row.type === "plan"
-        ? r.kind === "account" &&
-          (r.account?.id === row.account?.id || (!!r.account?.sameAs && r.account.sameAs === row.account?.sameAs))
-        : row.type === "key" &&
-          r.kind === "key" &&
-          (r.keyId === row.apiKey?.id ||
-            (row.apiKey?.isDefault === true && (r.keyId === undefined || r.keyId === DEFAULT_KEY))),
-    );
-    if (match?.current) return;
-    if (match) return confirm(match);
-    setBusy(true);
-    choice
-      .save(choice.choose(row))
-      .then(
-        () => refresh(),
-        (e: unknown) => failed(e),
-      )
-      .finally(() => setBusy(false));
-  };
-
   // ── what the screens say ──
   const toolOffHere =
     useIsThisMac(org.id, view.computer?.machineId ?? "") && view.options.some((o) => o.reason === "tool_off");
@@ -549,63 +666,142 @@ function BrainFlow({
       : null;
   const offOn = work.machines.data?.find((x) => x.id === view.computer?.machineId) ?? null;
   const offTool = offBrain && offOn && offOn.kind !== "managed" ? brainTool(offBrain) : null;
-  // Its CLI not on its computer, or there and failing to start: installed from here, or looked for again.
+  // Its CLI not on its computer, there and failing to start, or too old: installed (or updated) from here, or looked
+  // for again.
   const missingReason = view.brain !== "model" ? view.options.find((o) => o.kind === view.brain)?.reason : undefined;
   const missingCli =
     view.brain !== "model" &&
-    (missingReason === "not_installed" || missingReason === "cant_start") &&
+    (missingReason === "not_installed" || missingReason === "cant_start" || missingReason === "cli_outdated") &&
     offOn &&
     offOn.kind !== "managed" &&
     (installableCli(view.brain) || cliCommandWayOut(t, view.brain, offOn, missingReason, offOn.name))
       ? { kind: view.brain, reason: missingReason, machine: offOn }
       : null;
-  const lendsAny = view.canUseOthersPlans === true && s.listed.some((a) => !a.mine && a.ownerId !== agent.ownerUserId);
   const pairer = work.machines.data?.find((x) => x.id === view.computer?.machineId)?.pairedBy?.name.split(" ")[0];
-  // On someone else's computer only whoever connected it adds a sign-in: with nothing of the owner's there, it says so.
-  const lockedHere =
-    view.canUsePlans &&
-    !view.canManageAccounts &&
-    view.computer !== null &&
-    !s.rows.some((r) => r.kind === "account" || r.kind === "own");
-  const team = [agent, ...s.team];
-  const scene =
-    (screen === "team" && teamToo) || (screen === "done" && (switched?.others.length ?? 0) > 0)
-      ? sceneTeam(team, agent)
-      : [agent];
-  // While it waits on its limit the agent sleeps under the night; another account brings the day.
-  const asleep = s.waitsAtLimit && screen !== "done";
+  // On someone else's computer only whoever connected it adds a sign-in: "Adicionar conta" says so over the AIs.
+  const lockedHere = view.canUsePlans && !view.canManageAccounts && view.computer !== null;
+  // No AI to think with at all (nothing signed in, no key): the first screen offers to add one.
+  const empty =
+    !switched &&
+    aiState?.state === "no_ai" &&
+    (aiState.reason === "no_key" || (aiState.reason === "not_signed_in" && !s.currentAccount));
+  const signedOut = !switched && s.signedOut && s.currentAccount != null && s.savedCard !== "key";
+  const atLimit = !switched && s.waitsAtLimit;
+  // While it can't think (at its limit, signed out, with nothing), the agent sleeps under the night, through the
+  // whole flow; another account brings the day.
+  const asleep = atLimit || signedOut || empty;
   const day = useDawn(!asleep);
-  const markOf: AiChoice | undefined =
-    screen === "switch" || screen === "all"
-      ? (switchSel?.choice ?? s.savedCard)
-      : screen === "limit"
-        ? (limitSel?.choice ?? s.savedCard)
-        : screen === "team"
-          ? (aim?.choice ?? s.savedCard)
-          : screen === "done"
-            ? (switched?.row.choice ?? s.savedCard)
-            : s.savedCard;
-  const addAcc = adding?.also ?? adding?.again;
+  const acc = adding?.again ?? adding?.also;
+  const addPlanOf = adding?.choice ?? (adding?.row && adding.row.choice !== "key" ? adding.row.choice : undefined);
+  const addKind: MachineAccountKind = acc?.kind ?? (addPlanOf ? kindOf(addPlanOf) : "claude_code");
+  const addCoding = addPlanOf && isPlanId(addPlanOf) ? addPlanOf : undefined;
+  // Whose page the sign-in is on: Gemini's is Google's.
+  const brand = addKind === "antigravity" ? "Google" : t(`aiAccounts.connect.${addKind}`);
+  // The sky's mark: the AI it thinks with, the one signing in, or an empty place while one is being chosen.
+  const markOf: AiChoice | "slot" | undefined =
+    screen === "add" || (screen === "glance" && empty)
+      ? "slot"
+      : screen === "signin"
+        ? addPlanOf
+        : (switched?.row.choice ?? s.savedCard);
   const title =
-    screen === "switch"
-      ? t("agentPage.work.brain.v2.switchTitle", g)
-      : screen === "all"
-        ? t("connectAi.chat.allTitle")
-        : screen === "team"
-          ? t("agentPage.work.brain.v2.teamTitle")
-          : screen === "limit"
-            ? t("agentPage.work.brain.v2.limitTitle", g)
-            : screen === "more"
-              ? t("agentPage.work.brain.v2.moreTitle", g)
-              : screen === "computer"
-                ? t("agentPage.work.computer.title", g)
-                : screen === "add"
-                  ? adding?.again
-                    ? t(isPlanId(adding.row.choice) ? "aiAccounts.page.newKey" : "agentPage.work.brain.signInAgain")
-                    : t(`agentPage.work.brain.add.title.${addAcc?.kind ?? "claude_code"}`)
-                  : screen === "done"
-                    ? t("agentPage.work.brain.v2.doneTitle")
-                    : t("agentPage.work.brain.v2.title", g);
+    screen === "more"
+      ? t("agentPage.work.brain.v2.moreTitle", g)
+      : screen === "computer"
+        ? t("agentPage.work.computer.title", g)
+        : screen === "add"
+          ? t("agentPage.work.brain.add.pickTitle")
+          : screen === "signin"
+            ? adding?.again
+              ? addCoding
+                ? t("aiAccounts.page.newKey")
+                : t("agentPage.work.brain.add.againTitle", { brand })
+              : addCoding
+                ? t("agentPage.work.brain.add.titlePlan", { plan: planLabel(t, addCoding) })
+                : t(`agentPage.work.brain.add.title.${addKind}`)
+            : t("agentPage.work.brain.v2.title", g);
+
+  /** What the account in use and the last change say, under the account. */
+  const accountNotes = (): ReactNode => {
+    const until = s.usage ? planState(s.usage).until : null;
+    const inUse = s.currentAccount ? accountInLine(t, s.currentAccount) : (s.currentRow?.title ?? "");
+    return (
+      <>
+        {switched && (
+          <SettingNote icon="check" live>
+            {switched.added && switched.others.length === 0
+              ? t("agentPage.work.brain.v2.added", { ...g, account: switched.said })
+              : switched.line}
+            {/* "e-mail" whole: the line never breaks at its hyphen. */}
+            {switched.row.lends && ` ${heldWhole(t("connectAi.chat.told", { name: switched.row.ownerName ?? "" }))}`}{" "}
+            <Button variant="link" disabled={busy} onClick={() => void undo()}>
+              {t("agentPage.work.brain.v2.undo")}
+            </Button>
+          </SettingNote>
+        )}
+        {switched && switched.missed.length > 0 && (
+          <SettingNote icon="alert" live>
+            {t("agentPage.work.brain.v2.missed", {
+              count: switched.missed.length,
+              names: namesText(t, switched.missed, 2),
+            })}
+          </SettingNote>
+        )}
+        {switched && switched.team.length > 0 && (
+          <SettingNote icon="layers" live>
+            {t("agentPage.work.brain.v2.alsoUses", {
+              count: switched.team.length,
+              names: namesText(
+                t,
+                switched.team.map((a) => a.name),
+                2,
+              ),
+              account: switched.from,
+            })}{" "}
+            <Button variant="link" disabled={busy} onClick={() => void switchTeam()}>
+              {t("agentPage.work.brain.v2.alsoSwitch")}
+            </Button>
+          </SettingNote>
+        )}
+        {arrived && (
+          <SettingNote icon="check" live>
+            {t("agentPage.work.brain.add.done", { account: accountInLine(t, arrived), computer: s.computerName })}
+          </SettingNote>
+        )}
+        {empty && <SettingNote icon="info">{t("agentPage.work.brain.v2.empty", g)}</SettingNote>}
+        {signedOut && s.savedCard !== "key" && (
+          <SettingNote icon="alert">
+            {t("agentPage.work.brain.v2.signedOut", { ...g, account: inUse, brand: planLabel(t, s.savedCard) })}
+          </SettingNote>
+        )}
+        {atLimit && (
+          <SettingNote icon="clock">
+            {until
+              ? t("agentPage.work.brain.v2.limitBack", { account: inUse, when: usageWhen(t, i18n.language, until) })
+              : t("agentPage.work.brain.v2.limitSoon", { account: inUse })}
+            {s.offers.length > 0 ? `. ${t("agentPage.work.brain.v2.limitHelp", g)}` : "."}
+          </SettingNote>
+        )}
+        {s.kind !== "model" && !view.canUsePlans && ownerFirst && (
+          <SettingNote icon="info">{t("agentPage.work.brain.accountWho", { ...g, owner: ownerFirst })}</SettingNote>
+        )}
+        {missingCli ? (
+          <CliMissing
+            machine={missingCli.machine}
+            kind={missingCli.kind}
+            computer={missingCli.machine.name}
+            reason={missingCli.reason}
+          />
+        ) : (
+          savedSide?.text && <SettingNote icon={savedSide.icon}>{savedSide.text}</SettingNote>
+        )}
+        {s.savedCard === "gemini" && geminiPersonal(s.currentAccount) && (
+          <SettingNote icon="alert">{t("connectAi.plan.gemini.warning")}</SettingNote>
+        )}
+        {offTool && offOn ? <ToolOffWayOut machine={offOn} tool={offTool} /> : toolOffHere && <ToolsOffHereNote />}
+      </>
+    );
+  };
 
   const body = (): ReactNode => {
     if (screen === "glance")
@@ -615,34 +811,25 @@ function BrainFlow({
           {s.hold && s.savedCard === "key" && can("brain") && (
             <SettingNote icon="clock">{t("connectAi.key.closed")}</SettingNote>
           )}
-          <AiChoiceFields state={choice} onAccount={pickAccount} disabled={busy || !can("brain")} />
-          {arrived && (
-            <SettingNote icon="check" live>
-              {t("agentPage.work.brain.add.done", { account: accountInLine(t, arrived), computer: s.computerName })}
-            </SettingNote>
-          )}
-          {s.kind !== "model" && !view.canUsePlans && ownerFirst && (
-            <SettingNote icon="info">{t("agentPage.work.brain.accountWho", { ...g, owner: ownerFirst })}</SettingNote>
-          )}
-          {missingCli ? (
-            <CliMissing
-              machine={missingCli.machine}
-              kind={missingCli.kind}
-              computer={missingCli.machine.name}
-              reason={missingCli.reason}
-            />
-          ) : (
-            savedSide?.text && <SettingNote icon={savedSide.icon}>{savedSide.text}</SettingNote>
-          )}
+          <AiChoiceFields
+            state={choice}
+            parts={["account"]}
+            onAccount={pickAccount}
+            extra={extra}
+            {...(mayAdd ? { onAdd: () => go("add") } : {})}
+            {...(signs ? { onAgain: againFrom } : {})}
+            onManage={manage}
+            open={listAsked.current}
+            disabled={busy || !can("brain")}
+          />
+          {accountNotes()}
+          {offOn && view.brain !== "model" && <CliFetchLine machine={offOn} cli={CLI_OF_BRAIN[view.brain]} />}
+          {!empty && <AiChoiceFields state={choice} parts={["model", "effort"]} disabled={busy || !can("brain")} />}
           {modelLimit && (
             <SettingNote icon="alert" live>
               {modelLimit}
             </SettingNote>
           )}
-          {s.savedCard === "gemini" && geminiPersonal(s.currentAccount) && (
-            <SettingNote icon="alert">{t("connectAi.plan.gemini.warning")}</SettingNote>
-          )}
-          {offTool && offOn ? <ToolOffWayOut machine={offOn} tool={offTool} /> : toolOffHere && <ToolsOffHereNote />}
           {needs && s.plan && (
             <SettingNote icon="info" live>
               {t(`brain.modelHow.${needs}`)}
@@ -653,138 +840,152 @@ function BrainFlow({
               </span>
             </SettingNote>
           )}
-          <div className="bd-lines">
-            <BrainLine
-              label={t("agentPage.work.brain.v2.more")}
-              value={s.speedOn ? t("aiHub.moreSpeed") : t("agentPage.work.brain.advanced.contents.model")}
-              onOpen={openMore}
-            />
-          </div>
+          {!empty && (
+            <div className="bd-lines">
+              <BrainLine
+                label={t("agentPage.work.brain.v2.more")}
+                value={s.speedOn ? t("aiHub.moreSpeed") : t("agentPage.work.brain.advanced.contents.model")}
+                onOpen={openMore}
+              />
+            </div>
+          )}
           {s.kind === "model" && !can("model") && <SettingNote icon="lock">{adminsOnly}</SettingNote>}
         </>
       );
-    if (screen === "switch" || screen === "all")
+    if (screen === "add") {
+      const line = (c: PlanChoice, inner = false) => {
+        const n = mineOf(c).length;
+        return (
+          <BrainLine
+            key={c}
+            label={planLabel(t, c)}
+            mark={<ProviderLogo id={planMark(c)} size="xs" />}
+            inner={inner}
+            value={n > 0 ? t("agentPage.work.brain.add.have", { count: n }) : undefined}
+            disabled={busy || (!signsHere(c) && !connect)}
+            onOpen={() => addPlan(c)}
+          />
+        );
+      };
       return (
         <>
-          {s.hold && <PlanHold hold={s.hold} />}
-          <HaveList
-            items={s.rows}
-            value={switchSel?.id}
-            onChange={setPicked}
-            all={screen === "all"}
-            onAll={() => go("all")}
-            disabled={busy}
-            pinned={{ label: t("agentPage.work.brain.v2.inUse"), items: s.currentRow ? [s.currentRow] : [] }}
-            label={title}
-            byAi
-          />
-          {switchFull && (
-            <SettingNote icon="clock" live>
-              {t("agentPage.work.brain.v2.fullWait", g)}{" "}
-              <Link
-                to="/org/$orgId/settings/$section"
-                params={{ orgId: org.id, section: "usage" }}
-                className="ac-link"
-                onClick={onClose}
-              >
-                {t("agentPage.work.brain.v2.seeUsage")}
-              </Link>
-            </SettingNote>
-          )}
-          {lockedHere && (
+          {plansAdd && lockedHere && (
             <SettingNote icon="lock">
               {t("connectAi.accountsLocked", { name: pairer ?? "", computer: s.computerName })}
             </SettingNote>
           )}
-          {lendsAny && <SettingNote icon="info">{t("agentPage.work.brain.accountOthers")}</SettingNote>}
-          {connectOther && screen === "switch" && (
-            <button type="button" className="arrival-have__link arrival-have__link--other" onClick={connectOther}>
-              <Icon name="plus" size={16} />
-              <span>{t("connectAi.chat.other")}</span>
-              <Icon name="chevronRight" size={16} />
-            </button>
-          )}
-        </>
-      );
-    if (screen === "team") {
-      // Whom it is for, as two cards with their faces: this agent alone, or every agent of theirs on the account.
-      return (
-        <>
-          {/* biome-ignore lint/a11y/useSemanticElements: pressable cards, not a native fieldset */}
-          <div className="arrival-for" role="group" aria-label={t("agentPage.work.brain.v2.teamAria")}>
-            <AudienceCard
-              pressed={!teamToo}
-              onClick={() => setTeamToo(false)}
-              faces={<AgentAvatar agentId={agent.id} name={agent.name} size="sm" />}
-              title={t("agentPage.work.brain.v2.justOne", g)}
-              tip={agent.role || undefined}
-            />
-            <AudienceCard
-              pressed={teamToo}
-              onClick={() => setTeamToo(true)}
-              faces={
-                <AvatarStack>
-                  {team.slice(0, 4).map((a) => (
-                    <AgentAvatar key={a.id} agentId={a.id} name={a.name} size="sm" />
-                  ))}
-                </AvatarStack>
-              }
-              title={t("agentPage.work.brain.v2.everyone")}
-              tip={rosterText(t, team)}
-            />
-          </div>
-          <div className="bd-use">
-            <p className="arrival-opts__label">{t("agentPage.work.brain.v2.target")}</p>
-            {aim && <HaveRow item={aim} checked still />}
+          <div className="bd-lines bd-lines--add">
+            {plansAdd && ADD_FIRST.map((c) => line(c))}
+            {plansAdd && (
+              <BrainLine
+                label={t("agentPage.work.brain.add.others")}
+                mark={<Icon name="grid" size={16} />}
+                value={
+                  othersOpen
+                    ? undefined
+                    : namesText(
+                        t,
+                        ADD_MORE.map((c) => planLabel(t, c)),
+                        2,
+                      )
+                }
+                folds
+                open={othersOpen}
+                controls="bd-add-more"
+                onOpen={() => setOthersOpen(!othersOpen)}
+              />
+            )}
+            {plansAdd && (
+              <div id="bd-add-more" className="bd-lines__group">
+                {othersOpen && ADD_MORE.map((c) => line(c, true))}
+              </div>
+            )}
+            {keysAdd && (
+              <BrainLine
+                label={t("agentPage.work.brain.add.key")}
+                mark={<Icon name="key" size={16} />}
+                value={t("agentPage.work.brain.add.keyLine")}
+                opensDialog
+                disabled={busy}
+                onOpen={() => connectOn("key")}
+              />
+            )}
           </div>
         </>
       );
     }
-    if (screen === "limit") {
-      const until = s.usage ? planState(s.usage).until : null;
-      const account = s.currentAccount ? accountInLine(t, s.currentAccount) : (s.currentRow?.title ?? "");
+    if (screen === "signin" && adding && view.computer) {
+      const provider = addCoding ?? (acc ? signInProviderOf(acc.provider) : undefined);
+      // Another account of a plan the person already signed in here: the browser would sign in as that one again.
+      const have = acc || !addPlanOf || addCoding ? [] : mineOf(addPlanOf);
+      const signedIn = (a: MachineAccount) => {
+        setAdded((list) => [...list.filter((x) => x.id !== a.id), a]);
+        // The account in use signed in again: nothing to switch, it thinks again.
+        if (a.id === view.account) {
+          setSwitched(null);
+          setArrived(a);
+          refresh();
+          home();
+          return;
+        }
+        const base: Omit<BrainRow, "id" | "kind" | "choice" | "brain" | "act" | "current"> = adding.row ?? {
+          title: accountInLine(t, a),
+          whose: t("connectAi.chat.yours"),
+          group: { key: "mine", label: t("connectAi.chat.mine") },
+          mark: <ProviderLogo id={a.provider ?? a.kind} size="xs" />,
+          usage: a.usage ?? null,
+          lends: false,
+          moves: null,
+        };
+        void switchTo(
+          {
+            ...base,
+            id: `account:${a.id}`,
+            kind: "account",
+            choice: planOfAccount(a),
+            brain: a.kind,
+            account: a,
+            act: "use",
+            current: false,
+            moves: null,
+          },
+          !adding.again && !adding.also,
+        );
+      };
       return (
-        <>
-          <div className="bd-step">
-            <p>
-              {until
-                ? t("agentPage.work.brain.v2.limitBack", { account, when: usageWhen(t, i18n.language, until) })
-                : t("agentPage.work.brain.v2.limitSoon", { account })}
-            </p>
-            <span>{t("agentPage.work.brain.v2.limitHelp", g)}</span>
-          </div>
-          {s.offers.length > 0 && (
-            <HaveList
-              items={[]}
-              pinned={{ label: t("connectAi.chat.best"), items: s.offers }}
-              value={limitSel?.id}
-              onChange={setPicked}
-              disabled={busy}
-              label={title}
-            />
+        <div className="arrival-main__steps">
+          {have.length > 0 && BROWSER_SIGN_IN.includes(addKind) && (
+            <SettingNote icon="info">
+              {t("agentPage.work.brain.add.haveNote", {
+                accounts: namesText(
+                  t,
+                  have.map((a) => accountInLine(t, a)),
+                  2,
+                ),
+                brand,
+              })}
+            </SettingNote>
           )}
-          {can("brain") && (
-            <button
-              type="button"
-              className="arrival-have__link arrival-have__link--other"
-              onClick={() => {
-                setPicked(undefined);
-                go("switch");
-              }}
-            >
-              <Icon name="layers" size={16} />
-              <span>{t("agentPage.work.brain.v2.switch")}</span>
-              <Icon name="chevronRight" size={16} />
-            </button>
+          {adding.again && !addCoding && (
+            <SettingNote icon="info">
+              {t("agentPage.work.brain.add.againNote", { ...g, account: accountInLine(t, adding.again) })}
+            </SettingNote>
           )}
-          {connectOther && s.offers.length === 0 && (
-            <button type="button" className="arrival-have__link" onClick={connectOther}>
-              <Icon name="plus" size={16} />
-              <span>{t("connectAi.chat.other")}</span>
-              <Icon name="chevronRight" size={16} />
-            </button>
-          )}
-        </>
+          <AddAccount
+            key={acc?.id ?? addPlanOf}
+            machineId={view.computer.machineId}
+            kind={addKind}
+            computer={s.computerName}
+            again={adding.again?.id}
+            fresh
+            {...(provider ? { provider } : {})}
+            email={acc?.email}
+            local={view.ownSignIn}
+            onAdded={signedIn}
+            onUse={signedIn}
+            onSigningIn={setSigningIn}
+          />
+        </div>
       );
     }
     if (screen === "more") {
@@ -864,71 +1065,30 @@ function BrainFlow({
           label={title}
         />
       );
-    if (screen === "add" && adding && addAcc && view.computer) {
-      const coding = isPlanId(adding.row.choice) ? adding.row.choice : undefined;
-      const provider = coding ?? signInProviderOf(addAcc.provider);
-      const signedIn = (a: MachineAccount) => {
-        setAdded((list) => [...list.filter((x) => x.id !== a.id), a]);
-        // The account in use signed in again: nothing to switch, it thinks again.
-        if (a.id === view.account) {
-          setArrived(a);
-          refresh();
-          home();
-          return;
-        }
-        void switchTo({ ...adding.row, id: `account:${a.id}`, account: a, act: "use", current: false }, false);
-      };
-      return (
-        <div className="arrival-main__steps">
-          <AddAccount
-            key={addAcc.id}
-            machineId={view.computer.machineId}
-            kind={addAcc.kind}
-            computer={s.computerName}
-            again={adding.again?.id}
-            fresh
-            {...(provider ? { provider } : {})}
-            email={addAcc.email}
-            local={view.ownSignIn}
-            onAdded={signedIn}
-            onUse={signedIn}
-            onSigningIn={setSigningIn}
-            actionsAt={footAt}
-          />
-        </div>
-      );
-    }
-    if (screen === "done" && switched)
-      return (
-        <div className="bd-step">
-          <p>{switched.line}</p>
-          <span>{t("agentPage.work.brain.v2.doneSub")}</span>
-          {switched.missed.length > 0 && (
-            <SettingNote icon="alert" live>
-              {t("agentPage.work.brain.v2.missed", {
-                count: switched.missed.length,
-                names: namesText(t, switched.missed, 2),
-              })}
-            </SettingNote>
-          )}
-        </div>
-      );
     return null;
   };
 
-  /** A row in a button or a sentence: an unnamed account by its maker ("Trocar para Claude"), else its title. */
+  /** A row in a button or a sentence: an unnamed account by its maker ("Usar Claude"), else its title. */
   const rowSaid = (r: BrainRow) => (r.account ? accountInLine(t, r.account) : r.title);
-  /** The footer, always the same: a quiet note at its start, the second action, the main one at its end. */
-  const footer = (o: { note?: ReactNode; second?: ReactNode; main?: ReactNode }) => (
-    <DialogFooter
-      key={screen}
-      className={cx("bd-foot", o.note && o.second && o.main ? "bd-foot--two" : null)}
-      {...(o.note ? { note: o.note } : {})}
-    >
-      {o.second}
-      {o.main}
-    </DialogFooter>
-  );
+  /** The footer, always the same: a quiet note at its start, the main action at its end. */
+  const footer = (o: { note?: ReactNode; icon?: IconName; second?: ReactNode; main?: ReactNode }) => {
+    const note = o.note ? (
+      <span className="ac-iconline">
+        <Icon name={o.icon ?? "info"} />
+        <span>{o.note}</span>
+      </span>
+    ) : null;
+    return (
+      <DialogFooter
+        key={screen}
+        className={cx("bd-foot", note && o.second && o.main ? "bd-foot--two" : null)}
+        {...(note ? { note } : {})}
+      >
+        {o.second}
+        {o.main}
+      </DialogFooter>
+    );
+  };
   const cancel = (
     <Button variant="ghost" disabled={busy} onClick={back}>
       {t("common.cancel")}
@@ -940,95 +1100,47 @@ function BrainFlow({
     </Button>
   );
   const foot = (): ReactNode => {
-    if (screen === "add") return <div className="ac-dialog__foot arrival-chat__acts" ref={setFootAt} />;
     if (screen === "glance") {
       const signIn =
-        s.signInAgain && s.currentRow && s.currentAccount && view.computer
+        !switched && s.signInAgain && s.currentRow && s.currentAccount && view.computer
           ? { row: s.currentRow, again: s.currentAccount }
           : null;
+      // At its limit, its owner's account with the most room, one click away.
+      const best = atLimit && can("brain") ? s.offers[0] : undefined;
       return footer({
-        note: (
-          <span className="ac-iconline">
-            <Icon name="info" />
-            <span>{t("agentPage.work.brain.v2.only", g)}</span>
-          </span>
-        ),
-        second: can("brain") && (
-          <Button
-            onClick={() => {
-              setPicked(undefined);
-              setArrived(null);
-              go("switch");
-            }}
-          >
-            {t("agentPage.work.brain.v2.switch")}
-          </Button>
-        ),
+        note: t("agentPage.work.brain.v2.only", g),
         main: signIn ? (
           <Button
             variant="primary"
             onClick={() => {
               setAdding(signIn);
-              go("add");
+              go("signin");
             }}
           >
             {t(isPlanId(s.savedCard) ? "aiAccounts.page.newKey" : "agentPage.work.brain.signInAgain")}
+          </Button>
+        ) : empty && mayAdd ? (
+          <Button variant="primary" onClick={() => go("add")}>
+            {t("aiHub.choice.add")}
+          </Button>
+        ) : best ? (
+          <Button variant="primary" disabled={busy} loading={busy} onClick={() => confirm(best)}>
+            {t("connectAi.use", { label: rowSaid(best) })}
           </Button>
         ) : (
           finish
         ),
       });
     }
-    if (screen === "switch" || screen === "all") {
-      const row = switchSel;
+    if (screen === "add") return footer({ icon: "lock", note: t("agentPage.work.brain.add.pickFoot"), main: cancel });
+    if (screen === "signin")
       return footer({
-        note: row?.lends ? mailNote(row.ownerName) : undefined,
-        second: cancel,
-        main: (
-          <Button
-            variant="primary"
-            disabled={!row || row.current || row.off || (row.signIn === true && !view.computer) || busy}
-            loading={busy}
-            onClick={() => row && confirm(row)}
-          >
-            {!row
-              ? // Nothing to switch to (the one in use alone): the screen's own words, never "Switch to" and nothing.
-                t("agentPage.work.brain.v2.switch")
-              : row.act === "again"
-                ? t(isPlanId(row.choice) ? "aiAccounts.page.newKey" : "agentPage.work.brain.signInAgain")
-                : row.act === "also"
-                  ? t("connectAi.signInFor", g)
-                  : t("agentPage.work.brain.v2.switchTo", { label: rowSaid(row) })}
-          </Button>
-        ),
-      });
-    }
-    if (screen === "team")
-      return footer({
-        note: aim?.lends ? mailNote(aim.ownerName) : undefined,
-        second: cancel,
-        main: (
-          <Button
-            variant="primary"
-            disabled={!aim || busy}
-            loading={busy}
-            onClick={() => aim && void switchTo(aim, teamToo)}
-          >
-            {teamToo
-              ? t("agentPage.work.brain.v2.switchMany", { count: team.length })
-              : t("agentPage.work.brain.v2.switchTo", { label: aim ? rowSaid(aim) : "" })}
-          </Button>
-        ),
-      });
-    if (screen === "limit")
-      return footer({
-        note: limitSel?.lends ? mailNote(limitSel.ownerName) : undefined,
-        second: <Button onClick={onClose}>{t("agentPage.work.brain.v2.wait")}</Button>,
-        main: limitSel && can("brain") && (
-          <Button variant="primary" disabled={busy} loading={busy} onClick={() => confirm(limitSel)}>
-            {t("connectAi.use", { label: rowSaid(limitSel) })}
-          </Button>
-        ),
+        icon: "lock",
+        note:
+          addCoding || addKind === "opencode"
+            ? t("agentPage.work.brain.add.footKey", { computer: s.computerName })
+            : t("agentPage.work.brain.add.footSignIn", { brand }),
+        main: cancel,
       });
     if (screen === "more") {
       const now: Advanced = {
@@ -1075,19 +1187,10 @@ function BrainFlow({
           </Button>
         ),
       });
-    if (screen === "done")
-      return footer({
-        second: (
-          <Button disabled={busy} loading={busy} onClick={() => void undo()}>
-            {t("agentPage.work.brain.v2.undo")}
-          </Button>
-        ),
-        main: finish,
-      });
     return null;
   };
 
-  const hasBack = trail.length > 1 && screen !== "done";
+  const hasBack = trail.length > 1;
   return (
     <Dialog
       open
@@ -1100,28 +1203,34 @@ function BrainFlow({
     >
       <div className="arrival-hero">
         <TeamScene
-          agents={scene}
+          agents={[agent]}
           lead={agent.id}
           asleep={asleep}
           day={day}
-          expression={screen === "done" ? "happy" : undefined}
+          expression={switched || arrived ? "happy" : undefined}
         >
           {markOf && (
             <>
               <span
                 // A switch done lights the trail anew, one pixel after the other.
-                key={screen === "done" ? "lit" : "still"}
+                key={switched ? "lit" : "still"}
                 className="team-scene__trail"
                 data-state={busy ? "walk" : asleep ? undefined : "done"}
-                data-lit={screen === "done" || undefined}
+                data-lit={switched ? true : undefined}
               >
                 {[0, 1, 2, 3, 4].map((n) => (
                   <i key={n} style={{ "--n": n } as CSSProperties} />
                 ))}
               </span>
-              {/* Another account's mark comes in where the last one stood. */}
-              <span key={markOf} className="team-scene__mark">
-                {markOf === "key" ? <Icon name="key" /> : <ProviderLogo id={planMark(markOf)} size="tile" />}
+              {/* Another account's mark comes in where the last one stood; while one is chosen, an empty place. */}
+              <span key={markOf} className={cx("team-scene__mark", markOf === "slot" && "team-scene__mark--slot")}>
+                {markOf === "slot" ? (
+                  <Icon name="plus" />
+                ) : markOf === "key" ? (
+                  <Icon name="key" />
+                ) : (
+                  <ProviderLogo id={planMark(markOf)} size="tile" />
+                )}
               </span>
             </>
           )}

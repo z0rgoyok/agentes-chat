@@ -1,5 +1,12 @@
 import type { TFunction } from "i18next";
-import type { BrowserHandoff, BrowserUnavailableReason, DesktopStatus, Edition, Machine } from "../api/types";
+import type {
+  BrowserHandoff,
+  BrowserUnavailableReason,
+  ComputerMaintenance,
+  DesktopStatus,
+  Edition,
+  Machine,
+} from "../api/types";
 import { handoffTimeLeft, isWaitingHandoff } from "../browser";
 import { drivesOnDesktop } from "../desktop";
 import {
@@ -11,6 +18,7 @@ import {
   setupPortrait,
   WORKSPACE_COMPUTER_KIND,
 } from "./computer";
+import { maintenanceLine, maintenanceOf } from "./computer-maintenance";
 import { clockAt, lowerFirst } from "./format";
 import { agentGrammar } from "./grammar";
 import { type ComputerKind, type ComputerState, computerKind, isPaused } from "./machines";
@@ -29,7 +37,10 @@ export interface AgentComputerFacts {
   /** The workspace's own computer (the Cloud's), else null. */
   setup: SetupView | null;
   /** The computer the agent works on, from the computers list; null: none. */
-  machine: Pick<Machine, "name" | "online" | "standby" | "lastSeenAt" | "paused" | "desktopUse" | "mode"> | null;
+  machine: Pick<
+    Machine,
+    "name" | "online" | "standby" | "moving" | "maintenance" | "lastSeenAt" | "paused" | "desktopUse" | "mode"
+  > | null;
   /** Its screen as `GET …/desktop` says it; null while unknown. */
   desktop:
     | (Pick<DesktopStatus, "available" | "reason"> & Partial<Pick<DesktopStatus, "canControl" | "handoff">>)
@@ -54,6 +65,8 @@ export type EntryState =
   | { kind: "preparing"; eta: EtaView | null }
   | { kind: "waiting" }
   | { kind: "problem" }
+  /** The workspace's own computer, away for what we do to it (a move, a restart…: ADR 0257): never "offline". */
+  | { kind: "moving"; maintenance: ComputerMaintenance }
   | { kind: "offline" }
   | { kind: "paused"; until: string | null }
   | { kind: "needsYou"; handoff: BrowserHandoff }
@@ -121,6 +134,8 @@ export function entryState(f: AgentComputerFacts, nowMs = Date.now()): EntryStat
     return { kind: "preparing", eta: setupEta(f.setup, nowMs) };
   }
   const asleep = f.machine?.standby === true;
+  const maintenance = maintenanceOf(f.machine);
+  if (f.machine && !f.machine.online && maintenance?.away) return { kind: "moving", maintenance };
   if (f.machine && !f.machine.online && !asleep) return { kind: "offline" };
   if (f.edition === "selfhost" && f.machine && isPaused(f.machine, nowMs)) {
     return { kind: "paused", until: f.machine.paused?.until ?? null };
@@ -162,7 +177,7 @@ export function entryPortrait(s: EntryState, setup: SetupView | null): ComputerS
     return setup ? setupPortrait(setup, false) : "paused";
   }
   if (s.kind === "offline") return "offline";
-  return s.kind === "paused" || s.kind === "held" ? "paused" : "online";
+  return s.kind === "paused" || s.kind === "held" || s.kind === "moving" ? "paused" : "online";
 }
 
 /** What the entry's words need from the platform. */
@@ -204,6 +219,8 @@ export function entryLine(t: TFunction, s: EntryState, w: EntryWords): string {
         : t("computerSetup.status.capacity");
     case "problem":
       return t("agentComputer.status.problem");
+    case "moving":
+      return maintenanceLine(t, s.maintenance, now);
     case "offline":
       if (w.edition === "cloud") return t("agentComputer.status.notAnswering");
       return w.lastSeenAt

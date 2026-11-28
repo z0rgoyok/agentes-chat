@@ -18,41 +18,6 @@
   mask: var(--connector-icon) center / contain no-repeat;
 }
 
-/* The list of services: whole rows to press, the mark centred on the name's line, who it suits under the name, a
-   chevron. */
-button.storage-pick__row {
-  width: 100%;
-  border: 0;
-  background: none;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-  flex-wrap: nowrap;
-  align-items: flex-start;
-  transition: background-color 0.15s var(--out);
-}
-/* The mark and its words: one `.ac-iconline` inside the row, so the row's own layout (a list row's) stays as it is. */
-.storage-pick__main {
-  flex: 1;
-  min-width: 0;
-}
-button.storage-pick__row:hover {
-  background: var(--plate-soft);
-}
-html:not([data-pointer]) button.storage-pick__row:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring-inset);
-}
-.storage-pick__name {
-  font-weight: 600;
-}
-.storage-pick__go {
-  flex: none;
-  margin-left: auto;
-  margin-top: 3px;
-  color: var(--faint);
-}
-
 /* Numbered steps, flat: the number on the title's line, what to do under the title, the step's fields under that. */
 .storage-steps {
   display: flex;
@@ -111,4 +76,16 @@ html:not([data-pointer]) button.storage-pick__row:focus-visible {
 
 .ac-alert b {
   font-weight: 600;
+}
+
+/* The workspace computer's legend: each kind's swatch in its bar color (`--seg-*` on the item), free in the track's. */
+.storage-legend > .plan-legend__item {
+  --part: var(--seg-deep);
+}
+[data-theme="dark"] .storage-legend > .plan-legend__item {
+  --part: var(--seg-light);
+}
+.storage-legend > .storage-legend__free {
+  --seg-deep: color-mix(in srgb, var(--ink) 10%, transparent);
+  --seg-light: color-mix(in srgb, var(--ink) 10%, transparent);
 }

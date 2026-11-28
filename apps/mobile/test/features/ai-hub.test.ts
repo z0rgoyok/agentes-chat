@@ -179,6 +179,20 @@ describe("the one choice", () => {
       label: "Claude da Acme",
       sub: "Chave de API · padrão do workspace",
     });
+    // Lodi's A do workspace names the key it thinks with.
+    const workspace = row({
+      key: "workspace",
+      type: "workspace",
+      group: "workspace",
+      brain: "model",
+      account: undefined,
+    });
+    expect(choiceText(t, { ...workspace, apiKey: key.apiKey }, "pt-BR", NOW)).toMatchObject({
+      label: "A do workspace",
+      sub: "Chave de API do workspace · Claude da Acme",
+      mark: "anthropic",
+    });
+    expect(choiceText(t, workspace, "pt-BR", NOW).sub).toBe("Chave de API do workspace");
   });
 
   test("Automático picks the effort; a fixed model after it starts on medium", () => {

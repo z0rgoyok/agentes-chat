@@ -86,7 +86,9 @@ export function ConsultationDialog({
   const timeline = useMemo(() => buildTimeline(list ?? [], [], []), [list]);
   // While a chosen exchange loads, the row's asker still names the dialog.
   const asker = dir.agentById.get(c?.agentId ?? askerOf ?? "");
-  const consulted = c ? dir.agentById.get(c.consultedAgentId) : undefined;
+  const consulted = dir.agentById.get(
+    c?.consultedAgentId ?? (items.find((i) => i.id === pick) ?? items[0])?.consultedAgentId ?? "",
+  );
   const from = agentGrammar(asker?.name ?? t("channel.unknownAgent"));
   const to = agentGrammar(consulted?.name ?? t("channel.unknownAgent"));
   const label = t("chat.consultPanel.label", {
@@ -205,7 +207,12 @@ export function ConsultationDialog({
             }))}
           />
         )}
-        <section className="channel__messages consult-dialog__list" aria-label={label}>
+        <section
+          className="channel__messages consult-dialog__list"
+          // Its rows are drawn whole where the browser can't hold the place (layout.css): it never marks them sized.
+
+          aria-label={label}
+        >
           {query.isLoading && <LoadingConversation />}
           {query.isError && !query.data && <ErrorState error={query.error} onRetry={() => void query.refetch()} />}
           {query.isSuccess && !query.data && <p className="thread-origin">{t("chat.consultPanel.missing")}</p>}

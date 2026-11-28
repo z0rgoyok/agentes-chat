@@ -1199,6 +1199,11 @@ test("the PowerShell installer: the link and server baked in, Bun pinned by SHA-
   expect(ps).toContain("& $Bun $Bundle pair --server $Server --link $Link");
   expect(ps).toContain("Register-ScheduledTask -TaskName $Task");
   expect(ps).toContain("$Task = 'agentes-runner'");
+  // The task's account is the signed-in token's (a workgroup computer's USERDOMAIN can name no account), and a
+  // refused task reaches the Startup-folder fallback (the module doesn't see the function's ErrorActionPreference).
+  expect(ps).toContain("$Me = [Security.Principal.WindowsIdentity]::GetCurrent().Name");
+  expect(ps).not.toContain("$env:USERDOMAIN");
+  expect(ps).toMatch(/Register-ScheduledTask [^\n]*-ErrorAction Stop/);
   expect(ps).toContain("[Environment]::GetFolderPath('Startup')");
   // Everything runs from the last line, and nothing exits the window `iex` runs in.
   expect(ps.trimEnd().split("\n").at(-1)).toBe(
@@ -1311,14 +1316,22 @@ const WINDOWS_CMDLETS: Record<string, string[] | "builtin"> = {
     "Settings",
     "Force",
     "Description",
+    "ErrorAction",
   ],
   "Start-ScheduledTask": ["TaskName", "TaskPath"],
 };
 /** Variables Windows sets for every signed-in user, and the installer's own. */
-const WINDOWS_ENV = ["PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "USERPROFILE", "USERDOMAIN", "USERNAME"];
+const WINDOWS_ENV = ["PROCESSOR_ARCHITECTURE", "PROCESSOR_ARCHITEW6432", "USERPROFILE"];
 const OWN_ENV = ["AGENTES_RUNNER_HOME", "AGENTES_FRAME"];
 /** .NET Framework 4.x types (what Windows PowerShell 5.1 runs on) the installer uses. */
-const FRAMEWORK_TYPES = ["Net.ServicePointManager", "Net.SecurityProtocolType", "IO.Path", "guid", "Environment"];
+const FRAMEWORK_TYPES = [
+  "Net.ServicePointManager",
+  "Net.SecurityProtocolType",
+  "IO.Path",
+  "guid",
+  "Environment",
+  "Security.Principal.WindowsIdentity",
+];
 const PS_PRIMITIVES = ["char", "string", "int", "math", "TimeSpan"];
 
 test.skipIf(!PWSH)(

@@ -50,7 +50,7 @@ next to a person's connection. GitHub's MCP tools, which do most of the writing,
    line under it), nothing else: a signed comment quoted in a reply stays the reply's text. It is added whichever
    token the call goes with, when the call runs: approval cards show the agent's own words. The tools that sign say so in the
    catalog (`sign`); a pull request without a body gets the line alone.
-4. **Commit credit.** Commits credit the person (`Co-authored-by: Name <id+login@users.noreply.github.com>`) only when
+4. **Commit credit.** Commits credit the person (`Co-Authored-By: Name <id+login@users.noreply.github.com>`) only when
    they linked GitHub to sign in: the id from that sign-in, the login GitHub has for it now (cached for a day). Never
    their email; no linked account or no answer, no trailer. API commits (`push_files`, `create_or_update_file`) get it
    in their message; on agents' computers each turn says it next to where the turn starts, for the person behind the
@@ -263,12 +263,15 @@ to the owners) still holds a fresh state while an owner makes the installation o
 
 ## Addendum (2026-11-13): every commit an agent makes ends with its own line
 
-Every commit an agent makes ends with `Co-authored-by: Nick <noreply@agentes.chat>`, the agent's name (its handle when
+Every commit an agent makes ends with `Co-Authored-By: Nick <noreply@agentes.chat>`, the agent's name (its handle when
 the name has nothing left once made one line without `<`, `>` or control characters, as for a person) at
 `AGENT_CO_AUTHOR_EMAIL` in `signature.ts`. That address is verified on agentes.chat's own GitHub account, so GitHub
 links every agent's line to it. It stacks with the coding CLI's own trailer (Claude Code's `Co-Authored-By: Claude …`)
 and with the person's credit of decision 4: the agent's line, then the person's, each never twice (compared in any
-capitals). On by default on agentes.chat and on every server.
+capitals). On by default on agentes.chat and on every server. The lines are written `Co-Authored-By`, the
+capitals Claude Code uses (amended 2026-11-25; git and GitHub read the key in any capitals). A runner older than protocol
+85 (`CO_AUTHOR_CASE_PROTOCOL`) takes only `Co-authored-by` and drops any other line, so the server sends it that; a
+runner from 85 on takes either, as an older server sends.
 
 - **API commits.** `push_files` and `create_or_update_file` end their message with both (`runCoAuthors`,
   `creditedMessage`), and so does a merge's `commit_message` when the agent writes one (`merge_pull_request`, the

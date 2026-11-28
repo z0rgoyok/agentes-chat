@@ -352,3 +352,19 @@ test("a profile's browser that didn't answer says so at once, with Tentar de nov
   await click(within(dialog).getByRole("button", { name: "Tentar de novo" }));
   expect(s.calls.filter((c) => c.method === "takeover").map((c) => c.args)).toEqual([["p-free"], ["p-free"]]);
 });
+
+test("Fazer login's window: the head's own 16px are the room over the address bar, with no sky strip between", async () => {
+  const s = withProfiles();
+  await renderApp(`/org/${ORG_ID}/settings/computers/${s.machine.id}`, { api: s.api });
+  await settle(8);
+  const card = screen().getByRole("heading", { name: "Perfis do navegador" }).closest(".ac-card") as HTMLElement;
+  const row = card.querySelector(".pf-list > .machine-page__agent-row") as HTMLElement;
+  await click(within(row).getByRole("button", { name: "Fazer login" }));
+  const dialog = screen().getByRole("dialog", { name: "Fazer login no perfil Empresa A" });
+  expect(dialog.querySelector(".ac-dialog__head + .cmp-body")).toBeTruthy();
+  const css = (
+    await Bun.file(new URL("../src/components/computer/computer.css", import.meta.url).pathname).text()
+  ).replace(/\/\*[\s\S]*?\*\//g, "");
+  expect(css.split("\n.ac-dialog__head + .cmp-body {")[1]?.split("}")[0]).toContain("padding-top: 0;");
+  (globalThis as { geometrySnapshot?: () => void }).geometrySnapshot?.();
+});

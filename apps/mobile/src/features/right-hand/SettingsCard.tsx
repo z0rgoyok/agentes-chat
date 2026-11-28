@@ -5,7 +5,6 @@ import {
   type Message,
   type Proposal,
   useActionCard,
-  useAgentActions,
   useAgentProposal,
   useCardProposals,
   useChannels,
@@ -32,7 +31,7 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
 import { Button, Icon, Text } from "@/ui";
-import { UndoProposal } from "../agents/InstructionProposalCard";
+import { ApplyProposal, UndoProposal } from "../agents/InstructionProposalCard";
 import { proposalOutcome } from "../agents/logic";
 import { AgentProposalView } from "../agents/ProposalCard";
 import { useDelegateUndoAction } from "../agents/RightHandDelegate";
@@ -182,7 +181,13 @@ function SettingsRow({
       words: back ? `${who} · ${t("rightHand.card.undone")}` : (who ?? ""),
       time: outcome.at ? when.short(outcome.at) : undefined,
       note: byRightHand ? delegate?.reason : outcome.why,
-      actions: byRightHand ? delegateUndo : p.undoable && !back ? <UndoProposal id={p.id} /> : null,
+      actions: byRightHand ? (
+        delegateUndo
+      ) : p.undoable && !back ? (
+        <UndoProposal id={p.id} />
+      ) : p.applicable ? (
+        <ApplyProposal id={p.id} />
+      ) : null,
     };
   }
   return (
@@ -234,8 +239,7 @@ function SettingsRow({
 
 /**
  * The right hand's card of a change in the workspace (`workspace_action`), as on the web: what it does in the app's own
- * words, applied as whoever taps with the permissions its screen checks. Decided, one pill with who did it and Undo on
- * its receipt while it lasts.
+ * words, applied as whoever taps with the permissions its screen checks. Decided, one pill with who did it and when.
  */
 function WorkspaceActionView({
   where,
@@ -255,7 +259,6 @@ function WorkspaceActionView({
   const failed = useFailed();
   const when = useWhen();
   const decide = useDecideActionCard(orgId, { ...where, action: card.params.action });
-  const undo = useAgentActions(orgId, where.channelId).undo;
   const say = t as unknown as (key: string, values: Record<string, string | number>) => string;
   const sentence = say(actionCardKey(card), actionCardWords(card, t));
   const plain = sentence.replace(/<\/?b>/g, "");
@@ -267,11 +270,10 @@ function WorkspaceActionView({
   // Whoever applies it for someone else reads who asked, in the conversation and in their inbox.
   const asker = mine ? undefined : dir.memberById.get(card.forUserId)?.name;
   const mark = actionCardMark(card);
-  // Decided: the same card, and who did it, when and Undo where the buttons were.
+  // Decided: the same card, and who did it and when where the buttons were.
   let answer: AskAnswer | null = null;
   if (card.state !== "pending") {
     const receipt = actions?.find((a) => a.kind === "workspace.changed");
-    const undoable = receipt && !receipt.undoneAt && Date.parse(receipt.undoableUntil) > Date.now();
     const byMe = card.decidedByUserId === meId;
     const name = dir.memberById.get(card.decidedByUserId ?? "")?.name ?? "";
     const who =
@@ -286,15 +288,6 @@ function WorkspaceActionView({
       done: card.state === "applied" && !receipt?.undoneAt,
       words: receipt?.undoneAt ? `${who} · ${t("rightHand.card.undone")}` : who,
       time: card.decidedAt ? when.short(card.decidedAt) : undefined,
-      actions: undoable ? (
-        <Button
-          variant="ghost"
-          size="card"
-          label={t("rightHand.card.undo")}
-          loading={undo.isPending}
-          onPress={() => undo.mutate(receipt.id, { onError: failed })}
-        />
-      ) : null,
     };
   }
   const decision = may ? (

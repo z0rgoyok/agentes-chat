@@ -28,6 +28,8 @@ export interface LodiPrefs {
   digestOff: boolean;
   /** Reminders of what they and the right hand agreed on. */
   remindOff: boolean;
+  /** "Learns from your conversations": off, it learns nothing from them on its own (`rightHandLearnsFrom`). */
+  learnOff: boolean;
   /**
    * Suggestions this person put away for good, by key (`unanswered:<channelId>`); the newest `MUTED_MAX`. In a patch:
    * the keys to add.
@@ -43,6 +45,7 @@ export const LODI_PREFS_DEFAULTS: LodiPrefs = {
   dayHour: 9,
   digestOff: false,
   remindOff: false,
+  learnOff: false,
   muted: [],
 };
 
@@ -83,6 +86,7 @@ export function lodiPrefsOf(raw: unknown): LodiPrefs {
     dayHour: whole(r.dayHour, 23) ?? (daily ? (hour ?? LEGACY_HOUR) : LODI_PREFS_DEFAULTS.dayHour),
     digestOff: flag(r.digestOff) ?? off,
     remindOff: flag(r.remindOff) ?? off,
+    learnOff: flag(r.learnOff) ?? false,
     muted: stringsOf(r.muted).slice(-MUTED_MAX),
   };
 }
@@ -144,6 +148,7 @@ export const lodiPrefsSql = {
   remindOff: sql.raw(
     `(case when ${isFlag("remindOff")} then ${isTrue("remindOff")} else ${isTrue("off")} end)`,
   ) as SQL<boolean>,
+  learnOff: sql.raw(`(${isTrue("learnOff")})`) as SQL<boolean>,
   day: sql.raw(`coalesce(${wholeSql("day", 6)}, ${LODI_PREFS_DEFAULTS.day})`) as SQL<number>,
   weekHour: sql.raw(`coalesce(${wholeSql("weekHour", 23)},
     case when ${isTrue("daily")} then null else ${wholeSql("hour", 23)} end, ${LODI_PREFS_DEFAULTS.weekHour})`) as SQL<number>,

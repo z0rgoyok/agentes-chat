@@ -59,6 +59,7 @@ import type { BrowserPorts } from "./browser-ports";
 import { type CrashedPage, countChromeTraffic, emulationCommands, type TrafficCounter } from "./browser-traffic";
 import { BROWSER_WM_CLASS } from "./desktop-look";
 import type { DesktopSessions } from "./desktop-session";
+import { egressProxyChromeArgs } from "./egress-relay";
 import { RunnerError } from "./errors";
 import { processStartedAt } from "./exec";
 import {
@@ -122,7 +123,8 @@ import {
  *   none, the distribution's Chromium (ADR 0153). Each agent has its own profile, so the
  *   person's own Chrome profile is never touched, and our Chrome never starts
  *   Google's updater itself (`--disable-updater-scheduler`: macOS blamed our
- *   app for it, "agentes was prevented from modifying apps"). A new version on
+ *   app for it, "agentes was prevented from modifying apps"), nor clones its
+ *   own app at start (`MacAppCodeSignClone`, see `CHROME_ARGS`). A new version on
  *   disk restarts an agent's Chrome on the same page once it is idle (`sweep`).
  *   A Chrome that is missing or won't start is told to the agent in plain words
  *   (`CHROME_FAILURES`), and the server reports it. A runner outside system mode
@@ -469,7 +471,7 @@ export function crashPage(memory: boolean, tag?: string | null): string {
   const words = CRASH_WORDS[locale];
   const title = memory ? words.memory : words.stopped;
   const html =
-    `<!doctype html><html lang="${locale}"><head><meta charset="utf-8"><title>${title}</title>` +
+    `<!doctype html><html lang="${locale}" translate="no"><head><meta charset="utf-8"><meta name="google" content="notranslate"><title>${title}</title>` +
     `<style>${CRASH_STYLE}</style></head><body><main><h1>${title}</h1><p>${words.told}</p></main></body></html>`;
   return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
 }
@@ -611,7 +613,14 @@ export function chromeVersion(exe: string, platform: string = process.platform):
  * kept two of a 4-core computer's cores busy whether anyone watched or not,
  * and sent its desktop's viewers a stream of changes. The chip asking to sign
  * in to the browser, a feature of Chrome 147 (at least) to 155, stays off;
- * later versions read the profile's own switch (`prepareProfile`). The sites'
+ * later versions read the profile's own switch (`prepareProfile`). On macOS
+ * Google Chrome (158 measured) hard-links its own executable into a temporary clone of its app at
+ * every start (`MacAppCodeSignClone`, so an update under a running Chrome keeps
+ * its signature valid): macOS's App Management refuses that link to a process
+ * our app started (kernel log, 2026-11-26: "deny(1) file-link /Applications/
+ * Google Chrome.app/Contents/MacOS/Google Chrome") and shows "agentes.chat was
+ * prevented from modifying apps" at each new agent's or profile's Chrome. It
+ * is off: the runner restarts a Chrome on a new version itself (`sweep`). The sites'
  * sessions outlive Chrome stopping (idle, or moving to or from the agent's
  * desktop), as with Chrome's "Continue where you left off": a site that keeps
  * you signed in only until the browser closes (no "remember me") still has
@@ -628,7 +637,7 @@ export const CHROME_ARGS = [
   "--disable-updater-scheduler",
   "--disable-search-engine-choice-screen",
   "--force-prefers-reduced-motion",
-  "--disable-features=SigninPromoOnAvatarPill",
+  "--disable-features=SigninPromoOnAvatarPill,MacAppCodeSignClone",
   "--restore-last-session",
 ];
 /** `--screen-info`: without it a headless page's `screen` is 800x600, smaller than its own window. */
@@ -701,6 +710,8 @@ export function chromeLaunchArgs(
   debuggingPort = 0,
   startPage?: string,
   privateNetwork = false,
+  /** ADR 0237: a borrowing computer's proxy flags (`egressProxyChromeArgs`). */
+  proxy: readonly string[] = [],
 ): string[] {
   const ua = headed ? null : chromeUserAgent(version, platform);
   return [
@@ -711,7 +722,8 @@ export function chromeLaunchArgs(
     `--user-data-dir=${profile}`,
     ...(ua ? [`--user-agent=${ua}`] : []),
     ...(lang ? [`--lang=${lang}`] : []),
-    ...(privateNetwork ? ["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"] : []),
+    ...(privateNetwork && proxy.length === 0 ? ["--force-webrtc-ip-handling-policy=disable_non_proxied_udp"] : []),
+    ...proxy,
     ...(typeof page === "string" ? [startPage && page === "about:blank" ? pathToFileURL(startPage).href : page] : page),
   ];
 }
@@ -898,6 +910,35 @@ export function missingLibrariesText(missing: string[]): string {
 }
 
 /**
+ * The uids listening on `port` where Chrome's 127.0.0.1 would be, from `ss -Htln -e` (ss leaves root's uid out, read
+ * as 0). ss prints a dual-stack IPv6 wildcard as `*`, which holds 127.0.0.1, and a v6-only one as `[::]`, which doesn't.
+ */
+export function listenerUidsIn(ssOutput: string, port: number): number[] {
+  return ssOutput
+    .split("\n")
+    .filter((line) => {
+      const cols = line.trim().split(/\s+/);
+      const local = cols[3] ?? "";
+      return (
+        cols[0] === "LISTEN" &&
+        /^(127\.0\.0\.1|0\.0\.0\.0|\*):\d+$/.test(local) &&
+        Number(local.slice(local.lastIndexOf(":") + 1)) === port
+      );
+    })
+    .map((line) => Number(/\buid:(\d+)\b/.exec(line)?.[1] ?? 0));
+}
+
+/** `listenerUidsIn` on this computer now, or null when ss can't say. */
+function listenerUids(port: number): number[] | null {
+  const result = spawnSync("ss", ["-Htln", "-e"], { encoding: "utf8", timeout: 1000 });
+  return result.status === 0 ? listenerUidsIn(result.stdout ?? "", port) : null;
+}
+
+/** Another program holds an agent's fixed debugging port (system mode): what follows `CHROME_FAILURES.start`. */
+export const portTakenText = (port: number) =>
+  `Another program on this computer listens on port ${port}, which this agent's browser needs. Move that program to another port or stop it (sudo ss -tlnp 'sport = :${port}' shows which), then try again.`;
+
+/**
  * Starts Chrome and waits for its debugging port (Chrome writes it to
  * `<profile>/DevToolsActivePort` with `--remote-debugging-port=0`, its
  * browser endpoint on the next line).
@@ -908,27 +949,27 @@ export async function launchChrome(
   profile: string,
   env?: Record<string, string>,
   start: Spawn = spawn,
-  ownsPort: (port: number) => boolean = (port) => {
-    const uid = process.getuid?.();
-    if (uid === undefined) return false;
-    const result = spawnSync("ss", ["-Htln", "-e"], { encoding: "utf8", timeout: 1000 });
-    if (result.status !== 0) return false;
-    const rows = (result.stdout ?? "").split("\n").filter((line) => {
-      const cols = line.trim().split(/\s+/);
-      const local = cols[3] ?? "";
-      return (
-        cols[0] === "LISTEN" &&
-        (local.startsWith("127.0.0.1:") || local.startsWith("0.0.0.0:")) &&
-        Number(local.slice(local.lastIndexOf(":") + 1)) === port
-      );
-    });
-    return rows.length > 0 && rows.every((line) => Number(/\buid:(\d+)\b/.exec(line)?.[1]) === uid);
-  },
+  portListeners: (port: number) => number[] | null = listenerUids,
+  uid = process.getuid?.(),
 ): Promise<OwnChrome> {
   const portFile = path.join(profile, "DevToolsActivePort");
   const fixedPort = Number(args.find((arg) => arg.startsWith("--remote-debugging-port="))?.split("=")[1] ?? 0);
   if (!Number.isInteger(fixedPort) || fixedPort < 0 || fixedPort > 65_535) {
     throw new ChromeStartError("Invalid Chrome debugging port", "");
+  }
+  const ownsPort = (port: number) => {
+    const uids = portListeners(port);
+    return uid !== undefined && !!uids?.length && uids.every((u) => u === uid);
+  };
+  const holders = fixedPort ? (portListeners(fixedPort) ?? []).filter((u) => u !== uid) : [];
+  if (holders.length) {
+    throw new ChromeStartError(
+      `Chrome's debugging port ${fixedPort} is taken by uid ${holders.join(", ")}`,
+      "",
+      [],
+      false,
+      portTakenText(fixedPort),
+    );
   }
   await rm(portFile, { force: true });
   const child = start(exe, args, { stdio: ["ignore", "ignore", "pipe"], windowsHide: true, ...(env ? { env } : {}) });
@@ -3271,6 +3312,7 @@ export class BrowserManager {
           this.opts.fixedPorts?.cdp ?? 0,
           startPage,
           this.opts.privateNetwork?.(),
+          egressProxyChromeArgs(),
         );
         try {
           const display = on && confinedChrome(exe) ? readableDisplay(on, session.folder) : on;

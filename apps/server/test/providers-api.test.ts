@@ -1,4 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
+import { eq, schema } from "@agenteschat/db";
+import { createLocalKeyWrapper, sealSecret } from "@agenteschat/engine";
 import { enableOpenRouterModels, ProviderError, setOpenRouterModels } from "@agenteschat/providers";
 import fixture from "../../../packages/providers/test/fixtures/openrouter-models.json";
 import { browser, createTestServer, seedOrg, signUp, type TestServer } from "./harness";
@@ -221,6 +223,33 @@ test("a key saved says it passed; it can be tried again; with `release` it goes 
   expect(refused.status).toBe(409);
   expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("credential.default");
   expect((await api(`/credentials/${key.id}?purge=true&release=true`, { method: "DELETE" })).status).toBe(204);
+});
+
+test("a key this server can't open (saved under another AGENTES_SECRET) says so, and pasting it again fixes it", async () => {
+  t = await createTestServer();
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId } = await seedOrg(owner);
+  const api = (path: string, init?: Parameters<typeof owner>[1]) =>
+    owner(`/api/app/organizations/${orgId}${path}`, init);
+  const key = (await (
+    await api("/credentials", { json: { provider: "openai", label: "OpenAI", apiKey: "sk-proj-abcdefgh" } })
+  ).json()) as { id: string };
+  const sealed = await sealSecret(
+    createLocalKeyWrapper("another-install-secret"),
+    "sk-proj-abcdefgh",
+    `provider-credential|${orgId}|${key.id}`,
+  );
+  await t.db
+    .update(schema.providerCredentials)
+    .set({ secretCiphertext: sealed.ciphertext, wrappedDataKey: sealed.wrappedDataKey })
+    .where(eq(schema.providerCredentials.id, key.id));
+  const refused = await api(`/credentials/${key.id}/check`, { json: {} });
+  expect(refused.status).toBe(400);
+  expect(((await refused.json()) as { error: { code: string } }).error.code).toBe("credential_unreadable");
+  const pasted = await api(`/credentials/${key.id}/rotate`, { json: { apiKey: "sk-proj-abcdefgh" } });
+  expect(pasted.status).toBe(200);
+  expect((await (await api(`/credentials/${key.id}/check`, { json: {} })).json()) as object).toEqual({ check: "ok" });
 });
 
 test("past a person's hourly key tests a key saves unchecked: no one sorts stolen keys through this server", async () => {

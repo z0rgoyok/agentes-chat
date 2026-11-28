@@ -1,6 +1,7 @@
 import { useComputerSetup, useMachines, useSetComputerTarget } from "@agenteschat/client";
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { setupView } from "@agenteschat/client/lib/computer";
+import { LEGACY_MOVE, maintenanceOf, maintenanceShort } from "@agenteschat/client/lib/computer-maintenance";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { machineTitle } from "@agenteschat/client/lib/machines";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
@@ -65,7 +66,9 @@ export function usePickComputer(agentId: string): (() => void) | null {
       options: pick.choices.map((m) => ({
         key: m.id,
         label: machineTitle(m, host),
-        ...(m.online ? {} : { sub: t("machines.offline") }),
+        ...(m.online
+          ? {}
+          : { sub: m.moving ? maintenanceShort(t, maintenanceOf(m) ?? LEGACY_MOVE) : t("machines.offline") }),
         leading: { kind: "icon" as const, name: computerIcon(m.os) },
       })),
     }).then((key) => {

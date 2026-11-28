@@ -111,6 +111,22 @@ describe("Preferences › This Mac", () => {
       writePref(IPHONE_SETUP_PREF, false);
     }));
 
+  test("a simulator on this Mac: Start when it's off, then Shut down while it starts", () =>
+    mount("prefs", <OneWorkspace />, async (el, host) => {
+      await until(() => rowOf(el, "iPhone 17 Pro"));
+      expect(rowOf(el, "iPhone 17 Pro")?.querySelector(".ac-chip")?.textContent).toBe("Offline");
+      await act(async () => button(rowOf(el, "iPhone 17 Pro"), "Start")?.click());
+      await until(() => button(rowOf(el, "iPhone 17 Pro"), "Shut down"));
+      expect(host.site.calls.filter((c) => c.method === "POST")).toEqual([
+        {
+          method: "POST",
+          path: "/api/app/organizations/org_acme/devices/phones/0b6c5a8e-0000-4000-8000-000000000003/power",
+          body: { on: true },
+        },
+      ]);
+      expect(document.body.textContent).toContain("iPhone 17 Pro is starting. It's ready in a moment.");
+    }));
+
   test("an iPhone on this Mac's Wi-Fi: offered, used once picked, and let go again", () =>
     mount("prefs", <OneWorkspace />, async (el, host) => {
       const offer = "Also on this Mac's Wi-Fi: Ana's iPhone 14";

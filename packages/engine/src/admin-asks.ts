@@ -5,6 +5,7 @@ import { adminsOf } from "./notification-producers";
 import { type NotificationDeps, notify, resolveNotifications } from "./notifications";
 import { can, requirePermission } from "./organizations";
 import type { RolePermission } from "./permissions";
+import { speechOwnerIn } from "./speech-settings";
 
 /**
  * "Pedir a um admin": what a person can't do here themselves, sent to who can as an inbox row (`admin_ask`) that does
@@ -12,14 +13,16 @@ import type { RolePermission } from "./permissions";
  * `channel_agent`: add an agent to a channel (after "@" picked one that isn't there); done once it is added.
  * `create_agents`: let the asker create agents (Members, where roles are given).
  * `webhook`: set up a service's webhook for routines (`provider`: github, sentry).
+ * `voice`: choose what turns voice into text on this server (Settings › Voice): only its owner can, so only they hear it.
  */
 export type AdminAsk =
   | { what: "channel_agent"; channelId: string; agentId: string }
   | { what: "create_agents" }
-  | { what: "webhook"; provider: string };
+  | { what: "webhook"; provider: string }
+  | { what: "voice" };
 
-/** Who answers each ask, by the permission it needs. */
-const DECIDES: Record<AdminAsk["what"], RolePermission> = {
+/** Who answers each ask, by the permission it needs; `voice` by who owns the server. */
+const DECIDES: Record<Exclude<AdminAsk["what"], "voice">, RolePermission> = {
   channel_agent: "manage_channels",
   create_agents: "manage_roles",
   webhook: "manage_connectors",
@@ -32,7 +35,9 @@ export const adminAskKey = (orgId: string, ask: AdminAsk, askerId: string) =>
     ? `admin-ask:channel_agent:${ask.channelId}:${ask.agentId}`
     : ask.what === "webhook"
       ? `admin-ask:webhook:${orgId}:${ask.provider}`
-      : `admin-ask:create_agents:${askerId}`;
+      : ask.what === "voice"
+        ? `admin-ask:voice:${orgId}`
+        : `admin-ask:create_agents:${askerId}`;
 
 /**
  * Sends the ask to everyone who may do it. Refused to someone who may do it themselves (`admin_ask.self`). Asking again
@@ -40,7 +45,9 @@ export const adminAskKey = (orgId: string, ask: AdminAsk, askerId: string) =>
  */
 export async function askAdmins(deps: NotificationDeps, actorId: string, orgId: string, ask: AdminAsk) {
   const membership = await requirePermission(deps.db, actorId, orgId, "read");
-  if (can(membership, DECIDES[ask.what])) throw new ConflictError("You can do this yourself", "admin_ask.self");
+  const voiceOwner = ask.what === "voice" ? await speechOwnerIn(deps.db, orgId) : null;
+  const mine = ask.what === "voice" ? voiceOwner?.userId === actorId : can(membership, DECIDES[ask.what]);
+  if (mine) throw new ConflictError("You can do this yourself", "admin_ask.self");
   const source: { channelId?: string; agentId?: string; label?: string } = {};
   if (ask.what === "channel_agent") {
     const [channel] = await deps.db
@@ -62,7 +69,8 @@ export async function askAdmins(deps: NotificationDeps, actorId: string, orgId: 
   }
   const sent = await notify(deps, {
     orgId,
-    userIds: await adminsOf(deps, orgId, DECIDES[ask.what]),
+    userIds:
+      ask.what === "voice" ? (voiceOwner ? [voiceOwner.userId] : []) : await adminsOf(deps, orgId, DECIDES[ask.what]),
     kind: "admin_ask",
     groupKey: adminAskKey(orgId, ask, actorId),
     waiting: ask.what === "channel_agent",

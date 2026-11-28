@@ -45,6 +45,11 @@ export const instanceTelemetry = pgTable(
      * on installations that already had a workspace when it became opt-in (migration 0304), false on new ones.
      */
     routerPlanFallback: boolean().notNull().default(false),
+    /**
+     * The apps' speed reports since the last usage report (`client-vitals.ts`), kept so a restart keeps them: the
+     * report sends their daily summary.
+     */
+    clientVitals: jsonb().$type<ClientVitalsDay>(),
   },
   (t) => [check("instance_telemetry_one_row", sql`${t.id} = 1`)],
 );
@@ -122,6 +127,25 @@ export const rateLimits = pgTable("rate_limits", {
   resetAt: timestamp({ withTimezone: true }).notNull(),
 });
 
+/**
+ * Where an app runs: the phone apps, a browser, and the desktop app on each system, kept apart so one system's web view
+ * (WebView2, WebKit, WebKitGTK) is never averaged with another's.
+ */
+export const CLIENT_PLATFORMS = ["ios", "android", "web", "macos", "windows", "linux"] as const;
+
+/** What an app measures in its speed report (`POST /api/app/client-vitals`). */
+export const CLIENT_VITAL_MEASURES = [
+  "coldStartMs",
+  "firstRowsMs",
+  "jsLagP95Ms",
+  "jsLagMaxMs",
+  "heapBytes",
+  "webviewBytes",
+  "getsPerReturn",
+  "reconnects",
+] as const;
+export type ClientVitalMeasure = (typeof CLIENT_VITAL_MEASURES)[number];
+
 /** One measure across the apps' reports of a minute: how many, the median, the 95th percentile and the worst. */
 export interface ClientVitalStat {
   n: number;
@@ -131,20 +155,21 @@ export interface ClientVitalStat {
 }
 
 /**
- * The apps' reports to one process over a minute, by platform (`ios`, `android`, `web`): how long a cold start took
- * to the first frame and to the first rows, how late the JavaScript thread ran, the heap, the reads (GETs) after each
- * return to the app, and the socket's reconnects.
+ * The apps' reports to one process over a minute, by platform (`ios`, `android`, `web`, and the desktop app's `macos`,
+ * `windows`, `linux`): how long a cold start took to the first screen and to the first rows, how late the JavaScript
+ * thread ran, the heap, the desktop's web view memory, the reads (GETs) after each return to the app, and the socket's
+ * reconnects.
  */
 export type ClientVitalsSummary = Record<
   string,
-  {
-    reports: number;
-    coldStartMs?: ClientVitalStat;
-    firstRowsMs?: ClientVitalStat;
-    jsLagP95Ms?: ClientVitalStat;
-    jsLagMaxMs?: ClientVitalStat;
-    heapBytes?: ClientVitalStat;
-    getsPerReturn?: ClientVitalStat;
-    reconnects?: ClientVitalStat;
-  }
+  { reports: number } & Partial<Record<ClientVitalMeasure, ClientVitalStat>>
+>;
+
+/**
+ * The apps' reports since the last usage report, by platform: how many, and per measure how many values came and a
+ * uniform sample of them (a few hundred at most, `client-vitals.ts`), for the report's median and 95th percentile.
+ */
+export type ClientVitalsDay = Record<
+  string,
+  { reports: number; values: Partial<Record<ClientVitalMeasure, { n: number; sample: number[] }>> }
 >;

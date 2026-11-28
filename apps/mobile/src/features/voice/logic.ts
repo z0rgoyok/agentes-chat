@@ -1,5 +1,6 @@
 import type { Message } from "@agenteschat/client";
 import { VOICE_COUNTDOWN_MS, VOICE_MAX_MS, VOICE_SPEEDS, voiceParts } from "@agenteschat/client/lib/voice";
+import { VOICE_HANDLE } from "@agenteschat/ui/voice/bars";
 import type { VoiceSend } from "./outbox";
 
 /**
@@ -59,17 +60,25 @@ export function playedColumns(width: number): { count: number; start: number } {
   return { count, start: Math.round((width - (count * WAVE_PITCH - (WAVE_PITCH - WAVE_CELL))) / 2) };
 }
 
-/** Where a played wave's handle starts at `progress`: flush with its left end at 0:00, with its right end at the end. */
-export function handleAt(progress: number, width: number): number {
+/**
+ * Where a played wave's handle (`handle` wide) starts at `progress`: flush with its left end at 0:00, with its right
+ * end at the end.
+ */
+export function handleAt(progress: number, width: number, handle = WAVE_HANDLE): number {
   "worklet";
-  return progress * (width - WAVE_HANDLE);
+  return progress * (width - handle);
 }
 
 /** Where `x` falls on a played wave `width` wide: the handle's middle there, up to 0.999 at the end. */
-export function waveAt(x: number, width: number): number {
+export function waveAt(x: number, width: number, handle = WAVE_HANDLE): number {
   "worklet";
-  return Math.max(0, Math.min(0.999, (x - WAVE_HANDLE / 2) / (width - WAVE_HANDLE)));
+  return Math.max(0, Math.min(0.999, (x - handle / 2) / (width - handle)));
 }
+
+/** A voice message's wave: 30 tall, as the web draws it (`@agenteschat/ui/voice/bars` has its bars and handle). */
+export const BAR_WAVE_H = 30;
+/** Its round handle's width. */
+export const BAR_HANDLE = 2 * VOICE_HANDLE;
 
 /** A finger's position during a hold: what it asks for now. */
 export function slideIntent(dx: number, dy: number): "cancel" | "lock" | null {

@@ -441,6 +441,44 @@ export const helpNl: Partial<Record<HelpSlug, HelpDocument>> = {
         ],
       },
       {
+        id: "tool-levels",
+        heading: "Elke tool van een gekoppelde app",
+        blocks: [
+          "Elke tool van een app die via zijn adres is gekoppeld, heeft een eigen niveau, dat je kiest in **Instellingen\u00a0›\u00a0Connectors**, bij de tools van die koppeling. Op de pagina van de agent laat **Tools en toegang** zien welke apps en tools hij mag gebruiken.",
+          {
+            list: [
+              "**Kijkt alleen**: leest en verandert niets. Vraagt nooit.",
+              "**Wijzigt dingen**: maakt en wijzigt zonder te vragen. Een agent op **Altijd vragen** vraagt toch.",
+              "**Vraagt je goedkeuring**: vraagt in het gesprek voor elk gebruik.",
+              "**Uit**: agents krijgen hem niet.",
+            ],
+          },
+          "**Nooit vragen** op de pagina van de agent gaat voor dit alles: een agent op dat niveau vraagt niets, ook niet bij een tool op **Vraagt je goedkeuring**. Verandert een niveau terwijl er verzoeken wachten, dan worden de verzoeken die niet meer zouden vragen geannuleerd, en doet de agent ze opnieuw zonder kaart.",
+        ],
+      },
+      {
+        id: "sensitive",
+        heading: "Gevoelige tools",
+        blocks: [
+          "Een tool die de server van de app markeert als een die verwijdert, verstuurt of betaalt, kan alleen op **Vraagt je goedkeuring** of **Uit** staan.",
+        ],
+      },
+      {
+        id: "order",
+        heading: "In welke volgorde goedgekeurde acties lopen",
+        blocks: [
+          "In één beurt doet een agent zijn acties in de volgorde waarin hij erom vroeg, in welke volgorde je ze ook goedkeurt. Een bericht dat je stuurt terwijl de agent wacht, start een nieuwe beurt, en de acties daarvan lopen na de verzoeken waarvan de agent wist dat ze al wachtten. Verzoeken uit verschillende gesprekken wachten nooit op elkaar.",
+          "Een verzoek dat langer dan 30 minuten op iemand wacht, houdt niets tegen. Een goedgekeurde actie die wacht, zegt waarop, met **Goedkeuren** en **Weigeren** voor dat verzoek en **Nu uitvoeren** om zonder verder te gaan.",
+        ],
+      },
+      {
+        id: "many",
+        heading: "Meerdere tegelijk",
+        blocks: [
+          "Waar verzoeken op je wachten, op het web en op de telefoon, beslissen **Alles goedkeuren** en **Alles weigeren** in één keer over alle verzoeken van één agent.",
+        ],
+      },
+      {
         id: "who",
         heading: "Wie goedkeurt",
         blocks: [
@@ -843,7 +881,7 @@ export const helpNl: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "data",
         heading: "Wat het verstuurt",
         blocks: [
-          "Eén keer per dag stuurt de server agentes.chat anonieme gebruiksstatistieken: aantallen zoals mensen, agents, grootte van de machines, gebruikte AI-tokens en hoeveel data de browsers van de agents versturen en ontvangen. Nooit berichten, bestanden, namen of sites. `docker compose run --rm agentes telemetry` toont precies wat er verstuurd zou worden. De eigenaar zet het uit in **Instellingen\u00a0›\u00a0Algemeen**, of met `TELEMETRY=off` in `.env`.",
+          "Eén keer per dag stuurt de server agentes.chat anonieme gebruiksstatistieken: aantallen zoals mensen, agents, grootte van de machines, gebruikte AI-tokens, hoeveel data de browsers van de agents versturen en ontvangen en hoe snel de apps openen en reageren. Nooit berichten, bestanden, namen of sites. `docker compose run --rm agentes telemetry` toont precies wat er verstuurd zou worden. De eigenaar zet het uit in **Instellingen\u00a0›\u00a0Algemeen**, of met `TELEMETRY=off` in `.env`.",
           "Foutrapporten gaan nergens heen, tenzij je `SENTRY_DSN` instelt op een Sentry-compatibele server die je zelf kiest. Een rapport bevat de fout en waar die gebeurde, nooit berichten, e-mails, IP-adressen, cookies of tokens.",
         ],
       },
@@ -852,6 +890,57 @@ export const helpNl: Partial<Record<HelpSlug, HelpDocument>> = {
         heading: "De volledige handleiding",
         blocks: [
           "Alle instellingen, een eigen proxy zoals nginx, draaien zonder Docker, een draaiboek voor AI-agents die het zelf installeren en wat je doet als iets misgaat staan in `SELF_HOSTING.md`, in de repository van agentes.chat.",
+        ],
+      },
+    ],
+  },
+  "integration-apps": {
+    title: "Integratie-apps",
+    summary:
+      "Verbind een supportbot, een formulier of een monitor die in je kanalen als zichzelf post, nooit als een persoon.",
+    sections: [
+      {
+        id: "what",
+        heading: "Hoe het werkt",
+        blocks: [
+          "Een integratie-app heeft een eigen token. Hij post in de kanalen die je hem geeft, onder zijn eigen naam met het label **App**, en kan de naam van de persoon van buiten meegeven. Agents antwoorden hem zoals een persoon: als hij ze vermeldt, of als de router ze kiest.",
+          "Haal gesprekken van buiten zo binnen, nooit met het persoonlijke token van iemand: die berichten zouden als van die persoon verschijnen.",
+        ],
+      },
+      {
+        id: "connect",
+        heading: "Een supportbot verbinden",
+        blocks: [
+          {
+            list: [
+              "Klik in **Instellingen › Connectors › Integraties** op **App verbinden**, geef hem een naam en kies zijn kanalen.",
+              "Voeg desgewenst een webhookadres toe: elk antwoord van een agent in zijn kanalen gaat daarheen, ondertekend met [Standard Webhooks](https://www.standardwebhooks.com).",
+              "Kopieer het token en het webhookgeheim. Ze worden één keer getoond.",
+              "Post het eerste bericht van elk gesprek van buiten zonder `thread_id`, en de rest met zijn `id` als `thread_id`. Stuur de antwoorden in die thread terug naar de persoon.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "api",
+        heading: "De API",
+        blocks: [
+          "Stuur het token als `Authorization: Bearer agi_…`.",
+          {
+            list: [
+              "`GET /api/v1/channels`: de kanalen van de app.",
+              "`POST /api/v1/messages`: `channel_id`, `text` en eventueel `thread_id`, `sender` en `idempotency_key`.",
+              "`GET /api/v1/messages?after=<id>`: wat sindsdien is geschreven, met `in_reply_to` bij elk antwoord van een agent.",
+            ],
+          },
+          "Dezelfde aanroepen zijn MCP-tools op `/mcp`. De volledige referentie is `/api/openapi.json`.",
+        ],
+      },
+      {
+        id: "safety",
+        heading: "Wat een app niet kan",
+        blocks: [
+          "Een app is nooit een lid of een persoon. Agents beantwoorden wat hij post, maar nemen er geen regel, geheugen, wijziging van instructies, routine, goedkeuring of toestemming uit over. Zijn token intrekken stopt hem meteen. Als een agent een app antwoordt, leest hij uit zichzelf alleen dat gesprek en het web: al het andere uit je werkruimte wacht op de goedkeuring van een persoon.",
         ],
       },
     ],

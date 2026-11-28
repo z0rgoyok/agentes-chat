@@ -438,6 +438,44 @@ export const helpPtBR: Record<HelpSlug, HelpDocument> = {
         ],
       },
       {
+        id: "tool-levels",
+        heading: "Cada ferramenta de um app conectado",
+        blocks: [
+          "Cada ferramenta de um app conectado pelo endereço tem um nível próprio, escolhido em **Configurações\u00a0›\u00a0Conectores**, nas ferramentas daquela conexão. Na página do agente, **Ferramentas e acesso** mostra quais apps e ferramentas ele pode usar.",
+          {
+            list: [
+              "**Só consulta**: lê e não muda nada. Nunca pergunta.",
+              "**Muda coisas**: cria e altera sem perguntar. Um agente em **Sempre perguntar** ainda pergunta.",
+              "**Pede sua aprovação**: pergunta na conversa antes de cada uso.",
+              "**Desligada**: os agentes não recebem.",
+            ],
+          },
+          "**Nunca perguntar**, na página do agente, vem antes de tudo isso: um agente nesse nível não pede nada, nem numa ferramenta em **Pede sua aprovação**. Quando um nível muda com pedidos esperando, os que não perguntariam mais são cancelados, e o agente faz de novo, sem cartão.",
+        ],
+      },
+      {
+        id: "sensitive",
+        heading: "Ferramentas sensíveis",
+        blocks: [
+          "Uma ferramenta que o servidor do app marca como de apagar, enviar ou pagar só pode ficar em **Pede sua aprovação** ou **Desligada**.",
+        ],
+      },
+      {
+        id: "order",
+        heading: "Em que ordem as ações aprovadas rodam",
+        blocks: [
+          "Numa mesma vez, o agente faz as ações na ordem em que pediu, seja qual for a ordem em que você aprova. Uma mensagem enviada enquanto o agente espera começa uma nova vez, e as ações dela rodam depois dos pedidos que o agente soube que já esperavam. Pedidos de conversas diferentes nunca esperam um pelo outro.",
+          "Um pedido esperando uma pessoa há mais de 30 minutos não segura nada. Uma ação aprovada que espera diz pelo quê, com **Aprovar** e **Recusar** para aquele pedido e **Rodar este agora** para seguir sem ele.",
+        ],
+      },
+      {
+        id: "many",
+        heading: "Vários de uma vez",
+        blocks: [
+          "Onde os pedidos esperam você, na web e no celular, **Aprovar todos** e **Recusar todos** decidem de uma vez todos os pedidos de um agente.",
+        ],
+      },
+      {
         id: "who",
         heading: "Quem aprova",
         blocks: [
@@ -840,7 +878,7 @@ export const helpPtBR: Record<HelpSlug, HelpDocument> = {
         id: "data",
         heading: "O que ele envia",
         blocks: [
-          "Uma vez por dia, o servidor manda ao agentes.chat estatísticas de uso anônimas: contagens como pessoas, agentes, tamanho das máquinas, tokens de IA usados e quantos dados os navegadores dos agentes enviam e recebem. Nunca mensagens, arquivos, nomes ou sites. `docker compose run --rm agentes telemetry` mostra exatamente o que seria enviado. Quem é dono desliga em **Configurações\u00a0›\u00a0Geral**, ou com `TELEMETRY=off` no `.env`.",
+          "Uma vez por dia, o servidor manda ao agentes.chat estatísticas de uso anônimas: contagens como pessoas, agentes, tamanho das máquinas, tokens de IA usados, quantos dados os navegadores dos agentes enviam e recebem, e com que rapidez os apps abrem e respondem. Nunca mensagens, arquivos, nomes ou sites. `docker compose run --rm agentes telemetry` mostra exatamente o que seria enviado. Quem é dono desliga em **Configurações\u00a0›\u00a0Geral**, ou com `TELEMETRY=off` no `.env`.",
           "Relatórios de erro não vão para lugar nenhum, a não ser que você defina `SENTRY_DSN` com um servidor compatível com o Sentry que você escolher. Um relatório tem o erro e onde ele aconteceu, nunca mensagens, e-mails, endereços IP, cookies ou tokens.",
         ],
       },
@@ -849,6 +887,57 @@ export const helpPtBR: Record<HelpSlug, HelpDocument> = {
         heading: "O guia completo",
         blocks: [
           "Todas as configurações, um proxy seu como o nginx, rodar sem Docker, um roteiro para agentes de IA que instalam sozinhos e o que fazer quando algo falha estão no `SELF_HOSTING.md`, no repositório do agentes.chat.",
+        ],
+      },
+    ],
+  },
+  "integration-apps": {
+    title: "Apps de integração",
+    summary:
+      "Conecte um bot de atendimento, um formulário ou um monitor que posta nos seus canais como ele mesmo, nunca como uma pessoa.",
+    sections: [
+      {
+        id: "what",
+        heading: "Como funciona",
+        blocks: [
+          "Um app de integração tem o próprio token. Ele posta nos canais que você der a ele, com o próprio nome e a etiqueta **App**, e pode repassar o nome da pessoa de fora. Os agentes respondem como respondem a uma pessoa: quando ele os menciona, ou quando o roteador os escolhe.",
+          "Traga conversas de fora assim, nunca com o token pessoal de alguém: essas mensagens apareceriam como dessa pessoa.",
+        ],
+      },
+      {
+        id: "connect",
+        heading: "Conectar um bot de atendimento",
+        blocks: [
+          {
+            list: [
+              "Em **Configurações › Conectores › Integrações**, clique em **Conectar um app**, dê um nome e escolha os canais.",
+              "Se quiser, adicione um endereço de webhook: cada resposta de agente nos canais dele vai para lá, assinada com [Standard Webhooks](https://www.standardwebhooks.com).",
+              "Copie o token e o segredo do webhook. Eles aparecem uma vez só.",
+              "Poste a primeira mensagem de cada conversa de fora sem `thread_id`, e o resto com o `id` dela como `thread_id`. Mande as respostas dessa conversa de volta para a pessoa.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "api",
+        heading: "A API",
+        blocks: [
+          "Mande o token como `Authorization: Bearer agi_…`.",
+          {
+            list: [
+              "`GET /api/v1/channels`: os canais do app.",
+              "`POST /api/v1/messages`: `channel_id`, `text` e, se quiser, `thread_id`, `sender` e `idempotency_key`.",
+              "`GET /api/v1/messages?after=<id>`: o que foi escrito desde então, com `in_reply_to` em cada resposta de agente.",
+            ],
+          },
+          "As mesmas chamadas são ferramentas MCP em `/mcp`. A referência completa é `/api/openapi.json`.",
+        ],
+      },
+      {
+        id: "safety",
+        heading: "O que um app não faz",
+        blocks: [
+          "Um app nunca é membro nem pessoa. Os agentes respondem o que ele posta, mas não tiram dele regra, memória, mudança de instrução, rotina, aprovação ou permissão. Revogar o token o para na hora. Respondendo a um app, o agente lê sozinho só aquela conversa e a web: qualquer outra coisa do workspace espera a aprovação de uma pessoa.",
         ],
       },
     ],

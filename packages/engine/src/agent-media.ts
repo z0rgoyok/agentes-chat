@@ -564,7 +564,7 @@ async function conversationBefore(db: Executor, reply: Message, at: Date): Promi
     const media = mediaOf(r.meta);
     return {
       from: r.name ?? (r.authorType === "person" ? "a person" : "an agent"),
-      kind: r.authorType,
+      kind: r.authorType === "agent" ? ("agent" as const) : ("person" as const),
       text: r.body,
       ...(media ? { media: media.kind } : {}),
     };

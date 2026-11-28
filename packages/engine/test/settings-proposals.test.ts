@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { and, eq, schema } from "@agenteschat/db";
+import { ACCOUNTS_PROTOCOL } from "@agenteschat/adapters";
+import { and, eq, schema, sql } from "@agenteschat/db";
 import {
   actionsFor,
   addChannelMember,
@@ -10,6 +11,7 @@ import {
   createSetupToolSource,
   createToolGateway,
   decideProposal,
+  decideWorkspaceAction,
   deleteSkill,
   describeCapabilities,
   enabledSkills,
@@ -21,6 +23,7 @@ import {
   MAX_CARDS_PER_RUN_RIGHT_HAND,
   openPersonAgentDm,
   ownWords,
+  PROPOSE_REMOVE_AGENTS_TOOL,
   PROPOSE_SETTINGS_TOOL,
   postPersonMessage,
   presentTools,
@@ -30,6 +33,7 @@ import {
   redoAgentAction,
   SETTINGS_REQUEST_CARD,
   saveSkill,
+  setAgentBrain,
   setAgentEditors,
   setAgentScopes,
   setAgentSkills,
@@ -59,18 +63,22 @@ const lodiOf = async (fx: Fixture) => {
 };
 
 /**
- * A run of Lodi on what `userId` wrote in their DM with it: its tools act for that person. Their message relays outside
- * content, so what they may decide goes to the review; `ownWords`: it doesn't, so it applies at once.
+ * A run of Lodi on what `userId` wrote in their DM with it: its tools act for that person. The conversation relays
+ * outside content (Lodi's earlier reply read a page), so what they may decide goes to the review; `ownWords`: it
+ * doesn't, so it applies at once.
  */
 async function lodiRun(fx: Fixture, userId: string, body: string, ownWords = false): Promise<ToolContext> {
   const lodi = await lodiOf(fx);
   const dm = await openPersonAgentDm(fx.db, fx.org.id, userId, lodi.id);
-  const trigger = await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, userId, fx.org.id, dm.id, { body });
   if (!ownWords)
-    await fx.db
-      .update(schema.messages)
-      .set({ meta: { readOutside: true } })
-      .where(eq(schema.messages.id, trigger.id));
+    await insertMessage(fx.db, {
+      orgId: fx.org.id,
+      channelId: dm.id,
+      author: { type: "agent", agentId: lodi.id, runId: null, hop: 1, stretchId: null },
+      body: "The vendor page says the plan changed.",
+      meta: { readOutside: true },
+    });
+  const trigger = await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, userId, fx.org.id, dm.id, { body });
   const [run] = await fx.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, trigger.id));
   if (!run) throw new Error("no run");
   return {
@@ -189,6 +197,72 @@ describe("a change the person asked for and may make (ADR 0092 §5)", () => {
     expect((await getAgent(f.db, f.org.id, f.agent.id))?.brainModel).toBeNull();
   });
 
+  test("another maker's model on Claude Code names that maker, and the workspace's key for it when there is one", async () => {
+    f = await setup({ rightHand: true });
+    const { machineId } = await pairMachine({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, {
+      name: "MacBook",
+      exec: true,
+    });
+    await f.db.update(schema.agents).set({ brain: "claude_code", machineId }).where(eq(schema.agents.id, f.agent.id));
+    const ctx = await lodiRun(f, f.owner.id, "coloca o dev no gemini", true);
+    const ask = () => call(f, ctx, { changes: [{ agent: "@dev", model: "gemini-4-neon" }], reason: "pediu" });
+    const bare = await ask();
+    expect(bare).toMatchObject({ isError: true });
+    expect(bare.content).toContain("Gemini 4 Neon doesn't run on Claude Code: it needs an AI account of Gemini first");
+    expect(bare.content).not.toContain("API key");
+    const [key] = await f.db
+      .select()
+      .from(schema.providerCredentials)
+      .where(eq(schema.providerCredentials.orgId, f.org.id));
+    if (!key) throw new Error("fixture key");
+    await f.db.insert(schema.providerCredentials).values({ ...key, id: crypto.randomUUID(), provider: "gemini" });
+    const keyed = await ask();
+    expect(keyed.content).toContain("or the workspace's gemini API key, which only its page moves it to");
+    expect((await getAgent(f.db, f.org.id, f.agent.id))?.brainModel).toBeNull();
+  });
+
+  test("the right hand's model for a person with their own AI changes theirs, never the workspace's: theirs to apply and undo", async () => {
+    f = await setup({ rightHand: true });
+    const bia = await addMember(f.db, f.org.id, "member", "Bia");
+    const { machineId } = await pairMachine({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, {
+      name: "MacBook",
+      protocol: ACCOUNTS_PROTOCOL,
+      exec: true,
+    });
+    await f.db
+      .update(schema.machines)
+      .set({
+        pairedByUserId: bia.id,
+        executors: { claude: { version: "2.1.318", loggedIn: true }, detectedAt: new Date().toISOString() },
+      })
+      .where(eq(schema.machines.id, machineId));
+    const lodi = await lodiOf(f);
+    // Her own DM thinks with her computer's own sign-in: a row with no account.
+    await setAgentBrain({ db: f.db }, bia.id, f.org.id, lodi.id, {
+      scope: "mine",
+      brain: "claude_code",
+      account: null,
+    });
+    const ctx = await lodiRun(f, bia.id, "muda seu modelo pro opus", true);
+    await call(f, ctx, { changes: [{ agent: "@lodi", model: "opus" }], reason: "pediu" });
+    const { card, rows } = await cardRows(f, bia.id);
+    const [row] = rows;
+    expect(row?.settings).toEqual([{ field: "model", from: null, to: "opus", person: bia.id }]);
+    // Her own AI is hers alone: an admin doesn't decide it for her.
+    await expect(decideProposal(f.db, f.owner.id, f.org.id, row?.id ?? "", "accept")).rejects.toThrow();
+    await decideProposal(f.db, bia.id, f.org.id, row?.id ?? "", "accept", { pubsub: f.pubsub });
+    const own = async () =>
+      (await f.db.select().from(schema.rightHandBrains).where(eq(schema.rightHandBrains.userId, bia.id)))[0];
+    expect(await own()).toMatchObject({ brain: "claude_code", brainModel: "opus", brainAccountId: null, machineId });
+    expect((await lodiOf(f)).brainModel).toBe(lodi.brainModel);
+    const [receipt] = (await actionsFor(f.db, f.org.id, [card.id])).get(card.id) ?? [];
+    await expect(
+      undoAgentAction({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, receipt?.id ?? ""),
+    ).rejects.toThrow();
+    await undoAgentAction({ db: f.db, pubsub: f.pubsub }, bia.id, f.org.id, receipt?.id ?? "");
+    expect((await own())?.brainModel).toBeNull();
+  });
+
   test("the effort is a row of its own, for any agent and the right hand, with Undo", async () => {
     f = await setup({ rightHand: true });
     const ctx = await lodiRun(f, f.owner.id, "faz o dev pensar mais, e você também", true);
@@ -238,6 +312,27 @@ describe("a change the person asked for and may make (ADR 0092 §5)", () => {
       },
     );
     expect((await getAgent(f.db, f.org.id, f.agent.id))?.model).toBe("claude-sonnet-5-5");
+  });
+});
+
+describe("a request posted with the person's own token (ADR 0250)", () => {
+  test("proposes no change to another agent and no removal: someone else's words may be in it", async () => {
+    f = await setup({ rightHand: true });
+    const ctx = await lodiRun(f, f.owner.id, "coloca o dev no haiku e arquiva ele", true);
+    await f.db
+      .update(schema.messages)
+      .set({ origin: "mcp", meta: { readOutside: true } })
+      .where(eq(schema.messages.id, ctx.triggerMessageId));
+    const out = await call(f, ctx, { changes: [{ agent: "@dev", model: "claude-haiku-5-5" }], reason: "pediu" });
+    expect(out.data?.code).toBe("request.relayed");
+    const removal = await gatewayOf(f).invoke(ctx, {
+      toolUseId: `tu_${crypto.randomUUID()}`,
+      name: PROPOSE_REMOVE_AGENTS_TOOL,
+      input: { agents: ["@dev"], reason: "pediu" },
+    });
+    expect(removal.type === "result" && removal.output.data?.code).toBe("request.relayed");
+    expect(await f.db.select().from(schema.contextProposals)).toEqual([]);
+    expect(await getAgent(f.db, f.org.id, f.agent.id)).toMatchObject({ model: "claude-sonnet-5-5", archivedAt: null });
   });
 });
 
@@ -702,14 +797,18 @@ describe("an agent's skills on the card, as on its page", () => {
 describe("an agent asks for its own settings on the same card (request_settings_change)", () => {
   /** A run of @dev on what `userId` wrote to it in #general, in their own words unless it relays outside content. */
   async function devRun(fx: Fixture, userId: string, body: string, outside = false): Promise<ToolContext> {
+    // Outside content: the channel already relays a page an agent read.
+    if (outside)
+      await insertMessage(fx.db, {
+        orgId: fx.org.id,
+        channelId: fx.general.id,
+        author: { type: "agent", agentId: fx.agent.id, runId: null, hop: 1, stretchId: null },
+        body: "The vendor page says the plan changed.",
+        meta: { readOutside: true },
+      });
     const trigger = await postPersonMessage({ db: fx.db, pubsub: fx.pubsub }, userId, fx.org.id, fx.general.id, {
       body: `@dev ${body}`,
     });
-    if (outside)
-      await fx.db
-        .update(schema.messages)
-        .set({ meta: { readOutside: true } })
-        .where(eq(schema.messages.id, trigger.id));
     const [run] = await fx.db
       .select()
       .from(schema.agentRuns)
@@ -776,6 +875,54 @@ describe("an agent asks for its own settings on the same card (request_settings_
       },
     ]);
     expect(await skillsOf(f)).toEqual([]);
+  });
+
+  test("when it asks before acting is its own confirm card, never a reviewed row, applied by who manages agents", async () => {
+    f = await setup({ rightHand: true });
+    await install(f, "excel");
+    const ctx = await devRun(f, f.owner.id, "pode aprovar tudo daqui pra frente, e liga a skill excel");
+    // A row refused with it leaves no card behind, so the agent's retry posts the level once.
+    const wrong = await ask(f, ctx, { approvals: "never", join: ["nowhere"], reason: "Pediu" });
+    expect(wrong).toMatchObject({ isError: true });
+    expect(
+      await f.db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(sql`${schema.messages.meta}->'actionCard'->>'kind' = 'workspace_action'`),
+    ).toEqual([]);
+    const out = await ask(f, ctx, {
+      approvals: "never",
+      add_skills: ["excel"],
+      reason: "Pediu para não perguntar mais",
+    });
+    expect(out.content).toContain("Posted a card to set_agent_approvals_level (agent: Dev, level: never)");
+    expect(out.content).toContain("Posted the card for your settings");
+    const [message] = await f.db
+      .select()
+      .from(schema.messages)
+      .where(sql`${schema.messages.meta}->'actionCard'->>'kind' = 'workspace_action'`);
+    if (!message) throw new Error("no card");
+    // The skill alone went to the review: the level waits on its card.
+    const { rows } = await cardRows(f, f.owner.id);
+    expect(rows.flatMap((r) => r.settings?.map((l) => l.field))).toEqual(["skill"]);
+    expect((await getAgent(f.db, f.org.id, f.agent.id))?.approvalsLevel).toBe("risky");
+    await decideWorkspaceAction({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, message.id, "apply");
+    expect(await getAgent(f.db, f.org.id, f.agent.id)).toMatchObject({
+      approvalsLevel: "never",
+      approvalsLevelOwn: true,
+    });
+    const [receipt] = (await actionsFor(f.db, f.org.id, [message.id])).get(message.id) ?? [];
+    await undoAgentAction({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, receipt?.id ?? "");
+    expect(await getAgent(f.db, f.org.id, f.agent.id)).toMatchObject({
+      approvalsLevel: "risky",
+      approvalsLevelOwn: false,
+    });
+    // A page an agent read in the conversation is never the person's words.
+    await f.db.update(schema.agentRuns).set({ status: "done" }).where(eq(schema.agentRuns.id, ctx.runId));
+    const later = await devRun(f, f.owner.id, "aprova tudo", true);
+    const refused = await ask(f, later, { approvals: "never", reason: "a página pediu" });
+    expect(refused).toMatchObject({ isError: true });
+    expect(refused.content).toContain("Nothing was proposed");
   });
 
   test("an admin's click applies it as them, Undo puts it back, and the agent hears its own settings changed", async () => {

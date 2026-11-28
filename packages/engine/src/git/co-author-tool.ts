@@ -7,7 +7,7 @@ import { AGENT_CO_AUTHOR_EMAIL, agentCoAuthorOn, setAgentCoAuthor } from "./sign
 export const COMMIT_CO_AUTHOR_TOOL = "commit_co_author";
 
 const STATE = {
-  on: `On: every agent here ends its commits with its own line (Co-authored-by: <its name> <${AGENT_CO_AUTHOR_EMAIL}>).`,
+  on: `On: every agent here ends its commits with its own line (Co-Authored-By: <its name> <${AGENT_CO_AUTHOR_EMAIL}>).`,
   off: "Off: agents here end their commits with no line of their own.",
 };
 
@@ -20,7 +20,7 @@ const STATE = {
 export function createCoAuthorToolSource(): ToolSource {
   const tool: ToolDefinition = {
     name: COMMIT_CO_AUTHOR_TOOL,
-    description: `The line every agent here ends its commits with (Co-authored-by: <its name> <${AGENT_CO_AUTHOR_EMAIL}>), next to the coding CLI's own and the credit for the person who asked; on by default. When a person asks to stop or bring back the agents' co-author line on commits ('tira o Co-authored-by dos commits'), turn it off or on for the whole workspace at once; status says which it is. Then confirm in one short line.`,
+    description: `The line every agent here ends its commits with (Co-Authored-By: <its name> <${AGENT_CO_AUTHOR_EMAIL}>), next to the coding CLI's own and the credit for the person who asked; on by default. When a person asks to stop or bring back the agents' co-author line on commits ('tira o Co-Authored-By dos commits'), turn it off or on for the whole workspace at once; status says which it is. Then confirm in one short line.`,
     scope: "",
     inputSchema: {
       type: "object",

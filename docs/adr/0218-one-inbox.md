@@ -48,3 +48,21 @@ buttons, so a few waiting items filled the screen.
 - The phone's request screen has no "remind me later" or "done" of its own yet, and proposals on the phone stay on
   their own screen.
 - A person who had moved the old tools keeps where they put "Waiting on you", which is now the inbox.
+
+## Addendum 2026-11-24: the phone's request reads as the web's review
+
+On 2026-11-04 the web's review of a request got a facts strip, "Como chegou aqui" and a line on what approving
+lets the agent do, while the phone kept its sheet. With §6 the phone's request is a pushed screen, and it now carries
+the same three pieces:
+
+- **Facts strip** under the title (`FactStrip` in the phone's kit, `requestFacts` in `features/approvals/logic.ts`):
+  Onde (the app, then the repository, channel or account), Efeito, and Quem decide when a role answers for it. The
+  deadline stays the fuse's line above the title and how it ended stays the line at the screen's foot, so each fact
+  is said once. The effect leaves the foot's list of traits.
+- **Como chegou aqui** (`ApprovalTrail` in `features/chat/ToolCalls.tsx`): the run's steps before the ask, the ask, the
+  decision and what ran after it, split by `stepsAround` as on the web, in the conversation's tool block, closed.
+- **What approving lets the agent do**, over Recusar and Aprovar: the web's "Ana vai …, só desta vez e com estes
+  valores" (or when an approval made ahead applies). With "Aprovar sempre" on, its row says it instead.
+
+Where a request stands (`approvalPhase`, `PHASE_STATUS`) moved from the web's page to the client
+(`lib/approval-card.ts`) so both apps read it the same way.

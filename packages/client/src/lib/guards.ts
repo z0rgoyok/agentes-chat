@@ -100,13 +100,27 @@ export const settingUp = <O extends { role?: string; onboarding?: unknown }>(org
   org.role === "owner" && org.onboarding !== undefined;
 
 /**
- * Where `/` sends a signed-in person: the last organization, or the first one, of those set up; with none, the
- * onboarding (which resumes the one they are setting up).
+ * The invitation a person with no workspace set up opens instead of making one: the newest waiting for their
+ * address. Null once one is set up, or with none waiting.
  */
-export function landingFor(me: Me, lastOrgId: string | null): { to: "/onboarding" } | { orgId: string } {
+export function joinInstead(me: Me): string | null {
+  if (me.organizations.some((o) => !settingUp(o))) return null;
+  return me.invitations?.[0]?.token ?? null;
+}
+
+/**
+ * Where `/` sends a signed-in person: the last organization, or the first one, of those set up; with none, an
+ * invitation waiting for them (`joinInstead`), else the onboarding (which resumes the one they are setting up).
+ */
+export function landingFor(
+  me: Me,
+  lastOrgId: string | null,
+): { to: "/onboarding" } | { invitation: string } | { orgId: string } {
   const ready = me.organizations.filter((o) => !settingUp(o));
   const org = ready.find((o) => o.id === lastOrgId) ?? ready[0];
-  return org ? { orgId: org.id } : { to: "/onboarding" };
+  if (org) return { orgId: org.id };
+  const invitation = joinInstead(me);
+  return invitation ? { invitation } : { to: "/onboarding" };
 }
 
 /** The membership for an org route, or null when the person isn't a member. */

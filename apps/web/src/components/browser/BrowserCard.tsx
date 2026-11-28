@@ -45,6 +45,7 @@ import {
   wheelEvent,
 } from "@agenteschat/client";
 import { browserCardLine, hostAndPath, titleKind } from "@agenteschat/client/lib/browser-card";
+import { LEGACY_MOVE, maintenanceNamed, maintenanceOf } from "@agenteschat/client/lib/computer-maintenance";
 import { formatTime, lowerFirst } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { browserNoAnswerMessage, browserOffMessage, profileRefusalLine } from "@agenteschat/client/lib/machines";
@@ -874,7 +875,9 @@ export function BrowserCard({
   const blocker = shows
     ? null
     : unavailable?.reason === "offline"
-      ? t(cloud ? "browser.inCard.offlineCloud" : "browser.inCard.offline", g)
+      ? machine?.moving
+        ? maintenanceNamed(t, maintenanceOf(machine) ?? LEGACY_MOVE, machine.name)
+        : t(cloud ? "browser.inCard.offlineCloud" : "browser.inCard.offline", g)
       : unavailable?.reason === "no_computer"
         ? t(cloud ? "browser.inCard.noComputerCloud" : "browser.inCard.noComputer", g)
         : unavailable?.reason === "forbidden" || live.error === "forbidden" || live.error === "not_found"

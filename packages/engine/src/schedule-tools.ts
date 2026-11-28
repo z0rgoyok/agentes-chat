@@ -1,4 +1,5 @@
 import { and, eq, inArray, isNull, or, schema, sql } from "@agenteschat/db";
+import { ROUTINE_PROMPT_MAX } from "@agenteschat/tokens/routines";
 import { type AgentActionParams, recordAgentActions } from "./agent-actions";
 import { routineRow, routineSnapshot } from "./agent-undo";
 import { agentsByHandle, currentHandles, getAgentCached } from "./agents";
@@ -6,12 +7,14 @@ import { decidesAgentApprovals } from "./approval-rules";
 import { cancelAheadApproval, cancelableAhead } from "./approvals";
 import { canTalkTo, NO_OWNER, OWNER_COLUMNS, speakerFor } from "./audience";
 import { runAuthorityById } from "./authority";
+import { channelNameIs, typedChannelName } from "./channels";
 import { cardPlace } from "./consultations";
 import { getChannelCached } from "./context";
 import { schedulesOf } from "./context/summaries";
 import { ForbiddenError } from "./errors";
 import { cutText, stringsOf } from "./format";
 import { watchesFor } from "./mail/watches";
+import { relayedRefusal, relayedRequest } from "./requester";
 import { isRightHand } from "./right-hand";
 import { ROUTINE_REPORT, routineReportOf } from "./routine-brief";
 import { HOOK_METHODS, routineHookKeys } from "./routine-hooks";
@@ -83,7 +86,7 @@ async function conversationOf(ctx: ToolContext) {
  * the agent's part, checked when the routine is saved.
  */
 async function channelTarget(ctx: ToolContext, requester: string, raw: string) {
-  const name = raw.trim().replace(/^#/, "").toLowerCase();
+  const name = typedChannelName(raw);
   const { channels, channelMembers } = schema;
   const [channel] = await ctx.db
     .select({ id: channels.id, name: channels.name })
@@ -92,7 +95,7 @@ async function channelTarget(ctx: ToolContext, requester: string, raw: string) {
     .where(
       and(
         eq(channels.orgId, ctx.orgId),
-        eq(channels.name, name),
+        channelNameIs(name),
         eq(channels.kind, "channel"),
         isNull(channels.archivedAt),
         eq(channelMembers.userId, requester),
@@ -605,7 +608,7 @@ export function createScheduleToolSource(deps: Omit<RoutineDeps, "db">): ToolSou
     {
       name: "schedule_reminder",
       description:
-        'Schedule a one-off reminder in this conversation: at that time you post "Reminder: …" mentioning the person (the app shows it as a reminder in their language). `when` is what the person said, in their words and language ("amanhã às 9h", "tomorrow at 9am", "in 2 hours"), read in their time zone, or ISO 8601. Write `message` in the person\'s language. Set ask_agent when, at that time, you should do something (not just remind); for a connected app\'s action then (a post, a message to send), use schedule_action instead, so the person approves it now and not at that time. If the time is ambiguous, ask with ask_user first.',
+        'Schedule a one-off reminder in this conversation: at that time you post "Reminder: …" mentioning the person (the app shows it as a reminder in their language). `when` is what the person said, in their words and language ("amanhã às 9h", "tomorrow at 9am", "in 2 hours"), read in their time zone, or ISO 8601. Write `message` in the person\'s language so it reads right on any day: it shows in Routines and in the calendar before that time, so name the day and date instead of words like today or tomorrow ("Friday, Mar 6: dentist at 3pm", not "Tomorrow: dentist"). Set ask_agent when, at that time, you should do something (not just remind); for a connected app\'s action then (a post, a message to send), use schedule_action instead, so the person approves it now and not at that time. If the time is ambiguous, ask with ask_user first.',
       scope: SCHEDULE_SCOPE,
       inputSchema: {
         type: "object",
@@ -670,7 +673,7 @@ export function createScheduleToolSource(deps: Omit<RoutineDeps, "db">): ToolSou
         properties: {
           schedule: SCHEDULE_INPUT,
           trigger: TRIGGER_SCHEMA,
-          prompt: { type: "string", minLength: 1, maxLength: 10_000 },
+          prompt: { type: "string", minLength: 1, maxLength: ROUTINE_PROMPT_MAX },
           title: { type: "string", maxLength: 120 },
           channel: { type: "string", maxLength: 100, description: "Report in this channel instead of here" },
           report: REPORT_SCHEMA,
@@ -690,6 +693,8 @@ export function createScheduleToolSource(deps: Omit<RoutineDeps, "db">): ToolSou
         try {
           const requester = await requesterOf(ctx);
           if (!requester) return noRequester;
+          // A routine is standing work, run again and again (ADR 0250): never set up from words relayed in.
+          if (await relayedRequest(ctx)) return relayedRefusal();
           const hasSchedule = Boolean(str(input.schedule).trim());
           const rawTrigger = input.trigger as Record<string, unknown> | undefined;
           if (hasSchedule === Boolean(rawTrigger)) {
@@ -869,7 +874,7 @@ export function createScheduleToolSource(deps: Omit<RoutineDeps, "db">): ToolSou
         properties: {
           id: { type: "string", minLength: 36, maxLength: 36 },
           channel: { type: "string", maxLength: 100 },
-          prompt: { type: "string", minLength: 1, maxLength: 10_000 },
+          prompt: { type: "string", minLength: 1, maxLength: ROUTINE_PROMPT_MAX },
           schedule: SCHEDULE_INPUT,
           trigger: TRIGGER_SCHEMA,
           title: { type: "string", minLength: 1, maxLength: 120 },
@@ -886,6 +891,7 @@ export function createScheduleToolSource(deps: Omit<RoutineDeps, "db">): ToolSou
         try {
           const requester = await requesterOf(ctx);
           if (!requester) return noRequester;
+          if (await relayedRequest(ctx)) return relayedRefusal();
           const id = str(input.id);
           const own = await ownRoutine(ctx, id, true);
           if (!own.row) return { content: own.error, isError: true };

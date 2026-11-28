@@ -18,6 +18,23 @@ import { chartBlockToWidgetSpec, type WidgetSpec } from "../src/widgets/spec";
 
 afterEach(() => cleanup());
 
+/** Runs `fn` with every element `width` points wide (happy-dom lays nothing out), so the charts draw. */
+function withWidth<T>(width: number, fn: () => T): T {
+  const was = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth");
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", { configurable: true, get: () => width });
+  try {
+    return fn();
+  } finally {
+    if (was) Object.defineProperty(HTMLElement.prototype, "clientWidth", was);
+    else delete (HTMLElement.prototype as { clientWidth?: number }).clientWidth;
+  }
+}
+
+const tipOf = (root: ParentNode) => {
+  const tip = root.querySelector(".chart-tip");
+  return tip?.getAttribute("data-on") === "true" ? tip.textContent : null;
+};
+
 const card = (spec: WidgetSpec | null, over: Partial<Parameters<typeof WidgetCard>[0]> = {}) =>
   render(
     <WidgetCard
@@ -111,11 +128,16 @@ describe("a widget's body, by kind", () => {
     });
     expect(container.querySelector(".wk-cap")?.textContent).toBe("rodadas por dia");
     expect([...container.querySelectorAll(".wk-bar__v")].map((v) => v.textContent)).toEqual(["48", "1.240", "0"]);
-    // The unit still reads in each bar's tip.
-    expect(container.querySelector(".wk-bar")?.getAttribute("title")).toBe("Theo: 48 rodadas por dia");
     const note = container.querySelector(".wk-note");
     expect(note?.textContent).toBe("Ada não tem rotina, mas carrega 35 issues abertas.");
     expect(note?.classList.contains("wk-clamp")).toBe(true);
+    // The unit still reads in each bar's tip.
+    cleanup();
+    const tipped = withWidth(300, () =>
+      card({ kind: "bars", labels: ["Theo", "Atlas"], values: [48, 1240], unit: "rodadas por dia" }),
+    );
+    fireEvent.pointerMove(tipped.container.querySelector(".wk-bars") as HTMLElement, { clientX: 10 });
+    expect(tipOf(tipped.container)).toBe("Theo: 48 rodadas por dia");
   });
 
   test("the agent's face leads the title when given", () => {
@@ -202,6 +224,92 @@ describe("a widget's body, by kind", () => {
       <WidgetBody spec={read.spec} status="ok" color="sky" size={{ w: 2, h: 1 }} locale="pt-BR" />,
     );
     expect([...container.querySelectorAll(".wk-bar__v")].map((v) => v.textContent)).toEqual(["41", "26"]);
+  });
+});
+
+describe("a widget's charts answer the pointer, a tap and the keys, as the chat's do", () => {
+  test("a number's trend: the point under the pointer, its date and the value with the number's unit", () => {
+    const { container } = withWidth(300, () =>
+      card({
+        kind: "kpi",
+        value: 18420,
+        prefix: "R$",
+        spark: [1200, 1800, 1500, 2100],
+        sparkLabels: ["1 nov", "8 nov", "15 nov", "22 nov"],
+      }),
+    );
+    const trend = container.querySelector(".wg__bleed .ac-dline") as HTMLElement;
+    expect(trend.getAttribute("aria-label")).toBe("Vendas hoje");
+    expect(tipOf(container)).toBeNull();
+    fireEvent.pointerMove(trend, { clientX: 105, pointerType: "mouse" });
+    expect(tipOf(container)).toBe("8 nov: R$ 1.800");
+    // The crosshair and the point's square mark where the reader is.
+    expect(trend.querySelector(".chart-line__cursor")?.getAttribute("x1")).toBe("100");
+    expect(trend.querySelector(".ac-dline__on")).toBeTruthy();
+    fireEvent.pointerLeave(trend, { pointerType: "mouse" });
+    expect(tipOf(container)).toBeNull();
+    // A tap keeps its point until the chart loses focus.
+    fireEvent.pointerDown(trend, { clientX: 290, pointerType: "touch" });
+    fireEvent.pointerLeave(trend, { pointerType: "touch" });
+    expect(tipOf(container)).toBe("22 nov: R$ 2.100");
+    fireEvent.blur(trend);
+    expect(tipOf(container)).toBeNull();
+  });
+
+  test("with the keyboard: focus shows the last point, the arrows walk the line, Escape hides it", () => {
+    const { container } = withWidth(300, () =>
+      card({ kind: "kpi", value: 7, suffix: "%", spark: [3, 5, 7], sparkLabels: ["seg", "ter", "qua"] }),
+    );
+    const trend = container.querySelector(".wg__bleed .ac-dline") as HTMLElement;
+    expect(trend.tabIndex).toBe(0);
+    fireEvent.focus(trend);
+    expect(tipOf(container)).toBe("qua: 7%");
+    fireEvent.keyDown(trend, { key: "ArrowLeft" });
+    expect(tipOf(container)).toBe("ter: 5%");
+    fireEvent.keyDown(trend, { key: "Home" });
+    fireEvent.keyDown(trend, { key: "ArrowLeft" });
+    expect(tipOf(container)).toBe("seg: 3%");
+    // What it says reaches a screen reader too.
+    expect(trend.querySelector("[aria-live]")?.textContent).toBe("seg: 3%");
+    fireEvent.keyDown(trend, { key: "Escape" });
+    expect(tipOf(container)).toBeNull();
+    // A trend with no labels says the value alone.
+    cleanup();
+    const bare = withWidth(300, () => card({ kind: "kpi", value: 7, spark: [3, 5] }));
+    fireEvent.focus(bare.container.querySelector(".wg__bleed .ac-dline") as HTMLElement);
+    expect(tipOf(bare.container)).toBe("5");
+    // A prefix and a suffix both read: a value in thousands never loses its "k".
+    cleanup();
+    const both = withWidth(300, () =>
+      card({ kind: "kpi", value: 45.3, prefix: "$", suffix: "k", spark: [41.5, 45.3] }),
+    );
+    fireEvent.focus(both.container.querySelector(".wg__bleed .ac-dline") as HTMLElement);
+    expect(tipOf(both.container)).toBe("$ 45,3 k");
+  });
+
+  test("a line: the label and the value with its unit", () => {
+    const { container } = withWidth(300, () =>
+      card({ kind: "line", labels: ["qua", "qui", "sex"], values: [6.1, 5.8, 6.4], unit: "min" }),
+    );
+    const line = container.querySelector(".wk-line") as HTMLElement;
+    fireEvent.pointerMove(line, { clientX: 150, pointerType: "mouse" });
+    expect(tipOf(container)).toBe("qui: 5,8 min");
+  });
+
+  test("bars: the one under the pointer stays, the others dim; the arrows walk them", () => {
+    const { container } = withWidth(300, () =>
+      card({ kind: "bars", labels: ["Novos", "Separando", "Enviados"], values: [14, 9, 31] }),
+    );
+    const bars = container.querySelector(".wk-bars") as HTMLElement;
+    fireEvent.pointerMove(bars, { clientX: 250, pointerType: "mouse" });
+    expect(tipOf(container)).toBe("Enviados: 31");
+    expect([...container.querySelectorAll(".wk-bar")].map((b) => b.hasAttribute("data-dim"))).toEqual([
+      true,
+      true,
+      false,
+    ]);
+    fireEvent.keyDown(bars, { key: "ArrowLeft" });
+    expect(tipOf(container)).toBe("Separando: 9");
   });
 });
 

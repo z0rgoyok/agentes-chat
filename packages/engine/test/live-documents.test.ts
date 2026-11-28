@@ -352,6 +352,17 @@ describe("Word files", () => {
     expect(xml).toContain("Sem imagem");
     expect(xml).toContain("<w:tblHeader/>");
   });
+
+  test("a file's own font is named by the family its file gives, escaped as an attribute", async () => {
+    // The family comes from the uploaded font's own name table, so it may hold quotes and markup.
+    const family = 'Brand" w:hint="eastAsia"><w:b/><x a="';
+    const blocks: DocBlock[] = [{ type: "paragraph", runs: [{ text: "x", font: "asset:font1" }] }];
+    const bytes = await writeDocx(blocks, { media: async () => null, fonts: new Map([["font1", family]]) });
+    expect(packageProblems(bytes)).toEqual([]);
+    const xml = partsOf(bytes)["word/document.xml"] ?? "";
+    expect(xml).toContain('w:ascii="Brand&quot; w:hint=&quot;eastAsia&quot;&gt;&lt;w:b/&gt;&lt;x a=&quot;"');
+    expect(xml).not.toContain("<w:b/>");
+  });
 });
 
 describe("where it came from", () => {

@@ -50,6 +50,9 @@ afterEach(async () => {
 
 const SERVER = "https://tickets.example.com/mcp";
 
+/** The screenshot `list_tickets` sends beside its words: a PNG's first bytes, base64. */
+const TICKET_SCREENSHOT = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).toString("base64");
+
 /** An in-process MCP server with a read-only tool and a write tool; `extra` adds one on demand. */
 function ticketsMcp() {
   const state = { extra: false, calls: [] as string[], headers: [] as Record<string, string>[] };
@@ -60,7 +63,12 @@ function ticketsMcp() {
       { description: "List open tickets", inputSchema: {}, annotations: { readOnlyHint: true } },
       async () => {
         state.calls.push("list_tickets");
-        return { content: [{ type: "text", text: "#1 login broken" }] };
+        return {
+          content: [
+            { type: "text", text: "#1 login broken" },
+            { type: "image", data: TICKET_SCREENSHOT, mimeType: "image/png" },
+          ],
+        };
       },
     );
     server.registerTool(
@@ -495,7 +503,10 @@ describe("custom MCP servers", () => {
     const read = await gateway.invoke(ctx, { toolUseId: "t1", name: "tickets_list_tickets", input: {} });
     expect(read).toMatchObject({
       type: "result",
-      output: { content: wrapExternal("tickets_list_tickets", "#1 login broken") },
+      output: {
+        content: wrapExternal("tickets_list_tickets", "#1 login broken\n[image: shown to you with this result]"),
+        images: [{ mediaType: "image/png", data: TICKET_SCREENSHOT }],
+      },
     });
     const write = await gateway.invoke(ctx, {
       toolUseId: "t2",
@@ -1057,6 +1068,52 @@ describe("custom MCP servers", () => {
     await connectCustomServer(deps, f.owner.id, f.org.id, { serverUrl: SERVER });
     expect(auth.seen.registrations).toBe(2);
     expect(await f.db.select().from(schema.oauthClients)).toHaveLength(1);
+  });
+
+  test("a server that lets some tools in without a sign-in but publishes its OAuth: connecting and Reconectar sign in", async () => {
+    f = await setup();
+    const mcp = ticketsMcp();
+    // Answers initialize anonymously (200), and refuses its other tools inside their answers.
+    const anonymous = (auth: ReturnType<typeof oauthServer>) =>
+      (async (input: string | URL, init?: RequestInit) =>
+        String(input) === SERVER && init?.method === "POST"
+          ? Response.json({ jsonrpc: "2.0", id: 1, result: {} })
+          : auth.http(input, init)) as unknown as typeof fetch;
+    // Its sign-in can't start (no dynamic registration): it connects as it answered, with no sign-in.
+    const closed = oauthServer({ registration: false });
+    const open = await connectCustomServer(
+      depsOf(f, { connect: mcp.connect, http: anonymous(closed) }),
+      f.owner.id,
+      f.org.id,
+      {
+        serverUrl: SERVER,
+      },
+    );
+    if (open.status !== "connected") throw new Error(`expected connected, got ${open.status}`);
+    const id = open.server.id;
+    const [before] = await f.db
+      .select()
+      .from(schema.connectorConnections)
+      .where(eq(schema.connectorConnections.id, id));
+    expect(before?.authType).toBe("none");
+    // Once it can, Reconectar signs that same account in.
+    const auth = oauthServer();
+    const deps = depsOf(f, { connect: mcp.connect, http: anonymous(auth) });
+    const started = await connectCustomServer(deps, f.owner.id, f.org.id, { serverUrl: SERVER, connectionId: id });
+    if (started.status !== "oauth") throw new Error(`expected oauth, got ${started.status}`);
+    const url = new URL(started.authorizeUrl);
+    expect(url.searchParams.get("resource")).toBe(SERVER);
+    expect(url.searchParams.get("scope")).toBe("tickets");
+    auth.seen.challenge = url.searchParams.get("code_challenge") ?? "";
+    const { connection } = await completeOAuth(
+      deps,
+      { id: f.owner.id },
+      { state: url.searchParams.get("state") ?? "", code: "code-1" },
+    );
+    expect(connection.id).toBe(id);
+    expect(connection.authType).toBe("oauth");
+    // A new connect asks for the sign-in too.
+    expect((await connectCustomServer(deps, f.owner.id, f.org.id, { serverUrl: SERVER })).status).toBe("oauth");
   });
 
   test("offline_access goes with the scopes asked for when the authorization server lists it (Vercel asks only openid), never alone", async () => {

@@ -140,7 +140,7 @@ export function InvitationSheet({
       key: "again",
       icon: "send",
       label: emails ? t("mobile.invitePeople.sendAgain") : t("members.invitations.renew"),
-      disabled: resent || resend.isPending,
+      disabled: (resent && !inv.undelivered) || resend.isPending,
       onPress: () => void sendAgain(),
     },
     {

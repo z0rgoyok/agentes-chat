@@ -1,4 +1,5 @@
-import { keys, useApi } from "@agenteschat/client";
+import { keys, useApi, useChannels } from "@agenteschat/client";
+import { takesGroupNames } from "@agenteschat/client/lib/group-conversations";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -13,7 +14,9 @@ import { closeSheetsAndOpen, SheetHeader } from "./parts";
 /**
  * "New channel": only the name; people and agents are called in later, by name. A personal workspace's channels are
  * its group conversations (ADR 0159). The sheet comes up with the keyboard down (the person taps the name), and a
- * channel that couldn't be made says why.
+ * channel that couldn't be made says why. A group conversation takes its name as written ("Viagem pra Lisboa", ADR
+ * 0159, amendment of 2026-11-26) where the server keeps it so: no #, the keyboard's capitals and corrections on. An
+ * older server lowers the name and refuses spaces, so the field stays a channel's there.
  */
 export function NewChannelForm() {
   const { t } = useTranslation();
@@ -26,7 +29,14 @@ export function NewChannelForm() {
   const c = useColors();
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
-  const clean = name.trim().replace(/^#/, "");
+  const channels = useChannels(orgId).data;
+  const grouped = isPersonal(org) && takesGroupNames(channels);
+  const clean = grouped
+    ? name
+        .replace(/\s+/g, " ")
+        .trim()
+        .replace(/^#+\s*/, "")
+    : name.trim().replace(/^#/, "");
   const submit = () => {
     if (!clean || busy) return;
     setBusy(true);
@@ -46,15 +56,16 @@ export function NewChannelForm() {
       <Locked when={busy}>
         <GroupedList>
           <View style={styles.field}>
-            <Icon name="hash" size={20} color={c.faint} />
+            <Icon name={grouped ? "members" : "hash"} size={20} color={c.faint} />
             <TextInput
               value={name}
               onChangeText={setName}
               placeholder={t(modeKey(org, "mobile.chats.channelPlaceholder"))}
               placeholderTextColor={c.faint}
               accessibilityLabel={title}
-              autoCapitalize="none"
-              autoCorrect={false}
+              autoCapitalize={grouped ? "sentences" : "none"}
+              autoCorrect={grouped}
+              maxLength={grouped ? 80 : undefined}
               returnKeyType="done"
               onSubmitEditing={submit}
               style={[styles.input, { color: c.ink }]}

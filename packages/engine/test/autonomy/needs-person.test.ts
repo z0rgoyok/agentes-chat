@@ -203,6 +203,30 @@ describe("a step that needs the person is never a blocker", () => {
     expect(untriedNudge([], [])).toContain("Look in the workspace first");
   });
 
+  test("the turn-end judge: one step's report with steps left goes on, or asks for what the next step needs", async () => {
+    const { judge, asked } = capture();
+    await continuationVerdict(judge, {
+      orgId: "o",
+      agentId: "a",
+      runId: "r",
+      request: "pode seguir",
+      reply: "Passo 2 feito: a rotina está criada.",
+      means: [],
+      tried: [],
+      runKind: "conversation",
+      recent: ["agent: Passo 1 feito. Falta: 2. a rotina, 3. o teste."],
+    });
+    const [call] = asked as unknown as {
+      state: Record<string, unknown>;
+      questions: Record<string, { criteria: Record<string, string> }>;
+    }[];
+    expect(call?.state.recent).toBe("agent: Passo 1 feito. Falta: 2. a rotina, 3. o teste.");
+    const criteria = call?.questions.verdict?.criteria ?? {};
+    expect(criteria.done).toContain("one step's report with steps left is not done");
+    expect(criteria.continue).toContain("the next step is its own to start");
+    expect(criteria.ask).toContain("it only reported the step and asked for nothing");
+  });
+
   test("the turn-end judge reads its background work: a promise about what that work brings is kept by it", async () => {
     const { judge, asked } = capture();
     const turn = {

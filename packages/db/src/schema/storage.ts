@@ -308,6 +308,8 @@ export const artifactVersions = pgTable(
     /** A picture's own size, from its header when it was stored: drawn in its proportions before it loads. */
     width: integer(),
     height: integer(),
+    /** An audio file's wave and length, measured once by the first app that played it: every app draws the same one. */
+    wave: jsonb().$type<{ peaks: number[]; durationMs: number }>(),
     note: text(),
     authorType: text().notNull(),
     authorId: text().notNull(),

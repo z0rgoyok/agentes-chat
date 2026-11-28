@@ -8,7 +8,7 @@
  * expected. A server out of reach offers another one.
  */
 
-import { CLOUD_SERVER, isTailnet, serverHost } from "@agenteschat/client/lib/server";
+import { checkServer, isTailnet, serverHost } from "@agenteschat/client/lib/server";
 import { drawAgent, idlePose } from "@agenteschat/ui/agent/engine";
 import { startSky } from "@agenteschat/ui/sky/engine";
 import { SKY_TONES } from "@agenteschat/ui/sky/math";
@@ -27,10 +27,12 @@ import {
   UPDATE_SLOW_MS,
 } from "../control/local-server";
 import { platformOf } from "../control/platform";
+import { serverName, type VersionProblem, versionProblem } from "../control/server";
 import { SITE_URL } from "../control/version";
 import { desktopStrings, systemLocale } from "../i18n";
+import { writePref } from "../prefs";
 import { mountReportPanel } from "../report/panel";
-import { type CoverParts, coverReport, knownServers } from "../report/report";
+import { type CoverParts, coverReport, knownServers, type ReportFacts } from "../report/report";
 import { elapsedClock, fillIn } from "../ui/time";
 import { stuckAction } from "./stuck";
 
@@ -60,6 +62,8 @@ let waitSince: { state: "starting" | "migrating"; at: number } | null = null;
 let stuckSteps = 0;
 /** The server open now is the one here (the last check): Copy details copies its diagnostics, else the window's. */
 let overHere = false;
+/** The server open now speaks an app API this app doesn't: the cover says so and stays until the person chooses. */
+let tooOld: VersionProblem | null = null;
 /** A short word in the time's place ("Copied"), until then: the explanation above it stays as it is. */
 let aside: { text: string; until: number } | null = null;
 
@@ -157,10 +161,12 @@ function shown() {
   unreachable = false;
   waitSince = null;
   stuckSteps = 0;
+  tooOld = null;
   say("");
   tick();
   buttons([]);
   root?.removeAttribute("data-fading");
+  void checkVersion();
   void check();
 }
 
@@ -226,13 +232,19 @@ function sendReport() {
     unmount();
     host.remove();
   };
-  void Promise.all([invoke<CoverParts>("problem_report_parts"), localStatus(), currentServer()]).then(
-    ([parts, status, server]) => {
+  void Promise.all([
+    invoke<CoverParts>("problem_report_parts"),
+    // An app whose Rust is older than its page answers nothing: the report goes without this computer.
+    invoke<ReportFacts>("problem_report_facts").catch(() => null),
+    localStatus(),
+    currentServer(),
+  ]).then(
+    ([parts, about, status, server]) => {
       const known = knownServers([server, status?.url, status?.publicUrl]);
       unmount = mountReportPanel(host, {
         words: strings.report,
         lead: strings.report.coverLead,
-        report: coverReport(parts, known, systemLocale()),
+        report: coverReport(parts, about, known, systemLocale()),
         onClose: close,
       });
     },
@@ -254,7 +266,6 @@ async function otherServer(status: LocalServerStatus | null): Promise<string | n
   if (!list) return null;
   return list.servers.find((s) => s !== list.current && !(status && isHereServer(status, s))) ?? null;
 }
-const serverName = (server: string) => (server === CLOUD_SERVER ? "agentes.chat" : serverHost(server));
 const openServer = (server: string) => void invoke("server_choose", { server }).catch(() => {});
 
 /** "Use only on this Mac": reach off, said while it takes and when it didn't work. */
@@ -324,7 +335,38 @@ function showHere(
   }
 }
 
+const showAnyway: [string, () => void] = [words.showAnyway, () => void invoke("cover_hide").catch(() => {})];
+const welcome: [string, () => void] = [
+  words.otherServer,
+  () => void invoke("show_window", { name: "welcome" }).catch(() => {}),
+];
+
+/**
+ * Each time a server of the list opens, whether this app still speaks its app API (`GET /api/instance`, as when it was
+ * added): if not, the welcome window's words over its page, which Rust keeps covered (`cover_hold`) until Show it
+ * anyway or another server.
+ */
+async function checkVersion() {
+  const server = await currentServer();
+  const problem = versionProblem(await checkServer(server).catch(() => null));
+  if (!problem || server !== (await currentServer())) return;
+  tooOld = problem;
+  void invoke("cover_hold").catch(() => {});
+  const host = serverName(server);
+  const connect = strings.connect;
+  say(fillIn(problem === "app-too-old" ? connect.appTooOld : connect.serverTooOld, { host }));
+  const updates: [string, () => void] = [
+    connect.checkUpdates,
+    () => {
+      writePref("prefsTab", "updates");
+      void invoke("show_window", { name: "prefs" }).catch(() => {});
+    },
+  ];
+  buttons(problem === "app-too-old" ? [updates, welcome, showAnyway] : [welcome, showAnyway]);
+}
+
 async function check() {
+  if (tooOld) return;
   if (document.visibilityState !== "visible" || root?.hasAttribute("data-fading")) return;
   const waited = performance.now() - shownAt;
   const server = await currentServer();
@@ -353,10 +395,6 @@ async function check() {
   if (!(await reachable(server))) {
     unreachable = true;
     say(unreachableText(server));
-    const welcome: [string, () => void] = [
-      words.otherServer,
-      () => void invoke("show_window", { name: "welcome" }).catch(() => {}),
-    ];
     // On Tailscale: connecting it here is the likely fix.
     buttons(
       isTailnet(server)
@@ -394,7 +432,7 @@ function stuck(waited: number) {
       },
     ],
     [words.copy, copyDiagnostics],
-    [words.showAnyway, () => void invoke("cover_hide").catch(() => {})],
+    showAnyway,
   ]);
 }
 

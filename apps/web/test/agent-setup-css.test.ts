@@ -14,3 +14,11 @@ test("a checklist's count stays one line beside its title's first line, even whe
   expect(last(top, ".setup-cl__head small", "white-space")).toBe("nowrap");
   expect(last(top, ".setup-cl__head small", "flex")).toBe("none");
 });
+
+test("its × on the page sits on the title's first line and takes no more height than it", async () => {
+  const css = await sheet;
+  const top = topLevel(css);
+  expect(last(top, ".setup-cl__close", "align-self")).toBe("flex-start");
+  expect(last(top, ".setup-cl__close", "flex")).toBe("none");
+  expect(css).toContain("margin-block: calc((1lh - var(--control-h-sm)) / 2)");
+});

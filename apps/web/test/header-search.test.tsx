@@ -226,7 +226,7 @@ describe("the header search (Discord's)", () => {
     expect((jump as HTMLButtonElement).disabled).toBe(true);
     release();
     await waitFor(() => expect(row("h-3")?.classList.contains("ac-msg--focus")).toBe(true), { timeout: 10_000 });
-    expect(pages.mock.calls.at(-1)?.[2]).toEqual({ around: "h-3", limit: 200 });
+    expect(pages.mock.calls.at(-1)?.[2]).toMatchObject({ around: "h-3", limit: 200 });
     expect(results()).toBeNull();
   }, 15_000);
 

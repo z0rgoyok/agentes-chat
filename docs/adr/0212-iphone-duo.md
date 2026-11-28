@@ -35,7 +35,11 @@ nothing kept clear of a display's sides.
 3. **Free orientation on a large screen.** The app stays upright on a phone's screen and turns freely on a screen
    whose shortest side is 600 points or more (`LARGE_SCREEN`), which people hold and set down every way; opening or
    closing the device moves the app to the other screen's rule. A screen that holds an orientation of its own (the
-   agent's computer, ADR 0098) keeps it while it shows.
+   agent's computer, ADR 0098) keeps it while it shows. The same rules make the app an iPad app (`ios.supportsTablet`,
+   every orientation, Split View): an iPad is a large screen with no fold, so it gets the free orientation and the two
+   panes by its window's width, and the Mac runs the iPad app in a window that resizes. On any large width a screen's
+   content keeps to a readable column (`READABLE_MAX`, 720 points, `useReadableSide` of its window or pane), its sides
+   opening into margins while a cover's sky still runs edge to edge.
 4. **Two panes on regular width, split at the fold.** Screens that are a list and its detail (Conversations, Threads,
    Agents, You and the workspace's settings) show both side by side on a regular-width window, as on the web, each on
    the same pieces (`SplitPanes`: the detail drawn afresh per item inside its own error boundary; `PageSplitScreen` for

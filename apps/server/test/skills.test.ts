@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { zip } from "@agenteschat/engine";
-import { browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
+import { browser, createTestServer, joinByInvitation, ORIGIN, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer | undefined;
 afterEach(async () => {
@@ -74,6 +74,45 @@ test("a link holding several skills answers with them, the picked ones install, 
   const limited = await importing({ url: "https://github.com/acme/skills" });
   expect(limited.status).toBe(429);
   expect(await limited.json()).toMatchObject({ error: { code: "github.limited", params: { count: 2 } } });
+});
+
+test("a .zip sent in a conversation (an agent's card) installs from Drive by its id, on for the card's agent", async () => {
+  t = await createTestServer();
+  const b = browser(t);
+  await signUp(b, "owner@example.com");
+  const { orgId, agentId, channelId } = await seedOrg(b);
+  const base = `/api/app/organizations/${orgId}`;
+  const form = new FormData();
+  const kit = zip([
+    ["kit-main/SKILL.md", skill("deploy")],
+    ["kit-main/references/steps.md", "1. Build."],
+  ]);
+  form.set("file", new File([kit], "kit-main.zip", { type: "application/zip" }));
+  form.set("title", "kit-main.zip");
+  form.set("channelId", channelId);
+  const uploaded = await t.app.request(`${base}/artifacts/files`, {
+    method: "POST",
+    headers: { cookie: b.cookie(), origin: ORIGIN },
+    body: form,
+  });
+  expect(uploaded.status).toBe(201);
+  const { id: fileId } = (await uploaded.json()) as { id: string };
+  const importing = (json: unknown) => b(`${base}/skills/import`, { json });
+
+  const listed = await importing({ fileId, list: true });
+  expect(listed.status).toBe(200);
+  const { choices } = (await listed.json()) as { choices: { path: string; name: string }[] };
+  expect(choices.map((c) => c.name)).toEqual(["deploy"]);
+  const picked = await importing({ fileId, paths: choices.map((c) => c.path), forAgentId: agentId });
+  expect(picked.status).toBe(201);
+  expect(((await picked.json()) as { skills: { name: string }[] }).skills.map((s) => s.name)).toEqual(["deploy"]);
+  const its = (await (await b(`${base}/agents/${agentId}/skills`)).json()) as {
+    skills: { name: string; enabled: boolean }[];
+  };
+  expect(its.skills.map((s) => [s.name, s.enabled])).toEqual([["deploy", true]]);
+  // A file that isn't there, or isn't a Drive id, installs nothing.
+  expect((await importing({ fileId: crypto.randomUUID() })).status).toBe(404);
+  expect((await importing({ fileId: "not-an-id" })).status).toBe(400);
 });
 
 test("reading links is limited per person, 60 an hour, updating from a link included; a .zip isn't", async () => {

@@ -36,6 +36,7 @@ import {
   postPersonMessage,
   pushLocale,
   pushQuote,
+  pushStandIn,
   pushStrings,
   registerPushDevice,
   remindNotifications,
@@ -217,6 +218,26 @@ describe("push text", () => {
       pushQuote({ text: `Fiz metade\n\n${note}`, meta: { brainInterrupted: { text: "Fiz metade", tools: [] } } }),
     ).toBe("Fiz metade");
     expect(pushQuote({ text: "_Interrupted by a server restart._", meta: { interrupted: { text: "" } } })).toBeNull();
+  });
+
+  test("a reply with no words of the agent's still says something: why it stopped, or that it went on alone", () => {
+    const cut = { text: "_Claude Code stopped before finishing._", meta: { brainInterrupted: { text: "" } } };
+    const moved = { text: "This will take a while…", meta: { bodyCode: "work_auto_moved" } };
+    expect(pushStandIn(cut)).toBe("cut");
+    expect(pushStandIn(moved)).toBe("moved");
+    expect(pushStandIn({ text: "Fiz metade", meta: { brainInterrupted: { text: "Fiz metade" } } })).toBeNull();
+    expect(pushStandIn({ text: "Te mandei o contrato" })).toBeNull();
+    const reply = (standIn: "cut" | "moved") =>
+      renderPush("pt-BR", { kind: "agent_reply", waiting: false, actorName: "Ada", text: null, standIn });
+    expect(reply("cut")).toEqual({
+      title: "Ada respondeu",
+      body: "Parou antes de terminar. Peça de novo para continuar.",
+    });
+    expect(reply("moved").body).toBe("Isso vai levar um tempo, então sigo em segundo plano.");
+    // Any other body the server wrote: an English device reads its English, another language the way to open it.
+    const proposal = { kind: "agent_reply", waiting: false, actorName: "Ada", serverText: "Event proposal: Sync" };
+    expect(renderPush("en", proposal).body).toBe("Event proposal: Sync");
+    expect(renderPush("pt-BR", proposal).body).toBe("Toque para abrir.");
   });
 
   test("high risk follows the approval card's rule", () => {

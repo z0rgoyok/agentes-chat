@@ -176,7 +176,7 @@ describe("a computer's line", () => {
     expect(screen().getByRole("dialog", { name: "Fila de Studio" })).toBeTruthy();
   });
 
-  test("every waiting turn says one line, whatever holds it: no place, estimate, cause or stop", async () => {
+  test("every waiting turn says one line: in line, and after whom when another agent waits ahead; no place, estimate or stop", async () => {
     const { api, state, machines, queue } = setup();
     // Work on the computer the viewer may stop: the line still offers no way out of its own, See queue has the rows.
     machines?.setQueue({
@@ -200,16 +200,16 @@ describe("a computer's line", () => {
     );
     await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
     await settle(10);
-    // Atlas is next with an estimate, Rio second behind it: both read the same.
+    // Atlas is next with an estimate, Rio second behind it.
     const says = turns().map((t) => t.querySelector(".cq-turn__say")?.textContent);
-    expect(says).toEqual(["Na fila · começa em seguida", "Na fila · começa em seguida"]);
+    expect(says).toEqual(["Na fila · começa em seguida", "Na fila, depois do Atlas"]);
     for (const turn of turns()) {
       expect(turn.textContent).not.toMatch(/Computador cheio|memória|Depois de|minutos?\b|Parar/);
       expect(within(turn).queryByRole("button", { name: /^Parar/ })).toBeNull();
     }
   });
 
-  test("the line offers my own computers for my replies", async () => {
+  test("the line offers my own computers to help", async () => {
     const { api, state, me, machines } = setup();
     const mac = machines?.pair({ name: "MacBook da Ana", pairedBy: { id: me, name: "Ana" } });
     machines?.setAiAccounts({
@@ -245,18 +245,44 @@ describe("a computer's line", () => {
     await settle(6);
     const dialog = screen().getByRole("dialog", { name: "Fila de Studio" });
     expect(dialog.textContent).toContain("Seus computadores");
-    const own = within(dialog).getByRole("switch", { name: "Suas respostas podem pensar aqui: MacBook da Ana" });
-    expect(own.getAttribute("aria-checked")).toBe("true");
+    const own = within(dialog).getByRole("combobox", { name: "Como MacBook da Ana ajuda" });
+    expect(own.textContent).toContain("Quando este estiver cheio ou fora");
     expect(dialog.querySelector(".cq-spill__name small")?.textContent).toContain("seu plano Claude Max");
     // Studio itself, and computers someone else connected, are never offered here.
-    expect(within(dialog).queryAllByRole("switch")).toHaveLength(1);
+    expect(within(dialog).queryAllByRole("combobox")).toHaveLength(1);
     await click(own);
     await settle(4);
+    await click(screen().getByRole("option", { name: "Para os trabalhos dos meus agentes" }));
+    await settle(4);
     const call = state.calls.find((c) => c.method === "devices.updateComputer");
-    expect(call?.args.at(-1)).toEqual({ spill: { own: false } });
+    expect(call?.args.at(-1)).toEqual({ spill: { own: true, first: true } });
   });
 
-  test("an agent further back says the same line, never who is ahead", async () => {
+  test("with the workspace's switch off, the line offers no computer: none would help", async () => {
+    const { api, state, me, machines } = setup();
+    machines?.pair({ name: "MacBook da Ana", pairedBy: { id: me, name: "Ana" } });
+    await api.devices.setHelp(ORG_ID, false);
+    state.messages.push(
+      said({
+        author: { type: "person", id: me },
+        receipts: {
+          seenBy: [ATLAS_ID],
+          pickedBy: [ATLAS_ID],
+          handled: [{ agentId: ATLAS_ID, runId: "r-atlas", status: "waiting_input", computer: "queued" }],
+          blocked: [],
+        },
+      }),
+    );
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
+    await settle(10);
+    const [turn] = turns();
+    await click(within(turn as HTMLElement).getByRole("button", { name: "Ver fila" }));
+    await settle(6);
+    const dialog = screen().getByRole("dialog", { name: "Fila de Studio" });
+    expect(dialog.textContent).not.toContain("Seus computadores");
+  });
+
+  test("an agent further back says who waits ahead of it", async () => {
     const { api, state } = setup();
     state.messages.push(
       said({
@@ -275,8 +301,7 @@ describe("a computer's line", () => {
     const foot = row("m-ask").querySelector(".ac-msg__foot") as HTMLElement;
     expect(foot.textContent).toContain("Rio está na fila");
     expect(foot.textContent).not.toContain("próximo");
-    expect(turns()[0]?.textContent).toContain("Na fila · começa em seguida");
-    expect(turns()[0]?.textContent).not.toContain("Depois de");
+    expect(turns()[0]?.querySelector(".cq-turn__say")?.textContent).toBe("Na fila, depois do Atlas");
     expect(turns()[0]?.textContent).not.toContain("Você vai primeiro");
   });
 

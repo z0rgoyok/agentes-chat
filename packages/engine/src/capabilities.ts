@@ -220,7 +220,7 @@ export function describeCapabilities(
     } else if (make) lines.push(`- ${make}Never a repository or your CLI's own skills folder (~/.claude/skills…).`);
     if (names.has("request_settings_change")) {
       lines.push(
-        "- A skill, a channel or another setting of your own you lack: ask with `request_settings_change`, a card a person approves. Never steps by hand, never a can't.",
+        "- A skill, a channel, approvals or another setting of your own you lack: ask with `request_settings_change`, a card a person approves. Never steps by hand, never a can't.",
       );
     }
     if (loaded.has("share_artifact")) {
@@ -308,7 +308,7 @@ const COMPUTER_CAPABILITIES_LIMIT =
  * hooks there.
  */
 export const COMPUTER_TOOLS_NOTE =
-  "# Your computer's tools\nYou also have your computer's own tools (read files, search, shell and git in your folder and allowed folders). They are among your means too. Use them freely to read and investigate; that needs no approval. Actions that change things for others (push, merge, deploy) still follow the rules above. Your git's `core.hooksPath` is the computer's own hooks folder (it adds your Co-authored-by line, then runs each repository's own hooks): run a hook installer (pre-commit install, lefthook install, simple-git-hooks, git lfs install or update) with `GIT_CONFIG_PARAMETERS=` before it.";
+  "# Your computer's tools\nYou also have your computer's own tools (read files, search, shell and git in your folder and allowed folders). They are among your means too. Use them freely to read and investigate; that needs no approval. Actions that change things for others (push, merge, deploy) still follow the rules above. Your git's `core.hooksPath` is the computer's own hooks folder (it adds your Co-Authored-By line, then runs each repository's own hooks): run a hook installer (pre-commit install, lefthook install, simple-git-hooks, git lfs install or update) with `GIT_CONFIG_PARAMETERS=` before it.";
 
 /**
  * The system prompt as a computer brain reads it (ADR 0037): the limit line
@@ -316,8 +316,11 @@ export const COMPUTER_TOOLS_NOTE =
  * The transcript keeps the model brain's text, since a run can fall back to it.
  */
 export function forComputerBrain(system: string) {
-  return `${system.replace(CAPABILITIES_LIMIT, COMPUTER_CAPABILITIES_LIMIT)}\n\n${COMPUTER_TOOLS_NOTE}\n${COMPUTER_SECTIONS_LINE}`;
+  return `${withComputerLimit(system)}\n\n${COMPUTER_TOOLS_NOTE}\n${COMPUTER_SECTIONS_LINE}`;
 }
+
+/** "What you can do" as a computer brain reads it, wherever it is (its system text, or "# This conversation"). */
+export const withComputerLimit = (text: string) => text.replace(CAPABILITIES_LIMIT, COMPUTER_CAPABILITIES_LIMIT);
 
 /** Where a computer brain reads what changes per conversation and per turn (`conversationText`, `thisTurnText`). */
 export const COMPUTER_SECTIONS_LINE =

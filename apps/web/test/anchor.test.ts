@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { anchorShift } from "@/chat/anchor";
+import { anchorShift, topInList } from "@/chat/anchor";
 
 describe("the list holds its place without scroll anchoring", () => {
   test("a row above the top edge that grows from its placeholder moves the list by as much", () => {
@@ -34,5 +34,14 @@ describe("the list holds its place without scroll anchoring", () => {
   test("nothing changed, nothing moves", () => {
     expect(anchorShift([], 1000)).toBe(0);
     expect(anchorShift([{ top: 10, before: 80, after: 80 }], 1000)).toBe(0);
+  });
+});
+
+describe("where a row stands in its list", () => {
+  test("its place in the content, whatever the list is scrolled to", () => {
+    const box = (top: number) => ({ getBoundingClientRect: () => ({ top }) }) as unknown as HTMLElement;
+    const list = Object.assign(box(100), { scrollTop: 900 });
+    // On screen 40 px under the list's top edge, scrolled 900 down: 940 into its content.
+    expect(topInList(list, box(140))).toBe(940);
   });
 });

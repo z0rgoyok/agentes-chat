@@ -104,7 +104,6 @@ describe("finding the settings", () => {
       ["invites", "Convites", "members"],
       ["access", "Agentes e acesso", "connectors"],
       ["connectors", "Conectores e MCPs", "connectors"],
-      ["skills", "Skills", "connectors"],
       ["storage", "Armazenamento", "storage"],
       ["devices", "Dispositivos", "devices"],
       ["usage", "IA e uso", "usage"],
@@ -156,6 +155,34 @@ describe("finding the settings", () => {
         .getAttribute("href"),
     ).toBe("https://git.example.com/fork");
     expect(screen().getByText("Copyright © 2026 AGENTESCHAT, LLC e colaboradores")).toBeTruthy();
+  });
+
+  test("a newer server release: who configures the workspace gets its upgrade and one notice, a member neither", async () => {
+    const release = { version: "0.1.19", url: "https://github.com/agentes-chat/agentes-chat/releases/tag/v0.1.19" };
+    const state = seedState({ authConfig: { cloud: false } });
+    state.instance = { version: "0.1.18" };
+    state.serverRelease = release;
+    await go("settings/about", state);
+    expect(screen().getByRole("heading", { level: 2, name: "Atualize para a 0.1.19" })).toBeTruthy();
+    expect(screen().getByRole("link", { name: "Saiu a 0.1.19" }).getAttribute("href")).toBe(release.url);
+    const commands = [...document.querySelectorAll(".about-update .machine-command code")].map((c) => c.textContent);
+    expect(commands).toEqual([
+      "curl -fsSLO https://raw.githubusercontent.com/agentes-chat/agentes-chat/v0.1.19/docker-compose.yml\ndocker compose pull\ndocker compose up -d",
+      "~/.agentes/app/0.1.19/bin/agentes-server service install --data ~/.agentes",
+    ]);
+    expect(screen().getByText("Saiu o agentes.chat 0.1.19 para este servidor")).toBeTruthy();
+    expect(state.serverReleaseAsked).toBeGreaterThan(0);
+    cleanup();
+
+    const member = seedState({ authConfig: { cloud: false } });
+    if (member.me?.organizations[0]) member.me.organizations[0].role = "member";
+    member.instance = { version: "0.1.18" };
+    member.serverRelease = release;
+    await go("settings/about", member);
+    expect(screen().getByText("0.1.18")).toBeTruthy();
+    expect(screen().queryByRole("heading", { level: 2, name: "Atualize para a 0.1.19" })).toBeNull();
+    // Nothing asked of GitHub for whoever can't act on it.
+    expect(member.serverReleaseAsked ?? 0).toBe(0);
   });
 
   test("Sobre o agentes.chat only on a self-hosted server: agentes.chat Cloud lists it nowhere, its link opens Sua conta", async () => {
@@ -236,6 +263,28 @@ describe("finding the settings", () => {
       { handle: "walt", timezone: "Europe/Lisbon" },
     ]);
     expect(screen().getByText("Perfil salvo.")).toBeTruthy();
+  });
+
+  test("Usar o fuso do workspace: the locked selector shows the workspace's zone, not my own, and saving clears mine", async () => {
+    const state = seedState();
+    const me = state.members.find((m) => m.userId === state.me?.user.id);
+    if (me) me.timezone = "Europe/Lisbon";
+    await go("settings/account", state);
+    await click(screen().getByRole("button", { name: /^Perfil/ }));
+    await settle(2);
+    const dialog = screen().getByRole("dialog", { name: "Seu perfil neste workspace" });
+    const zone = () => within(dialog).getByRole("combobox", { name: "Fuso horário" });
+    const useOrg = () => within(dialog).getByRole("checkbox", { name: "Usar o fuso do workspace" });
+    expect(zone().textContent).toContain("Lisboa");
+    await click(useOrg());
+    expect(zone().textContent).toContain("Horário de Brasília");
+    await click(useOrg());
+    expect(zone().textContent).toContain("Lisboa");
+    await click(useOrg());
+    await click(within(dialog).getByRole("button", { name: "Salvar" }));
+    await settle(4);
+    expect(state.calls.find((c) => c.method === "orgs.updateMe")?.args.at(-1)).toMatchObject({ timezone: null });
+    (globalThis as { geometrySnapshot?: () => void }).geometrySnapshot?.();
   });
 
   test("Fuso horário in Sua conta says my zone in words under its name, as the selector does, never its id", async () => {

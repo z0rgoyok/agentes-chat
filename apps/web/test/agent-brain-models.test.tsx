@@ -6,14 +6,14 @@ setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import {
+  addAccount,
   brainDialog,
   brainLines,
-  brainRows,
+  brainNotes,
   brainScreen,
-  confirmScreen,
   done,
-  mainButton,
-  pickRow,
+  openAccounts,
+  pickAccount,
   toScreen,
 } from "./ai-picker";
 import { ADA_ID, createFakeApi, type FakeState, fakeAgentBrain, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
@@ -124,13 +124,29 @@ describe("Quem pensa: a coding plan's models", () => {
     const api = createFakeApi(state);
     pairMac(api, true);
     await api.sandbox.setTarget(ORG_ID, ADA_ID, "machine_1");
+    const accounts = patch.accounts ?? [planKey(provider, over)];
+    // The Conta field lists the accounts on the MacBook.
+    fakeMachinesOf.get(api)?.setAiAccounts({
+      accounts: accounts.map((a) => ({ ...a, machineId: "machine_1", computer: "MacBook" })),
+      computers: [
+        {
+          machineId: "machine_1",
+          name: "MacBook",
+          online: true,
+          mine: true,
+          canAdd: true,
+          keys: true,
+          brains: { claude_code: true, codex: true },
+        },
+      ],
+    });
     follow(
       api,
       fakeAgentBrain(ADA_ID, {
         brain: "claude_code",
         effectiveModel: "sonnet",
         account: "acct_plan",
-        accounts: [planKey(provider, over)],
+        accounts,
         ...patch,
       }),
     );
@@ -176,80 +192,75 @@ describe("Quem pensa: a coding plan's models", () => {
       accounts: [
         planKey("opencode"),
         planKey("opencode", { id: "acct_oc2", label: "Plano 2", usedBy: [], keyHint: "9f3c" }),
-        planKey("zai", { id: "acct_theirs", mine: false, usedBy: [], keyHint: "1b2c" }),
+        // Someone else's key: the server says it can't think for Ada.
+        planKey("zai", { id: "acct_theirs", mine: false, usedBy: [], keyHint: "1b2c", usable: false }),
         planKey(null, { id: "acct_claude", label: "Pessoal", keyHint: null, plan: "Max", usedBy: [] }),
       ],
     });
     const d = await brainDialog();
-    await toScreen(d, "Trocar de conta");
-    const rows = brainRows(d);
-    // The key in use with its plan's mark; the viewer's other key of that plan and Claude account, the workspace's key;
-    // never someone else's key.
-    expect(rows.map((r) => [r.group, r.title, r.lines[0] ?? null, r.mark])).toEqual([
-      ["Em uso", "Plano", "chave …4f2a", "opencode"],
-      ["OpenCode Go", "Plano 2", "chave …9f3c", "opencode"],
-      // A name its owner gave it, its plan on the line under it.
-      ["Claude", "Pessoal", "Max", "claude"],
-      ["Chaves de API", "Chave padrão do workspace", "Claude · termina em 7f2a", "claude"],
+    const rows = await openAccounts(d);
+    // The key in use with its plan's mark, checked; the viewer's other key of that plan and Claude account; someone
+    // else's key there, dimmed; the workspace's key.
+    expect(rows.map((r) => [r.group, r.title, r.mark, r.checked, r.off])).toEqual([
+      ["Suas contas", "Plano", "opencode", true, false],
+      ["Suas contas", "Plano 2", "opencode", false, false],
+      ["Suas contas", "Pessoal", "claude", false, false],
+      ["Do time", "Plano", "zai", false, true],
+      ["Chaves de API", "Claude da Acme", "claude", false, false],
     ]);
     // One more key of the same plan: the model it has stays.
-    await pickRow(d, (r) => r.group !== "Em uso" && r.title === "Plano 2");
-    await confirmScreen(d);
+    await pickAccount(d, "Plano 2");
     await settle(6);
     expect(brainCalls(state).at(-1)).toEqual({ brain: "claude_code", account: "acct_oc2" });
     // Claude: another plan, on its own default model.
     await done(d);
     const again = await brainDialog();
-    await toScreen(again, "Trocar de conta");
-    await pickRow(again, (r) => r.group !== "Em uso" && r.title.startsWith("Pessoal"));
-    await confirmScreen(again);
+    await pickAccount(again, "Pessoal");
     await settle(6);
     expect(brainCalls(state).at(-1)).toEqual({ brain: "claude_code", model: null, account: "acct_claude" });
   });
-
   test("a plan's key made for all of its owner's agents there is picked as it is, though another agent thinks with it", async () => {
     const { state } = await onPlan("opencode", {
       account: null,
       accounts: [planKey("opencode", { id: "acct_oc", usedBy: ["Theo"], shared: true })],
     });
     const d = await brainDialog();
-    await toScreen(d, "Trocar de conta");
-    await pickRow(d, (r) => r.group !== "Em uso" && r.mark === "opencode");
-    expect(mainButton(d)?.textContent).toBe("Trocar para Plano");
-    await confirmScreen(d);
+    await pickAccount(d, (r) => r.mark === "opencode");
     await settle(6);
     expect(brainCalls(state).at(-1)).toMatchObject({ brain: "claude_code", account: "acct_oc" });
     expect(brainCalls(state).at(-1)).not.toHaveProperty("moveAccount");
-    expect(brainScreen(d)).toBe("Pronto");
+    expect(brainScreen(d)).toBe("Quem pensa pela Ada");
+    expect(brainNotes(d).join(" ")).toContain("A Ada agora pensa com Plano.");
   });
-
-  test("Conectar outra IA, for the agent's owner: Quem pensa closes and Connect an AI opens for this agent", async () => {
+  test("Adicionar conta: a screen of this dialog, an API key through Connect for this agent; an admin adds only a key", async () => {
     await onPlan("opencode");
     let d = await brainDialog();
-    await toScreen(d, "Trocar de conta");
-    await click(within(d).getByRole("button", { name: /^Conectar outra IA/ }));
+    await addAccount(d);
+    expect(brainScreen(d)).toBe("Adicionar conta");
+    expect(within(d).getByRole("button", { name: /^Claude/ })).toBeTruthy();
+    await toScreen(d, "Chave de API");
     await settle(6);
-    expect(screen().queryByRole("dialog", { name: /^(Quem pensa|Trocar a conta)/ })).toBeNull();
-    expect(screen().getByRole("dialog", { name: "Conectar uma IA para a Ada" })).toBeTruthy();
+    expect(screen().queryByRole("dialog", { name: /^Quem pensa|^Adicionar conta/ })).toBeNull();
+    expect(screen().getByRole("dialog")).toBeTruthy();
     cleanup();
+    // Someone else's agent: a plan is its owner's to add, a key the workspace's.
     await onPlan("opencode", { canUsePlans: false, canManageAccounts: false });
     d = await brainDialog();
-    await toScreen(d, "Trocar de conta");
-    expect(within(d).queryByRole("button", { name: /^Conectar outra IA/ })).toBeNull();
+    await addAccount(d);
+    expect(within(d).queryByRole("button", { name: /^Claude/ })).toBeNull();
+    expect(within(d).getByRole("button", { name: /^Chave de API/ })).toBeTruthy();
   });
-
   test("an admin moves its owner's agent off the owner's coding plan, onto the owner's other plans or the API", async () => {
     await onPlan("opencode", { canUsePlans: false, canManageAccounts: false }, { mine: false });
     const d = await brainDialog();
-    await toScreen(d, "Trocar de conta");
-    // The computer's own sign-ins, the owner's, and the workspace's key: none of them off.
-    expect(brainRows(d).map((r) => [r.title, r.lines[0], r.mark, r.off])).toEqual([
-      ["Plano", "De Walter", "opencode", false],
-      ["Conta deste MacBook", "De João", "claude", false],
-      ["Conta deste MacBook", "De João", "openai", false],
-      ["Chave padrão do workspace", "Chave do workspace", "claude", false],
+    // The owner's plan, the computer's own sign-ins and the workspace's key: none of them off.
+    const rows = await openAccounts(d);
+    expect(rows.map((r) => [r.title, r.mark, r.off])).toEqual([
+      ["Plano", "opencode", false],
+      ["Conta deste MacBook", "claude", false],
+      ["Conta deste MacBook", "openai", false],
+      ["Claude da Acme", "claude", false],
     ]);
-    expect(mainButton(d)?.disabled).toBe(false);
     expect(d.textContent).not.toContain("Só João troca");
   });
 });

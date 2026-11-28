@@ -42,11 +42,13 @@ import {
   EventPill,
   EventPillAction,
   EventPillText,
+  FADE_OUT,
   Fuse,
   Icon,
   type IconName,
   InfoHint,
   MESSAGE_CARD_X,
+  motion,
   Text,
   useReducedMotion,
   useTheme,
@@ -105,6 +107,11 @@ const CARD_IN = FadeIn.duration(300);
 const PILL_IN = FadeIn.duration(160);
 /** What a card or a pill shows later, on screen (its details opened, how it ended): it fades in where it stands. */
 const PART_IN = FadeIn.duration(220);
+/*
+ * A card deciding (as the web's `useMorph`): its buttons fade out where they were and how it ended fades in 70ms later.
+ * Its height doesn't glide: the list sizes the row.
+ */
+const ANSWER_IN = FadeIn.duration(motion.base).delay(70);
 
 /** The entrance of a card or a pill: none in a conversation (see `CARD_IN`) or with reduced motion. */
 function useEntrance(entering: typeof CARD_IN) {
@@ -592,7 +599,7 @@ export function AskCard({
             {body ? <View style={styles.body}>{body}</View> : null}
             {answer ? (
               <Animated.View
-                entering={reduced ? undefined : PART_IN}
+                entering={reduced ? undefined : ANSWER_IN}
                 // Under the name line its hairline is enough: no second one.
                 style={[styles.edge, styles.answer, { borderTopColor: c.line }, line && !body ? styles.noTop : null]}
               >
@@ -621,10 +628,10 @@ export function AskCard({
                 {answer.actions ? <View style={styles.answerActs}>{answer.actions}</View> : null}
               </Animated.View>
             ) : ended ? null : (
-              <>
+              <Animated.View exiting={reduced ? undefined : FADE_OUT} style={styles.footSlot}>
                 {foot}
                 {waitsFor === "you" && expiry ? <View style={styles.expiryRow}>{expiry}</View> : null}
-              </>
+              </Animated.View>
             )}
             {bubbleHead ? (
               <Text variant="caption" tone="muted" style={styles.bubbleTime}>
@@ -1088,6 +1095,8 @@ const styles = StyleSheet.create({
   noTop: { borderTopWidth: 0 },
   body: { gap: 8 },
   foot: { marginTop: 4, gap: 10 },
+  // The foot and its deadline, one part that fades out as the card is decided: the card's own gap between them.
+  footSlot: { gap: 8 },
   // How it ended, where the decision was: a strip edge to edge under a hairline, its mark on the words' first line.
   answer: { paddingTop: 12, gap: 4 },
   answerRow: { flexDirection: "row", alignItems: "flex-start", gap: 8 },

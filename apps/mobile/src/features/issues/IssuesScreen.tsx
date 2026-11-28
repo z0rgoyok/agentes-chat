@@ -29,6 +29,7 @@ import {
   Icon,
   LIST_PREVIEW,
   ListRow,
+  Refreshing,
   SCREEN_X,
   SearchField,
   SectionHeader,
@@ -154,10 +155,14 @@ export function IssuesScreen() {
             <SkeletonList rows={4} />
           ) : issues.isError && !issues.data ? (
             <LoadFailed onRetry={() => void issues.refetch()} />
-          ) : view === "board" ? (
-            <Board issues={list} columns={columns.data ?? []} mayNew={mayNew} project={shown} />
           ) : (
-            <TaskList issues={list} project={shown} onAllProjects={() => setFilter("")} />
+            <Refreshing busy={issues.isPlaceholderData} label={t("common.loading")}>
+              {view === "board" ? (
+                <Board issues={list} columns={columns.data ?? []} mayNew={mayNew} project={shown} />
+              ) : (
+                <TaskList issues={list} project={shown} onAllProjects={() => setFilter("")} />
+              )}
+            </Refreshing>
           )}
         </>
       )}

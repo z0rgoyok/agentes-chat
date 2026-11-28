@@ -4,7 +4,7 @@ import { overwriteArray, overwriteMap } from "../restore";
 import { clipRich, richLength, richText } from "../rich/text";
 import { readRich } from "../rich/yjs";
 import { addSlide } from "./ops";
-import { coord, deckMapOf, deckTheme, readSlide, slideIdsOf, slideOrderOf, slidesMapOf } from "./store";
+import { coord, deckFonts, deckMapOf, deckTheme, readSlide, slideIdsOf, slideOrderOf, slidesMapOf } from "./store";
 import { DEFAULT_THEME, SLIDE_H, SLIDE_W } from "./themes";
 import { type ElementView, isElementType, isSlideLayout, type SlidesPreview, type SlideView } from "./types";
 
@@ -66,7 +66,13 @@ export function slidesPreview(doc: Y.Doc): SlidesPreview {
   // Only the slide the card shows is read, however long the deck.
   const shown = ids.find((id) => slides.get(id)?.get("hidden") !== true) ?? ids[0];
   const first = shown ? readSlide(doc, shown) : null;
-  return { theme: deckTheme(doc), count: ids.length, first: first ? previewSlide(first) : null };
+  const fonts = deckFonts(doc);
+  return {
+    theme: deckTheme(doc),
+    ...(fonts ? { fonts } : {}),
+    count: ids.length,
+    first: first ? previewSlide(first) : null,
+  };
 }
 
 /** The most text `slidesText` gives (search reads the first 20,000 characters). */
@@ -117,6 +123,11 @@ export function validateSlides(doc: Y.Doc): string[] {
     const notes = slide.get("notes");
     if (!(notes instanceof Y.Text)) problems.push(`Slide ${id} has no notes text`);
     else if (notes.length > limits.textChars) problems.push(`Slide ${id}'s notes are over ${limits.textChars}`);
+    const groups = slide.get("groups");
+    if (groups !== undefined && !(groups instanceof Y.Map)) problems.push(`Slide ${id}'s groups aren't a map`);
+    else if (groups instanceof Y.Map && groups.size > limits.elements) {
+      problems.push(`Slide ${id} has ${groups.size} groups (at most ${limits.elements})`);
+    }
     const elements = slide.get("elements");
     if (!(elements instanceof Y.Map)) {
       problems.push(`Slide ${id} has no elements map`);

@@ -8,6 +8,7 @@ import {
   PHONE_SCREEN_PROTOCOL,
   PHONES_PROTOCOL,
   type RunnerPhone,
+  SIMULATOR_POWER_PROTOCOL,
   STREAM_CLOSE,
   XCODE_FIX_PROTOCOL,
 } from "@agenteschat/adapters";
@@ -29,11 +30,13 @@ import {
   PHONE_SETUP_STUCK_MS,
   phoneStoppedBy,
   pickIphoneOverWifi,
+  powerPhone,
   recheckPhoneStream,
   removeMember,
   repairIphone,
   requestTimeoutMs,
   setAgentComputerTarget,
+  setDevicesHelp,
   setWorkspaceComputers,
   startWifiPairing,
   stopPhone,
@@ -111,6 +114,11 @@ test("the list: the workspace's computer first, each computer's status, its phon
     .update(schema.machines)
     .set({ paused: true, size: { cpus: 8, memoryGb: 16, diskGb: 512 } })
     .where(eq(schema.machines.id, lab));
+  // The workspace's computer names its processor; its system stays its own.
+  await f.db
+    .update(schema.machines)
+    .set({ size: { cpus: 4, memoryGb: 8, diskGb: 92, cpuModel: "AMD EPYC 7763", system: "Ubuntu 24.04" } })
+    .where(eq(schema.machines.id, managed?.machineId ?? ""));
   await f.db.insert(schema.machineTasks).values({
     orgId: f.org.id,
     agentId: f.agent.id,
@@ -134,7 +142,14 @@ test("the list: the workspace's computer first, each computer's status, its phon
     ["Lab box", "connected", "paused"],
   ]);
   const [workspace, macbook, , labBox] = seen.devices;
-  expect(workspace).toMatchObject({ id: managed?.machineId, hostname: "", mayUse: true, mayManage: false });
+  expect(workspace).toMatchObject({
+    id: managed?.machineId,
+    hostname: "",
+    cpuModel: "AMD EPYC 7763",
+    system: null,
+    mayUse: true,
+    mayManage: false,
+  });
   expect(macbook).toMatchObject({
     status: { kind: "busy", running: 1, max: 3 },
     ownerUserId: f.owner.id,
@@ -142,14 +157,35 @@ test("the list: the workspace's computer first, each computer's status, its phon
     mayUse: false,
     mayManage: false,
   });
-  expect(labBox).toMatchObject({ cpus: 8, memoryGb: 16, status: { kind: "paused", until: null } });
+  // An older runner names neither.
+  expect(labBox).toMatchObject({
+    cpus: 8,
+    cpuModel: null,
+    cores: null,
+    system: null,
+    memoryGb: 16,
+    status: { kind: "paused", until: null },
+  });
   // A runner that says its limit (`TASK_LIMIT_PROTOCOL`): the busy pill counts against it, and the page shows it.
   expect(macbook?.maxTasks).toBeNull();
   await f.db
     .update(schema.machines)
-    .set({ size: { cpus: 12, memoryGb: 32, diskGb: 1000, maxTasks: 6 } })
+    .set({
+      size: {
+        cpus: 12,
+        memoryGb: 32,
+        diskGb: 1000,
+        maxTasks: 6,
+        cpuModel: "Apple M4 Pro",
+        cores: 12,
+        system: "macOS 26.1",
+      },
+    })
     .where(eq(schema.machines.id, mac));
   expect((await listDevices(f.db, f.org.id, rui.id)).devices[1]).toMatchObject({
+    cpuModel: "Apple M4 Pro",
+    cores: 12,
+    system: "macOS 26.1",
     maxTasks: 6,
     status: { kind: "busy", running: 1, max: 6 },
   });
@@ -290,25 +326,32 @@ test("who can use it: the owner sets it; an admin renames, marks it the workspac
   ).rejects.toMatchObject({ code: "machine.managed" });
 });
 
-test("spill-over: on for its owner's replies by default; only the owner turns it on, an admin only off", async () => {
+test("help when the team's computer is full or away: on by default; only the owner turns it on, an admin only off", async () => {
   f = await setup();
   const sam = await addMember(f.db, f.org.id, "admin", "sam");
   const rui = await addMember(f.db, f.org.id, "member", "rui");
   const laptop = await pair(rui.id, "Rui's laptop");
-  expect((await updateComputerDevice(deps(), rui.id, f.org.id, laptop, {})).spill).toEqual({
-    own: true,
-    others: false,
+  expect((await updateComputerDevice(deps(), rui.id, f.org.id, laptop, {})).spill).toEqual({ own: true, first: false });
+  expect((await updateComputerDevice(deps(), sam.id, f.org.id, laptop, { spill: { own: false } })).spill).toEqual({
+    own: false,
+    first: false,
   });
-  await expect(
-    updateComputerDevice(deps(), sam.id, f.org.id, laptop, { spill: { others: true } }),
-  ).rejects.toMatchObject({ code: "device.spill_owner_only" });
-  expect((await updateComputerDevice(deps(), rui.id, f.org.id, laptop, { spill: { others: true } })).spill).toEqual({
-    own: true,
-    others: true,
+  await expect(updateComputerDevice(deps(), sam.id, f.org.id, laptop, { spill: { own: true } })).rejects.toMatchObject({
+    code: "device.spill_owner_only",
   });
-  expect(
-    (await updateComputerDevice(deps(), sam.id, f.org.id, laptop, { spill: { own: false, others: false } })).spill,
-  ).toEqual({ own: false, others: false });
+  expect((await updateComputerDevice(deps(), rui.id, f.org.id, laptop, { spill: { own: true } })).spill).toEqual({
+    own: true,
+    first: false,
+  });
+});
+
+test("the workspace's switch: on without a row, only an admin turns it off, and the list says so", async () => {
+  f = await setup();
+  const rui = await addMember(f.db, f.org.id, "member", "rui");
+  expect((await listDevices(f.db, f.org.id, rui.id)).devicesHelp).toBe(true);
+  await expect(setDevicesHelp(deps(), rui.id, f.org.id, false)).rejects.toMatchObject({ code: "forbidden" });
+  expect(await setDevicesHelp(deps(), f.owner.id, f.org.id, false)).toBe(false);
+  expect((await listDevices(f.db, f.org.id, rui.id)).devicesHelp).toBe(false);
 });
 
 test("where workspaces have their own computer, a brought one is a target, never an agent's home", async () => {
@@ -753,6 +796,72 @@ test("repairing an iPhone's test helper: who manages its Mac, a real iPhone only
   fail = new MachineOfflineError("MacBook", "personal");
   await expect(repairIphone(d, f.owner.id, f.org.id, phoneId)).rejects.toThrow(MachineOfflineError);
   expect(isNewWork({ op: "phone.repair", serial: iphone.serial })).toBe(false);
+});
+
+test("Ligar and Desligar a simulator: who may use it, never a real phone, an old app, the Mac's refusal in words", async () => {
+  f = await setup();
+  const rui = await addMember(f.db, f.org.id, "member", "rui");
+  const mac = await pair(f.owner.id, "MacBook");
+  await online(mac);
+  const sim: RunnerPhone = {
+    ...iphone,
+    serial: "D54B1757-01C6",
+    kind: "simulator",
+    model: "iPhone 17 Pro",
+    state: "ready",
+  };
+  await sync(mac, [sim, pixel]);
+  await sync(mac, [pixel]);
+  const calls: unknown[] = [];
+  let fail: Error | null = null;
+  const hub = {
+    call: async (machineId: string, request: unknown) => {
+      calls.push({ machineId, request });
+      if (fail) throw fail;
+      return { on: true };
+    },
+  } as unknown as Parameters<typeof powerPhone>[0]["hub"];
+  const d = { db: f.db, hub };
+  const simId = (await phoneRows()).find((p) => p.kind === "simulator")?.id ?? "";
+  const pixelId = (await phoneRowsOf("android"))?.id ?? "";
+  expect(
+    (await listDevices(f.db, f.org.id, f.owner.id)).devices[0]?.phones.find((p) => p.id === simId)?.status.kind,
+  ).toBe("offline");
+
+  await expect(powerPhone(d, f.owner.id, f.org.id, pixelId, true)).rejects.toMatchObject({
+    code: "device.not_simulator",
+  });
+  // A Mac only its owner's agents use: Rui can't start its simulators; once it's everyone's, he can.
+  await f.db.update(schema.machines).set({ audienceMode: "owner" }).where(eq(schema.machines.id, mac));
+  await expect(powerPhone(d, rui.id, f.org.id, simId, true)).rejects.toThrow(ForbiddenError);
+  await f.db.update(schema.machines).set({ audienceMode: "everyone" }).where(eq(schema.machines.id, mac));
+  await f.db
+    .update(schema.machines)
+    .set({ protocol: SIMULATOR_POWER_PROTOCOL - 1 })
+    .where(eq(schema.machines.id, mac));
+  await expect(powerPhone(d, rui.id, f.org.id, simId, true)).rejects.toMatchObject({ code: "machine.outdated" });
+  expect(calls).toEqual([]);
+  await f.db.update(schema.machines).set({ protocol: SIMULATOR_POWER_PROTOCOL }).where(eq(schema.machines.id, mac));
+  await powerPhone(d, rui.id, f.org.id, simId, true);
+  expect(calls).toEqual([
+    {
+      machineId: mac,
+      request: { op: "phone.power", platform: "ios", serial: sim.serial, model: "iPhone 17 Pro", on: true },
+    },
+  ]);
+  const audit = await f.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, "device.phone_started"));
+  expect(audit.map((a) => [a.actorType, a.actorId, a.targetId])).toEqual([["person", rui.id, simId]]);
+  // The Mac's own refusals: codes the apps word, with what it said.
+  fail = new MachineRequestError("internal", "No space left on device");
+  await expect(powerPhone(d, rui.id, f.org.id, simId, false)).rejects.toMatchObject({
+    code: "device.power_stop_failed",
+    params: { name: "Sam's iPhone", computer: "MacBook", platform: "ios", why: "No space left on device" },
+  });
+  fail = new MachineRequestError("phone_missing", "This simulator isn't on this Mac anymore.");
+  await expect(powerPhone(d, rui.id, f.org.id, simId, true)).rejects.toMatchObject({ code: "device.power_gone" });
+  fail = new MachineOfflineError("MacBook", "personal");
+  await expect(powerPhone(d, rui.id, f.org.id, simId, true)).rejects.toThrow(MachineOfflineError);
+  expect(isNewWork({ op: "phone.power", platform: "ios", serial: sim.serial, model: "", on: true })).toBe(false);
 });
 
 test("opening Xcode on a Mac: its owner or an admin, an app new enough, and the list says which Macs can", async () => {

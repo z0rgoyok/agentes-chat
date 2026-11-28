@@ -76,8 +76,9 @@
   display: flex;
   flex-direction: column;
   gap: 1.4cqw;
-  padding-left: 2.6cqw;
-  border-left: 0.8cqw solid var(--line2);
+  padding: 2cqw 2.6cqw;
+  border-radius: 1.6cqw;
+  background: var(--plate);
   color: var(--ink-muted);
 }
 .lf-doc-mini__code {

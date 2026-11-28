@@ -23,7 +23,7 @@ import { can } from "@agenteschat/client/lib/permissions";
 import { localMeta } from "@agenteschat/client/lib/reply";
 import { retryAnswer } from "@agenteschat/client/lib/retry-answer";
 import { upsertMessage } from "@agenteschat/client/lib/timeline";
-import { voiceOf } from "@agenteschat/client/lib/voice";
+import { micShown, voiceOf, voiceSetupAsk } from "@agenteschat/client/lib/voice";
 import { isIdHandle } from "@agenteschat/ui/names";
 import { useQueryClient } from "@tanstack/react-query";
 import * as Clipboard from "expo-clipboard";
@@ -33,6 +33,7 @@ import * as ImagePicker from "expo-image-picker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { useTranslation } from "react-i18next";
 import { Linking } from "react-native";
+import { voiceSetupSeen } from "@/lib/storage";
 import type { ComposerProps, SendHow, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { handKeyToConnectAi } from "../../ai/connect-flow";
@@ -50,7 +51,9 @@ import type { useDirectory } from "../../shared/hooks";
 import { agentLook } from "../../shared/logic";
 import type { useSheet } from "../../shared/SheetHost";
 import { vaultHref } from "../../vault/logic";
-import { retryVoice, type VoiceRefusal } from "../../voice/outbox";
+import { retryVoice } from "../../voice/outbox";
+import { useSayVoiceRefusal } from "../../voice/useVoiceTake";
+import { VoiceSetupSheet } from "../../voice/VoiceSetupSheet";
 import { AttachmentStrip, MAX_PENDING, type PendingFile } from "../AttachmentStrip";
 import { ChannelPicker } from "../ChannelPicker";
 import { KeyGuardSheet } from "../KeyGuardSheet";
@@ -204,10 +207,7 @@ export function useChatSend({
     return { ...localMeta(quote, dir.nameOf(quote.author), files), ...liveRef };
   };
   const qc = useQueryClient();
-  const voiceRefused = useCallback(
-    (reason: VoiceRefusal) => toast({ title: t(reason === "limit" ? "voice.limit" : "voice.notSent"), icon: "x" }),
-    [t, toast],
-  );
+  const voiceRefused = useSayVoiceRefusal();
   // Rows keep the same callback (so a streaming reply doesn't re-render every message).
   const retryRef = useRef(retry);
   retryRef.current = retry;
@@ -421,7 +421,26 @@ export function useChatSend({
   // mine. The list is aimed at the end before the sheet closes: the place it held under the sheet doesn't come back.
   const settings = useSettings(orgId).data;
   const mediaTabs = mediaTabsOf(settings, dir.agents.length, Boolean(api.gifs));
-  const voiceOn = Boolean(meId && settings?.voiceAvailable && settings.voiceMessages);
+  // The microphone follows the workspace's switch (a server older than `speechState` shows it only with an engine);
+  // where voice doesn't become text yet, the first hold shows `VoiceSetupSheet` instead.
+  const voiceOn = Boolean(meId && micShown(settings));
+  const voiceFresh = voiceSetupSeen.useFresh(meId ?? "");
+  const askVoice = () => {
+    const ask = voiceSetupAsk(settings, meId, voiceFresh);
+    if (!ask || !meId) return false;
+    sheet.open(
+      <VoiceSetupSheet
+        orgId={orgId}
+        owner={ask.owner}
+        isOwner={ask.isOwner}
+        onDone={() => {
+          voiceSetupSeen.mark(meId);
+          sheet.close();
+        }}
+      />,
+    );
+    return true;
+  };
   const afterVoice = useCallback(() => {
     setQuote(null);
     toEnd();
@@ -775,6 +794,7 @@ export function useChatSend({
   // person's typing. What it calls reads the conversation as it is at that moment (`useLatest`).
   const sendFromField = useLatest(onSend);
   const voiceFromField = useLatest(withVoice);
+  const voiceAsk = useLatest(askVoice);
   const plusFromField = useLatest(openPlus);
   // GIFs and stickers also beside the mic while the field is empty, where they can be sent: one tap from the field.
   const mediaFromField = useLatest(openMedia);
@@ -852,6 +872,7 @@ export function useChatSend({
     voiceFromField,
     voiceOn,
     voiceTakeBack,
+    voiceAsk,
   };
 }
 

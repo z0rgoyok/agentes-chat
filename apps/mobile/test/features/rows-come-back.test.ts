@@ -13,8 +13,12 @@ describe("a row comes back as the person left it", () => {
     const row = src("features/chat/MessageRow.tsx");
     // Mounted again when "See more" opens its message, the same way: what it holds just shows.
     expect(row).toMatch(
-      /export const MessageRow = memo\(function MessageRow\(props: RowProps\) \{[\s\S]*?return \(\s*<LayoutAnimationConfig key=\{opened \? "opened" : "row"\} skipEntering>\s*<RowBody \{\.\.\.props\} \/>/,
+      /export const MessageRow = memo\(function MessageRow\(props: RowProps\) \{[\s\S]*?const body = \(\s*<LayoutAnimationConfig key=\{opened \? "opened" : "row"\} skipEntering>\s*<RowBody \{\.\.\.props\} \/>/,
     );
+    // A thread's first rows fade in as its screen lands, and only then: decided once, as the row mounts.
+    const landing = src("features/chat/thread-open.tsx");
+    expect(landing).toContain("Date.now() - landing.at > LANDING_MS");
+    expect(landing).toMatch(/const \[entering\] = useState\(/);
   });
 
   test("a reply shows the work it showed the first time, however late it comes back", () => {

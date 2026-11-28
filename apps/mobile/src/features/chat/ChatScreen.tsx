@@ -21,6 +21,7 @@ import { OpenHandoffProvider } from "../browser/open";
 import { MissionCardView } from "../missions/cards";
 import { isOpenMission } from "../missions/logic";
 import { RightHandIntro } from "../right-hand/Intro";
+import { TeamFlight } from "../right-hand/TeamFlight";
 import { FirstUse } from "../shared/FirstUse";
 import { useColors, useDirectory, useMeId, useMyHandle, useOrgId, useWhen } from "../shared/hooks";
 import { FocusLive } from "../shared/parts";
@@ -33,6 +34,7 @@ import { ChatWallpaper, WallpaperBand } from "./ChatWallpaper";
 import { takeComposerRequest, useComposerRequest } from "./composer-request";
 import { openingDockHeight, rememberDockHeight } from "./dock-height";
 import { FirstDay } from "./FirstDay";
+import { GroupCover, useGroupConversation } from "./GroupCover";
 import { useListEnd } from "./list-end";
 import { endsOnNoAiCard, noAiBanner } from "./no-ai-banner";
 import { placeKey, placeMessage, takeHandedPlace, useReadingPlace } from "./reading-place";
@@ -52,6 +54,7 @@ import { useConversationActions } from "./screen/useConversationActions";
 import { useFollowEnd } from "./screen/useFollowEnd";
 import { useKeepPlace } from "./screen/useKeepPlace";
 import { HereReturns, type WorkLine } from "./screen/work-line";
+import { ThreadLanding, useMarkThreadOpen } from "./thread-open";
 import { withOpacity } from "./turn";
 
 /** How far from its end a list that follows it may rest (rounding) before it is taken there. */
@@ -67,6 +70,8 @@ const DOCK_LINE = 55;
 const DOCK_REST = 16;
 /** Air under the conversation's last message, before the composer's box. */
 const LIST_END_AIR = 22;
+/** The composer's box over its field (`ChatDock`'s `composer`): part of the gap from the list's end to the field. */
+const DOCK_TOP = 6;
 /** The notifications line was shown and answered here: it doesn't come back on this screen. */
 const OFFER_DONE = "done";
 
@@ -90,22 +95,26 @@ export function ChatScreen({
   // Where the same conversation was being read on the other display (ADR 0212: an iPhone Duo opened or closed), taken
   // once as it opens, when no message was asked for: it opens there, as a pin opens at its message, without the light.
   const [handed] = useState(() => (focusId ? null : takeHandedPlace(placeKey(channelId, threadId ?? null))));
+  // A thread's screen: its message stays marked in the conversation under it, and its first rows fade in, in turn.
+  useMarkThreadOpen(threadId ?? null);
   // Its rows read the agents' questions once for the conversation (`ConversationRowData`), its sheets included.
   return (
-    <ConversationRowData channelId={channelId}>
-      <SheetHostProvider>
-        <FocusLive>
-          <OpenHandoffProvider handoffId={handoffId ?? null}>
-            <Chat
-              channelId={channelId}
-              threadId={threadId ?? null}
-              focusId={focusId ?? handed}
-              quietFocus={!focusId && handed !== null}
-            />
-          </OpenHandoffProvider>
-        </FocusLive>
-      </SheetHostProvider>
-    </ConversationRowData>
+    <ThreadLanding on={Boolean(threadId)}>
+      <ConversationRowData channelId={channelId}>
+        <SheetHostProvider>
+          <FocusLive>
+            <OpenHandoffProvider handoffId={handoffId ?? null}>
+              <Chat
+                channelId={channelId}
+                threadId={threadId ?? null}
+                focusId={focusId ?? handed}
+                quietFocus={!focusId && handed !== null}
+              />
+            </OpenHandoffProvider>
+          </FocusLive>
+        </SheetHostProvider>
+      </ConversationRowData>
+    </ThreadLanding>
   );
 }
 
@@ -270,6 +279,7 @@ function Chat({
     voiceFromField,
     voiceOn,
     voiceTakeBack,
+    voiceAsk,
   } = useChatSend({
     channelId,
     threadId,
@@ -285,6 +295,13 @@ function Chat({
     leavePlace,
     data,
   });
+  // A personal workspace's group conversation (ADR 0159), from a server that lists its agents: its cover at its start,
+  // in its greeting while it is empty.
+  const group = useGroupConversation(dm || isThread ? null : channel, roster.data);
+  const startCover = useMemo(
+    () => (group && channel ? <GroupCover name={channel.name} group={group} /> : null),
+    [group, channel],
+  );
   const { codeId, info, personDm, rootFile, rootTask, subtitle, title } = useChatTitle({
     threadId,
     orgId,
@@ -511,8 +528,18 @@ function Chat({
   // Who works and who types here, and at rest who comes back when: the conversation's last line, under its last
   // message and scrolling with it (the list's footer, `WORK_FOOTER`), as a reply on its way. Pinned above the composer,
   // it stayed over the words being read and moved the conversation's end each time an agent started or finished.
-  // Above the composer only while there is no conversation to end with. The composer's edges, a turn's gap above it.
-  const lineInList = useMemo(() => ({ paddingHorizontal: DOCK_SIDE, paddingTop: rhythm.turn }), [rhythm.turn]);
+  // Above the composer only while there is no conversation to end with. The composer's edges, and a turn's gap on
+  // both sides: above it from the last message, under it to the field. Under it, the list's end air and the composer's
+  // box give way to that gap; its own padding under it is for when it sits above the composer.
+  const lineInList = useMemo(
+    () => ({
+      paddingHorizontal: DOCK_SIDE,
+      paddingTop: rhythm.turn,
+      paddingBottom: 0,
+      marginBottom: rhythm.turn - LIST_END_AIR - DOCK_TOP,
+    }),
+    [rhythm.turn],
+  );
   const listReturns = useMemo(
     () => <HereReturns channelId={channelId} threadId={threadId} onOpen={openReturns} style={lineInList} />,
     [channelId, threadId, openReturns, lineInList],
@@ -683,6 +710,7 @@ function Chat({
                   receiptId={receiptId}
                   receipts={receipts}
                   atStart={atStart}
+                  startCover={startCover}
                   headerHeight={headerHeight}
                   keyboardDragSettled={keyboardDragSettled}
                   keyboardDragStarted={keyboardDragStarted}
@@ -775,6 +803,7 @@ function Chat({
                               bottomInset={dockHeight}
                               keyboardLift={lift}
                               onAsk={onSend}
+                              group={group}
                             />
                           ) : (
                             <View style={[styles.center, { paddingBottom: dockHeight }]}>
@@ -902,12 +931,14 @@ function Chat({
                 afterVoice={afterVoice}
                 voiceFromField={voiceFromField}
                 voiceTakeBack={voiceTakeBack}
+                voiceAsk={voiceAsk}
                 onRecording={onRecording}
                 admin={admin}
                 join={join}
               />
             )}
           </DockGestureArea>
+          <TeamFlight barHeight={headerHeight} />
         </View>
       </AskStoreProvider>
     </CodeConversation.Provider>

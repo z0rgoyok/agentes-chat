@@ -20,6 +20,7 @@ import { CodeBlock } from "@/components/CodeBlock";
 import { OfficePreview } from "@/components/live/office/OfficePreview";
 import { useOrg } from "@/components/org-context";
 import { Markdown } from "@/lib/markdown";
+import { FileAudio } from "./FileAudio";
 import { ImageZoom } from "./ImageZoom";
 
 /** Object URLs for blobs (swappable: test DOMs may lack `URL.createObjectURL`). */
@@ -106,6 +107,7 @@ export function FileVideo({
   actions,
   fallback,
   tip,
+  ratio,
 }: {
   content: ArtifactFileContent;
   artifactId: string;
@@ -114,6 +116,8 @@ export function FileVideo({
   actions?: ReactNode;
   fallback: ReactNode;
   tip?: string;
+  /** Its width over its height, when the server read them (`pictureRatio`): the tile's shape before it loads. */
+  ratio?: number | undefined;
 }) {
   const { org } = useOrg();
   const api = useApi();
@@ -126,6 +130,7 @@ export function FileVideo({
         <VideoPlayer
           src={api.artifacts.fileUrl(org.id, artifactId, { version })}
           name={content.name}
+          ratio={ratio}
           labels={labels}
           onOpen={onOpen}
           actions={actions}
@@ -139,8 +144,8 @@ export function FileVideo({
 
 /**
  * An uploaded file in the viewer (its name, size and Baixar are in the viewer's header): an inline preview only for
- * raster images and PDF (a blob of exactly that type, never the file's own origin), videos in our player (a media
- * element never runs the file as a page), and the text of small text files, read-only (JSON formatted, as a code
+ * raster images and PDF (a blob of exactly that type, never the file's own origin), videos in our player and audio in
+ * the voice-message player (a media element never runs the file as a page), and the text of small text files, read-only (JSON formatted, as a code
  * block reads it, code highlighted, Markdown drawn).
  */
 export function FileView({
@@ -163,10 +168,11 @@ export function FileView({
   // An Office file is drawn from the server's reading of it (ADR 0198), never from its bytes here.
   const read = previewKind(content.contentType, content.name);
   const kind = isOfficePreview(read) ? null : read;
-  // A video streams from the download: any size plays. The rest load whole, up to the preview limit.
-  const canPreview = kind !== null && (kind === "video" || content.size <= MAX_PREVIEW_BYTES);
-  const { url, failed } = usePreviewUrl(artifactId, version, content.contentType, canPreview && kind !== "video");
-  const [videoFailed, setVideoFailed] = useState(false);
+  // A video or an audio file streams from the download: any size plays. The rest load whole, up to the preview limit.
+  const streams = kind === "video" || kind === "audio";
+  const canPreview = kind !== null && (streams || content.size <= MAX_PREVIEW_BYTES);
+  const { url, failed } = usePreviewUrl(artifactId, version, content.contentType, canPreview && !streams);
+  const [mediaFailed, setMediaFailed] = useState(false);
   const videoLabels = useVideoLabels();
 
   // A spreadsheet, a presentation or a Word document the server reads for the apps to draw (ADR 0198).
@@ -178,7 +184,7 @@ export function FileView({
   if (kind === "video") {
     return (
       <div className="file-view file-view--image">
-        {videoFailed ? (
+        {mediaFailed ? (
           <p className="small muted">{t("files.previewFailed")}</p>
         ) : (
           <VideoPlayer
@@ -187,10 +193,24 @@ export function FileView({
             src={api.artifacts.fileUrl(org.id, artifactId, { version })}
             name={content.name}
             labels={videoLabels}
-            onFailed={() => setVideoFailed(true)}
+            onFailed={() => setMediaFailed(true)}
             handoff={artifactId}
           />
         )}
+      </div>
+    );
+  }
+
+  // Audio plays in the voice-message player, from the download in parts.
+  if (kind === "audio") {
+    return (
+      <div className="file-view file-view--audio">
+        <FileAudio
+          artifactId={artifactId}
+          version={version}
+          content={content}
+          fallback={<p className="small muted">{t("files.previewFailed")}</p>}
+        />
       </div>
     );
   }

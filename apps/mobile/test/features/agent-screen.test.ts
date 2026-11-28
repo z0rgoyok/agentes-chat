@@ -73,6 +73,10 @@ describe("the page behind the agent's screen", () => {
     expect(heard({ type: "size", width: 0, height: 900 })).toBeNull();
     expect(heard({ type: "session", mode: "control" })).toEqual({ type: "session", mode: "control" });
     expect(heard({ type: "session", mode: "drive" })).toBeNull();
+    // A failed try to open the screen: its cause, and whether the page stopped trying.
+    expect(heard({ type: "why", why: "late", gaveUp: false })).toEqual({ type: "why", why: "late", gaveUp: false });
+    expect(heard({ type: "why", why: "dropped", gaveUp: true })).toEqual({ type: "why", why: "dropped", gaveUp: true });
+    expect(heard({ type: "why", why: "asleep" })).toBeNull();
     expect(screenEvent(SERVER, { url, data: "{" })).toBeNull();
     expect(screenEvent(SERVER, { url, data: "null" })).toBeNull();
   });

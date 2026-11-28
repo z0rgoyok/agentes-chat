@@ -4,17 +4,20 @@ import {
   createVaultItem,
   deleteVaultConnection,
   deleteVaultItem,
+  deleteVaultItems,
   getVaultItem,
   importVaultCsv,
   importVaultKeys,
   listVault,
   moveVaultItem,
   NotFoundError,
+  setVaultItemsAccess,
   syncVaultConnection,
   TooManyError,
   updateVaultConnection,
   updateVaultItem,
   VAULT_LIMITS,
+  VAULT_MAX_ITEMS,
   ValidationError,
   type VaultDeps,
   VaultRefusal,
@@ -291,6 +294,9 @@ const ImportInput = z
     }),
     scope: Scope,
     dryRun: z.boolean().openapi({ description: "`true`: only count what would happen; nothing is written." }),
+    access: VaultAccess.optional().openapi({
+      description: "For the new logins (absent: the scope's default). A login already saved keeps its own.",
+    }),
   })
   .openapi("VaultImportInput");
 
@@ -333,6 +339,11 @@ const KeysImportResult = z
   .openapi("VaultKeysImportResult");
 
 const MoveInput = z.object({ scope: Scope }).openapi("VaultMoveInput");
+
+const ItemIds = z.array(z.uuid()).min(1).max(VAULT_MAX_ITEMS);
+const BulkAccessInput = z.object({ ids: ItemIds, access: VaultAccess }).openapi("VaultBulkAccessInput");
+const BulkIdsInput = z.object({ ids: ItemIds }).openapi("VaultBulkIdsInput");
+const Kept = z.number().int().openapi({ description: "Chosen but left as they were (see the description)." });
 
 /**
  * "Save to the Vault" on a secret request's card (ADR 0144): the value once more, sent after its sealed box went to
@@ -518,6 +529,43 @@ export function vaultRoutes(deps: AppDeps) {
       const { orgId, itemId } = c.req.valid("param");
       await deleteVaultItem(vaultDepsOf(deps), c.get("user").id, orgId, itemId);
       return c.body(null, 204);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/organizations/{orgId}/vault/items/bulk/access",
+      tags,
+      security,
+      summary: "Change who has access to many items at once",
+      description:
+        "Each item gets `access`, checked for its scope as one item's is (a personal item takes only the agents); an external item stops following its connection. Items this person doesn't manage are left and counted in `kept`. 400 `vault.audience_invalid`, `vault.agents_invalid`.",
+      request: { params: OrgParams, body: body(BulkAccessInput) },
+      responses: { 200: json(z.object({ changed: z.number().int(), kept: Kept })), ...errors },
+    }),
+    async (c) => {
+      const { orgId } = c.req.valid("param");
+      const { ids, access } = c.req.valid("json");
+      return c.json(await setVaultItemsAccess(vaultDepsOf(deps), c.get("user").id, orgId, ids, access), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/vault/items/bulk/delete",
+      tags,
+      security,
+      summary: "Delete many items at once",
+      description:
+        "As one item is deleted. Items this person doesn't manage, and a password manager's items still in it, are left and counted in `kept`.",
+      request: { params: OrgParams, body: body(BulkIdsInput) },
+      responses: { 200: json(z.object({ deleted: z.number().int(), kept: Kept })), ...errors },
+    }),
+    async (c) => {
+      const { orgId } = c.req.valid("param");
+      return c.json(await deleteVaultItems(vaultDepsOf(deps), c.get("user").id, orgId, c.req.valid("json").ids), 200);
     },
   );
 

@@ -4,23 +4,17 @@
     "send": "Envoyer"
   },
   "categories": {
-    "title": "Catégories",
-    "where": "Où #{{channel}} apparaît",
-    "whereHelp": "Change pour tout le monde. Les participants du canal restent les mêmes.",
-    "create": "Créer",
-    "endOfList": "Va à la fin de la liste pour tout le monde.",
-    "channelCount_one": "{{count}} canal",
-    "channelCount_many": "{{count}} canaux",
-    "channelCount_other": "{{count}} canaux",
-    "none": "Aucune catégorie pour l'instant.",
-    "manageHint": "Ordre, noms et suppression",
-    "deleteTitle": "Supprimer {{name}} ?",
-    "order": "Place dans la liste",
     "up": "Monter",
     "down": "Descendre",
-    "position": "{{at}} sur {{count}}.",
-    "channelPosition": "{{at}} sur {{count}}.",
-    "itsChannels": "Canaux"
+    "channelPosition": "{{at}} sur {{count}}."
+  },
+  "sections": {
+    "title": "Section",
+    "where": "Où #{{channel}} se trouve pour vous",
+    "whereHelp": "Seule votre liste change. Chacun range ses propres sections.",
+    "none": "Aucune section",
+    "order": "Place dans la section",
+    "tooLong": "40 caractères maximum."
   },
   "blocks": {
     "send": "Envoyer",
@@ -72,6 +66,19 @@
     "raw": "Brut",
     "more": "Voir les {{count}} lignes",
     "gone": "Ce code n'est plus ouvert."
+  },
+  "table": {
+    "label_one": "Tableau · {{count}} ligne",
+    "label_many": "Tableau · {{count}} lignes",
+    "label_other": "Tableau · {{count}} lignes",
+    "title": "Tableau",
+    "rows_one": "{{count}} ligne",
+    "rows_many": "{{count}} lignes",
+    "rows_other": "{{count}} lignes",
+    "copy": "Copier le tableau",
+    "copied": "Tableau copié",
+    "more": "Voir les {{count}} lignes",
+    "gone": "Ce tableau n'est plus ouvert."
   },
   "time": {
     "today": "Aujourd'hui",
@@ -193,11 +200,11 @@
       "text": "Il est peut-être hors service ou en dehors de votre réseau. Vos discussions s'afficheront d'elles-mêmes dès son retour.",
       "kept": "Affichage de ce qui était déjà dans l'app."
     },
-    "pinned": "Épinglés",
+    "favorites": "Favoris",
     "recent": "Récents",
     "view": {
       "title": "Afficher les conversations",
-      "sectors": "Secteurs",
+      "sections": "Sections",
       "dms": "Messages directs",
       "channels": "Canaux"
     },
@@ -872,6 +879,7 @@
   },
   "agent": {
     "talk": "Discuter",
+    "responsible": "Responsable",
     "task": "Tâche",
     "owner": "responsable : {{name}}",
     "cantTalk": "Cet agent ne travaille pas avec vous.",
@@ -971,6 +979,7 @@
       "admin_ask_channel_agent": "{{names}} vous demande d'ajouter {{agent}} à #{{label}}",
       "admin_ask_create_agents": "{{names}} demande à pouvoir créer des agents",
       "admin_ask_webhook": "{{names}} vous demande de configurer le webhook {{service}} pour les routines",
+      "admin_ask_voice": "{{names}} vous demande d'activer les messages vocaux",
       "routine_paused_one": "Routine en pause",
       "routine_paused_many": "Routines en pause",
       "routine_paused_other": "Routines en pause",
@@ -1070,6 +1079,12 @@
       "computer_no_chrome_one": "Un ordinateur a besoin de Google Chrome. Téléchargez-le sur google.com/chrome",
       "computer_no_chrome_many": "Des ordinateurs ont besoin de Google Chrome. Téléchargez-le sur google.com/chrome",
       "computer_no_chrome_other": "Des ordinateurs ont besoin de Google Chrome. Téléchargez-le sur google.com/chrome",
+      "computer_down_one": "Un ordinateur ne répond pas",
+      "computer_down_many": "Un ordinateur ne répond pas",
+      "computer_down_other": "Un ordinateur ne répond pas",
+      "computer_back_one": "Un ordinateur est de retour",
+      "computer_back_many": "Un ordinateur est de retour",
+      "computer_back_other": "Un ordinateur est de retour",
       "app_created_one": "Une app d'IA a créé des choses pour vous",
       "app_created_many": "Une app d'IA a créé des choses pour vous",
       "app_created_other": "Une app d'IA a créé des choses pour vous"
@@ -1594,6 +1609,15 @@
     "next": {
       "pr": "Branche poussée, pas encore de pull request",
       "mergeLocal": "Prête à fusionner dans {{base}}"
+    },
+    "terminal": {
+      "keys": "Touches du terminal",
+      "keyboard": "Clavier",
+      "pasteHint": "Coller dans le terminal ce que vous avez copié",
+      "key": {
+        "CtrlC": "Contrôle-C, interrompre",
+        "CtrlD": "Contrôle-D, fin de l’entrée"
+      }
     }
   },
   "taskManager": {
@@ -2189,6 +2213,7 @@
       "tool_request": "{{names}} vous demande d'activer {{tool}} sur votre {{device}}",
       "cli_request": "{{names}} vous demande d'installer {{tool}} sur votre {{device}}",
       "folder_request": "{{names}} vous demande le dossier {{path}} sur votre {{device}}",
+      "internet_shared": "Les agents ouvrent désormais les sites web via la connexion internet de {{device}}",
       "allowOnce": "Autoriser une fois",
       "always": "Toujours autoriser {{name}}",
       "no": "Non",
@@ -2910,11 +2935,12 @@
     },
     "formatAuto": "{{name}} choisit le meilleur",
     "newWidget": {
-      "alerts": "Alerte activée",
       "realData": "Vraies données",
       "editAsk": "Modifier la demande",
       "asked": "« {{ask}} »",
-      "autoFormat": "Affichage automatique"
+      "testReal": "Tester avec de vraies données",
+      "addHome": "Ajouter à l’accueil",
+      "addTo": "Ajouter à {{where}}"
     },
     "agentPick": {
       "search": "Rechercher des agents",
@@ -3372,7 +3398,8 @@
       "workspaceSub": "Clé d'API du workspace",
       "key": "Clé d'API",
       "keyDefault": "par défaut du workspace",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} ne l'utilise plus."
     },
     "missionAi": "IA",
     "missionLocked": "Qui fait le travail se choisit avant le démarrage. Le modèle peut changer à tout moment."

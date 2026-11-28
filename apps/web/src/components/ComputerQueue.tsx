@@ -19,10 +19,11 @@ import {
   queueStartText,
   queueStatusText,
   queueView,
+  queueWaitText,
   queueWhereText,
   waitingFor,
 } from "@agenteschat/client/lib/computer-queue";
-import { spillDeviceText } from "@agenteschat/client/lib/devices";
+import { SPILL_USES, spillDeviceText, spillOfUse, spillUseOf } from "@agenteschat/client/lib/devices";
 import { devicePlanName } from "@agenteschat/client/lib/no-ai";
 import { badgeCount } from "@agenteschat/client/lib/unread";
 import {
@@ -34,7 +35,7 @@ import {
   DialogFooter,
   Icon,
   Message as MessageRow,
-  Switch,
+  Select,
   useNow,
 } from "@agenteschat/ui";
 import { useNavigate } from "@tanstack/react-router";
@@ -142,7 +143,7 @@ export function QueueDialog({
       closeLabel={t("common.close")}
       width={440}
       className="cq-dialog"
-      subtitle={queue ? queueStatusText(t, queueView(queue, names.viewerId)) : undefined}
+      subtitle={queue ? queueStatusText(t, queueView(queue, names.viewerId), queue) : undefined}
     >
       <DialogBody>
         {queue ? (
@@ -304,8 +305,9 @@ function QueueLists({
 }
 
 /**
- * "Your computers": the viewer's other online computers, each with its switch for their replies to start
- * there while this one is full (`spill.own`). Nothing when they have none.
+ * "Your computers": the viewer's other computers, each with how it helps (`spillUseOf`): not at all, while this one is
+ * full or away (`spill.own`), or first for their agents' work (`spill.first`). Nothing when they have none, or while
+ * an admin turned devices' help off for the workspace.
  */
 function SpillHere({ machineId }: { machineId: string }) {
   const { t } = useTranslation();
@@ -316,7 +318,7 @@ function SpillHere({ machineId }: { machineId: string }) {
   const mine = (devices.data?.devices ?? []).filter(
     (d) => d.id !== machineId && d.ownerUserId === me.user.id && d.machineKind === "connected" && !d.systemMode,
   );
-  if (mine.length === 0) return null;
+  if (mine.length === 0 || devices.data?.devicesHelp === false) return null;
   return (
     <section className="cq-spill" aria-labelledby="cq-spill-title">
       <h3 className="cq__title" id="cq-spill-title">
@@ -330,10 +332,14 @@ function SpillHere({ machineId }: { machineId: string }) {
               <b>{d.name}</b>
               <small>{spillDeviceText(t, d, devicePlanName(t, accounts, d.id))}</small>
             </span>
-            <Switch
-              aria-label={`${t("devices.spillOwn")}: ${d.name}`}
-              checked={d.spill.own}
-              onCheckedChange={(own) => update.mutate({ id: d.id, spill: { own } })}
+            <Select
+              size="sm"
+              align="end"
+              className="cq-spill__use"
+              aria-label={t("queue.spill.use.label", { name: d.name })}
+              value={spillUseOf(d)}
+              onValueChange={(use) => update.mutate({ id: d.id, spill: spillOfUse(use) })}
+              options={SPILL_USES.map((use) => ({ value: use, label: t(`queue.spill.use.${use}`) }))}
             />
           </li>
         ))}
@@ -363,8 +369,8 @@ export function QueueWaitTurns({ channelId, messages }: { channelId: string; mes
 }
 
 /**
- * The agent's turn (its face, its name): one line whatever holds it ("In line · starts soon"), "You go first" on the
- * viewer's own request, and "See queue".
+ * The agent's turn (its face, its name): one line ("In line · starts soon", or "In line, after Ada"
+ * behind another agent's waiting turn), "You go first" on the viewer's own request, and "See queue".
  */
 function QueueWaitTurn({ wait: { agentId, runId }, channelId }: { wait: ConversationWait; channelId: string }) {
   const { t } = useTranslation();
@@ -386,7 +392,7 @@ function QueueWaitTurn({ wait: { agentId, runId }, channelId }: { wait: Conversa
     >
       <p className="cq-turn__say ac-iconline" aria-live="polite">
         <Icon name="waiting" size={14} />
-        <span>{t("queue.waiting")}</span>
+        <span>{queueWaitText(t, queue, w, (id) => dir.agentById.get(id)?.name)}</span>
       </p>
       <span className="cq-turn__acts">
         {first && <Chip className="cq-first">{t("queue.youFirst")}</Chip>}

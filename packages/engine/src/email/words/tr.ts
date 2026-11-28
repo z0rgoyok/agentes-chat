@@ -630,6 +630,27 @@ export const words: EmailWords = {
       why: (surface) => `Bu e-postayı ${surface} agentes.chat hesabına bağlı olduğu için aldın.`,
       picture: "Asistanın, artık telefonunda değil",
     },
+    pinReset: {
+      subject: (surface) => `${surface} PIN'ini seç`,
+      preheader: "Sohbet uygulamandan işlemleri onaylayan PIN'i seç.",
+      headline: (surface) => `${surface} PIN'ini seç`,
+      body: (surface) =>
+        `${surface} üzerinden işlemleri onaylamak için kullandığın PIN'i seçmek üzere bir bağlantı istendi. Sen istediysen, bu düğmenin açtığı sayfada seç.`,
+      button: "PIN'imi seç",
+      small: "Bağlantı bir saat boyunca bir kez çalışır. Sen değilsen bu e-postayı yok say. Hiçbir şey değişmez.",
+      why: (surface) => `Bu e-postayı ${surface} agentes.chat hesabına bağlı olduğu için aldın.`,
+    },
+    pinLocked: {
+      subject: (surface) => `${surface} PIN'in kilitlendi`,
+      preheader: "Üst üste üç yanlış PIN. Sohbet uygulamandan onaylama şimdilik duraklatıldı.",
+      headline: (surface) => `${surface} PIN'in kilitlendi`,
+      body: (surface, time) =>
+        `Biri ${surface} üzerinden bir işlemi onaylamak için üst üste üç kez yanlış PIN girdi. ${surface} üzerinden onaylama ${time} boyunca duraklatıldı.`,
+      lockedFor: ["15 dakika", "1 saat", "24 saat"],
+      small: (surface) =>
+        `Sen girdiysen daha sonra tekrar dene. Sen değilsen, kimse oradan onaylayamasın diye bildirim ayarlarından ${surface} bağlantısını kaldır.`,
+      button: "Bildirim ayarlarını aç",
+    },
   },
   supportReply: {
     subject: "Yardım talebinize bir yanıt",

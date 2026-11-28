@@ -98,6 +98,8 @@ function ModelPickerPopover({ agent, trigger }: { agent: Agent; trigger: (open: 
         target={{ kind: "agent", agentId: agent.id }}
         title={t("brain.picker.open", { agent: agent.name })}
         note={t("brain.picker.applies")}
+        // "Adicionar conta" is "Quem pensa"'s own screen, on the agent's page.
+        {...(openPanel ? { onAdd: () => openPanel(agent.id, "settings", "brain:add") } : {})}
         links={
           openPanel
             ? [

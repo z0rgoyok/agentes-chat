@@ -427,6 +427,40 @@ describe("share_dashboard and list_dashboards", () => {
     expect(results.at(-1)).toContain("Home has no widgets yet");
   });
 
+  test("list_dashboards says why each failing widget fails", async () => {
+    const results = await setupAgent((req) =>
+      JSON.stringify(req.messages).includes("painéis") ? [{ name: "list_dashboards", input: {} }] : [],
+    );
+    const board = await createDashboard(dash(), f.owner.id, f.org.id, {
+      title: "Metas",
+      audience: "private",
+      editPolicy: "owner",
+    });
+    const widget = (title: string, failureCode: string, failureDetail: string | null = null) => ({
+      orgId: f.org.id,
+      dashboardId: board.id,
+      agentId: f.agent.id,
+      title,
+      status: "failed",
+      failureCode,
+      failureDetail,
+    });
+    await f.db
+      .insert(schema.dashboardWidgets)
+      .values([
+        widget("Vendas", "agent_reported", "O relatório de exemplo veio vazio."),
+        widget("Leads", "no_update"),
+        widget("Caixa", "failing", "O site example.com respondeu 503."),
+      ]);
+    await ask("quais painéis eu tenho?");
+    const listed = results.at(-1) ?? "";
+    expect(listed).toContain("Vendas (only when someone asks, failing: «O relatório de exemplo veio vazio.»)");
+    expect(listed).toContain("Leads (only when someone asks, failing (no_update))");
+    expect(listed).toContain(
+      "Caixa (only when someone asks, failing: «O site example.com respondeu 503.»; stopped after failing in a row, until a person clicks Resolve)",
+    );
+  });
+
   test("who edits: by roles on create; share_dashboard changes it at once, alone, never a request", async () => {
     let boardId = "";
     let step = "";

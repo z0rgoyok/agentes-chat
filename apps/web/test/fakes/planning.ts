@@ -29,6 +29,7 @@ import type {
   Routine,
   RoutineHook,
   RoutineRun,
+  RoutineRunCall,
   RuleInfo,
   ScheduleParse,
   WebhookProvider,
@@ -202,6 +203,8 @@ interface Store {
   activity: Map<string, IssueActivity[]>;
   routines: Routine[];
   runs: Map<string, RoutineRun[]>;
+  /** A webhook run's calls, by its id. */
+  runCalls: Map<string, RoutineRunCall[]>;
   /** Webhook routines' addresses and calls. */
   hooks: Map<string, RoutineHook>;
   /** GitHub's and Sentry's webhooks of the workspace. */
@@ -223,6 +226,7 @@ export function createMockPlanning(
       activity: new Map(),
       routines: [],
       runs: new Map(),
+      runCalls: new Map(),
       hooks: new Map(),
       webhooks: new Map(),
       events: [],
@@ -994,6 +998,10 @@ export function createMockPlanning(
         await findRoutine(orgId, id);
         return clone((await store(orgId)).runs.get(id) ?? []);
       },
+      runCalls: async (orgId, id, runId) => {
+        await findRoutine(orgId, id);
+        return clone((await store(orgId)).runCalls.get(runId) ?? []);
+      },
       hook: async (orgId, id) => clone(hookOf(await store(orgId), id)),
       newHookAddress: async (orgId, id) => {
         record("routines.newHookAddress", id);
@@ -1001,11 +1009,11 @@ export function createMockPlanning(
         hook.url = hookUrl();
         return clone(hook);
       },
-      newHookSecret: async (orgId, id) => {
-        record("routines.newHookSecret", id);
+      newHookSecret: async (orgId, id, pasted) => {
+        record("routines.newHookSecret", pasted === undefined ? id : `${id} pasted`);
         const hook = hookOf(await store(orgId), id);
         hook.signed = true;
-        return { secret: mockId("secret"), hook: clone(hook) };
+        return { secret: pasted ?? mockId("secret"), hook: clone(hook) };
       },
       removeHookSecret: async (orgId, id) => {
         record("routines.removeHookSecret", id);

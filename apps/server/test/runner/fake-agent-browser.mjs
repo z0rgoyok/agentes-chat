@@ -184,8 +184,16 @@ switch (command) {
     out({ success: true, data: {} });
     break;
   case "tab":
-    // `tab <n>`: switch to a tab that is on `tabTo` (a link that opened a new tab).
-    if (/^\d+$/.test(args[0] ?? "") && state.tabTo) state.url = state.tabTo;
+    // Like the real one: a tab by id (`t2`) or label, never by position.
+    if (/^\d+$/.test(args.at(-1) ?? "")) {
+      out({
+        success: false,
+        error: "Expected a tab id like `t<N>` or a label; positional integers are not accepted",
+      });
+      break;
+    }
+    // `tab t2`: switch to a tab that is on `tabTo` (a link that opened a new tab).
+    if (args[0] === "t2" && state.tabTo) state.url = state.tabTo;
     // `tab t1`: the tab it holds comes to the front. `tab`: its tabs.
     if (args[0] === "t1" && !state.staysHidden) state.hidden = false;
     out({ success: true, data: args.length === 0 ? { tabs: [{ tabId: "t1", active: true }] } : {} });

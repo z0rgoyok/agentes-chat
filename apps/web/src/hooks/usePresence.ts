@@ -34,6 +34,14 @@ export const availabilityOf = (presence: MemberPresence | undefined): Availabili
 /** A person's line as its emoji and words. */
 export const personLine = (status: MemberStatus) => ({ emoji: status.emoji || STATUS_EMOJI, text: status.text });
 
+/**
+ * How a person appears, with me here: this tab is open, so a list read before my socket connected (`offline`) doesn't
+ * leave me offline until the next read, my row and badge jumping groups once it comes. What I picked (away, busy, out,
+ * hidden) stays as the list says.
+ */
+const hereIfMe = (userId: string, meId: string, presence: MemberPresence): MemberPresence =>
+  userId === meId && presence === "offline" ? "online" : presence;
+
 export interface PersonPresence {
   presence: MemberPresence;
   status: MemberStatus | null;
@@ -42,7 +50,7 @@ export interface PersonPresence {
 
 /** A person's presence and line; null while the people load or for someone not in the workspace. */
 export function usePersonPresence(userId: string | null | undefined): PersonPresence | null {
-  const { org } = useOrg();
+  const { org, me } = useOrg();
   const api = useApi();
   const pick = useCallback((list: Person[]) => list.find((p) => p.userId === userId) ?? null, [userId]);
   const person = useQuery({
@@ -53,24 +61,27 @@ export function usePersonPresence(userId: string | null | undefined): PersonPres
     select: pick,
   }).data;
   if (!userId || !person) return null;
-  return { presence: person.presence, status: liveLine(person.status), person };
+  return { presence: hereIfMe(userId, me.user.id, person.presence), status: liveLine(person.status), person };
 }
 
-const presenceMap = (list: Person[]) => new Map(list.map((p) => [p.userId, p.presence]));
+const usePeople = () => {
+  const { org } = useOrg();
+  const api = useApi();
+  return { queryKey: keys.people(org.id), queryFn: () => api.orgs.people(org.id), staleTime: 30_000 };
+};
 
 /** Everyone's presence in the workspace by user id (empty while the people load). */
 export function usePresences(): Map<string, MemberPresence> {
-  const { org } = useOrg();
-  const api = useApi();
-  return (
-    useQuery({
-      queryKey: keys.people(org.id),
-      queryFn: () => api.orgs.people(org.id),
-      staleTime: 30_000,
-      select: presenceMap,
-    }).data ?? EMPTY_PRESENCES
+  const meId = useOrg().me.user.id;
+  const select = useCallback(
+    (list: Person[]) => new Map(list.map((p) => [p.userId, hereIfMe(p.userId, meId, p.presence)])),
+    [meId],
   );
+  return useQuery({ ...usePeople(), select }).data ?? EMPTY_PRESENCES;
 }
+
+/** Whether `usePresences` has its people yet (or failed): before, everyone reads offline. */
+export const usePresencesLoaded = () => !useQuery(usePeople()).isPending;
 const EMPTY_PRESENCES = new Map<string, MemberPresence>();
 
 export interface AgentShown {

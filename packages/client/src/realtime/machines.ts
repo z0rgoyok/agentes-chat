@@ -1,9 +1,11 @@
 import type { InvalidateQueryFilters, QueryClient } from "@tanstack/react-query";
+import type { ApiClient } from "../api/client";
 import { keys } from "../api/keys";
 import type {
   Agent,
   AgentComputer,
   ChannelEvent,
+  CliFetch,
   ComputerSetup,
   ComputerTarget,
   Machine,
@@ -14,6 +16,7 @@ import type {
   OrgDeletion,
   OrgStanding,
 } from "../api/types";
+import { isCardKind } from "../lib/artifacts";
 import { pacer } from "../lib/pace";
 import { isWorkspaceMode } from "../lib/workspace-mode";
 
@@ -48,6 +51,30 @@ export function pauseOf(v: unknown): MachinePause | undefined {
 }
 
 /** Access from an event (`{ folders, tools }`), checked; `null` when the machine stopped reporting it. */
+const FETCH_STATES = ["fetching", "ready", "failed"] as const;
+const FETCH_FAILURES = ["offline", "hash_mismatch", "no_build", "disk_full", "failed"] as const;
+
+/** A `machine.updated`'s `cliFetch` (ADR 0228 §6), checked: known states and numbers only; undefined when none is. */
+export function cliFetchOf(v: unknown): Partial<Record<string, CliFetch>> | undefined {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return undefined;
+  const out: Partial<Record<string, CliFetch>> = {};
+  for (const [cli, f] of Object.entries(v as Record<string, unknown>)) {
+    if (!/^[a-z]{1,20}$/.test(cli) || !f || typeof f !== "object") continue;
+    const x = f as Record<string, unknown>;
+    const state = FETCH_STATES.find((s) => s === x.state);
+    if (!state || typeof x.version !== "string") continue;
+    const num = (n: unknown) => (typeof n === "number" && Number.isFinite(n) && n >= 0 ? n : undefined);
+    const reason = FETCH_FAILURES.find((r) => r === x.reason);
+    out[cli] = {
+      state,
+      version: x.version.slice(0, 60),
+      ...(state === "fetching" ? { done: num(x.done) ?? 0, total: num(x.total) ?? null } : {}),
+      ...(state === "failed" ? { reason: reason ?? "failed" } : {}),
+    };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 export function accessOf(v: unknown): MachineAccess | null | undefined {
   if (v === null) return null;
   if (!isObject(v) || !Array.isArray(v.folders) || !isObject(v.tools)) return undefined;
@@ -109,6 +136,8 @@ export function applyMachineEvent(qc: QueryClient, orgId: string, event: { type:
     egress?: unknown;
     networkTransition?: unknown;
     standby?: unknown;
+    cliFetch?: unknown;
+    moving?: unknown;
   };
   if (typeof e.machineId !== "string") return true;
   const machineId = e.machineId;
@@ -117,8 +146,10 @@ export function applyMachineEvent(qc: QueryClient, orgId: string, event: { type:
     return true;
   }
   const list = keys.machines(orgId);
-  // Who waits for an offline computer changes when one comes back, goes away or its agents move.
-  if (e.type === "machine.status" || e.type === "machine.deleted" || e.type === "machine.agents_moved") {
+  // Who waits for an offline computer changes when one comes back, goes away or its agents move; whether it is
+  // moving to another server (`moving`, the server's to say: only while it is away) changes their words.
+  const moving = e.type === "machine.updated" && typeof e.moving === "boolean";
+  if (e.type === "machine.status" || e.type === "machine.deleted" || e.type === "machine.agents_moved" || moving) {
     void qc.invalidateQueries({ queryKey: keys.machineOutages(orgId) });
   }
   // Whether agents can use their browser (ADR 0040) and what can think for them follow the computer: its
@@ -157,6 +188,8 @@ export function applyMachineEvent(qc: QueryClient, orgId: string, event: { type:
                 lastSeenAt: e.online === true ? now : m.lastSeenAt,
                 ...(online ? { offlineCause: null } : {}),
                 ...(e.online === true && m.standby ? { standby: false } : {}),
+                // Back on the new server: it moved.
+                ...(e.online === true && m.moving ? { moving: false } : {}),
               }
             : m,
         ),
@@ -196,13 +229,9 @@ export function applyMachineEvent(qc: QueryClient, orgId: string, event: { type:
         typeof e.egress.at === "string" &&
         Number.isFinite(Date.parse(e.egress.at))
       ) {
-        patch.egress = {
-          ip: e.egress.ip,
-          at: e.egress.at,
-          ...(typeof e.egress.country === "string" && /^[A-Z]{2}$/.test(e.egress.country)
-            ? { country: e.egress.country }
-            : {}),
-        };
+        // Its country is the server's to say (`egressOnRoute`): only once it was seen on the route the agents take
+        // now, which the event doesn't know. Until the list comes back, no flag rather than the last route's.
+        patch.egress = { ip: e.egress.ip, at: e.egress.at };
       }
       if (typeof e.name === "string") patch.name = e.name;
       // Put in standby once it is asleep (ADR 0161): online again to people, its agents' computer too.
@@ -212,6 +241,11 @@ export function applyMachineEvent(qc: QueryClient, orgId: string, event: { type:
       if (paused) patch.paused = paused;
       const access = accessOf(e.access);
       if (access !== undefined) patch.access = access;
+      const fetch = cliFetchOf(e.cliFetch);
+      if (fetch) {
+        const now = qc.getQueryData<Machine[]>(list)?.find((m) => m.id === machineId)?.cliFetch;
+        patch.cliFetch = { ...now, ...fetch };
+      }
       if (Object.keys(patch).length > 0) {
         qc.setQueryData<Machine[]>(list, (old) =>
           old?.map((m) =>
@@ -224,7 +258,9 @@ export function applyMachineEvent(qc: QueryClient, orgId: string, event: { type:
         if (patch.online) patchTargets(qc, orgId, machineId, { online: true });
       }
       // Nothing to patch, or `access: true` (it changed, and who may see it differs per person): refetch.
-      if (Object.keys(patch).length === 0 || e.access === true) void qc.invalidateQueries({ queryKey: list });
+      if (Object.keys(patch).length === 0 || e.access === true || patch.egress) {
+        void qc.invalidateQueries({ queryKey: list });
+      }
       // Out of standby: whether it is online is the server's again.
       if (e.standby === false) {
         void qc.invalidateQueries({ queryKey: list });
@@ -359,9 +395,10 @@ export function applyMembershipEvent(qc: QueryClient, orgId: string, event: Chan
 /**
  * What the open conversation says about lists shown elsewhere too: a file saved, changed or deleted there (its cards,
  * the open viewer, the Drive; a deleted one's cards say so, from the conversation read again), and an agent changing its
- * memory there (its memory list). Returns whether the event was one of these.
+ * memory there (its memory list). A live block, vote or question card made there is read at once (`api`): its message
+ * lands after it, and the card draws whole then. Returns whether the event was one of these.
  */
-export function applyConversationEvent(qc: QueryClient, orgId: string, event: ChannelEvent): boolean {
+export function applyConversationEvent(qc: QueryClient, orgId: string, event: ChannelEvent, api?: ApiClient): boolean {
   const type: string = event.type;
   if (type === "artifact.created" || type === "artifact.updated" || type === "artifact.deleted") {
     const e = event as { artifact?: { id?: unknown }; artifactId?: unknown };
@@ -379,6 +416,7 @@ export function applyConversationEvent(qc: QueryClient, orgId: string, event: Ch
           }
         : { queryKey: keys.artifacts(orgId) },
     );
+    if (api && event.type === "artifact.created") prefetchCard(api, qc, orgId, event.artifact);
     const channelId = (event as { channelId?: unknown }).channelId;
     if (type === "artifact.deleted" && typeof channelId === "string")
       void qc.invalidateQueries({ queryKey: ["org", orgId, "channel", channelId] });
@@ -391,6 +429,29 @@ export function applyConversationEvent(qc: QueryClient, orgId: string, event: Ch
   return false;
 }
 
+/** What a card shows (the same caches its card reads), before its message lands. */
+function prefetchCard(
+  api: ApiClient,
+  qc: QueryClient,
+  orgId: string,
+  a: { id: string; kind: string; version: number },
+) {
+  if (!isCardKind(a.kind)) return;
+  void qc.prefetchQuery({
+    queryKey: keys.artifact(orgId, a.id, a.version),
+    queryFn: () => api.artifacts.get(orgId, a.id, a.version),
+  });
+  if (a.kind === "poll")
+    void qc.prefetchQuery({ queryKey: keys.poll(orgId, a.id), queryFn: () => api.artifacts.poll(orgId, a.id) });
+  if (a.kind === "choices")
+    void qc.prefetchQuery({ queryKey: keys.choices(orgId, a.id), queryFn: () => api.artifacts.choices(orgId, a.id) });
+  if (a.kind === "block")
+    void qc.prefetchQuery({
+      queryKey: keys.blockState(orgId, a.id, a.version),
+      queryFn: () => api.artifacts.blockState(orgId, a.id, a.version),
+    });
+}
+
 /**
  * The workspace's own computer, standing and limits (ADR 0056 §8, §10), live: `machine.provisioning` (the fields of
  * `GET …/computer-setup` but `mode`) replaces what the setup query holds, and the computer's first hello
@@ -399,7 +460,7 @@ export function applyConversationEvent(qc: QueryClient, orgId: string, event: Ch
  * computer, and one active again waits for one. `org.deleting` (an owner deleted it) sets its deletion there, so the
  * line on top shows at once and the workspace turns read-only. `org.limits` (a new plan, ADR 0079) asks for the
  * limits again, so a full workspace's invitations open by themselves. `agent.groups` (ADR 0083) says the groups of
- * agents changed: they are read again.
+ * agents changed, and `channels.layout` that a channel moved between sectors (ADR 0240): both lists are read again.
  * `member.status` and `agent.status` (ADR 0084) refetch the people and the agents' presence. `org.members` (someone
  * joined or left, a role changed, ADR 0085, or a person's name, handle or photo) refetches the people, Members, each
  * channel's roster, the roles, `me`, the agents, the
@@ -461,8 +522,10 @@ export function applyWorkspaceEvent(qc: QueryClient, orgId: string, event: { typ
     }
     return true;
   }
-  if (event.type === "agent.groups") {
+  // A sector's channels (ADR 0240) are the channel list's `groupId`: a deleted sector lets them go, a new one takes some.
+  if (event.type === "agent.groups" || event.type === "channels.layout") {
     void qc.invalidateQueries({ queryKey: keys.agentGroups(orgId) });
+    void qc.invalidateQueries({ queryKey: keys.channels(orgId) });
     return true;
   }
   if (event.type === "machine.provisioning") {

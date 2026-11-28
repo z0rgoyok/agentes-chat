@@ -6,6 +6,7 @@ import { UUID } from "../authority";
 import { ValidationError } from "../errors";
 import { writeDocx } from "../office/docx-write";
 import { markdownToPdf } from "../pdf";
+import { fileFonts } from "./file-fonts";
 import { rasterPicture } from "./svg";
 
 /**
@@ -36,6 +37,25 @@ export async function liveAssetBytes(deps: ArtifactDeps, orgId: string, fileId: 
   return picture ? { bytes: picture.bytes, type: picture.contentType } : null;
 }
 
+/** One of a file's own fonts as its bytes (for a PDF to embed), or null. */
+export async function liveFontBytes(deps: ArtifactDeps, orgId: string, fileId: string, assetId: string) {
+  if (!UUID.test(assetId)) return null;
+  const [row] = await deps.db
+    .select()
+    .from(schema.liveAssets)
+    .where(
+      and(
+        eq(schema.liveAssets.orgId, orgId),
+        eq(schema.liveAssets.artifactId, fileId),
+        eq(schema.liveAssets.id, assetId),
+      ),
+    );
+  if (!row?.font) return null;
+  const store = await deps.blobs.forConfig(orgId, row.storageConfigId).catch(() => null);
+  const object = await store?.get(row.blobKey).catch(() => null);
+  return object ? object.body : null;
+}
+
 const TYPES = {
   docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   md: "text/markdown; charset=utf-8",
@@ -64,7 +84,9 @@ export async function documentExport(
   }
   if (format === null || format === "docx") {
     const media = (asset: string) => liveAssetBytes(deps, file.orgId, file.id, asset);
-    return { body: await writeDocx(blocks, { title: file.title, media }), contentType: TYPES.docx, ext: "docx" };
+    const own = await fileFonts(deps, file.orgId, file.id);
+    const fonts = new Map(own.list.map((f) => [f.id, f.family]));
+    return { body: await writeDocx(blocks, { title: file.title, media, fonts }), contentType: TYPES.docx, ext: "docx" };
   }
   throw new ValidationError(
     `${format.toUpperCase()} export is not available for this file`,

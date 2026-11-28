@@ -5,7 +5,7 @@ setupDom();
 
 import { formatUserCode, locationText, normalizeUserCode } from "@agenteschat/client/lib/machines";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { createFakeApi, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
+import { createFakeApi, fakeDevicesOf, fakeMachinesOf, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
@@ -14,11 +14,19 @@ const click = (el: Element) => act(async () => fireEvent.click(el));
 const CODE = "K7Q4ZP";
 
 /** `/conectar?code=` with a computer waiting for that code (ADR 0036 §5). */
-async function open(path = `/conectar?code=${CODE}`, device = true) {
+async function open(
+  path = `/conectar?code=${CODE}`,
+  device = true,
+  lendsInternet?: boolean,
+  os?: string,
+  serverBoxesBorrow?: boolean,
+) {
   const state = seedState();
   const api = createFakeApi(state);
   const machines = fakeMachinesOf.get(api) as NonNullable<ReturnType<typeof fakeMachinesOf.get>>;
-  if (device) machines.addDevice(CODE);
+  if (device) machines.addDevice(CODE, os ? { os } : undefined);
+  if (lendsInternet !== undefined)
+    fakeDevicesOf.get(api)?.set({ devices: [], requests: [], lendsInternet, serverBoxesBorrow });
   const r = await renderApp(path, { api });
   await settle(6);
   return { ...r, state, api, machines };
@@ -37,6 +45,9 @@ describe("/conectar: confirm a computer's code", () => {
   test("shows the code, the computer and the warning; Conectar joins the chosen organization", async () => {
     const { state, router } = await open();
     expect(document.querySelector(".connect-page__code")?.textContent).toBe("K7Q·4ZP");
+    // The code never breaks across lines on a narrow screen.
+    const css = await Bun.file(new URL("../src/layout.css", import.meta.url).pathname).text();
+    expect(css.split("\n.connect-page__code {")[1]?.split("}")[0]).toContain("white-space: nowrap;");
     const page = document.querySelector(".connect-page") as HTMLElement;
     expect(page.textContent).toContain("MacBook do Walter");
     expect(page.textContent).toContain("macOS · walter-mbp");
@@ -58,15 +69,62 @@ describe("/conectar: confirm a computer's code", () => {
     expect(router.state.location.pathname).toMatch(new RegExp(`^/org/${ORG_ID}/settings/devices/.+`));
   });
 
-  test("other people's agents think on it only when the person turns that on here", async () => {
+  test("it helps when the team's computer is full or away unless the person turns that off here", async () => {
     const { state } = await open();
     const page = document.querySelector(".connect-page") as HTMLElement;
-    const others = within(page).getByRole("switch", { name: "Agentes de outras pessoas podem pensar aqui" });
-    expect(others.getAttribute("aria-checked")).toBe("false");
-    await click(others);
+    const help = within(page).getByRole("switch", {
+      name: "Ajudar quando o computador da equipe estiver cheio ou fora",
+    });
+    expect(help.getAttribute("aria-checked")).toBe("true");
+    await click(help);
     await click(within(page).getByRole("button", { name: "Conectar" }));
     await settle(6);
-    expect(calls(state, "devices.updateComputer").map((a) => a.at(-1))).toEqual([{ spill: { others: true } }]);
+    expect(calls(state, "devices.updateComputer").map((a) => a.at(-1))).toEqual([{ spill: { own: false } }]);
+  });
+
+  test("on a self-hosted server that lends: its internet for the agents, on unless turned off here (ADR 0237)", async () => {
+    const label = "Agentes usam a internet deste computador";
+    await open(undefined, true, false);
+    expect(
+      within(document.querySelector(".connect-page") as HTMLElement).queryByRole("switch", { name: label }),
+    ).toBeNull();
+    cleanup();
+    const { state } = await open(undefined, true, true);
+    const page = document.querySelector(".connect-page") as HTMLElement;
+    const lend = within(page).getByRole("switch", { name: label });
+    expect(lend.getAttribute("aria-checked")).toBe("true");
+    await click(lend);
+    await click(within(page).getByRole("button", { name: "Conectar" }));
+    await settle(6);
+    expect(calls(state, "devices.updateComputer").map((a) => a.at(-1))).toEqual([
+      { spill: { own: true }, shareInternet: false },
+    ]);
+  });
+
+  test("where the server lends, a Linux computer is a server that borrows: its internet off unless turned on here (ADR 0237)", async () => {
+    const label = "Agentes usam a internet deste computador";
+    const linux = async (serverBoxesBorrow = true) => {
+      const r = await open(undefined, true, true, "linux", serverBoxesBorrow);
+      const page = document.querySelector(".connect-page") as HTMLElement;
+      return { ...r, page, lend: within(page).getByRole("switch", { name: label }) };
+    };
+    const left = await linux();
+    expect(left.lend.getAttribute("aria-checked")).toBe("false");
+    await click(within(left.page).getByRole("button", { name: "Conectar" }));
+    await settle(6);
+    expect(calls(left.state, "devices.updateComputer").map((a) => a.at(-1))).toEqual([{ spill: { own: true } }]);
+    cleanup();
+    const on = await linux();
+    await click(on.lend);
+    await click(within(on.page).getByRole("button", { name: "Conectar" }));
+    await settle(6);
+    expect(calls(on.state, "devices.updateComputer").map((a) => a.at(-1))).toEqual([
+      { spill: { own: true }, shareInternet: true },
+    ]);
+    cleanup();
+    // The Cloud: a Linux computer lends as any other, and the switch says so.
+    const cloud = await linux(false);
+    expect(cloud.lend.getAttribute("aria-checked")).toBe("true");
   });
 
   test("Não fui eu: the computer isn't connected", async () => {

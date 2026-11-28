@@ -22,6 +22,8 @@
  * (setting up stops there). Cancel ends a setup at once, held or not (it rejects with "cancelled", as the app's
  * does). An update downloads in about 1.5 s with its progress, and Cancel drops it.
  */
+
+import type { OsPermission } from "@agenteschat/adapters/machine-protocol";
 import { CLOUD_SERVER, isLoopback, readInstance, type ServerCheck } from "@agenteschat/client/lib/server";
 import type { Candidate } from "../control/first-run";
 import {
@@ -43,6 +45,7 @@ import type { ThisMacRequest } from "../control/this-mac";
 import type { TrayState } from "../control/tray";
 import { acmeSeed, FAKE_LINKS, FAKE_SERVER, FakeRunner, horizonteSeed } from "../dev/fake-runner";
 import { createFakeSite, type FakeSite } from "../dev/fake-site";
+import type { ReportFacts } from "../report/report";
 import type { AppInfo, CompatMode, Host, RunnerInfo, RunnerStateChange, WindowName } from "./types";
 
 export type Scenario = "first" | "windows" | "linux" | "cloud" | "selfhost" | "link" | "here";
@@ -94,8 +97,10 @@ export interface FakeHost extends Host {
     disk: boolean;
     networkAsks: number;
     setup: SetupState | null;
-    panes: (MacPermission | "microphone")[];
+    panes: (MacPermission | OsPermission)[];
   };
+  /** Every window shown, and whether it was kept up (`showWindow`'s `keep`). */
+  readonly shown: { name: WindowName; keep: boolean }[];
   /** The site in the main window asks this computer (ADR 0036): resolves with the popover's reply. */
   askThisMac(request: ThisMacRequest): Promise<{ ok: boolean; data: unknown }>;
 }
@@ -289,6 +294,7 @@ export function createFakeHost(
 
   const host: FakeHost = {
     window: initial,
+    shown: [],
     compat: { on: true, fellBack: false, own: false },
     fake: true,
     platform,
@@ -424,7 +430,8 @@ export function createFakeHost(
       }
     },
     setTrayVisible: async () => {},
-    showWindow: async (name) => {
+    showWindow: async (name, o) => {
+      host.shown.push({ name, keep: o?.keep === true });
       host.window = name;
       devChanged();
       for (const l of shownListeners) l(name);
@@ -435,6 +442,10 @@ export function createFakeHost(
     quit: async () => {
       console.info("[fake] quit");
     },
+    askQuit: async (words) => {
+      console.info("[fake] ask to quit", words.title);
+      return false;
+    },
     appInfo: async (): Promise<AppInfo> => ({
       version,
       os: platform === "mac" ? "macos" : platform,
@@ -444,6 +455,13 @@ export function createFakeHost(
         platform === "linux"
           ? `agentes.chat ${version} · Linux · Ubuntu 26.04 LTS · wayland (GNOME) · WebKitGTK 2.50.4 · Intel (i915) · CPU (chosen) · AppImage`
           : `agentes.chat ${version} · ${platform === "mac" ? "macOS 15.5" : "Windows"}`,
+    }),
+    reportFacts: async (): Promise<ReportFacts> => ({
+      osVersion: platform === "mac" ? "15.5" : platform === "windows" ? "10.0.19045" : "6.8.0-45-generic",
+      cpus: 8,
+      memoryBytes: 16 * 2 ** 30,
+      webviewBytes: 240_000_000,
+      openingMs: 2300,
     }),
     compatMode: async () => {
       const now = { ...host.compat };

@@ -261,7 +261,10 @@ export const FAST_MODE_MODELS: readonly string[] = [
  * of a coding plan), with a model on the list. None: Codex's default; `auto`: every model "Automático" picks is on it.
  */
 export const speedFits = (o: { kind: string; provider?: string | null; model?: string | null }) =>
-  o.kind === "codex" && !o.provider && (!o.model || o.model === "auto" || FAST_MODE_MODELS.includes(o.model));
+  (o.kind === "codex" && !o.provider && (!o.model || o.model === "auto" || FAST_MODE_MODELS.includes(o.model))) ||
+  // The Devin CLI (ADR 0253): a model's faster variant (`-fast`, `-priority`, `-lightning`) where its listing has one,
+  // else its standard one (`devinVariant`).
+  o.kind === "devin";
 
 export type PlanId = keyof typeof CODING_PLANS;
 export const PLAN_IDS = Object.keys(CODING_PLANS) as PlanId[];
@@ -381,6 +384,8 @@ export function planForTurn(plan: CodingPlan, value: unknown): CodingPlan {
 }
 
 const isAlias = (v: unknown): v is PlanAlias => PLAN_ALIASES.some((a) => a === v);
+/** Claude Code's aliases no plan maps (`fable`): Claude's own sign-in runs them as they are, a plan's runs `sonnet`. */
+const isClaudeOnlyAlias = (v: unknown) => v === "fable";
 
 /**
  * The model a stored value runs on a plan: one of its models by id, the model of an alias, else (`auto`, an alias
@@ -482,14 +487,14 @@ export const isPlanModelId = (v: string) => planModelById(v) !== undefined;
 
 /**
  * The `--model` of a Claude Code turn for a stored value: an alias as is (on a plan, the plan names its model);
- * with a plan, one of its models by id; without one, a Claude id. Anything else (another plan's model, none) runs
- * `sonnet`.
+ * with a plan, one of its models by id; without one, `fable` or a Claude id. Anything else (another plan's model,
+ * none) runs `sonnet`.
  */
 export function claudeCodeModel(plan: CodingPlan | undefined, value: unknown): string {
   if (isAlias(value)) return value;
   if (typeof value !== "string") return "sonnet";
   if (plan) return plan.claudeCode.models.some((m) => m.id === value) ? value : "sonnet";
-  return /^claude-/.test(value) ? value : "sonnet";
+  return isClaudeOnlyAlias(value) || /^claude-/.test(value) ? value : "sonnet";
 }
 
 /**
@@ -501,7 +506,7 @@ export function claudeCodeModel(plan: CodingPlan | undefined, value: unknown): s
 export function droppedPlanModel(provider: unknown, value: unknown): PlanModel | null {
   const plan = isPlanId(provider) ? learned.get(provider) : undefined;
   if (!isPlanId(provider) || !plan?.modelsUrl) return null;
-  if (typeof value !== "string" || isAlias(value) || /^claude-/.test(value)) return null;
+  if (typeof value !== "string" || isAlias(value) || isClaudeOnlyAlias(value) || /^claude-/.test(value)) return null;
   if (plan.claudeCode.models.some((m) => m.id === value) || planModelById(value)) return null;
   const table: readonly PlanModel[] = CODING_PLANS[provider].claudeCode.models;
   return table.find((m) => m.id === value) ?? { id: value, label: value };
@@ -556,6 +561,13 @@ export const SHARED_SIGN_INS: Readonly<Record<"claude_code" | "codex" | "antigra
   grok: true,
   key: true,
 };
+
+/**
+ * Computer brains whose CLI never thinks with the computer's own sign-in, only a connected account (ADR 0142, ADR 0143
+ * §3, ADR 0253 §3).
+ */
+export const ACCOUNT_ONLY_BRAINS = ["antigravity", "grok", "devin"] as const;
+export const accountOnlyBrain = (kind: string) => (ACCOUNT_ONLY_BRAINS as readonly string[]).includes(kind);
 
 /**
  * The kinds whose subscriptions a run may go on with at a plan's limit, each within its own kind (ADR 0041 §6). Never
@@ -721,3 +733,84 @@ export const ANTIGRAVITY_LEVEL = /-(?:low|medium|high|xhigh)$/;
 
 /** An Antigravity model slug's model in the catalog: `gemini-4-argon-high` → `gemini-4-argon`, `…-neon-xhigh` too. */
 export const antigravityBaseModel = (slug: string) => slug.replace(ANTIGRAVITY_LEVEL, "");
+
+/**
+ * The Devin CLI's models (ADR 0253) where no account on the agent's computer listed any yet (`devin models list` asks
+ * Cognition: none before a sign-in). Each is a model family (its `family_uid`), run at the level the agent's effort names
+ * (`devinVariant`); with none chosen the CLI's own default runs. What the accounts list comes first.
+ * ponytail: hand-copied from `devin models list --format json` on a Devin Pro account (CLI 3000.14.30821, 2026-11-22);
+ * the CLI's own listing replaces it wherever the runner reports one.
+ */
+export const DEVIN_MODELS: readonly { id: string; label: string; free?: boolean }[] = [
+  { id: "adaptive", label: "Adaptive" },
+  { id: "swe-2", label: "SWE-2", free: true },
+  { id: "swe-2-flash", label: "SWE-2 Flash", free: true },
+  { id: "claude-fable-5-2", label: "Claude Fable 5.2" },
+  { id: "claude-opus-5-5", label: "Claude Opus 5.5" },
+  { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
+  { id: "gpt-6-2-sol", label: "GPT-6.2 Sol" },
+  { id: "gemini-4-neon", label: "Gemini 4 Neon" },
+];
+
+/** The levels a Devin model variant's id ends with, least thinking first (`claude-opus-5-5-xhigh`). */
+export const DEVIN_LEVELS = ["none", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
+export type DevinLevel = (typeof DEVIN_LEVELS)[number];
+
+/** A Devin variant's faster serving: Anthropic's Fast mode, OpenAI's priority tier, SWE-2's Lightning. */
+const DEVIN_FAST_WORD = /-(?:fast|priority|lightning)$/;
+
+/**
+ * A Devin variant id read as its level and whether it is a faster serving of it: `gpt-6-sol-high-priority` → high,
+ * fast; `claude-opus-4-6-thinking` → no level. A Fusion variant (`fusion-<main>-sidekick-<helper>`) is read by its
+ * main model.
+ */
+export function devinVariantOf(uid: string): { level?: DevinLevel; fast: boolean } {
+  const bare = uid.replace(/^fusion-/, "");
+  const sidekick = bare.indexOf("-sidekick-");
+  const main = sidekick < 0 ? bare : bare.slice(0, sidekick);
+  const fast = DEVIN_FAST_WORD.test(main);
+  const word = /-([a-z]+)$/.exec(main.replace(DEVIN_FAST_WORD, ""))?.[1];
+  const level = (DEVIN_LEVELS as readonly string[]).includes(word ?? "") ? (word as DevinLevel) : undefined;
+  return { ...(level ? { level } : {}), fast };
+}
+
+/** What an agent's effort asks of a Devin model: `xhigh` and `max` as they are; none, the model's own default. */
+const devinWant = (effort: string | undefined): DevinLevel | undefined =>
+  (DEVIN_LEVELS as readonly string[]).includes(effort ?? "") ? (effort as DevinLevel) : undefined;
+
+/**
+ * The variant a Devin turn runs (ADR 0253): of the family's variants (`variants`, in the CLI's order, its default
+ * first), the one at the agent's effort, else the nearest level below it, else the nearest above; the faster serving of
+ * that level when the agent answers fast and one exists. A family whose variants name no level runs its first. Null
+ * when the family has no variants.
+ */
+export function devinVariant(variants: readonly string[], effort?: string, fast = false): string | null {
+  if (variants.length === 0) return null;
+  const read = variants.map((uid) => ({ uid, ...devinVariantOf(uid) }));
+  const standard = read.filter((v) => !v.fast);
+  const pool = standard.length ? standard : read;
+  const want = devinWant(effort);
+  let pick = pool[0];
+  if (want) {
+    const rank = (l?: DevinLevel) => (l ? DEVIN_LEVELS.indexOf(l) : -1);
+    const at = DEVIN_LEVELS.indexOf(want);
+    const leveled = pool.filter((v) => v.level);
+    const exact = leveled.find((v) => v.level === want);
+    const below = leveled.filter((v) => rank(v.level) < at).sort((a, b) => rank(b.level) - rank(a.level))[0];
+    const above = leveled.filter((v) => rank(v.level) > at).sort((a, b) => rank(a.level) - rank(b.level))[0];
+    pick = exact ?? below ?? above ?? pool[0];
+  }
+  if (!pick) return null;
+  if (fast) {
+    const quicker = read.find((v) => v.fast && v.level === pick?.level && v.uid.startsWith(pick?.uid ?? ""));
+    if (quicker) return quicker.uid;
+  }
+  return pick.uid;
+}
+
+/**
+ * The Fusion family's variants the Devin plan offers (ADR 0253): each main model with SWE-2 Medium as its helper, the
+ * helper Cognition serves at no cost, as one model per main family (`fusion-claude-opus-5.5`). The other helpers are
+ * left out: hundreds of pairs no picker could show.
+ */
+export const DEVIN_FUSION_HELPER = "-sidekick-swe-2-medium";

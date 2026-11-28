@@ -1,6 +1,6 @@
 # 0080. Channel categories in the sidebar
 
-- Status: Accepted (built: the server, the shared client, the web and the phone app). Amended 2026-10-30: §6 and §7 (channels take an order in a workspace with no categories too), and §6 again (a category with no channel someone can see doesn't show for them, unless they manage channels). Amended 2026-11-16: §7 (the phone's Conversas no longer groups conversations: categories are reached from a channel's Categoria screen)
+- Status: Superseded by ADR 0240 (2026-11-25): channel categories became sectors; the placing rules (who moves a channel, its order, `channels.layout`) carry on there. Channel sections came back as each person's own with ADR 0260 (2026-11-27). Was accepted (built: the server, the shared client, the web and the phone app). Amended 2026-10-30: §6 and §7 (channels take an order in a workspace with no categories too), and §6 again (a category with no channel someone can see doesn't show for them, unless they manage channels). Amended 2026-11-16: §7 (the phone's Conversas no longer groups conversations: categories are reached from a channel's Categoria screen)
 - Date: 2026-10-30
 - Code: `packages/engine/src/channel-categories.ts`, `packages/engine/src/channels.ts` (`createChannel`, `listChannels`), `packages/db/src/schema/chat.ts` (`channel_categories`, `channels.category_id`, `channels.position`), `apps/server/src/routes/app/channels.ts`, `apps/web/src/components/Sidebar.tsx`, `apps/web/src/components/ChannelCategoryDialogs.tsx`, `apps/mobile/src/features/categories/*`
 

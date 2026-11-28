@@ -21,10 +21,12 @@ import { steeredByOthers } from "../authority";
 import { isConfidentialRun, threadIsConfidential } from "../confidential";
 import { callLine, type LearnSignal, type RunCall, runCalls } from "../continuation";
 import { cutText, cutTextEnd } from "../format";
+import { ownTyped } from "../message-origin";
 import { enqueue } from "../outbox";
 import { runReadOutsideById } from "../outside";
-import { personBehindCall } from "../requester";
+import { lineLocale, personBehindCall, typedPersonBehindCall } from "../requester";
 import { isRightHand } from "../right-hand";
+import { lodiPrefsOf } from "../right-hand-prefs";
 import { addRunStep } from "../runs";
 import type { ToolContext } from "../tools/types";
 import { agentBudgetState } from "../usage";
@@ -52,6 +54,8 @@ const {
   channels,
   contextItems,
   messages,
+  organizationMembers,
+  organizationSettings,
   skills,
   users,
 } = schema;
@@ -137,14 +141,14 @@ export const readsOutside = (c: RunCall) =>
   OUTSIDE_MARK.test(c.result?.content ?? "");
 
 /**
- * How far what a run learns is trusted (ADR 0120): high only with a person behind it (`personBehindCall`) and no
- * outside content read so far (the web, a page, mail, a connected app, a computer brain's own fetches, a screen, or
+ * How far what a run learns is trusted (ADR 0120): high only with a person behind it whose request they typed in our
+ * apps (`typedPersonBehindCall`, ADR 0250: not one posted with a token or bridged in) and no outside content read so far (the web, a page, mail, a connected app, a computer brain's own fetches, a screen, or
  * a conversation relaying any of these: `runReadOutside`, ADR 0117). Everything else stays low: data, never shared,
  * never promoted.
  */
 export async function learnTrust(ctx: Pick<ToolContext, "orgId" | "runId" | "triggerMessageId"> & { db: Database }) {
   const [person, calls, relayed] = await Promise.all([
-    personBehindCall(ctx),
+    typedPersonBehindCall(ctx),
     ctx.runId ? runCalls(ctx.db, { id: ctx.runId, orgId: ctx.orgId }) : Promise.resolve([] as RunCall[]),
     ctx.runId ? runReadOutsideById(ctx.db, ctx.orgId, ctx.runId) : Promise.resolve(false),
   ]);
@@ -200,10 +204,15 @@ export async function ownWords(
   const { trust, person } = await learnTrust(ctx);
   if (trust !== "high" || !person) return null;
   const [trigger] = await ctx.db
-    .select({ authorUserId: messages.authorUserId })
+    .select({
+      authorType: messages.authorType,
+      authorUserId: messages.authorUserId,
+      origin: messages.origin,
+      meta: messages.meta,
+    })
     .from(messages)
     .where(and(eq(messages.orgId, ctx.orgId), eq(messages.id, ctx.triggerMessageId)));
-  if (trigger?.authorUserId !== person) return null;
+  if (!trigger || !ownTyped(trigger) || trigger.authorUserId !== person) return null;
   const calls = await runCalls(ctx.db, { id: ctx.runId, orgId: ctx.orgId });
   if (calls.some((c) => OTHERS_WORDS.has(c.name))) return null;
   if (await readOthersInstructions(ctx.db, ctx.orgId, person, calls)) return null;
@@ -255,7 +264,8 @@ export async function afterTurnDone(
       ? input.signal !== undefined && input.signal !== "none"
       : fixedAfterFailing(calls, cfg.minToolCalls) || (repeatedTask(calls) && usedHowTos.length === 0);
     if (!learn) return false;
-    if ((await jobsToday(db, run.agentId)) >= cfg.maxPerAgentDay) return false;
+    // A person's correction is never crowded out by the day's other learning (a routine every 15 minutes).
+    if (input.signal !== "correction" && (await jobsToday(db, run.agentId)) >= cfg.maxPerAgentDay) return false;
     await enqueue(db, {
       orgId: run.orgId,
       kind: LEARN_JOB,
@@ -318,7 +328,7 @@ const LEARN_SYSTEM = [
   "You keep the memory of an AI agent that works in a team of people and agents. Read one finished turn of its work and extract what is worth keeping for next time, as JSON.",
   'Kinds: how_to (a way it worked out and will reuse: the exact address, command, parameters, script path; steps first), preference (how a person wants things done), fact (a lasting fact about the company, its business or its people), decision, lesson (what to do differently, or keep doing), term (a word or name the team uses, and what it means), access (who in the team holds which access: an agent signed in to a service in its browser, given a login, a key, a connector or a mailbox, or a person or agent named as who handles a service; key: the holder\'s @handle or name, then the service, as in "@ana stripe dashboard"; content: who holds it and how, as in "@ana is signed in to the Stripe dashboard in its browser as ana@example.com"; one that was lost is an access too, saying so; how this agent reaches a system is an access too: host, port, user and the path of a key file on its own computer, key "@its-handle ssh host", as in "@ana reaches vps.example.com over SSH on port 2222 as deploy with the key at ~/.ssh/vps").',
   "How its systems work (where code lives, which file does what, how a tool behaves) is a how_to or a lesson, never a fact.",
-  'title: one plain line a person who doesn\'t code understands, in the language the people in the conversation write, with no paths, code or ids ("Como gravar senhas no Supabase sem expô-las"); content holds the technical detail. key: a short stable name for what it is about, in English, technical words welcome ("supabase secrets storage"; for a term, the term itself): the same thing learned again gets the same key, two different things never share one.',
+  'title: one plain line a person who doesn\'t code understands, with no paths, code or ids ("How to store passwords in Supabase without exposing them"); content holds the technical detail. Write title and content in the language the people in the conversation write; when their messages do not show it, in the app language the input names, never the language of the notes already in memory. key: a short stable name for what it is about, in English, technical words welcome ("supabase secrets storage"; for a term, the term itself): the same thing learned again gets the same key, two different things never share one.',
   "Scope: own (only this agent), team (how the team works), workspace (everyone should know), person (one person's own preference: give their name as it appears in the messages in about_person).",
   "Ground everything: cite refs (m1… messages, s1… tool calls) for each item. Never infer traits, roles, moods or preferences. A one-off request is not a standing preference. If unsure, leave it out.",
   'Write each item as a statement of fact ("Ana prefers reports in Portuguese"), never as an order ("Always write in Portuguese").',
@@ -434,6 +444,7 @@ export interface LearnResult {
     | "no_model"
     | "model_failed"
     | "right_hand"
+    | "learning_off"
     | "confidential";
   saved: { id: string; action: string; trust: string; scopeType: string }[];
   rejected: { content: string; reason: "no_sources" | "secret" | "refused" }[];
@@ -450,11 +461,14 @@ const ACTIVE = ["queued", "running", "waiting_approval", "waiting_input"] as con
  * with the agent, through the Model Gateway) reads the turn (its messages, its tool calls, its reply) and proposes
  * what to keep. Code decides the rest: refs must exist, trust comes from the run (`learnTrust`) and from the refs,
  * scopes beyond the agent's own need high trust (a person's also a message of theirs), and it only adds: an item a
- * person wrote is never replaced (both stay, disputed). Bounded per agent and day, skipped while the agent works
+ * person wrote is never replaced (both stay, disputed). Bounded per agent and day (a person's correction aside), skipped while the agent works
  * in the same conversation. Posts nothing; what a person told it is a quiet receipt with Undo, the rest none
  * (`learnedQuietly`).
  */
-export async function learnRun(deps: ContextDeps, input: { orgId: string; runId: string }): Promise<LearnResult> {
+export async function learnRun(
+  deps: ContextDeps,
+  input: { orgId: string; runId: string; signal?: string },
+): Promise<LearnResult> {
   const { db } = deps;
   const out: LearnResult = { saved: [], rejected: [], skills: [] };
   const cfg = learnConfig(deps);
@@ -486,8 +500,19 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
   if (await threadIsConfidential(db, run.orgId, run.threadRootId)) return { ...out, skipped: "confidential" };
   const [agent] = await db.select().from(agents).where(eq(agents.id, run.agentId));
   if (!agent || agent.archivedAt) return { ...out, skipped: "missing" };
-  // Nothing is learned from its runs for the team (ADR 0137): it keeps only what it saves for the person it answers.
-  if (isRightHand(agent)) return { ...out, skipped: "right_hand" };
+  // The right hand learns like every agent, but answers everyone: what it learns stays where it was said, and a person
+  // (or the workspace) can turn it off. Nobody behind the run: nobody to keep it for.
+  const rightHand = isRightHand(agent);
+  if (rightHand) {
+    const person = await personBehindCall({
+      db,
+      orgId: run.orgId,
+      runId: run.id,
+      triggerMessageId: run.triggerMessageId,
+    });
+    if (!person) return { ...out, skipped: "right_hand" };
+    if (!(await rightHandLearnsFrom(db, run.orgId, person))) return { ...out, skipped: "learning_off" };
+  }
   if (agent.monthlyBudgetNanoUsd !== null) {
     const spent = await agentBudgetState(db, run.orgId, agent.id);
     if (spent.spentNanoUsd + spent.reservedNanoUsd >= agent.monthlyBudgetNanoUsd) return { ...out, skipped: "budget" };
@@ -500,7 +525,7 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
       set: { jobs: sql`${agentLearningDays.jobs} + 1` },
     })
     .returning({ jobs: agentLearningDays.jobs });
-  if ((day?.jobs ?? 0) > cfg.maxPerAgentDay) return { ...out, skipped: "cap_reached" };
+  if ((day?.jobs ?? 0) > cfg.maxPerAgentDay && input.signal !== "correction") return { ...out, skipped: "cap_reached" };
 
   const ctx = {
     db,
@@ -547,6 +572,7 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
   );
   const text = [
     `Agent: @${agent.handle} (${agent.role})`,
+    `App language of the person this turn was for: ${await lineLocale(db, run.orgId, null, run.id)}`,
     "Messages:",
     ...lines,
     "Tool calls:",
@@ -604,6 +630,13 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
     mayReplace: (old: { createdByKind: string }) => old.createdByKind !== "person",
   };
 
+  const learnsFrom = new Map<string, Promise<boolean>>();
+  const letsLearn = (userId: string) => {
+    const on = learnsFrom.get(userId) ?? rightHandLearnsFrom(db, run.orgId, userId);
+    learnsFrom.set(userId, on);
+    return on;
+  };
+
   for (const item of parsed.items.slice(0, 10)) {
     const refs = item.refs.map((r) => r.trim());
     const cited = {
@@ -642,12 +675,12 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
     }
     if (cited.calls.some((c) => !readsOutside(c) && c.result && !c.result.isError))
       evidence.push({ type: "self", ref: run.id, agentId: agent.id, at: now });
-    // A person's preference only from a message of theirs, never inferred.
+    // A person's preference only from a message they typed themselves (`ownTyped`), never inferred.
     const person =
       item.scope === "person"
         ? (cited.messages.find(
             (m) =>
-              m.authorType === "person" &&
+              ownTyped(m) &&
               m.authorUserId &&
               (conversation.names.get(m.id) ?? "").toLowerCase() === item.about_person.trim().toLowerCase(),
           )?.authorUserId ?? null)
@@ -657,8 +690,23 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
     // Who holds which access is the whole team's to know, read from a page or not: it only points at the holder (it
     // grants nothing, and an untrusted one is labeled so), and kept to one agent it can't stop another from saying
     // nobody has it. Untrusted, it may only name this agent as the holder: a page can't point the team at someone.
-    const scope =
-      item.kind === "access" && (trust === "high" || ownAccess(agent.handle, key))
+    // The right hand: nothing from the words of someone who turned its learning off, whoever's run read them. A
+    // person's own preference stays theirs, trusted or not; the rest stays its own where it was said, never the team's.
+    if (rightHand) {
+      const authors = new Set(
+        cited.messages.flatMap((m) => (m.authorType === "person" && m.authorUserId ? [m.authorUserId] : [])),
+      );
+      const allowed = (await Promise.all([...authors].map(letsLearn))).every(Boolean);
+      if (!allowed || (item.scope === "person" && !person)) {
+        out.rejected.push({ content: item.content, reason: "refused" });
+        continue;
+      }
+    }
+    const scope = rightHand
+      ? item.scope === "person"
+        ? "person"
+        : "own"
+      : item.kind === "access" && (trust === "high" || ownAccess(agent.handle, key))
         ? "workspace"
         : trust !== "high" || item.kind === "how_to"
           ? "own"
@@ -671,7 +719,8 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
       kind: item.kind === "how_to" ? "note" : item.kind === "term" || item.kind === "access" ? "fact" : item.kind,
       scopeType: scope === "own" ? "agent" : scope === "person" ? "person" : "org",
       scopeId: scope === "own" ? agent.id : scope === "person" ? person : run.orgId,
-      agentId: scope === "own" ? agent.id : null,
+      // Its people's preferences are its own to read, as its `remember` keeps them (ADR 0137).
+      agentId: scope === "own" || rightHand ? agent.id : null,
       title,
       subject:
         item.kind === "how_to"
@@ -684,8 +733,9 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
       // A pointer, not a page's say: short.
       content: item.kind === "access" ? cutText(item.content.trim(), 300) : item.content.trim(),
       sourceIds: [...new Set(cited.messages.map((m) => m.id))],
-      channelIds:
-        scope === "workspace" && item.kind === "access" && everywhere
+      channelIds: rightHand
+        ? [run.channelId]
+        : scope === "workspace" && item.kind === "access" && everywhere
           ? []
           : item.kind === "how_to" && where
             ? await howToChannels(db, run.orgId, where, `${title}\n${item.content}`)
@@ -722,7 +772,8 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
     }
   }
 
-  for (const fix of parsed.skillFixes) {
+  // Skills are the team's: the right hand's learning doesn't change them.
+  for (const fix of rightHand ? [] : parsed.skillFixes) {
     const slug = fix.slug.trim().toLowerCase();
     if (!loaded.includes(slug)) continue;
     try {
@@ -739,6 +790,16 @@ export async function learnRun(deps: ContextDeps, input: { orgId: string; runId:
     }
   }
   return out;
+}
+
+/** The right hand learns on its own from this person: the workspace and the person both leave it on. */
+export async function rightHandLearnsFrom(db: Database, orgId: string, userId: string) {
+  const [row] = await db
+    .select({ workspace: organizationSettings.rightHandLearns, prefs: organizationMembers.teamWeek })
+    .from(organizationMembers)
+    .leftJoin(organizationSettings, eq(organizationSettings.orgId, organizationMembers.orgId))
+    .where(and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, userId)));
+  return !!row && (row.workspace ?? true) && !lodiPrefsOf(row.prefs).learnOff;
 }
 
 /** An access fact's key names this agent as the holder (`@handle service`). */

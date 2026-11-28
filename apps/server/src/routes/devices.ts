@@ -1,4 +1,4 @@
-import { pairAddress, TASK_LIMIT_BOUNDS } from "@agenteschat/adapters";
+import { OS_PERMISSIONS, pairAddress, TASK_LIMIT_BOUNDS } from "@agenteschat/adapters";
 import {
   approveDeviceJoin,
   cancelWifiPairing,
@@ -9,13 +9,17 @@ import {
   denyDeviceJoin,
   forgetPhone,
   IPHONE_REPAIR_LIMIT,
+  installHelpClis,
   listDevices,
   lookForPhones,
   normalizeUserCode,
   openConnectLink,
   openXcode,
+  PHONE_POWER_LIMIT,
   pickIphoneOverWifi,
+  powerPhone,
   repairIphone,
+  setDevicesHelp,
   startWifiPairing,
   stopPhone,
   updateComputerDevice,
@@ -47,6 +51,7 @@ import {
   requireSession,
   security,
 } from "./app/context";
+import { MaintenanceView } from "./app/schemas";
 
 const tags = ["Devices"];
 
@@ -75,10 +80,14 @@ const Status = z
       label: z.string().optional(),
       since: z.string(),
     }),
-    z.object({ kind: z.literal("busy"), running: z.number().int(), max: z.number().int() }),
+    z.object({ kind: z.literal("busy"), running: z.number().int(), max: z.number().int().nullable() }),
     z.object({ kind: z.literal("needs_you"), reason: Reason }),
     z.object({ kind: z.literal("preparing"), reason: Reason }),
     z.object({ kind: z.literal("paused"), until: z.string().nullable() }),
+    z.object({ kind: z.literal("moving"), since: z.string(), maintenance: MaintenanceView.optional() }).openapi({
+      description:
+        "The workspace's own computer, away for what we do to it (`maintenance` says what: a move, a restart…): back by itself.",
+    }),
     z.object({
       kind: z.literal("offline"),
       lastSeenAt: z.string().nullable(),
@@ -110,6 +119,15 @@ const Phone = z
   })
   .openapi("PhoneDevice");
 
+const PermissionNeed = z
+  .object({
+    permission: z.enum(OS_PERMISSIONS),
+    trigger: z.string().openapi({ description: "What asked, as the person reads it (a command, redacted)." }),
+    agentId: z.string().optional(),
+    since: z.string(),
+  })
+  .openapi("PermissionNeed");
+
 const Computer = z
   .object({
     id: z.uuid(),
@@ -119,18 +137,46 @@ const Computer = z
     arch: z.string(),
     hostname: z.string(),
     cpus: z.number().nullable(),
+    cpuModel: z
+      .string()
+      .nullable()
+      .openapi({ description: "The processor's name (`Apple M4 Pro`); null: an older runner." }),
+    cores: z.number().nullable().openapi({
+      description: "Its physical cores (`cpus` counts logical CPUs, threads); null: an older runner, or Windows.",
+    }),
+    system: z.string().nullable().openapi({
+      description: "The system and its version (`macOS 26.1`); null: an older runner or the workspace's own computer.",
+    }),
     memoryGb: z.number().nullable(),
     ownerUserId: z.string().nullable(),
     belongsToWorkspace: z.boolean(),
-    spill: z.object({ own: z.boolean(), others: z.boolean() }).openapi({
+    spill: z.object({ own: z.boolean(), first: z.boolean() }).openapi({
       description:
-        "While an agent's own computer is full, replies people wait on may think here: replies to its owner (`own`), to anyone else (`others`).",
+        "\"Help when the team's computer is full or away\" (`own`): while an agent's own computer is full or away, fresh turns of its owner's agents (anyone's, on a computer marked the workspace's) may think here, on a sign-in of the agent's owner. \"Use this computer for my agents' work\" (`first`, implies `own`): its owner's agents' asks, routines and long work start here whenever it is free.",
+    }),
+    maintenance: MaintenanceView.nullable().optional().openapi({
+      description: "What we do to the workspace's own computer now, away (`status` says it too) or while it works.",
+    }),
+    shareInternet: z.object({ on: z.boolean(), inUse: z.boolean(), only: z.boolean() }).nullable().openapi({
+      description:
+        "A person's computer where computers lend their internet (ADR 0237, `lendsInternet`): whether its owner lends it, whether it carried agents' web traffic in the last five minutes, and whether the workspace's agents use only its internet, AI calls included, never their usual way (`only`). Null: nothing to lend to.",
     }),
     systemMode: z.boolean().openapi({ description: "Each agent works as its own OS user there (a server install)." }),
     audience: Audience,
     status: Status,
     maxTasks: z.number().int().nullable(),
+    taskRoom: z
+      .object({ more: z.number().int(), freeGb: z.number(), cpuBusy: z.boolean(), pushHarder: z.boolean() })
+      .nullable()
+      .openapi({
+        description:
+          "Tasks start on room there, not on `maxTasks`: about how many more fit now, the free memory in GB, whether the processor stays near full, and the owner's Push harder. Null: the count decides.",
+      }),
     toolchains: z.record(z.string(), z.string()),
+    permissions: z.array(PermissionNeed).openapi({
+      description:
+        "The OS permissions its agents' work waits on there (macOS's Full Disk Access, Screen Recording…): what asked, which agent, since when. The agentes.chat app on it asks the person; the wait ends when they allow it there.",
+    }),
     opensXcode: z.boolean().openapi({
       description: "A Mac whose agentes.chat opens Xcode and looks at its iPhone again for the iPhone guide.",
     }),
@@ -270,11 +316,49 @@ export function deviceAppRoutes(deps: AppDeps) {
       description:
         "Every member sees every device; `requests` only the maker of their link and admins. Changes come as the `devices.changed` org event and the `machine.*` ones: refetch.",
       request: { params: OrgParams },
-      responses: { 200: json(z.object({ devices: z.array(Computer), requests: z.array(JoinRequest) })), ...errors },
+      responses: {
+        200: json(
+          z.object({
+            devices: z.array(Computer),
+            requests: z.array(JoinRequest),
+            devicesHelp: z.boolean().openapi({
+              description: "People's computers may help when the workspace's is full or away (an admin's switch).",
+            }),
+            lendsInternet: z.boolean().openapi({
+              description:
+                "People's computers here lend their internet (ADR 0237): the workspace has its own computer, or this server lends to its own computer and its reads of web pages. The apps say so where a computer joins.",
+            }),
+            serverBoxesBorrow: z.boolean().openapi({
+              description:
+                "This server lends (ADR 0237), so a Linux computer that joins from a Terminal install borrows instead: its switch starts off.",
+            }),
+          }),
+        ),
+        ...errors,
+      },
     }),
     async (c) => {
       const { orgId } = c.req.valid("param");
       return c.json(await listDevices(db, orgId, c.get("user").id), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/organizations/{orgId}/devices/help",
+      tags,
+      security,
+      summary: "Let people's computers help when the workspace's computer is full or away, or stop them all",
+      description:
+        "Admins (`configure`). Off: no computer takes another's turns, whatever its owner's switch says; on again, each follows its owner's switch. Sends `devices.changed`.",
+      request: { params: OrgParams, body: body(z.object({ on: z.boolean() })) },
+      responses: { 200: json(z.object({ on: z.boolean() })), ...errors },
+    }),
+    async (c) => {
+      const { orgId } = c.req.valid("param");
+      const on = await setDevicesHelp({ db, pubsub }, c.get("user").id, orgId, c.req.valid("json").on);
+      return c.json({ on }, 200);
     },
   );
 
@@ -285,9 +369,9 @@ export function deviceAppRoutes(deps: AppDeps) {
       tags,
       security,
       summary:
-        "Rename a computer, change who can use it, mark it the workspace's, let replies spill over to it, set its tasks at once",
+        "Rename a computer, change who can use it, mark it the workspace's, let it help when the team's computer is full or away, set its tasks at once",
       description:
-        "Its owner: anything. An admin: rename, mark it the workspace's, and narrow who can use someone's own computer (`device.widen_forbidden` otherwise). Never the workspace's computer (`machine.managed`). Only its owner turns spill-over on (`device.spill_owner_only`) and changes its tasks at once (`device.tasks_owner_only`; an admin too on a computer nobody connected), which the computer applies: it must be online (`machine.offline`) with an app that can (`machine.outdated`).",
+        "Its owner: anything. An admin: rename, mark it the workspace's, and narrow who can use someone's own computer (`device.widen_forbidden` otherwise). Never the workspace's computer (`machine.managed`). Only its owner turns its help on (`device.spill_owner_only`), which starts installing the CLIs their agents think with that it lacks, and changes its tasks at once or Push harder (`device.tasks_owner_only`; an admin too on a computer nobody connected; never on a Cloud computer, `device.tasks_cloud`), which the computer applies: it must be online (`machine.offline`) with an app that can (`machine.outdated`). Only its owner lends its internet to the computers that borrow it (`shareInternet`, `device.share_owner_only`; on again picks it first); an admin may stop it; only a person's own computer lends (`device.share_connected_only`).",
       request: {
         params: MachineParams,
         body: body(
@@ -295,8 +379,14 @@ export function deviceAppRoutes(deps: AppDeps) {
             name: z.string().min(1).max(80).optional(),
             audience: Audience.optional(),
             belongsToWorkspace: z.boolean().optional(),
-            spill: z.object({ own: z.boolean().optional(), others: z.boolean().optional() }).optional(),
+            spill: z.object({ own: z.boolean().optional(), first: z.boolean().optional() }).optional(),
             maxTasks: z.number().int().min(TASK_LIMIT_BOUNDS[0]).max(TASK_LIMIT_BOUNDS[1]).optional(),
+            pushHarder: z.boolean().optional(),
+            shareInternet: z.boolean().optional(),
+            internetOnly: z.boolean().optional().openapi({
+              description:
+                "With `shareInternet` on: the workspace's agents use only this computer's internet, AI calls included, and have none while it is offline. Its owner turns it on (`device.share_owner_only`), only while it lends (`device.share_off`); an admin may turn it off.",
+            }),
           }),
         ),
       },
@@ -304,13 +394,18 @@ export function deviceAppRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const { orgId, machineId } = c.req.valid("param");
+      const input = c.req.valid("json");
+      const machineHub = deps.extras?.sandbox?.machines?.hub;
       const device = await updateComputerDevice(
-        { db, pubsub, hub: deps.extras?.sandbox?.machines?.hub },
+        { db, pubsub, hub: machineHub },
         c.get("user").id,
         orgId,
         machineId,
-        c.req.valid("json"),
+        input,
       );
+      // Best effort: the switch is saved, and a turn that finds no CLI there says so later.
+      if ((input.spill?.own === true || input.spill?.first === true) && machineHub)
+        await installHelpClis({ db, pubsub, hub: machineHub }, c.get("user").id, orgId, machineId).catch(() => []);
       return c.json(device, 200);
     },
   );
@@ -387,6 +482,28 @@ export function deviceAppRoutes(deps: AppDeps) {
     async (c) => {
       const { orgId, phoneId } = c.req.valid("param");
       await stopPhone({ db, pubsub, hub: hub() }, c.get("user").id, orgId, phoneId);
+      return c.body(null, 204);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/devices/phones/{phoneId}/power",
+      tags,
+      security,
+      summary: "Start or shut down a simulator or an emulator (who may use it or change it)",
+      description:
+        "Its computer boots the iOS simulator (and shows it in Simulator) or starts the Android emulator, or shuts it down; the devices list then shows it starting, ready or offline. A real phone is refused (`device.not_simulator`); the computer's own refusals come back as `device.power_*` with its words in `why`.",
+      request: { params: PhoneParams, body: body(z.object({ on: z.boolean() }).strict()) },
+      responses: { 204: noContent[204], 429: errorResponse("Too many starts"), ...errors },
+    }),
+    async (c) => {
+      const { orgId, phoneId } = c.req.valid("param");
+      const userId = c.get("user").id;
+      const limit = await deps.adapters.rateLimiter.consume(`phone-power:user:${userId}`, PHONE_POWER_LIMIT);
+      if (!limit.allowed) return apiError(c, 429, "rate_limited", "Too many tries. Try again in a few minutes.");
+      await powerPhone({ db, pubsub, hub: hub() }, userId, orgId, phoneId, c.req.valid("json").on);
       return c.body(null, 204);
     },
   );

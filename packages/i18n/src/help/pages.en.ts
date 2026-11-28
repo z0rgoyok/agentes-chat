@@ -436,6 +436,44 @@ export const helpEn: Record<HelpSlug, HelpDocument> = {
         ],
       },
       {
+        id: "tool-levels",
+        heading: "Each tool of a connected app",
+        blocks: [
+          "Each tool of an app connected by its address has its own level, chosen in **Settings\u00a0›\u00a0Connectors**, on that connection's tools. On the agent's page, **Tools and access** shows which apps and tools it may use.",
+          {
+            list: [
+              "**Only looks**: reads and changes nothing. It never asks.",
+              "**Changes things**: creates and edits without asking. An agent at **Always ask** still asks.",
+              "**Asks your approval**: asks in the conversation before every call.",
+              "**Off**: agents don't get it.",
+            ],
+          },
+          "**Never ask** on the agent's page comes before all of these: an agent at that level asks for nothing, a tool at **Asks your approval** included. When a level changes while requests wait, the ones that would no longer ask are canceled, and the agent does them again without a card.",
+        ],
+      },
+      {
+        id: "sensitive",
+        heading: "Sensitive tools",
+        blocks: [
+          "A tool its app's server marks as one that deletes, sends or pays can only be at **Asks your approval** or **Off**.",
+        ],
+      },
+      {
+        id: "order",
+        heading: "In what order approved actions run",
+        blocks: [
+          "In one turn, an agent does its actions in the order it asked for them, whatever order you approve them in. A message sent while the agent waits starts a new turn, and its actions run after the requests the agent was told were already waiting. Requests from different conversations never wait for each other.",
+          "A request waiting for a person for more than 30 minutes holds nothing back. An approved action that waits says what for, with **Approve** and **Refuse** for that request and **Run this now** to go ahead without it.",
+        ],
+      },
+      {
+        id: "many",
+        heading: "Many at once",
+        blocks: [
+          "Where requests wait for you, on the web and on the phone, **Approve all** and **Refuse all** decide every request of one agent at once.",
+        ],
+      },
+      {
         id: "who",
         heading: "Who approves",
         blocks: [
@@ -836,7 +874,7 @@ export const helpEn: Record<HelpSlug, HelpDocument> = {
         id: "data",
         heading: "What it sends",
         blocks: [
-          "Once a day the server sends agentes.chat anonymous usage statistics: counts such as people, agents, machine sizes, AI tokens used and how much data the agents' browsers send and receive. Never messages, files, names or sites. `docker compose run --rm agentes telemetry` prints exactly what it would send. The owner turns it off in **Settings\u00a0›\u00a0General**, or with `TELEMETRY=off` in `.env`.",
+          "Once a day the server sends agentes.chat anonymous usage statistics: counts such as people, agents, machine sizes, AI tokens used, how much data the agents' browsers send and receive, and how fast the apps open and run. Never messages, files, names or sites. `docker compose run --rm agentes telemetry` prints exactly what it would send. The owner turns it off in **Settings\u00a0›\u00a0General**, or with `TELEMETRY=off` in `.env`.",
           "Error reports go nowhere unless you set `SENTRY_DSN` to a Sentry-compatible server you choose. A report holds the error and where it happened, never messages, emails, IP addresses, cookies or tokens.",
         ],
       },
@@ -845,6 +883,56 @@ export const helpEn: Record<HelpSlug, HelpDocument> = {
         heading: "The full guide",
         blocks: [
           "Every setting, a proxy of your own such as nginx, running without Docker, a runbook for AI agents that install it, and what to do when something fails are in `SELF_HOSTING.md`, in the agentes.chat repository.",
+        ],
+      },
+    ],
+  },
+  "integration-apps": {
+    title: "Integration apps",
+    summary: "Connect a support bot, a form or a monitor that posts in your channels as itself, never as a person.",
+    sections: [
+      {
+        id: "what",
+        heading: "How it works",
+        blocks: [
+          "An integration app has its own token. It posts in the channels you give it, under its own name with an **App** tag, and can pass the outside person's name along. Agents answer it as they answer a person: when it mentions them, or when the router picks them.",
+          "Bring outside conversations in this way, never with a person's personal token: those messages would show as that person's.",
+        ],
+      },
+      {
+        id: "connect",
+        heading: "Connect a support bot",
+        blocks: [
+          {
+            list: [
+              "In **Settings › Connectors › Integrations**, click **Connect an app**, name it and pick its channels.",
+              "Optionally add a webhook address: each agent reply in its channels is sent there, signed with [Standard Webhooks](https://www.standardwebhooks.com).",
+              "Copy the token and the webhook secret. They're shown once.",
+              "Post an outside conversation's first message without `thread_id`, and the rest with its `id` as `thread_id`. Send the replies in that thread back to the person.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "api",
+        heading: "The API",
+        blocks: [
+          "Send the token as `Authorization: Bearer agi_…`.",
+          {
+            list: [
+              "`GET /api/v1/channels`: the app's channels.",
+              "`POST /api/v1/messages`: `channel_id`, `text`, and optionally `thread_id`, `sender` and `idempotency_key`.",
+              "`GET /api/v1/messages?after=<id>`: what was written since, with `in_reply_to` on each agent reply.",
+            ],
+          },
+          "The same calls are MCP tools at `/mcp`. The full reference is `/api/openapi.json`.",
+        ],
+      },
+      {
+        id: "safety",
+        heading: "What an app can't do",
+        blocks: [
+          "An app is never a member or a person. Agents answer what it posts, but take no rule, memory, instruction change, routine, approval or permission from it. Revoking its token stops it at once. While it answers an app, an agent reads only that conversation and the web on its own: anything else of your workspace waits for a person's approval.",
         ],
       },
     ],

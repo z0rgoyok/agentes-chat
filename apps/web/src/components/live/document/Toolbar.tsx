@@ -13,13 +13,16 @@ import {
 import { type FormEvent, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useRoving } from "../spreadsheet/Toolbar";
+import { type FontChoices, FontPicker } from "../type/FontPicker";
+import { TextStyleMenu, TypeGlyph, type TypeLook, type TypePatch } from "../type/TypeMenus";
 import type { DocFormat, DocStyle } from "./commands";
 import "../slides/slides.css";
 import "../spreadsheet/sheet.css";
 
 /**
  * The document's toolbar (ADR 0200), in the spreadsheet's look (`sheet-tools`): undo and redo | the block's style
- * ("Text ▾": text, headings 1 to 3, quote, code) | bold, italic, underline, strikethrough | lists, quote, code |
+ * ("Text ▾": text, headings 1 to 3, quote, code), the font and the text style menu "Aa" (ADR 0220 §8) | bold,
+ * italic, underline, strikethrough | lists, quote, code |
  * link, picture, table. One row of 32 px buttons scrolling sideways when it doesn't fit, a single tab stop moved with
  * the arrow keys; every tip says the button's name and its keys. The picture and table buttons turn into menus of what
  * to do with the picture or the table the caret is on.
@@ -49,6 +52,20 @@ export interface DocToolbarProps {
   onTable(action: TableAction): void;
   /** Focus goes back to the text after a menu. */
   onDone(): void;
+  /** The font list's choices: the document's heading and text fonts, the file's own. */
+  fonts: FontChoices;
+  /** The font the list shows where the caret is: a role (`heading`, `body`) or a ref. */
+  font: string;
+  /** What the text style menu shows where the caret is. */
+  look: TypeLook;
+  /** The weights the font draws. */
+  weights: readonly number[];
+  onFont(ref: string): void;
+  onType(patch: TypePatch): void;
+  /** "Fontes do documento…". */
+  onFileFonts(): void;
+  /** "Trazer fonte do Drive…". */
+  onBringFont(): void;
 }
 
 export type TableAction =
@@ -189,6 +206,35 @@ export function DocToolbar(props: DocToolbarProps) {
           </MenuItem>
         ))}
       </Menu>
+      <FontPicker
+        choices={props.fonts}
+        value={props.font}
+        onChange={props.onFont}
+        onFileFonts={props.onFileFonts}
+        onBring={props.onBringFont}
+        disabled={format.style === "code"}
+      />
+      <TextStyleMenu
+        look={props.look}
+        weights={props.weights}
+        lines={false}
+        onChange={props.onType}
+        onClosed={props.onDone}
+        trigger={
+          <Button
+            size="sm"
+            variant="ghost"
+            className="sheet-tools__menu lf-doc__aa"
+            aria-label={t("live.type.text")}
+            title={t("live.type.text")}
+            disabled={format.style === "code"}
+            onMouseDown={keep}
+          >
+            <TypeGlyph />
+            <Icon name="chevronDown" size={14} className="sheet-tools__chev" />
+          </Button>
+        }
+      />
       {sep}
       {tool("bold", t("live.doc.bold"), () => props.onMark("bold"), {
         pressed: format.bold,

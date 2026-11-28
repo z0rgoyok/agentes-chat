@@ -23,10 +23,11 @@ export * from "./types";
 /**
  * One adapter per entry of `PROVIDERS`, by the protocol it speaks: the server's defaults (modules may replace any).
  * `endpointFetch`: how calls reach workspaces' own endpoints (the server's guarded fetch on agentes.chat Cloud);
- * `version`: this server's, in the User-Agent an endpoint that asks for one gets.
+ * `version`: this server's, in the User-Agent an endpoint that asks for one gets; `progressNotes`: ask Claude and OpenAI's
+ * reasoning models for the notes they write between tool calls (`MODEL_PROGRESS_NOTES`).
  */
 export function createModelProviders(
-  options: { endpointFetch?: typeof fetch; version?: string } = {},
+  options: { endpointFetch?: typeof fetch; version?: string; progressNotes?: boolean } = {},
 ): Record<string, ModelProvider> {
   return Object.fromEntries(
     (Object.entries(PROVIDERS) as [string, ProviderInfo][]).map(([id, p]) => [
@@ -34,14 +35,19 @@ export function createModelProviders(
       p.protocol === "custom"
         ? createCustomProvider({ fetch: options.endpointFetch, version: options.version })
         : p.protocol === "openai"
-          ? createOpenAIProvider()
+          ? createOpenAIProvider({ progressNotes: options.progressNotes })
           : p.protocol === "gemini"
             ? createGeminiProvider()
             : p.protocol === "openrouter"
               ? createOpenRouterProvider()
               : p.protocol === "commandcode"
                 ? createCommandCodeProvider()
-                : createAnthropicProvider({ id, baseURL: p.baseURL, compat: p.compat }),
+                : createAnthropicProvider({
+                    id,
+                    baseURL: p.baseURL,
+                    compat: p.compat,
+                    progressNotes: options.progressNotes,
+                  }),
     ]),
   );
 }

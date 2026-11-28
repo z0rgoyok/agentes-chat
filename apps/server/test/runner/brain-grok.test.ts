@@ -11,15 +11,18 @@ import {
   parseGrokLogin,
   parseGrokStatus,
 } from "../../runner/accounts";
-import type { CodexBrainEvent } from "../../runner/brain-codex";
+import { type CodexBrainEvent, CodexThreads } from "../../runner/brain-codex";
 import {
+  decodeGrokToolOutput,
   GROK_CHAT_DENIED,
   GROK_PLANTED,
+  GROK_WINDOWS_RULES,
   grokChatBreach,
   grokChatsFile,
   grokConfig,
   grokProblem,
   grokTurnArgs,
+  runGrokTurn,
   writeGrokConfig,
 } from "../../runner/brain-grok";
 import { detectExecutors, parseGrokModels } from "../../runner/executors";
@@ -64,6 +67,72 @@ test("command line: headless with Claude Code's stream shape, always in a sandbo
   expect(chat).toContain(`--disallowed-tools ${GROK_CHAT_DENIED.join(",")}`);
   expect(chat).toContain("--no-subagents --disable-web-search --no-plan --permission-mode dontAsk");
   expect(chat).not.toContain("bypassPermissions");
+});
+
+test("command line on Windows, where Grok's sandbox holds nothing: work edits only the turn's folder and its shell only reads; the prompt in a file", () => {
+  const work = grokTurnArgs({ prompt: "oi", windows: true, promptFile: "C:\\t\\prompt.txt" });
+  expect(work.slice(0, 2)).toEqual(["--prompt-file", "C:\\t\\prompt.txt"]);
+  expect(work).not.toContain("-p");
+  const line = work.join(" ");
+  expect(line).not.toContain("bypassPermissions");
+  expect(line).toContain(
+    `--permission-mode dontAsk --allow MCPTool(${CODEX_MCP_SERVER}__*) --allow Edit(./**) --allow Write(./**)`,
+  );
+  expect(work.slice(work.indexOf("--rules"), work.indexOf("--rules") + 2)).toEqual(["--rules", GROK_WINDOWS_RULES]);
+  // Plan and the team's right hand were never more than Grok's rules: the same there.
+  expect(grokTurnArgs({ prompt: "oi", profile: "plan", windows: true }).slice(2)).toEqual(
+    grokTurnArgs({ prompt: "oi", profile: "plan" }).slice(2),
+  );
+  expect(grokTurnArgs({ prompt: "oi", locked: true, windows: true })).toEqual(
+    grokTurnArgs({ prompt: "oi", locked: true }),
+  );
+});
+
+test("a turn on simulated Windows runs: grok.exe by its path, no console of its own, the prompt in a file removed after", async () => {
+  const root = tempDir("brain-grok-win-");
+  dirs.push(root);
+  const home = path.join(root, "acc");
+  const cwd = path.join(root, "ws");
+  for (const d of [home, cwd]) mkdirSync(d, { recursive: true });
+  writeFileSync(path.join(home, "auth.json"), "{}");
+  const exe = path.join(root, "grok.exe");
+  writeFileSync(exe, "");
+  const log = path.join(root, "grok.log");
+  process.env.FAKE_GROK_LOG = log;
+  const started: { file: string; options: Record<string, unknown> }[] = [];
+  const events: CodexBrainEvent[] = [];
+  await runGrokTurn(
+    {
+      runId: RUN,
+      sessionId: SESSION,
+      cwd,
+      system: "You are Dev, the team's developer.",
+      prompt: "run the tests",
+      mcp: { token: "tok_run" },
+      account: { id: ACCOUNT, home },
+    },
+    {
+      chats: new CodexThreads(path.join(root, "chats.json")),
+      emit: (e) => events.push(e),
+      signal: new AbortController().signal,
+      bin: exe,
+      platform: "win32",
+      spawn: ((file, args, options) => {
+        started.push({ file, options: options as Record<string, unknown> });
+        return spawn(process.execPath, [FAKE, ...args], options);
+      }) as Spawn,
+    },
+  );
+  expect(events.at(-1)).toMatchObject({ type: "done", text: "Let me check. All good." });
+  expect(started).toHaveLength(1);
+  expect(started[0]?.file).toBe(exe);
+  expect(started[0]?.options).toMatchObject({ detached: false, windowsHide: true, cwd });
+  const [line] = logOf(log) as unknown as { args: string[]; prompt: string }[];
+  expect(line?.args[0]).toBe("--prompt-file");
+  expect(line?.prompt).toContain("You are Dev, the team's developer.");
+  expect(line?.prompt).toContain("run the tests");
+  expect(line?.args).not.toContain("bypassPermissions");
+  expect(existsSync(line?.args[1] ?? "")).toBe(false);
 });
 
 test("our server in GROK_HOME's config.toml: the run and the token only as env references", () => {
@@ -139,6 +208,7 @@ test("a turn that went wrong: a usage limit, a sign-in that ended, anything else
     },
   ]);
   expect(grokProblem("You are not authenticated. Run grok login.")[0]).toMatchObject({ code: "not_logged_in" });
+  expect(grokProblem("Error: oauth2 invalid_grant")[0]).toMatchObject({ code: "not_logged_in" });
   expect(grokProblem("boom")[0]).toMatchObject({ code: "grok_failed" });
 });
 
@@ -149,6 +219,16 @@ test("the CLI's words: its models, its sign-in status and its device sign-in", (
   expect(parseGrokStatus(0, "Available models:\n  * grok-4.6", true)).toEqual({ loggedIn: true });
   expect(parseGrokStatus(0, models, true)).toEqual({ loggedIn: false });
   expect(parseGrokStatus(0, "Available models:", false)).toEqual({ loggedIn: false });
+  expect(parseGrokStatus(1, "Error: dial tcp: i/o timeout\n", true)).toEqual({ loggedIn: false, statusUnknown: true });
+  expect(parseGrokStatus(null, "", true)).toEqual({ loggedIn: false, statusUnknown: true });
+  expect(parseGrokStatus(1, models, true)).toEqual({ loggedIn: false });
+  expect(parseGrokStatus(1, "Error: dial tcp: i/o timeout\n", false)).toEqual({ loggedIn: false });
+  expect(parseGrokStatus(0, models, true, true)).toEqual({
+    loggedIn: false,
+    statusUnknown: true,
+  });
+  expect(parseGrokStatus(1, "Error: oauth2 invalid_grant\n", true, true)).toEqual({ loggedIn: false });
+  expect(parseGrokStatus(0, `invalid_grant\n${models}`, true, true)).toEqual({ loggedIn: false });
   const login = "Open https://accounts.x.ai/device on any device\nand enter the code: WDJB-MJHT\n";
   expect(parseGrokLogin(login)).toEqual({ url: "https://accounts.x.ai/device", userCode: "WDJB-MJHT" });
   expect(parseGrokLogin("Open https://accounts.x.ai/device")).toBeNull();
@@ -516,3 +596,61 @@ test("the sandbox check binds each folder above the account's, as Grok Build doe
   }));
   expect(failed).toBe("bwrap: Can't mkdir parents for /var/lib/x: Permission denied");
 });
+
+test("decodeGrokToolOutput decodes Grok Build byte-array JSON envelopes as UTF-8 and leaves other output alone", () => {
+  const bashBytes = JSON.stringify({
+    type: "Bash",
+    output: [...Buffer.from("prov-grok-ok\n8\n", "utf8")],
+    output_file: null,
+  });
+  expect(decodeGrokToolOutput(bashBytes)).toBe("prov-grok-ok\n8\n");
+
+  const utf8Bytes = JSON.stringify({
+    type: "Bash",
+    output: [...Buffer.from("olá 🚀\n", "utf8")],
+    output_file: null,
+  });
+  expect(decodeGrokToolOutput(utf8Bytes)).toBe("olá 🚀\n");
+
+  const emptyOutputWithStderr = JSON.stringify({
+    type: "Bash",
+    output: [],
+    stderr: [...Buffer.from("permission denied\n", "utf8")],
+    output_file: null,
+  });
+  expect(decodeGrokToolOutput(emptyOutputWithStderr)).toBe("permission denied\n");
+
+  const splitStreams = JSON.stringify({
+    type: "Bash",
+    stdout: [...Buffer.from("out\n", "utf8")],
+    stderr: [...Buffer.from("warn\n", "utf8")],
+  });
+  expect(decodeGrokToolOutput(splitStreams)).toBe("out\nwarn\n");
+
+  // Plain text, untyped JSON, non-envelope JSON, and MCP tool results stay untouched.
+  expect(decodeGrokToolOutput("plain text")).toBe("plain text");
+  const untyped = JSON.stringify({ output: [1, 2, 3] });
+  expect(decodeGrokToolOutput(untyped)).toBe(untyped);
+  const scriptJson = JSON.stringify({ type: "report", output: [65, 66, 67] });
+  expect(decodeGrokToolOutput(scriptJson)).toBe(scriptJson);
+  expect(decodeGrokToolOutput(bashBytes, "mcp__agenteschat_agentes__run_code")).toBe(bashBytes);
+  expect(decodeGrokToolOutput(bashBytes, "use_tool")).toBe(bashBytes);
+});
+
+test.skipIf(!posix)(
+  "Grok Build native Bash byte-array tool output arrives as decoded UTF-8 text on tool_call",
+  async () => {
+    const root = tempDir("grok-bytes-");
+    dirs.push(root);
+    const { ctx, accountDir } = turnContext(root);
+    writeFileSync(path.join(accountDir, "auth.json"), "{}");
+    const frames: unknown[] = [];
+    await handleRequest(ctx, turn({ prompt: "BYTES" }), scopeOf(frames));
+    const calls = eventsOf(frames).filter((e) => e.type === "tool_call");
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toMatchObject({
+      name: "run_terminal_command",
+      executed: { content: "prov-grok-ok\n8\n" },
+    });
+  },
+);

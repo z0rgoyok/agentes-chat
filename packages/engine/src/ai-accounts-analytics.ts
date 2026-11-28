@@ -30,6 +30,7 @@ const RUNTIME_PROVIDER: Record<string, string> = {
   codex: "openai",
   grok: "xai",
   antigravity: "google",
+  devin: "cognition",
   cursor: "cursor",
   opencode: "opencode",
 };

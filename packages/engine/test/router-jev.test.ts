@@ -1311,7 +1311,7 @@ describe("a message for the agents always gets one (R5)", () => {
 });
 
 describe("Jev on a social message", () => {
-  test("end to end: 'boa noite pessoal' gets one 🌙 and no run; 'alô???' after it gets one agent's answer", async () => {
+  test("end to end: 'boa noite pessoal' gets no reaction and no run; 'alô???' after it gets one agent's answer", async () => {
     f = await setup({ reply: () => ({ chunks: ["Boa noite! Tô aqui."] }) });
     const qa = await createAgent(
       f.db,
@@ -1335,8 +1335,8 @@ describe("Jev on a social message", () => {
     });
     const night = await post(f, "boa noite pessoal");
     await drainOutbox(f.db, handlers);
-    const reactions = await f.db.select().from(schema.messageReactions);
-    expect(reactions.map((r) => [r.messageId, r.reaction])).toEqual([[night.id, "🌙"]]);
+    // A goodnight to the room: no agent's 🌙 (only one spoken to an agent gets it).
+    expect((await f.db.select().from(schema.messageReactions)).filter((r) => r.messageId === night.id)).toEqual([]);
     expect(await f.db.select().from(schema.agentRuns)).toEqual([]);
 
     const insist = await post(f, "alô???");

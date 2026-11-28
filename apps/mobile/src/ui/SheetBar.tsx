@@ -9,8 +9,11 @@ import { useTheme } from "./theme";
 export interface SheetBarProps {
   /** Centered between the two sides. Left out, the bar holds only its buttons (a long title on a row under it). */
   title?: string;
-  /** The close plate: × closes the sheet, ‹ (`icon="back"`) goes back to the page before inside it. */
-  onClose: () => void;
+  /**
+   * The close plate: × closes the sheet, ‹ (`icon="back"`) goes back to the page before inside it. Left out, no plate:
+   * a short choice's sheet goes with a pull down or a tap outside, as the system's do.
+   */
+  onClose?: () => void;
   icon?: "x" | "back";
   /** An action at the right end (copy); the title stays centered while it is no wider than the close plate. */
   trailing?: ReactNode;
@@ -33,12 +36,14 @@ export function SheetBar({ title, onClose, icon = "x", trailing, inset = false }
   return (
     <View style={inset ? null : [styles.edge, { backgroundColor: colors.grouped }]}>
       <View style={styles.row}>
-        <IconButton
-          icon={icon}
-          plate
-          label={icon === "x" ? t("mobile.common.close") : t("mobile.common.back")}
-          onPress={onClose}
-        />
+        {onClose ? (
+          <IconButton
+            icon={icon}
+            plate
+            label={icon === "x" ? t("mobile.common.close") : t("mobile.common.back")}
+            onPress={onClose}
+          />
+        ) : null}
         {title ? (
           <Text variant="title" style={styles.title} accessibilityRole="header" numberOfLines={1}>
             {title}
@@ -46,8 +51,8 @@ export function SheetBar({ title, onClose, icon = "x", trailing, inset = false }
         ) : (
           <View style={styles.grow} />
         )}
-        {/* As wide as the plate at least, so the title sits in the bar's middle. */}
-        <View style={styles.side}>{trailing}</View>
+        {/* As wide as the plate at least, so the title sits in the bar's middle (no plate: no side to balance). */}
+        {onClose || trailing ? <View style={styles.side}>{trailing}</View> : null}
       </View>
     </View>
   );

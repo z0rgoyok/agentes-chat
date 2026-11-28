@@ -120,6 +120,10 @@ export class ControlServer {
         return d.reconnect();
       case "browser.stop":
         return d.browserStop(str(m.agentId));
+      case "apps.stop":
+        return d.appsStop(str(m.agentId));
+      case "permission.clear":
+        return d.permissionClear(m.permission);
       case "accounts.list":
         return d.accountsList();
       case "account.begin":

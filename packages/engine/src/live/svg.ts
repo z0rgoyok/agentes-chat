@@ -804,13 +804,29 @@ function inSvg(el: Element): boolean {
  * Draws an SVG as a PNG, for what can't show an SVG: a model looking at a picture, a pptx, a PDF, references sent to
  * an image AI. None by default (the server needs a rasterizer for it); without one those leave SVG pictures out.
  */
-export type SvgRasterizer = (svg: Uint8Array) => Promise<Uint8Array | null>;
+export type SvgRasterizer = (
+  svg: Uint8Array,
+  opts?: { fonts?: readonly Uint8Array[]; width?: number },
+) => Promise<Uint8Array | null>;
 
 let rasterizer: SvgRasterizer | null = null;
 
 /** Sets (or, with null, unsets) how this process draws SVGs as PNGs. */
 export function setSvgRasterizer(fn: SvgRasterizer | null) {
   rasterizer = fn;
+}
+
+/**
+ * An SVG this server built (never one an agent or a page wrote: those go through `sanitizeSvg` first) drawn as a PNG
+ * `width` pixels wide with these fonts besides the brand's, or null without a rasterizer (ADR 0220 §5).
+ */
+export async function rasterOwnSvg(
+  svg: string,
+  opts: { fonts?: readonly Uint8Array[]; width?: number },
+): Promise<Uint8Array | null> {
+  if (!rasterizer) return null;
+  const png = await rasterizer(new TextEncoder().encode(svg), opts).catch(() => null);
+  return png && sniffModelImage(png) === "image/png" ? png : null;
 }
 
 /**

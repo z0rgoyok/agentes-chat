@@ -23,6 +23,13 @@ test("photos and workspace marks load through expo-image, cached, with no fade",
   expect(src("features/shared/OrgAvatar.tsx")).toContain("photoSource(logo, serverOf(on), appHeaders(lastCookie(on)))");
 });
 
+test("a workspace logo shows whole, on the plate its ink needs in this theme (a wordmark arrives uncropped)", () => {
+  const avatar = src("features/shared/OrgAvatar.tsx");
+  expect(avatar).toContain('contentFit="contain"');
+  expect(avatar).not.toContain('contentFit="cover"');
+  expect(avatar).toContain('backgroundColor: logoPlate(logo, scheme === "dark")');
+});
+
 test("the lists' times are written with formats made once per language", () => {
   const hooks = src("features/shared/hooks.ts");
   const when = hooks.slice(hooks.indexOf("export function useWhen()"), hooks.indexOf("export function useNow("));
@@ -36,4 +43,12 @@ test("a section's title reads as every section header: Section draws a SectionHe
   expect(section).toContain("<SectionHeader title={title}");
   expect(section).not.toContain('variant="label"');
   expect(section).toContain("body: { paddingHorizontal: SCREEN_X }");
+});
+
+test("the workspace computer's Free row leads with a swatch, so its label lines up with the kinds' above it", () => {
+  const screen = src("features/settings/StorageScreen.tsx");
+  const free = screen.slice(screen.lastIndexOf("<GroupedRow", screen.indexOf('"storage.computer.part.free"')));
+  expect(free.slice(0, free.indexOf("/>\n"))).toContain(
+    "leading={<View style={[styles.swatch, { backgroundColor: sunken }]} />}",
+  );
 });

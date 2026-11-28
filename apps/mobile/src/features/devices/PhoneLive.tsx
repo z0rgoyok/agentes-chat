@@ -74,6 +74,7 @@ export function PhoneLive({ phone: p, host }: { phone: PhoneDevice; host: string
   useEffect(() => {
     if (!p.mayUse || away || !active) return;
     let done = false;
+    let pictured = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     // A new stream (control taken, given back) shows nothing of its own until its first picture: an iPhone's test
     // helper starts in several seconds, and input before then would go nowhere.
@@ -87,13 +88,16 @@ export function PhoneLive({ phone: p, host }: { phone: PhoneDevice; host: string
       // A JPEG's base64 starts with "/9j/", a PNG's with "iVBOR".
       setFrame(`data:image/${ev.data.startsWith("/9j/") ? "jpeg" : "png"};base64,${ev.data}`);
       attempts.current = 0;
+      pictured = true;
       setView("live");
       if (socket.readyState === 1) socket.send(JSON.stringify({ type: "ack" }));
     };
     socket.onclose = (ev) => {
       if (done) return;
       socketRef.current = null;
-      const next = phoneCloseState(ev.code, (ev as { reason?: string }).reason ?? "");
+      const next = phoneCloseState(ev.code, (ev as { reason?: string }).reason ?? "", {
+        opening: mode === "control" && !pictured,
+      });
       // A watcher meets these only when the phone itself can't be used: opening again at once would loop.
       if (next.control && mode === "control") {
         toast({

@@ -201,7 +201,7 @@ test("commands get the agent's secrets, and no result shows them", async () => {
 
 test("commands get what root's turn named for its agent (its commits' lines), the session's latest", async () => {
   const asked: unknown[] = [];
-  const line = "Co-authored-by: Ada <noreply@agentes.chat>";
+  const line = "Co-Authored-By: Ada <noreply@agentes.chat>";
   const { call, state, tools, scope } = setup(
     { agent: { ...AGENT, coAuthors: [line] } },
     {
@@ -217,6 +217,27 @@ test("commands get what root's turn named for its agent (its commits' lines), th
   tools.surface({ ...scope, agent: AGENT });
   expect(textOf(await call("Bash", { command: 'echo "[$AGENTES_CO_AUTHORS]"' }))).toBe("[]");
   expect(asked).toEqual([{ ...AGENT, coAuthors: [line] }, AGENT]);
+});
+
+test("commands run on the clock of the turn's zone, as the CLI does; an unknown zone keeps the computer's", async () => {
+  const { call, state } = setup({ timeZone: "Asia/Tokyo" });
+  state.answer = allow;
+  expect(textOf(await call("Bash", { command: 'echo "[$TZ]"' }))).toBe("[Asia/Tokyo]");
+  // Root's frame carries it to the worker: a zone no clock knows never reaches a command.
+  expect(parseBridge({ ...bridgeFrame, timeZone: "Asia/Tokyo" })?.timeZone).toBe("Asia/Tokyo");
+  expect(parseBridge({ ...bridgeFrame, timeZone: "Mars/Olympus" })?.timeZone).toBeUndefined();
+});
+
+test("each session's commands get a temp folder of their own: two runs of one agent never share /tmp", async () => {
+  const { call, state, tools, scope, ask } = setup();
+  state.answer = allow;
+  const other = tools.surface({ ...scope, session: "s2" });
+  const first = textOf(await call("Bash", { command: 'mktemp "$TMPDIR/x.XXXX" >/dev/null && echo "$TMPDIR"' }));
+  const second = textOf(await other.call("Bash", { command: 'echo "$TMPDIR"' }, { id: "o1", ask }));
+  expect(first).toEndWith("/tmp");
+  expect(second).toEndWith("/tmp");
+  expect(second).not.toBe(first);
+  expect(textOf(await call("Bash", { command: 'echo "$TMPDIR"' }))).toBe(first);
 });
 
 test("output past the inline limit comes back as a preview and a file Read can page, redacted", async () => {
@@ -645,6 +666,23 @@ test("Read turns a PDF's pages into images", async () => {
   expect(textOf(await call("Read", { file_path: file, pages: "1-21" }))).toStartWith("Too many pages");
 });
 
+test("a pages parameter with a long run of spaces is read in time, and spaces around a range still count", async () => {
+  // It took seconds when the spaces after the number could go to either of two runs, every way, before failing.
+  const bin = temp("bin-");
+  const tool = path.join(bin, "pdftoppm");
+  writeFileSync(tool, `#!/bin/sh\necho "$5 $7" > "$(dirname "$0")/args"\nprintf one > "$9-1.png"\n`);
+  chmodSync(tool, 0o755);
+  const { call, folder } = setup({}, { pdftoppm: tool });
+  const file = path.join(folder, "a.pdf");
+  writeFileSync(file, "%PDF-1.7");
+  const spaces = " ".repeat(100_000);
+  const started = performance.now();
+  expect(textOf(await call("Read", { file_path: file, pages: `1${spaces}x` }))).toStartWith("Invalid pages parameter");
+  expect(performance.now() - started).toBeLessThan(1000);
+  await call("Read", { file_path: file, pages: ` 2 - 3${spaces}` });
+  expect(readFileSync(path.join(bin, "args"), "utf8").trim()).toBe("2 3");
+});
+
 test("a computer without pdftoppm says so", async () => {
   const { call, folder } = setup({}, { pdftoppm: "/nowhere/pdftoppm" });
   writeFileSync(path.join(folder, "a.pdf"), "%PDF-1.7");
@@ -986,6 +1024,21 @@ test("Grep lists files, the newest first, the secrets' files out of the search, 
   expect(args).toContain("!**/.agentes/browser/**");
   expect(args).toContain("!keys/ada.pem");
   expect(args).toContain("!.git/");
+});
+
+test("a glob of many unclosed braces is read in time, and they still split it as before", async () => {
+  // It took seconds when each `{` with no `}` after it read the glob to its end.
+  const fake = fakeRg("");
+  const { call } = setup({}, { rg: fake.rg });
+  // A session's first call pays its start-up: made first, so only the long glob is timed.
+  await call("Grep", { pattern: "x", glob: "*.md" });
+  const started = performance.now();
+  await call("Grep", { pattern: "x", glob: `${"{ ".repeat(100_000)}*.md{a` });
+  // The call passes every glob to rg, about a second on a busy CI runner; the old read alone took several more.
+  expect(performance.now() - started).toBeLessThan(3000);
+  const args = fake.args();
+  expect(args[args.indexOf("*.md") - 1]).toBe("--glob");
+  expect(args[args.indexOf("a") - 1]).toBe("--glob");
 });
 
 test("Grep shows matching lines with Claude Code's options, redacted and paged", async () => {

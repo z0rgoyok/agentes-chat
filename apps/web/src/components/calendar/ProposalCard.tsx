@@ -27,7 +27,7 @@ export function CalendarProposalCardView({ message, card }: { message: Message; 
   const label = t("chat.body.calendar_proposal", { title: p.title });
   if (p.status !== "pending") {
     return (
-      <RequestDone done={p.status === "confirmed"} label={label}>
+      <RequestDone morphKey={`cal:${message.id}`} done={p.status === "confirmed"} label={label}>
         <b>{p.title}</b> · {t(p.status === "confirmed" ? "calendar.confirmed" : "calendar.proposalDismissed")}
       </RequestDone>
     );
@@ -41,6 +41,7 @@ export function CalendarProposalCardView({ message, card }: { message: Message; 
   const requester = p.requesterUserId ? actors.name({ type: "person", id: p.requesterUserId }) : "";
   return (
     <RequestOpen
+      morphKey={`cal:${message.id}`}
       mine={mine}
       icon="calendar"
       label={label}

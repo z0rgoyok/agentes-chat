@@ -1,6 +1,6 @@
 import { isRichColor, RICH_MAX_LEVEL, type RichAlign, type RichDoc, type RichList } from "@agenteschat/live/rich";
 import * as Y from "yjs";
-import type { RichFormat, RichMarkKey } from "./commands";
+import type { RichFormat, RichMarkKey, RichTypeMark } from "./commands";
 
 /**
  * Formatting a whole text box at once (ADR 0196 §2), when it is selected on a slide or a canvas but not being typed
@@ -48,10 +48,40 @@ export function colorWholeText(fragment: Y.XmlFragment, color: string | null, or
   });
 }
 
+const TYPE_ATTR: Record<RichTypeMark, string> = {
+  font: "font",
+  weight: "weight",
+  tracking: "tracking",
+  highlight: "color",
+};
+
+/**
+ * A type mark (ADR 0220 §3) on every character: a font ref, a weight, letter spacing, a highlight color; null takes
+ * the marks away, so the box's own look shows.
+ */
+export function typeWholeText(
+  fragment: Y.XmlFragment,
+  mark: RichTypeMark,
+  value: string | number | null,
+  origin: unknown,
+): void {
+  const attrs = value === null ? null : { [TYPE_ATTR[mark]]: value };
+  transact(fragment, origin, () => {
+    for (const text of textsOf(fragment)) if (text.length) text.format(0, text.length, { [mark]: attrs });
+  });
+}
+
+/** Capitals marked on every character, or the marks taken away. */
+export function capsWholeText(fragment: Y.XmlFragment, on: boolean, origin: unknown): void {
+  transact(fragment, origin, () => {
+    for (const text of textsOf(fragment)) if (text.length) text.format(0, text.length, { caps: on ? {} : null });
+  });
+}
+
 /** Sets an attribute on every paragraph (null takes it away, as y-prosemirror stores a null attribute). */
 export function setWholeParagraphs(
   fragment: Y.XmlFragment,
-  patch: { align?: RichAlign | null; list?: RichList | null; level?: number },
+  patch: { align?: RichAlign | null; list?: RichList | null; level?: number; lineHeight?: number | null },
   origin: unknown,
 ): void {
   transact(fragment, origin, () => {
@@ -85,6 +115,10 @@ export function wholeFormat(rich: RichDoc): RichFormat {
   const every = (pick: (r: (typeof runs)[number]) => unknown) => runs.length > 0 && runs.every((r) => !!pick(r));
   const colors = new Set(runs.map((r) => r.color ?? null));
   const links = new Set(runs.map((r) => r.link ?? null));
+  const one = <T>(pick: (r: (typeof runs)[number]) => T | undefined): T | null => {
+    const values = new Set(runs.map((r) => pick(r) ?? null));
+    return values.size === 1 ? ([...values][0] ?? null) : null;
+  };
   const first = rich[0];
   return {
     bold: every((r) => r.bold),
@@ -96,5 +130,11 @@ export function wholeFormat(rich: RichDoc): RichFormat {
     align: first?.align ?? null,
     list: rich.length > 0 && rich.every((p) => p.list === first?.list) ? (first?.list ?? null) : null,
     level: first?.level ?? 0,
+    font: one((r) => r.font),
+    weight: one((r) => r.weight),
+    tracking: one((r) => r.tracking),
+    highlight: one((r) => r.highlight),
+    caps: every((r) => r.caps),
+    lineHeight: first?.lineHeight ?? null,
   };
 }

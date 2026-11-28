@@ -152,11 +152,13 @@ if (args[0] === "-p") {
     conversation = `c3b60000-0000-4000-8000-${String(conversations.length + 1).padStart(12, "0")}`;
     writeFileSync(known, JSON.stringify([...conversations, conversation]));
   }
+  const agent = flag("--agent");
+  const lazyMcp = prompt.includes("LAZY_MCP");
   const tools = env.FAKE_AGY_TOOLS
     ? env.FAKE_AGY_TOOLS.split(",")
-    : flag("--agent")
+    : agent && !lazyMcp
       ? ["agenteschat_agentes/post_message"]
-      : ["ask_permission", "run_command", "write_to_file", "agenteschat_agentes/post_message"];
+      : ["ask_permission", "call_mcp_tool", "run_command", "write_to_file", "agenteschat_agentes/post_message"];
   const step = (o) => out({ event: "step_update", step_update: { conversation_id: conversation, ...o } });
   out({
     event: "init",
@@ -164,6 +166,7 @@ if (args[0] === "-p") {
     init: {
       cwd: process.cwd(),
       tools,
+      ...(agent && lazyMcp ? { agent } : {}),
       permission_mode: "request-review",
       ...(flag("--model") ? { model: flag("--model") } : {}),
     },
@@ -177,6 +180,9 @@ if (args[0] === "-p") {
     process.exit(3);
   }
   step({ step_index: 1, state: "ACTIVE", step_type: "agent_response", text_delta: "Let me check. " });
+  if (prompt.includes("SUBAGENT")) {
+    step({ step_index: 2, state: "ACTIVE", step_type: "agent_response", subagent_info: { subagents: [] } });
+  }
   if (!prompt.includes("BRIDGE_ONLY")) {
     step({
       step_index: 2,
@@ -190,14 +196,29 @@ if (args[0] === "-p") {
       },
     });
   }
-  const call = prompt.includes("OWN_TOOL") ? "view_file" : "agenteschat_agentes/post_message";
-  step({
-    step_index: 3,
-    state: "DONE",
-    step_type: "tool",
-    tool_name: call,
-    tool_info: { name: call, parameters: {}, output: "ok" },
-  });
+  if (lazyMcp) {
+    const server = prompt.includes("OTHER_MCP") ? "evil_server" : "agenteschat_agentes";
+    step({
+      step_index: 3,
+      state: "DONE",
+      step_type: "tool",
+      tool_name: "call_mcp_tool",
+      tool_info: {
+        name: "call_mcp_tool",
+        parameters: { ServerName: server, ToolName: "post_message", Arguments: {} },
+        output: "ok",
+      },
+    });
+  } else {
+    const call = prompt.includes("OWN_TOOL") ? "view_file" : "agenteschat_agentes/post_message";
+    step({
+      step_index: 3,
+      state: "DONE",
+      step_type: "tool",
+      tool_name: call,
+      tool_info: { name: call, parameters: {}, output: "ok" },
+    });
+  }
   step({
     step_index: 4,
     state: "DONE",

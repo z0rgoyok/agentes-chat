@@ -151,6 +151,15 @@ export function linePoints(values: readonly number[], width: number, height: num
   ]);
 }
 
+/** The index of the point nearest `x` across (the one a pointer or a tap is on); -1 with no points. */
+export function nearestPoint(points: readonly (readonly [number, number])[], x: number): number {
+  let best = -1;
+  points.forEach(([px], i) => {
+    if (best < 0 || Math.abs(px - x) < Math.abs((points[best]?.[0] ?? 0) - x)) best = i;
+  });
+  return best;
+}
+
 /**
  * The line's height at each column (in cells), from the same curve `smoothPath` draws (its cubic segments
  * sampled), NaN where the line doesn't reach: the area's tops, without measuring a DOM path.

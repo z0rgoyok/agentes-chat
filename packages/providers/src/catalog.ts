@@ -107,6 +107,11 @@ export interface ModelInfo {
    * a little (it can't be turned off). Absent: `none` goes as `low`.
    */
   leastThinking?: "off" | "minimal";
+  /**
+   * Returns the notes it writes between tool calls as progress-update thinking blocks, empty unless asked for with
+   * `thinking.display: "updates"` (Anthropic beta `thinking-display-updates-2026-08-18`).
+   */
+  thinkingUpdates?: true;
   /** Suggested for new agents of that provider. */
   recommended?: boolean;
   /** Its size in the provider's line, for "Automático": each run picks a tier, mapped back to a model. */
@@ -122,6 +127,11 @@ export interface ModelInfo {
   efforts?: readonly string[];
   /** It can't follow an `outputSchema`: never a pick for routing, the judge or summaries. */
   structuredOutput?: false;
+  /**
+   * Reads tool results' pictures (no PDFs) through its provider's Anthropic-compatible endpoint (`ProviderInfo.compat`),
+   * which otherwise gets them left out.
+   */
+  images?: true;
   /**
    * `false`: the pickers offer it only to a workspace with its provider's key (OpenRouter's long list, Command Code's).
    * `true`: a long list's good pick, shown first, greyed without a key. Absent: a catalog model.
@@ -158,16 +168,15 @@ export function effortWithin(effort: Effort | undefined, info?: ModelInfo): Effo
 
 /**
  * An agent call's output cap when the server sets none (`AGENT_MAX_OUTPUT_TOKENS`). Thinking counts against it, so
- * 16K cut long answers and big tool inputs at high effort: 64K where the model's row says how much it may write
- * (up to 128K at `max`), else 16K, since sending more than a model takes is refused. At most a quarter of the
- * window (16K at least): the cap is held back from the input budget, and a listed row's limit is often its window.
+ * 16K cut long answers and big tool inputs at high effort: 64K (128K at `max`), within the most the model's row says
+ * it may write. A model whose limit no row knows is asked the same: the gateway learns its limit from its provider's
+ * list or from the refusal, and sends the call again within it. At most a quarter of the window (16K at least): the
+ * cap is held back from the input budget, and a listed row's limit is often its window.
  */
 export function agentOutputTokens(model: string, effort?: ModelRequest["effort"]): number {
   const info = modelInfo(model);
-  const most = info?.maxOutputTokens;
-  if (!most) return 16_000;
   const target = effortWithin(effort, info) === "max" ? 128_000 : 64_000;
-  return Math.min(most, target, Math.max(16_000, Math.floor(contextWindowOf(model) / 4)));
+  return Math.min(info?.maxOutputTokens ?? target, target, Math.max(16_000, Math.floor(contextWindowOf(model) / 4)));
 }
 
 /** Context window assumed for a model without one in the catalog: the smallest current one, so runs stay inside it. */
@@ -193,6 +202,7 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     maxOutputTokens: 128_000,
     efforts: CLAUDE_EFFORTS,
     serverSideFallback: true,
+    thinkingUpdates: true,
   },
   // Its 1M-token window from platform.claude.com/docs/en/about-claude/models/overview, all of it at these prices
   // (2026-11-09). No tier and no pick for routing or system tasks: "Automático" never chooses it, people do.
@@ -204,6 +214,7 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     maxOutputTokens: 128_000,
     efforts: CLAUDE_EFFORTS,
     serverSideFallback: true,
+    thinkingUpdates: true,
   },
   "claude-opus-5-5": {
     provider: "anthropic",
@@ -213,6 +224,7 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     maxOutputTokens: 128_000,
     efforts: CLAUDE_EFFORTS,
     serverSideFallback: true,
+    thinkingUpdates: true,
     tier: "large",
   },
   "claude-sonnet-5-5": {
@@ -223,6 +235,7 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     maxOutputTokens: 128_000,
     efforts: CLAUDE_EFFORTS,
     serverSideFallback: true,
+    thinkingUpdates: true,
     recommended: true,
     tier: "medium",
   },
@@ -415,6 +428,10 @@ export const MODEL_CATALOG: Record<string, ModelInfo> = {
     leastThinking: "off",
     recommended: true,
     tier: "small",
+    // DeepSeek's Anthropic API guide (api-docs.deepseek.com/guides/anthropic_api, read 2026-11-25): "deepseek-flash
+    // supports images in user messages and tool_result content" (base64 PNG, JPEG, GIF, WebP); a document goes only by
+    // `file` or `text` source, so a PDF stays out. `deepseek-v4-pro` swaps a picture for "[Unsupported Image]".
+    images: true,
   },
   "deepseek-v4-pro": {
     provider: "deepseek",

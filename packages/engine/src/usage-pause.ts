@@ -1,5 +1,5 @@
 import type { PlanUsage, PubSub } from "@agenteschat/adapters";
-import { and, type Database, desc, type Executor, eq, inArray, type SQL, schema, sql } from "@agenteschat/db";
+import { and, type Database, desc, type Executor, eq, inArray, or, type SQL, schema, sql } from "@agenteschat/db";
 import { extraUsageLeft, PLAN_PAUSE, planBinding, planState } from "@agenteschat/ui/plan-state";
 import { ACCESS_COLUMNS, type AgentAccessFields, managesRoutinesOf, OWNER_COLUMNS, REACH_COLUMNS } from "./audience";
 import { recordAudit } from "./audit";
@@ -13,7 +13,7 @@ import { inMillisecondOf } from "./message-place";
 import { type Message, messageView } from "./messages";
 import { type Membership, requireActiveMembership } from "./organizations";
 import { enqueue } from "./outbox";
-import { isRightHand } from "./right-hand";
+import { isRightHand, RIGHT_HAND, rightHandPerson } from "./right-hand";
 import { missStaleRoutineRun } from "./routine-firing";
 import { runState } from "./run-state";
 import { isTerminal } from "./runs";
@@ -152,17 +152,31 @@ export async function usageWaitPlace(
 }
 
 /**
- * The line pauses together: the waits of `runIds` (in line order) are timed `at(i)`, in one statement. Every pending
- * job of a wait moves (its own timer, a plan-back wake), so none of them asks the plan early.
+ * The line pauses together: the waits of `runIds` (in line order) are timed `at(i)` for the head's `resetsAt` (none: an
+ * unknown reset). Every pending job of a wait moves (its own timer, a plan-back wake), so none of them asks the plan
+ * early, and so do the wait's `until` and `resetsAt`: the wakes skip a wait whose `until` is near, taking its own timer
+ * to be about to fire (`wakePlanWaits`, `lineHeadLooks`), and `lineHeadLooks` one with a reset, as having its own.
+ * Never a wake for what its agent thinks with now (`wakeAgentUsageWaits`, `:switched:`): it goes to another plan, and
+ * moved to this reset it would also swallow every later change's wake of that wait (they share its dedupe key).
  */
-export async function retimeLine(db: Executor, runIds: string[], at: (i: number) => Date) {
+export async function retimeLine(db: Executor, runIds: string[], at: (i: number) => Date, resetsAt?: string) {
   if (runIds.length === 0) return;
-  const { outbox } = schema;
+  const { agentRuns, outbox } = schema;
   const times = runIds.map((_, i) => at(i).toISOString());
-  await db.execute(sql`update ${outbox} o set next_attempt_at = v.at
-    from unnest(${`{${runIds.join(",")}}`}::text[], ${`{${times.join(",")}}`}::timestamptz[]) as v(run_id, at)
+  const line = sql`unnest(${`{${runIds.join(",")}}`}::text[], ${`{${times.join(",")}}`}::text[]) as v(run_id, at)`;
+  await db.execute(sql`update ${outbox} o set next_attempt_at = v.at::timestamptz
+    from ${line}
     where o.kind = 'agent_run.execute' and o.status = 'pending' and o.payload ? 'wait'
+      and coalesce(o.dedupe_key, '') not like '%:switched:%'
       and o.payload->>'runId' = v.run_id`);
+  await db.execute(sql`update ${agentRuns} r
+    set transcript = ${
+      resetsAt
+        ? sql`jsonb_set(jsonb_set(r.transcript, '{waitingForBrain,until}', to_jsonb(v.at)), '{waitingForBrain,resetsAt}', to_jsonb(${resetsAt}::text))`
+        : sql`jsonb_set(r.transcript, '{waitingForBrain,until}', to_jsonb(v.at)) #- '{waitingForBrain,resetsAt}'`
+    }
+    from ${line}
+    where r.id = v.run_id::uuid and r.status = 'waiting_input' and r.transcript ? 'waitingForBrain'`);
 }
 
 /** With an unknown reset only the head re-checks the plan; the others wait this long at most, woken by the head. */
@@ -353,11 +367,11 @@ export async function resumeBudgetWaits(
 }
 
 /**
- * Long work (ADR 0118): what pauses near a limit, while replies to people go on. A routine's run (not Rodar agora, nor
- * a widget's refresh) and a mission's are long by kind; any other once it grew in this claim of the run (a person
- * acting on it starts a new claim, so a fresh allowance): `LONG_WORK.modelCalls` model calls, a computer brain's third
- * turn, or `LONG_WORK.ms` of work with a call made. A run paused once stays long; Continuar agora's override never
- * pauses.
+ * Long work (ADR 0118): what pauses near a limit, while replies to people go on. A widget's refresh never is (the
+ * executor asks before this). A routine's run (not Rodar agora) and a mission's are long by kind; any other once it
+ * grew in this claim of the run (a person acting on it starts a new claim, so a fresh allowance):
+ * `LONG_WORK.modelCalls` model calls, a computer brain's third turn, or `LONG_WORK.ms` of work with a call made. A run
+ * paused once stays long; Continuar agora's override never pauses.
  */
 export const LONG_WORK = { modelCalls: 8, computerTurns: 2, ms: 10 * 60_000 } as const;
 
@@ -1246,7 +1260,13 @@ export async function wakeAgentUsageWaits(
   db: Database,
   orgId: string,
   agentId: string,
-  options: { pubsub?: PubSub; now?: number; delayMs?: number } = {},
+  options: {
+    pubsub?: PubSub;
+    now?: number;
+    delayMs?: number;
+    /** The right hand's runs for this person alone (`rightHandPerson`): their own AI changed, nobody else's. */
+    person?: string;
+  } = {},
 ) {
   const { agentRuns } = schema;
   const now = options.now ?? Date.now();
@@ -1262,6 +1282,7 @@ export async function wakeAgentUsageWaits(
       workId: agentRuns.workId,
       since: waitSinceSql,
       createdAt: agentRuns.createdAt,
+      triggerMessageId: agentRuns.triggerMessageId,
     })
     .from(agentRuns)
     .where(
@@ -1273,7 +1294,14 @@ export async function wakeAgentUsageWaits(
       ),
     )
     .limit(500);
+  const { person } = options;
+  const theirs = person
+    ? await Promise.all(
+        found.map(async (r) => (await rightHandPerson(db, { builtin: RIGHT_HAND }, { ...r, orgId })) === person),
+      )
+    : null;
   const rows = found
+    .filter((_, i) => theirs?.[i] ?? true)
     .filter(
       (r) => r.waitId && (USAGE_WAIT_CODES.has(r.code ?? "") || !turnStaysOnItsComputer(Number(r.executed), r.cut)),
     )
@@ -1306,12 +1334,16 @@ export const turnStaysOnItsComputer = (executed: number, cause: string | null | 
   executed > 0 || cause === "plan_limit";
 
 /**
- * Agents with a run waiting on an account it moved to at its plan's limit (`Transcript.accountMove`): when that account
- * goes or stops serving them, the run is woken (`wakeAgentsBrainWaits`) to go back to its agent's own.
+ * Agents with a run waiting on one of these accounts: one it moved to at its plan's limit (`Transcript.accountMove`),
+ * or the plan whose limit it is parked on (`usageWaitKey`), whatever the agent itself points at (the right hand on a
+ * plan that serves its person, a run of an agent whose account changed since). When that account goes or stops serving
+ * them, the run is woken (`wakeAgentsBrainWaits`) to think with what its agent has now, instead of sleeping until a
+ * reset of an account nobody can use any more.
  */
-export async function agentsMovedOnto(db: Executor, orgId: string, accountIds: readonly string[]): Promise<string[]> {
+export async function agentsWaitingOn(db: Executor, orgId: string, accountIds: readonly string[]): Promise<string[]> {
   if (accountIds.length === 0) return [];
   const { agentRuns } = schema;
+  const ids = [...accountIds];
   const rows = await db
     .selectDistinct({ id: agentRuns.agentId })
     .from(agentRuns)
@@ -1319,7 +1351,10 @@ export async function agentsMovedOnto(db: Executor, orgId: string, accountIds: r
       and(
         eq(agentRuns.orgId, orgId),
         eq(agentRuns.status, "waiting_input"),
-        inArray(sql`${runState}->'accountMove'->>'to'`, [...accountIds]),
+        or(
+          inArray(sql`${runState}->'accountMove'->>'to'`, ids),
+          inArray(sql`split_part(${runState}->'waitingForBrain'->>'waitKey', ':', 4)`, ids),
+        ),
       ),
     );
   return rows.map((r) => r.id);

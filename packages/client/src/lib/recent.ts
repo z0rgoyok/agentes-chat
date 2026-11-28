@@ -47,3 +47,43 @@ export const recentDms = <D extends Pick<DirectMessage, "with" | "lastMessage" |
         (d.lastMessage !== null || now - Date.parse(d.openedAt ?? "") < EMPTY_DM_SHOWN_MS),
     )
     .sort((a, b) => (dmActivityAt(b) ?? "").localeCompare(dmActivityAt(a) ?? ""));
+
+/** Someone Mensagens diretas lists (ADR 0260): a person or an agent, by id and name. */
+export interface DmListed {
+  kind: "person" | "agent";
+  id: string;
+  name: string;
+}
+
+/**
+ * Mensagens diretas with people and agents together (ADR 0260): `first` (the right hand) on top, then by their DM's
+ * latest activity, then everyone with none by name. `recent` keeps only the ones talked to (as `recentDms` reads a DM),
+ * and anyone whose DM has something unread.
+ */
+export function dmList<L extends DmListed>(
+  listed: readonly L[],
+  dms: readonly Pick<DirectMessage, "with" | "lastMessage" | "openedAt" | "unread">[],
+  {
+    show = "all",
+    first,
+    locale,
+    now = Date.now(),
+  }: { show?: "all" | "recent"; first?: string; locale?: string; now?: number } = {},
+): L[] {
+  const dmOf = new Map(dms.map((d) => [`${d.with.type}:${d.with.id}`, d]));
+  const at = (l: L) => {
+    const d = dmOf.get(`${l.kind}:${l.id}`);
+    if (!d) return null;
+    if (d.lastMessage || d.unread > 0) return dmActivityAt(d);
+    return now - Date.parse(d.openedAt ?? "") < EMPTY_DM_SHOWN_MS ? dmActivityAt(d) : null;
+  };
+  const kept = show === "all" ? listed : listed.filter((l) => l.id === first || at(l) !== null);
+  return [...kept].sort((a, b) => {
+    if (a.id === first || b.id === first) return a.id === first ? -1 : 1;
+    const x = at(a);
+    const y = at(b);
+    if (x && y) return y.localeCompare(x);
+    if (x || y) return x ? -1 : 1;
+    return a.name.localeCompare(b.name, locale);
+  });
+}

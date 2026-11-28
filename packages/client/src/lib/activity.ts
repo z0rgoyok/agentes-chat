@@ -3,7 +3,7 @@ import type { AgentStatusLine, ConsultationWait, RunConsultation } from "../api/
 import type { LiveConsult, LiveConsultStatus } from "../realtime/consults";
 import type { LiveRun } from "../realtime/streams";
 import type { TypingWho } from "../realtime/typing";
-import { formatLineTime, joinNames } from "./format";
+import { durationText, formatLineTime, joinNames } from "./format";
 import { agentGrammar } from "./grammar";
 import { MAIL_BRANDS } from "./mail";
 
@@ -85,6 +85,9 @@ export type ActivityKind =
   | "runningCommandAny"
   | "usingScreen"
   | "cloningRepo"
+  | "listingRepos"
+  | "updatingCode"
+  | "preparingCli"
   | "openingPullRequest"
   | "handingOff"
   | "recordingFindings"
@@ -126,6 +129,7 @@ export type ActivityKind =
   | "workingOnWorkspace"
   | "updatingThread"
   | "addingAgent"
+  | "settingChannelLead"
   | "readingConversation"
   | "usingTool";
 
@@ -143,6 +147,43 @@ export interface Activity {
   service?: string;
   /** A server connected by address: its own icon (`/api/app/connector-icons/…`). */
   icon?: string;
+  /** `preparingCli` (ADR 0228 §6): the computer its program is being fetched on, and how far (null: unknown yet). */
+  computer?: string;
+  percent?: number | null;
+}
+
+/** The coding CLIs' programs as people read them (`claude`, `codex`… as the server names them). */
+export const CLI_PROGRAMS: Readonly<Record<string, string>> = {
+  claude: "Claude Code",
+  codex: "Codex",
+  cursor: "Cursor",
+  opencode: "OpenCode",
+  grok: "Grok Build",
+  antigravity: "Antigravity",
+  devin: "Devin",
+  // Git for Windows' portable build: Claude Code's shell on Windows (ADR 0228 §6).
+  git: "Git",
+};
+
+/** The CLI each computer brain thinks with. */
+export const CLI_OF_BRAIN: Readonly<Record<string, string>> = {
+  claude_code: "claude",
+  codex: "codex",
+  cursor: "cursor",
+  opencode: "opencode",
+  grok: "grok",
+  antigravity: "antigravity",
+  devin: "devin",
+};
+
+/** The tool a run's live line carries while its CLI is fetched on its computer (`<cli>|<computer>|<percent>`). */
+export const PREPARE_CLI_TOOL = "prepare_cli";
+
+/** "preparando o Claude Code no MacBook… 45%": the program, the computer and how far, from the line's detail. */
+function preparingOf(detail: string | null | undefined): Activity {
+  const [cli = "", computer = "", pct = ""] = (detail ?? "").split("|");
+  const percent = /^\d{1,3}$/.test(pct) ? Math.min(100, Number(pct)) : null;
+  return { kind: "preparingCli", app: CLI_PROGRAMS[cli] ?? cli, computer, percent };
 }
 
 /** Where a call works, as `agent.tool` and the saved `tool_call` step say it (the engine's `ToolDefinition`). */
@@ -228,6 +269,8 @@ const BUILTIN: Record<string, ActivityKind> = {
   cancel_reminder: "cancelingReminder",
   list_reminders: "listingReminders",
   list_routines: "listingRoutines",
+  // A webhook routine run reads the call that started it.
+  read_webhook_call: "listingRoutines",
   computer_status: "checkingComputer",
   wait_for_device: "waitingForDevice",
   create_wiki_page: "writingWiki",
@@ -249,6 +292,9 @@ const BUILTIN: Record<string, ActivityKind> = {
   tell_agent: "tellingAgent",
   // Ours, though their first word reads like an app's name.
   git_clone: "cloningRepo",
+  list_repositories: "listingRepos",
+  // The checkouts' update that runs beside the turn, waited for inside it.
+  wait_for_code: "updatingCode",
   open_pull_request: "openingPullRequest",
   hand_off: "handingOff",
   record_findings: "recordingFindings",
@@ -275,6 +321,7 @@ const BUILTIN: Record<string, ActivityKind> = {
   show_block: "preparingCard",
   offer_approvals: "preparingCard",
   offer_open_page: "preparingCard",
+  offer_voice_setup: "preparingCard",
   set_team_week: "preparingCard",
   start_poll: "startingPoll",
   ask_choices: "askingChoices",
@@ -317,6 +364,7 @@ const BUILTIN: Record<string, ActivityKind> = {
   workspace_action: "workingOnWorkspace",
   update_thread: "updatingThread",
   add_agent_to_channel: "addingAgent",
+  set_channel_lead: "settingChannelLead",
 };
 
 /** A computer brain's own tools (`agent.step`: Claude Code's, Codex's, OpenCode's, Grok Build's), lower-cased. */
@@ -428,6 +476,8 @@ function activityOf(tool: string | null | undefined, connector?: string | null, 
   }
   if (name === "load_skill")
     return detail?.trim() ? { kind: "openingSkill", app: detail.trim() } : { kind: "consultingSkill" };
+  // ADR 0228 §6: the run waits while its computer fetches the CLI it thinks with.
+  if (name === PREPARE_CLI_TOOL) return preparingOf(detail);
   // "Rodou: Rerun the tests": the command it checked, by the engine's label (`toolDetail`).
   if (name === PERMISSION_TOOL)
     return detail?.trim() ? { kind: "runningCommand", app: detail.trim() } : { kind: "runningCommandAny" };
@@ -662,12 +712,11 @@ export function barAsking(entries: ActivityEntry[]): EntryConsult | undefined {
   return consult?.status === "asking" ? consult : undefined;
 }
 
-/** " · 4 s" shows from 2 s on: minutes and seconds past a minute. */
-export function elapsedParts(ms: number): { m: number; s: number } | null {
-  const secs = Math.floor(Math.max(0, ms) / 1000);
-  if (secs < 2) return null;
-  return { m: Math.floor(secs / 60), s: secs % 60 };
-}
+/**
+ * A run's time shows only past a minute, coarse ("1 min", "2 min"): seconds ticking by make an agent at work feel
+ * slow.
+ */
+export const RUN_CLOCK_AFTER_MS = 60_000;
 
 /**
  * The turn the bar tells for one agent on its own, its phrase and its time alike: a turn that failed can still be
@@ -676,15 +725,14 @@ export function elapsedParts(ms: number): { m: number; s: number } | null {
 const turnAtWork = (runs: LiveRun[], agentId: string) =>
   runs.find((r) => r.agentId === agentId && r.status !== "failed");
 
-/** How long a run has been at it ("16 s", "1 min 5 s"), from 2 s on: the bar's time and its live row's alike. */
+/** How long a run has been at it ("1 min", "2 min"), from a minute on: the bar's time and its live row's alike. */
 export function runElapsed(t: TFunction, run: Pick<LiveRun, "startedAt" | "workingSince">, now: number): string | null {
   // The work it is doing now (`workingSince`), not the run's first start: a run that posted or waited counts again.
-  const took = elapsedParts(now - (run.workingSince ?? run.startedAt ?? now));
-  if (!took) return null;
-  return took.m > 0 ? t("run.elapsedMinutes", { m: took.m, s: took.s }) : t("run.elapsedSeconds", { n: took.s });
+  const took = now - (run.workingSince ?? run.startedAt ?? now);
+  return took < RUN_CLOCK_AFTER_MS ? null : durationText(t, took);
 }
 
-/** How long one agent on its own has been at it ("16 s", "1 min 5 s"): none for several, or while it asks another. */
+/** How long one agent on its own has been at it ("1 min", "2 min"): none for several, or while it asks another. */
 export function barElapsed(t: TFunction, entries: ActivityEntry[], runs: LiveRun[], now: number): string | null {
   const agents = entries.filter((e) => e.type === "agent");
   const only = agents.length === 1 ? agents[0] : undefined;
@@ -693,24 +741,15 @@ export function barElapsed(t: TFunction, entries: ActivityEntry[], runs: LiveRun
   return run ? runElapsed(t, run, now) : null;
 }
 
-/**
- * The entries the bar still tells once the agents whose live rows are on screen say it there (their step, time and
- * stop at the end of the row): saying it twice was noise. A question out keeps its own phrase, and people typing stay.
- */
-export function entriesOffScreen(
-  entries: ActivityEntry[],
-  runs: LiveRun[],
-  rowInView: (run: LiveRun) => boolean,
-): ActivityEntry[] {
-  return entries.filter((e) => {
-    if (e.type !== "agent" || e.consult) return true;
-    const run = runs.find((r) => r.agentId === e.id && BAR_STATUSES.has(r.status));
-    return !run || !rowInView(run);
-  });
-}
-
 /** "trabalhando", "consultando o GitHub". */
-export const activityVerb = (t: TFunction, a: Activity) => t(`chat.activity.${a.kind}`, { app: appLabel(a) });
+export const activityVerb = (t: TFunction, a: Activity) =>
+  a.kind === "preparingCli"
+    ? t(`chat.activity.${a.percent != null ? "preparingCliPct" : "preparingCli"}`, {
+        app: appLabel(a),
+        computer: a.computer ?? "",
+        percent: a.percent ?? 0,
+      })
+    : t(`chat.activity.${a.kind}`, { app: appLabel(a) });
 
 /**
  * The app as people read it: a connector's slug ("himetrica") starts with a capital ("Himetrica"); a name with
@@ -791,12 +830,18 @@ const WAIT_PHRASE = {
 } as const satisfies Record<ConsultationWait, string>;
 
 /**
- * One consultation's phrase: "Dev está perguntando ao Infra", "Infra respondeu. Dev está escrevendo". Work handed off
- * says the other agent's state: "Atlas lendo o Drive", "Atlas está trabalhando", "Atlas terminou. Ada está
- * escrevendo". Either way, what waits on the person reading ("Atlas espera sua aprovação") or on someone else ("O Atlas
- * espera uma aprovação") takes the phrase.
+ * One consultation's phrase: "Dev is asking Infra", "Infra answered. Dev is writing". Work handed off says the other
+ * agent's state: "Atlas reading the Drive", "Atlas helping Ada" (in the words of the reply that comes after it; `face`
+ * draws Ada's face before her name), "Atlas is done. Ada is writing". Either way, what waits on the person reading
+ * ("Atlas is waiting for your approval") or on someone else ("Atlas is waiting for an approval") takes the phrase.
  */
-function consultPhrase(t: TFunction, from: string, c: EntryConsult, mark: MarkName) {
+function consultPhrase(
+  t: TFunction,
+  from: { name: string; id: string },
+  c: EntryConsult,
+  mark: MarkName,
+  face?: MarkFace,
+) {
   const note = c.kind === "note";
   if (c.status === "asking") {
     if (c.yours)
@@ -804,16 +849,20 @@ function consultPhrase(t: TFunction, from: string, c: EntryConsult, mark: MarkNa
         name: mark(c.toName),
       });
     if (c.wait) return t(WAIT_PHRASE[c.wait], { name: mark(c.toName), context: agentGrammar(c.toName).context });
-    if (!note) return t("chat.consult.asking", { from: mark(from), to: mark(c.toName) });
+    if (!note) return t("chat.consult.asking", { from: mark(from.name), to: mark(c.toName) });
     return c.step
       ? t("chat.consult.doing", { name: mark(c.toName), doing: c.step })
-      : t("chat.consultGroup.working", { name: mark(c.toName) });
+      : t("chat.consult.helping", {
+          to: mark(c.toName),
+          from: face ? face(from.name, from.id) : mark(from.name),
+          context: agentGrammar(from.name).context,
+        });
   }
   if (c.status === "answered") {
-    return t(note ? "chat.consult.done" : "chat.consult.answered", { from: mark(from), to: mark(c.toName) });
+    return t(note ? "chat.consult.done" : "chat.consult.answered", { from: mark(from.name), to: mark(c.toName) });
   }
-  if (note) return t("chat.consult.notDone", { from: mark(from), to: mark(c.toName) });
-  return t("chat.consult.writing", { from: mark(from) });
+  if (note) return t("chat.consult.notDone", { from: mark(from.name), to: mark(c.toName) });
+  return t("chat.consult.writing", { from: mark(from.name) });
 }
 
 /**
@@ -838,10 +887,10 @@ const doingPhrase = (t: TFunction, names: string[], activity: Activity, mark: Ma
   t("chat.doing", { count: names.length, names: listNames(t, names, mark), doing: activityVerb(t, activity) });
 
 /** The agents' part: one says what it does (or whom it asks); several just work, their blocks say the rest. */
-function agentsPhrase(t: TFunction, entries: ActivityEntry[], mark: MarkName) {
+function agentsPhrase(t: TFunction, entries: ActivityEntry[], mark: MarkName, face?: MarkFace) {
   const agents = entries.filter((e) => e.type === "agent");
   const only = agents.length === 1 ? agents[0] : undefined;
-  if (only?.consult) return consultPhrase(t, only.name, only.consult, mark);
+  if (only?.consult) return consultPhrase(t, only, only.consult, mark, face);
   if (agents.length === 0) return "";
   const names = agents.map((e) => e.name);
   return doingPhrase(t, names, only?.activity ?? { kind: "thinking" }, mark);
@@ -853,9 +902,9 @@ const PHRASES_SEP = " · ";
  * The bar's sentence, one short line however many are at work: "Theo e mais 2 estão trabalhando · Marina
  * está digitando · Rui está gravando áudio…"; "" when nobody. `mark` wraps each name (for bold).
  */
-export function activitySentence(t: TFunction, entries: ActivityEntry[], mark: MarkName = plain) {
+export function activitySentence(t: TFunction, entries: ActivityEntry[], mark: MarkName = plain, face?: MarkFace) {
   const people = peopleGroups(entries).map((g) => doingPhrase(t, g.names, { kind: g.kind }, mark));
-  const phrases = [agentsPhrase(t, entries, mark), ...people].filter(Boolean);
+  const phrases = [agentsPhrase(t, entries, mark, face), ...people].filter(Boolean);
   return phrases.length > 0 ? `${phrases.join(PHRASES_SEP)}…` : "";
 }
 
@@ -867,10 +916,10 @@ export const activityText = (t: TFunction, entries: ActivityEntry[]) => activity
  * row's step line in the conversation (`waitStep`), never said twice. Anyone else (several, a question out, people
  * typing): the plain sentence.
  */
-export function barPhrase(t: TFunction, entries: ActivityEntry[], mark: MarkName = plain): string {
+export function barPhrase(t: TFunction, entries: ActivityEntry[], mark: MarkName = plain, face?: MarkFace): string {
   const only = entries.length === 1 ? entries[0] : undefined;
   if (only?.type === "agent" && !only.consult) return mark(only.name);
-  return activitySentence(t, entries, mark);
+  return activitySentence(t, entries, mark, face);
 }
 
 /** A group's phrase in two pieces, its names then what they do; a language that puts the names later keeps it whole. */
@@ -892,6 +941,7 @@ export function barWords(
   t: TFunction,
   entries: ActivityEntry[],
   mark: MarkName = plain,
+  face?: MarkFace,
 ): [
   agents: string,
   sep: string,
@@ -902,8 +952,8 @@ export function barWords(
   recording: string,
 ] {
   const groups = peopleGroups(entries);
-  if (groups.length === 0) return [barPhrase(t, entries, mark), "", "", "", "", "", ""];
-  const agents = agentsPhrase(t, entries, mark);
+  if (groups.length === 0) return [barPhrase(t, entries, mark, face), "", "", "", "", "", ""];
+  const agents = agentsPhrase(t, entries, mark, face);
   const typing = groups.find((g) => g.kind === "typing");
   const voice = groups.find((g) => g.kind === "recordingVoice");
   const [typers, typed] = typing ? namesFirst(t, typing.names, typing.kind, mark) : ["", ""];

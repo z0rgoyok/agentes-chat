@@ -31,8 +31,8 @@ const posted = {
 
 const active = (over: Partial<ActiveRun> = {}): ActiveRun => ({ ...base, status: "running", ...over });
 const iso = (ms: number) => new Date(T0 + ms).toISOString();
-/** The translator's key and its seconds, so the count reads without a language. */
-const words = ((key: string, o: { n: number }) => `${key}:${o.n}`) as never;
+/** The translator's key and its number, so the count reads without a language. */
+const words = ((key: string, o: { n?: number; count?: number }) => `${key}:${o.n ?? o.count}`) as never;
 const since = (s: StreamsState) => {
   const run = s.runs.r1;
   return run ? (workingSinceOf(run) ?? 0) - T0 : undefined;
@@ -53,7 +53,8 @@ describe("a row already here keeps its count when the server is read again", () 
     expect(since(s)).toBe(0);
     // Where it started is still the server's, for the row's place in the timeline.
     expect(s.runs.r1?.startedAt).toBe(T0 - 120_000);
-    expect(runElapsed(words, s.runs.r1 ?? {}, T0 + 20_000)).toBe("run.elapsedSeconds:20");
+    // 20 s of work shows no time yet; counted from the first start it would read 2 minutes.
+    expect(runElapsed(words, s.runs.r1 ?? {}, T0 + 20_000)).toBeNull();
   });
 
   test("a longer count from the server (it counts from the message, this device from its first event) changes nothing", () => {

@@ -41,7 +41,8 @@ back.
 The team asleep on the agents' sky, what each one does (its first routine), the plan the billing service recommends
 with its price, "Ligar o time", "Ver todos os planos" and "Entrar no workspace sem ligar". The browser reads the plan
 from the billing service's public list (`GET {billingUrl}/plans.json?locale=`): this server still names no plan or
-price. Without that list the step names no plan and its button opens the billing page. The billing link may carry the
+price. A personal workspace is offered the list's plan for one person (`recommendedAlone`), the recommended one where
+the list names none. Without that list the step names no plan and its button opens the billing page. The billing link may carry the
 plan picked (`plan`, the billing service's own key), which this server passes on unread. Self-hosted servers have no
 plan step. The phone app shows the team asleep and where to turn it on, with no price and no link.
 

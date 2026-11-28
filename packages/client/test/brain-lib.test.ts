@@ -7,10 +7,12 @@ import {
   advancedContents,
   advancedDefaults,
   advancedParts,
+  effortLevelsFor,
   effortLevelsOf,
   effortOf,
   effortTextOf,
   isAdvancedDefault,
+  shownEffort,
   viewSpeedFits,
 } from "../src/lib/brain-advanced";
 import { autoContextLine } from "../src/lib/context-limits";
@@ -184,17 +186,45 @@ describe("Velocidade (ADR 0149)", () => {
     expect(advancedParts(t, "pt-BR", { kind: "claude_code", autoModel: false, now: medium })).toEqual([]);
   });
 
-  test("a key offers the levels the API takes: none is the provider's default, a stored max or xhigh is high", () => {
-    expect(effortLevelsOf("model")).toEqual(["low", "medium", "high"]);
+  test("each model offers the levels its catalog row lists, else up to high; a stored level shows as stored", () => {
+    expect(effortLevelsOf("model", "claude-sonnet-5-5")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(effortLevelsOf("claude_code", "claude-opus-5-5[1m]")).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    expect(effortLevelsOf("model", "gpt-6.2-sol")).toEqual(["low", "medium", "high"]);
+    expect(effortLevelsOf("claude_code", "some-plan-model")).toEqual(["low", "medium", "high"]);
+    expect(effortLevelsOf("codex", "gpt-6.2-sol")).toEqual(["low", "medium", "high"]);
+    expect(effortLevelsOf("antigravity", "gemini-4-argon-high")).toEqual([]);
+    expect(effortLevelsOf("cursor", "claude-opus-5-5")).toEqual([]);
+    // The pickers before the one AI choice name no model: their fixed lists.
     expect(effortLevelsOf("claude_code")).toEqual(["low", "medium", "high", "max"]);
+    expect(effortLevelsOf("model")).toEqual(["low", "medium", "high"]);
+    // A brain's default and its aliases go by their catalog id.
+    const claude = [
+      {
+        kind: "claude_code" as const,
+        models: [{ value: "sonnet", label: "Sonnet", modelId: "claude-sonnet-5-5" }],
+        defaultModel: "sonnet",
+      },
+    ];
+    expect(effortLevelsFor("claude_code", null, claude)).toEqual(["low", "medium", "high", "xhigh", "max"]);
+    // A Devin family takes the levels its account listed for it, past high too.
+    const devin = [
+      {
+        kind: "devin" as const,
+        models: [{ value: "swe-2", label: "SWE-2", efforts: ["medium" as const, "high" as const, "max" as const] }],
+        defaultModel: null,
+      },
+    ];
+    expect(effortLevelsFor("devin", "swe-2", devin)).toEqual(["medium", "high", "max"]);
+    expect(shownEffort("max", ["low", "medium", "high"])).toBe("high");
+    expect(shownEffort("xhigh", ["low", "medium", "high", "xhigh", "max"])).toBe("xhigh");
     expect([null, "auto", "low", "medium", "high", "xhigh", "max"].map((e) => effortOf("model", e))).toEqual([
       null,
       null,
       "low",
       "medium",
       "high",
-      "high",
-      "high",
+      "xhigh",
+      "max",
     ]);
     expect([null, "auto", "max"].map((e) => effortOf("codex", e))).toEqual(["medium", "medium", "max"]);
     expect(([null, "medium", "high"] as const).map((e) => effortTextOf("model", e))).toEqual([

@@ -1,8 +1,17 @@
 import type { Breadcrumb, Event } from "@sentry/core";
 import { redactCommon } from "./redact";
 
-const EMAIL = /[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
-const JWT = /\beyJ[\w-]{6,}\.[\w-]{6,}\.[\w-]*/g;
+/**
+ * An email (the first group); where none starts, the rest of its run of `[\w.+-]`, passed whole: from anywhere in the
+ * run the part before `@` reads to the run's end, so a later start in it finds none either, and reading on from each
+ * would take the square of the run's length (one long word).
+ */
+const EMAIL = /([\w.+-]+@[\w-]+(?:\.[\w-]+)+)|[\w.+-]+/g;
+/**
+ * A JWT's first part runs to the end of its run of `[\w-]`, so one starts only at the first `eyJ` starting a word in
+ * that run: the lazy lookbehind skips a later one, which would read the run to its end again.
+ */
+const JWT = /\beyJ(?<!\beyJ[\w-]*?eyJ)[\w-]{6,}\.[\w-]{6,}\.[\w-]*/g;
 const IPV4 = /\b\d{1,3}(?:\.\d{1,3}){3}\b/g;
 /** What may be an IPv6 address (`isIPv6` decides), compressed (`2001:db8::1`) and with a zone (`fe80::1%en0`). */
 const IPV6 = /(?<![\w:.])((?:[0-9a-f]{0,4}:){2,7}[0-9a-f]{0,4})(%[\w.-]+)?(?![\w:])/gi;
@@ -29,7 +38,7 @@ function isIPv6(address: string) {
 export function scrubText(text: string): string {
   return redactCommon(text.replace(QUERY_PARAMS, "\nparams: [removed]"))
     .replace(JWT, "[jwt]")
-    .replace(EMAIL, "[email]")
+    .replace(EMAIL, (run, email?: string) => (email ? "[email]" : run))
     .replace(IPV4, "[ip]")
     .replace(IPV6, (match, address: string) => (isIPv6(address) ? "[ip]" : match))
     .replace(TOKEN, (match, before: string, token: string) => (UUID.test(token) ? match : `${before}[token]`));
@@ -72,11 +81,20 @@ export function urlOrigin(url: string): string | null {
   }
 }
 
-/** A bracketed IPv6 host (`http://[::1]:3000/…`) is part of the URL, so its path is cut too. */
-const URL_IN_TEXT = /\b[a-z][a-z0-9+.-]*:\/\/(?:[^\s"'<>()[\]{}@/]*@)?(?:\[[\w:.%-]*\])?[^\s"'<>()[\]{}]*/gi;
+/**
+ * A bracketed IPv6 host (`http://[::1]:3000/…`) is part of the URL, so its path is cut too. A scheme runs to the end of
+ * its run of `[a-z0-9+.-]`, so a URL starts only at the first letter starting a word in that run: the lazy lookbehind
+ * skips a later one, which would read the run to its end again.
+ */
+const URL_IN_TEXT =
+  /\b[a-z](?<!\b[a-z][a-z0-9+.-]*?[a-z])[a-z0-9+.-]*:\/\/(?:[^\s"'<>()[\]{}@/]*@)?(?:\[[\w:.%-]*\])?[^\s"'<>()[\]{}]*/gi;
 const URL_HEAD = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/?#@]*@)?(?:\[[^\]]*\]|[^/?#:]*)(?::\d+)?/i;
-/** Hosts named only on a local network (`someones-laptop.local`): a person's or a computer's name. */
-const LOCAL_HOST = /\b[\w-]+(?:\.[\w-]+)*\.(?:local|lan|internal|home\.arpa)\b/gi;
+/**
+ * Hosts named only on a local network (`someones-laptop.local`), as the first group: a person's or a computer's name.
+ * Where none starts, the rest of the dotted name, passed whole: a later start in it has only endings this one had, so
+ * it finds none either, and reading on from each would take the square of the name's length.
+ */
+const LOCAL_HOST = /(\b[\w-]+(?:\.[\w-]+)*\.(?:local|lan|internal|home\.arpa)\b)|\b[\w-]+(?:\.[\w-]+)*/gi;
 /**
  * Home folders on macOS, Linux and Windows (both slashes), and Windows' variable for one. A Windows account name may
  * hold spaces (`C:\\Users\\Jane Doe\\…`): taken whole when a separator follows it.
@@ -118,7 +136,7 @@ export function scrubLogLine(line: string, known: ReadonlyArray<readonly [value:
           return url.length > origin.length && url.slice(origin.length) !== "/" ? `${origin}/…` : origin;
         }),
     )
-      .replace(LOCAL_HOST, "[host]")
+      .replace(LOCAL_HOST, (name, host?: string) => (host ? "[host]" : name))
       .replace(HOME_PATHS, "~"),
     values,
   );
@@ -153,38 +171,57 @@ const ID_TAGS = new Set(["org_id", "user_id", "agent_id", "run_id", "machine_id"
  * release, the route as a pattern and pseudonymous internal ids. Never emails, names, IP addresses, cookies, auth
  * headers, request or response bodies, message or mail content, tool inputs or outputs, prompts, model output, file
  * contents or tokens.
+ *
+ * A copy: the event it is given stays as it came, and each exception and frame is the copy's own. The SDK's dedupe
+ * keeps the last event it let through, whose exception `beforeSend` is given, to compare the next one with: scrubbed in
+ * place, a repeat would no longer match it and be sent again.
  */
 export function scrubEvent<T extends Event>(event: T): T {
-  const { request, user, contexts, tags } = event;
+  const { request, user, contexts, tags, exception } = event;
+  const clean = { ...event };
   if (request) {
     const headers = Object.entries(request.headers ?? {}).filter(([name]) => KEPT_HEADERS.has(name.toLowerCase()));
-    event.request = {
+    clean.request = {
       method: request.method,
       url: request.url === undefined ? undefined : urlPattern(request.url),
       ...(headers.length > 0 ? { headers: Object.fromEntries(headers) } : {}),
     };
   }
-  event.user = user?.id === undefined ? undefined : { id: user.id };
-  delete event.server_name;
-  delete event.extra;
-  delete event.sdkProcessingMetadata;
-  if (event.message) event.message = scrubText(event.message);
-  if (event.logentry) event.logentry = { message: event.logentry.message && scrubText(event.logentry.message) };
-  if (event.transaction) event.transaction = pathPattern(event.transaction);
-  for (const exception of event.exception?.values ?? []) {
-    if (exception.value) exception.value = scrubText(exception.value);
-    for (const frame of exception.stacktrace?.frames ?? []) delete frame.vars;
-  }
-  if (event.breadcrumbs) event.breadcrumbs = event.breadcrumbs.flatMap((crumb) => scrubBreadcrumb(crumb) ?? []);
+  clean.user = user?.id === undefined ? undefined : { id: user.id };
+  delete clean.server_name;
+  delete clean.extra;
+  delete clean.sdkProcessingMetadata;
+  if (clean.message) clean.message = scrubText(clean.message);
+  if (clean.logentry) clean.logentry = { message: clean.logentry.message && scrubText(clean.logentry.message) };
+  if (clean.transaction) clean.transaction = pathPattern(clean.transaction);
+  if (exception?.values)
+    clean.exception = {
+      ...exception,
+      values: exception.values.map((value) => ({
+        ...value,
+        ...(value.value && { value: scrubText(value.value) }),
+        ...(value.stacktrace?.frames && {
+          stacktrace: {
+            ...value.stacktrace,
+            frames: value.stacktrace.frames.map(({ vars: _vars, ...frame }) => frame),
+          },
+        }),
+      })),
+    };
+  if (clean.breadcrumbs) clean.breadcrumbs = clean.breadcrumbs.flatMap((crumb) => scrubBreadcrumb(crumb) ?? []);
   if (contexts) {
-    delete contexts.response;
-    if (contexts.device) delete contexts.device.name;
+    const { response: _response, ...kept } = contexts;
+    if (kept.device) {
+      const { name: _name, ...device } = kept.device;
+      kept.device = device;
+    }
+    clean.contexts = kept;
   }
   if (tags)
-    event.tags = Object.fromEntries(
+    clean.tags = Object.fromEntries(
       Object.entries(tags).map(([k, v]) => [k, typeof v === "string" && !ID_TAGS.has(k) ? scrubText(v) : v]),
     );
-  return event;
+  return clean;
 }
 
 /** What every reporting SDK starts with: nothing personal, no traces, every event and breadcrumb scrubbed. */

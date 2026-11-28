@@ -35,6 +35,8 @@ import {
   RUN_CLAIM_STAGES_MAX,
   RUN_CLAIM_TURNS_MAX,
   RUN_CLAIMS_MAX,
+  RUN_WATERFALL_MAX,
+  STAGE_GROUPS,
   STOPPED_BY,
   SYSTEM_STOP_REASONS,
 } from "@agenteschat/engine";
@@ -389,7 +391,24 @@ const Trace = z
                     "Not warm: why it started a new process (`coldStarts.cause` of the run timings); null when warm or an older runner didn't say.",
                 }),
                 initMs: Count.nullable().openapi({ description: "A new process until it said it was ready." }),
+                sentMs: Count.nullable().openapi({
+                  description:
+                    "Turn start to when the runner handed it to its CLI: its own waits before (a turn the process ran by itself, a model switch).",
+                }),
                 firstEventMs: Count.nullable().openapi({ description: "Turn start to its first event." }),
+                firstRequestMs: Count.nullable().openapi({
+                  description: "Turn start to the CLI's first API request: before it, the CLI's own work.",
+                }),
+                toolsListMs: Count.nullable().openapi({
+                  description: "A new process: turn start to its first ask for agentes.chat's tools.",
+                }),
+                toolsListWaitMs: Count.nullable().openapi({
+                  description: "How long that ask waited for its answer: the CLI says it is ready only after it.",
+                }),
+                warmMismatchAt: Count.nullable().openapi({
+                  description:
+                    "A warm_mismatch turn: the character of its system text where the warm start's first differed.",
+                }),
                 firstTokenMs: Count.nullable().openapi({
                   description: "Turn start to the model API's first streamed message (time to first token).",
                 }),
@@ -407,10 +426,83 @@ const Trace = z
             .openapi({
               description: `How each of its turns on a computer started, as the computer said, at most ${RUN_CLAIM_TURNS_MAX}.`,
             }),
+          turns: z
+            .array(
+              z.object({
+                brain: z
+                  .string()
+                  .openapi({ description: "`model` (a provider's API), a coding CLI's kind, or `other`." }),
+                model: z.string().nullable().openapi({ description: "The model it asked for; null: its default." }),
+                atMs: Count.openapi({ description: "From the claim's start to the turn's." }),
+                ms: Count,
+                end: z.string().openapi({ description: "`done`, the code it failed with, or `thrown`." }),
+                preTurnMs: Count.nullable().openapi({ description: "The work before its model (the checkouts)." }),
+                firstEventMs: Count.nullable().openapi({
+                  description: "Turn start to its first event, on the server.",
+                }),
+                firstTextMs: Count.nullable().openapi({ description: "Turn start to its first text, on the server." }),
+                tools: z
+                  .object({ count: Count, ms: Count, maxMs: Count })
+                  .nullable()
+                  .openapi({ description: "The calls it ran itself; `ms`: those it said it started, summed." }),
+                runner: z
+                  .record(z.string(), z.union([z.boolean(), z.number(), z.string(), z.null()]))
+                  .nullable()
+                  .openapi({ description: "Its computer's measures, as in `computerTurns`." }),
+                evidence: z.array(z.string()).openapi({
+                  description:
+                    "A slow or failed turn: what the CLI's debug log said during it, timed from the turn's start, scrubbed.",
+                }),
+                system: z.record(z.string(), z.string()).openapi({
+                  description:
+                    "A computer brain's system text by its blocks, each a short hash: two turns whose hashes differ show which block changed.",
+                }),
+              }),
+            )
+            .openapi({ description: `Each brain turn as the server saw it, at most ${RUN_CLAIM_TURNS_MAX}.` }),
+          slow: z
+            .array(
+              z.object({
+                stage: z.enum(["context", "pre_turn", "init", "first_byte", "reply"]),
+                ms: Count,
+                budgetMs: Count,
+                cause: z.string().openapi({
+                  description:
+                    "What took the time: a context step, `checkouts`, a cold start's cause, `api_retry`, `wait`, a failure's code, or a reply's largest stage.",
+                }),
+                turn: Count.nullable(),
+              }),
+            )
+            .openapi({ description: "The budgets it broke (`SLOW_TURN_BUDGETS`)." }),
+          waterfall: z.array(z.object({ span: z.string(), startMs: Count, ms: Count })).openapi({
+            description: "Its stages and its turns' marks on one time line from its start; a mark is 0 ms.",
+          }),
         }),
       )
       .openapi({
         description: `Where the time went each time a worker took the run up (a claim), oldest first: the last ${RUN_CLAIMS_MAX} the run kept, none on a run that kept none. A wait between two claims is in neither.`,
+      }),
+    waterfall: z
+      .object({
+        segments: z.array(
+          z.object({
+            claim: Count.openapi({ description: "Its claim's place in `claims`." }),
+            stage: z.string().openapi({ description: "The stage's name without its turn (`model`, `context`…)." }),
+            turn: Count.nullable().openapi({ description: "The turn it is of (`model#2`: 2), null for none." }),
+            part: z.string().nullable().openapi({
+              description:
+                "A computer turn's step of its `model` stage (`pre_turn_sync`, `cli_init`, `cli_first_byte`, `tools`, `model_write`); null for the stage whole.",
+            }),
+            group: z.enum(STAGE_GROUPS).openapi({ description: "Its group in `/analytics/stage-breakdown`." }),
+            startMs: Count.openapi({ description: "From the first claim's start." }),
+            ms: Count,
+          }),
+        ),
+        cut: z.boolean().openapi({ description: `It had more than ${RUN_WATERFALL_MAX} segments.` }),
+      })
+      .openapi({
+        description:
+          "The claims as one timeline, in the order they ran: a computer turn's steps are its shares, drawn one after the other (tools run while the model's turn goes on).",
       }),
     machine: z
       .object({

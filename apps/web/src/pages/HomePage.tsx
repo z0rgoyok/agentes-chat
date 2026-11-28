@@ -29,7 +29,7 @@ import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { dayPart } from "@agenteschat/client/lib/welcome";
 import { WORKING_POLL_MS, type WorkItem, workByAgent, workingNow } from "@agenteschat/client/lib/working";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
-import { Composer, EmptyState, GroupHeading, Icon, PageHeader, Select } from "@agenteschat/ui";
+import { Composer, EmptyState, GroupHeading, Icon, OrbitGlyph, PageHeader, Select } from "@agenteschat/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { type ReactNode, type RefObject, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
@@ -310,7 +310,9 @@ function AskAgent({ agents, composer }: { agents: Agent[]; composer: RefObject<H
             }))}
             renderValue={(o) => (
               <span className="home-ask__agent">
-                <AgentAvatar agentId={o.value} name={o.label} size="xs" />
+                {/* In its tile, as in the list it opens: a bare body's accessory reaches above its box, which the
+                    chosen value's line cuts. */}
+                <AgentAvatar agentId={o.value} name={o.label} size="xs" framed />
                 {o.label}
               </span>
             )}
@@ -514,8 +516,9 @@ function MissionRow({ m, dir }: { m: Mission; dir: Dir }) {
 }
 
 /**
- * An agent at work: whom it helps (work another agent handed it, listed where it was handed off), else its line (ADR
- * 0084), else what it is on, where and since when. It opens the conversation, at the reply that handed it off.
+ * An agent at work, its face in the orbit (as in the sidebar): whom it helps (work another agent handed it, listed where
+ * it was handed off), else its line (ADR 0084), else what it is on, where and since when. It opens the conversation, at
+ * the reply that handed it off.
  */
 function WorkRow({ w, dir, now }: { w: WorkItem; dir: Dir; now: number }) {
   const { t, i18n } = useTranslation();
@@ -537,7 +540,11 @@ function WorkRow({ w, dir, now }: { w: WorkItem; dir: Dir; now: number }) {
   const meta = [where, relativeTime(t, i18n.language, w.since, new Date(now))].filter(Boolean).join(" · ");
   const body = (
     <RowBody
-      face={<AgentAvatar agentId={w.agentId} name={name} channelId={w.channelId} />}
+      face={
+        <OrbitGlyph appearance={lookOf(agent)}>
+          <AgentAvatar agentId={w.agentId} name={name} channelId={w.channelId} />
+        </OrbitGlyph>
+      }
       title={<b>{name}</b>}
       sub={helping ?? (line ? [line.emoji, line.text].filter(Boolean).join(" ") : w.what)}
       meta={meta}

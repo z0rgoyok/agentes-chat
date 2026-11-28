@@ -1,3 +1,4 @@
+import type { TFunction } from "i18next";
 import type { Agent, Approval, ApprovalsLevel, AuditRow } from "../api/types";
 import { managesAgent } from "./audience";
 
@@ -20,6 +21,19 @@ export const auditUnasked = (row: Pick<AuditRow, "details">) => row.details.appr
 /** It follows the workspace's level ("Segue o workspace"); an older server doesn't say, so it doesn't show. */
 export const followsWorkspace = (agent: Pick<Agent, "approvalsLevelOwn"> | null | undefined) =>
   agent?.approvalsLevelOwn === false;
+
+/**
+ * An agent's Aprovações line: its level, and that it is the workspace's while it has no choice of its own ("Só o
+ * arriscado · do workspace"), so the line never hides which level holds.
+ */
+export const approvalsLevelLine = (
+  t: TFunction,
+  agent: Pick<Agent, "approvalsLevel" | "approvalsLevelOwn"> | null | undefined,
+  update: Parameters<typeof shownApprovalsLevel>[1],
+) => {
+  const level = t(`approvalsLevel.${shownApprovalsLevel(agent, update)}.title`);
+  return followsWorkspace(agent) && !update.isPending ? t("approvalsLevel.follows", { level }) : level;
+};
 
 /** How many agents keep their own level when the workspace's changes. */
 export const ownApprovalsCount = (agents: readonly Pick<Agent, "approvalsLevelOwn">[]) =>

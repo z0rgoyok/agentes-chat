@@ -5,6 +5,7 @@ import {
   fanOutOf,
   fanOutText,
   fanShows,
+  queueWaitText,
   waitingFor,
 } from "@agenteschat/client/lib/computer-queue";
 import { memo } from "react";
@@ -20,8 +21,9 @@ import { useAgentsQueue, useOpenQueue } from "./QueueSheet";
 
 /**
  * Where "thinking" shows, at the end of the conversation, for a run that waits in line for its computer
- * (`conversationWaits`: one per run): its face and name, one line whatever holds it ("In line · starts soon"), "You go
- * first" on my own request, and "See queue". It lives as long as the receipts say the run waits.
+ * (`conversationWaits`: one per run): its face and name, one line ("In line · starts soon", or
+ * "In line, after Ada" behind another agent's waiting turn), "You go first" on my own request, and "See queue". It
+ * lives as long as the receipts say the run waits.
  */
 export const QueueWaitRow = memo(function QueueWaitRow({
   channelId,
@@ -55,7 +57,7 @@ export const QueueWaitRow = memo(function QueueWaitRow({
         <View style={styles.say}>
           <LineIcon name="wait" size={13} color={c.muted} variant="footnote" />
           <Text variant="footnote" tone="muted" style={styles.grow}>
-            {t("queue.waiting")}
+            {queueWaitText(t, queue, w, name)}
           </Text>
         </View>
         <View style={styles.acts}>

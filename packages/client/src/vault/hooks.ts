@@ -5,9 +5,11 @@ import { keys } from "../api/keys";
 import { type CacheEdit, edit, optimistic } from "../lib/optimistic";
 import type {
   SecretToVaultInput,
+  VaultAccess,
   VaultConnectInput,
   VaultConnection,
   VaultConnectionPatch,
+  VaultImportInput,
   VaultItem,
   VaultItemDetail,
   VaultItemInput,
@@ -151,12 +153,32 @@ export function useDeleteVaultItem(orgId: string) {
   });
 }
 
+/** Many items chosen at once: who has access to them, or deleting them. `count`: how many changed. */
+export function useVaultBulk(orgId: string) {
+  const api = useApi();
+  const refresh = useVaultRefresh(orgId);
+  return useMutation({
+    mutationFn: async (
+      action: { type: "access"; ids: string[]; access: VaultAccess } | { type: "delete"; ids: string[] },
+    ) => {
+      if (action.type === "access") {
+        const r = await vaultOf(api).setAccessMany(orgId, action.ids, action.access);
+        return { count: r.changed, kept: r.kept };
+      }
+      const r = await vaultOf(api).removeMany(orgId, action.ids);
+      return { count: r.deleted, kept: r.kept };
+    },
+    meta: { silent: true },
+    onSuccess: () => void refresh(),
+  });
+}
+
 /** A passwords file: `dryRun` counts what would happen, then the same call without it imports. */
 export function useImportVault(orgId: string) {
   const api = useApi();
   const refresh = useVaultRefresh(orgId);
   return useMutation({
-    mutationFn: (input: { csv: string; scope: VaultScope; dryRun: boolean }) => vaultOf(api).importCsv(orgId, input),
+    mutationFn: (input: VaultImportInput) => vaultOf(api).importCsv(orgId, input),
     meta: { silent: true },
     gcTime: 0,
     onSuccess: (_result, { dryRun }) => {

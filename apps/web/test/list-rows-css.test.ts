@@ -57,7 +57,6 @@ test("Calendar's and Routines' lists show their words whole: they wrap, never en
     ".routine-row__when-text small",
     ".routine-row__runs small",
     ".routines-horizon__label b",
-    ".cal-band__label b",
   ]) {
     expect([selector, last(top, selector, "text-overflow")]).toEqual([selector, undefined]);
     expect([selector, last(top, selector, "white-space")]).toEqual([selector, undefined]);
@@ -70,7 +69,6 @@ test("Calendar's and Routines' lists show their words whole: they wrap, never en
   // A lane grows with its name, the routine's line on its middle.
   expect(last(top, ".routines-horizon__label", "height")).toBeUndefined();
   expect(last(top, ".routines-horizon__track", "align-self")).toBe("center");
-  expect(last(top, ".cal-band__label", "height")).toBeUndefined();
   // An event's title wraps wherever it shows (a block, a row, a bar): no nowrap, no "…", a long word broken.
   expect(last(top, ".cal-chip__title", "white-space")).toBeUndefined();
   expect(last(top, ".cal-chip__title", "text-overflow")).toBeUndefined();

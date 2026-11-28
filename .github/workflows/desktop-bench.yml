@@ -1,0 +1,189 @@
+name: Desktop bench
+
+# The desktop app measured on GitHub's own macOS, Windows and Ubuntu runners: how long it takes to open (from its
+# start to the site's first screen), its memory and its idle CPU with the window shown and hidden, beside a floor
+# (the app on a blank page instead of the site). By hand and every Monday. It records and never fails on a number
+# (shared runners vary from run to run); it fails only when the bench itself couldn't measure. The builds are the
+# Desktop workflow's (release = none); the server is the one each app carries, on a workspace seeded once on Linux
+# (apps/server/scripts/perf); the app's side is src-tauri/src/bench.rs, the bench apps/desktop/scripts/bench.ts. Each
+# system's table goes to its job's summary, and its bench.json to the `bench-<system>` artifact.
+on:
+  workflow_dispatch:
+    inputs:
+      warm:
+        description: "Warm openings on each system"
+        type: number
+        default: 5
+      builds:
+        description: "Measure the builds of an earlier run of this workflow (its run id), made from this same commit, instead of building again"
+        type: string
+        required: false
+  schedule:
+    - cron: "23 5 * * 1"
+
+permissions:
+  contents: read
+  # The builds of an earlier run (`builds`).
+  actions: read
+
+jobs:
+  build:
+    if: ${{ !inputs.builds }}
+    # The Desktop workflow's release jobs ask to write; with release = none nothing is written.
+    permissions:
+      contents: write
+    uses: ./.github/workflows/desktop.yml
+    with:
+      release: none
+    secrets: inherit
+
+  # The workspace, once for every system: what a person does through the server's API, the bulk of its messages
+  # straight into its database (seed.ts).
+  seed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      # The builds of an earlier run carry that run's server, which refuses a database migrated past it, so they are
+      # measured only from the commit they were made from: the workspace is seeded by this checkout, never another
+      # commit's code (that would run another ref's code where this run's caches are written).
+      - name: The builds are this commit's
+        if: ${{ inputs.builds }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.builds }}
+        run: |
+          sha=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)
+          if [ "$sha" != "$GITHUB_SHA" ]; then
+            echo "::error::Run $RUN_ID built $sha; run the bench from that commit to measure its builds."
+            exit 1
+          fi
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - run: bun install --frozen-lockfile
+
+      - name: The pictures and clips
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          bash apps/server/scripts/perf/media.sh "$RUNNER_TEMP/media"
+          du -sh "$RUNNER_TEMP/media"
+
+      # A tarball: the database's empty folders are part of it, and an artifact's zip drops them.
+      - name: The workspace
+        run: |
+          bun apps/server/scripts/perf/seed.ts "$RUNNER_TEMP/seeded" "$RUNNER_TEMP/media"
+          tar -czf seeded.tgz -C "$RUNNER_TEMP/seeded" .
+          du -sh "$RUNNER_TEMP/seeded" seeded.tgz
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: bench-seeded
+          path: seeded.tgz
+          retention-days: 3
+
+  bench:
+    needs: [build, seed]
+    # Whatever became of the other builds (or `build` skipped, the builds from an earlier run): a system without its
+    # build fails at its download.
+    if: ${{ !cancelled() && needs.seed.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: macos
+            runner: macos-15
+            build: desktop-macos
+          - system: windows
+            runner: windows-latest
+            build: desktop-windows-x64
+          - system: linux
+            runner: ubuntu-22.04
+            build: desktop-linux-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+
+      - run: bun install --frozen-lockfile
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ matrix.build }}
+          path: build
+          run-id: ${{ inputs.builds || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: bench-seeded
+
+      # The app as people get it, and the server it carries: its runner acting as Bun, and its server/ and web/.
+      - name: Install the app (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/app"
+          tar -xzf build/*.app.tar.gz -C "$RUNNER_TEMP/app"
+          APP_DIR=$(ls -d "$RUNNER_TEMP"/app/*.app | head -1)
+          {
+            echo "APP=$APP_DIR"
+            echo "SERVER_RUNNER=$APP_DIR/Contents/MacOS/agentes-runner"
+            echo "NATIVE=$APP_DIR/Contents/Resources"
+          } >> "$GITHUB_ENV"
+
+      # Silent, for this user, as a person's install is (the WebView2 runtime too when it's missing); /R would start it.
+      - name: Install the app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = (Get-ChildItem build/*-setup.exe | Select-Object -First 1).FullName
+          Start-Process -Wait -FilePath $setup -ArgumentList '/S'
+          $dir = Join-Path $env:LOCALAPPDATA 'agentes.chat'
+          $exe = Get-ChildItem $dir -Filter *.exe | Where-Object { $_.Name -notmatch '^(agentes-runner|agent-browser|agent-desktop|uninstall)' } | Select-Object -First 1
+          "APP=$($exe.FullName)" >> $env:GITHUB_ENV
+          "SERVER_RUNNER=$(Join-Path $dir 'agentes-runner.exe')" >> $env:GITHUB_ENV
+          "NATIVE=$dir" >> $env:GITHUB_ENV
+
+      - name: Install the app (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          DEB=$(ls build/*.deb | head -1)
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq "./$DEB" xvfb dbus
+          FILES=$(dpkg -L "$(dpkg-deb -f "$DEB" Package)")
+          {
+            echo "APP=$(grep '^/usr/bin/' <<< "$FILES" | grep -v -e agentes-runner -e agent-browser -e agent-desktop | head -1)"
+            echo "SERVER_RUNNER=/usr/bin/agentes-runner"
+            echo "NATIVE=$(dirname "$(dirname "$(grep '/server/native.js$' <<< "$FILES")")")"
+          } >> "$GITHUB_ENV"
+
+      # On Linux the app opens on a virtual screen, with a session bus for its tray, as the Desktop workflow's look.
+      - name: Bench
+        shell: bash
+        env:
+          WARM: ${{ inputs.warm || 5 }}
+        run: |
+          echo "app: $APP"
+          mkdir seeded
+          tar -xzf seeded.tgz -C seeded
+          WRAP=()
+          if [ "$RUNNER_OS" = Linux ]; then WRAP=(xvfb-run -a -s "-screen 0 1440x900x24" dbus-run-session --); fi
+          "${WRAP[@]}" bun apps/desktop/scripts/bench.ts "$APP" "$SERVER_RUNNER" "$NATIVE" seeded bench "$WARM"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: bench-${{ matrix.system }}
+          path: bench/
+          retention-days: 90
+          if-no-files-found: ignore

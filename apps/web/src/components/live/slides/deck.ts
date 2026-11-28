@@ -2,6 +2,7 @@ import type { LiveRoom } from "@agenteschat/client";
 import { nextFrame, useLiveDocVersion } from "@agenteschat/client";
 import {
   type DeckView,
+  deckFonts,
   deckTheme,
   readSlide,
   SLIDE_H,
@@ -86,8 +87,10 @@ export class DeckReader {
     const deck = this.doc.getMap("deck");
     const w = deck.get("w");
     const h = deck.get("h");
+    const fonts = deckFonts(this.doc);
     this.last = {
       theme: deckTheme(this.doc),
+      ...(fonts ? { fonts } : {}),
       w: typeof w === "number" && w > 0 ? w : SLIDE_W,
       h: typeof h === "number" && h > 0 ? h : SLIDE_H,
       slides,

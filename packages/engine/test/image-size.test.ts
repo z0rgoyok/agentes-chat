@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
 import { createFileArtifact, getArtifact, openDm, postPersonMessage } from "../src";
-import { imageSize, pictureSize } from "../src/image-size";
+import { imageSize, pictureSize, videoSize } from "../src/image-size";
 import { type Fixture, setup } from "./fixtures";
 
 /** The first bytes of each format with its size in them (what `imageSize` reads), padded as a real file would be. */
@@ -48,6 +48,62 @@ const webp = (chunk: "VP8 " | "VP8L" | "VP8X", w: number, h: number) => {
   }
   return b;
 };
+
+/** An ISO box: its size, its type, its contents. */
+const box = (type: string, ...parts: Uint8Array[]) => {
+  const size = 8 + parts.reduce((n, p) => n + p.length, 0);
+  const b = new Uint8Array(size);
+  new DataView(b.buffer).setUint32(0, size);
+  b.set(new TextEncoder().encode(type), 4);
+  let at = 8;
+  for (const p of parts) {
+    b.set(p, at);
+    at += p.length;
+  }
+  return b;
+};
+/** A track header (version 0 or 1) with its matrix (a, b, c, d) and its size; a sound track's size is 0 × 0. */
+const tkhd = (w: number, h: number, { version = 0, turned = false } = {}) => {
+  const times = version === 1 ? 32 : 20;
+  const b = new Uint8Array(4 + times + 16 + 36 + 8);
+  const v = new DataView(b.buffer);
+  b[0] = version;
+  const matrix = 4 + times + 16;
+  const one = 0x10000;
+  v.setInt32(matrix, turned ? 0 : one);
+  v.setInt32(matrix + 4, turned ? one : 0);
+  v.setInt32(matrix + 12, turned ? -one : 0);
+  v.setInt32(matrix + 16, turned ? 0 : one);
+  v.setUint32(matrix + 32, 0x40000000);
+  v.setUint32(matrix + 36, w * one);
+  v.setUint32(matrix + 40, h * one);
+  return box("tkhd", b);
+};
+/** An MP4 written as a camera does (not for streaming): the picture data first, the header at the end. */
+const mp4 = (...tracks: Uint8Array[]) =>
+  new Uint8Array([
+    ...box("ftyp", new TextEncoder().encode("isom\0\0\x02\0isomiso2")),
+    ...box("mdat", new Uint8Array(4096)),
+    ...box("moov", box("mvhd", new Uint8Array(100)), ...tracks.map((t) => box("trak", t, box("mdia")))),
+  ]);
+
+describe("videoSize: a video's size from its tracks' headers", () => {
+  test("the first picture track, after the sound's, with the header after the data", () => {
+    expect(videoSize(mp4(tkhd(0, 0), tkhd(1080, 1920)))).toEqual({ width: 1080, height: 1920 });
+    expect(videoSize(mp4(tkhd(1920, 1080, { version: 1 })))).toEqual({ width: 1920, height: 1080 });
+  });
+
+  test("a phone's portrait video stored on its side with a quarter turn: as it shows", () => {
+    expect(videoSize(mp4(tkhd(1920, 1080, { turned: true })))).toEqual({ width: 1080, height: 1920 });
+  });
+
+  test("no picture track, a cut file or not a video: none", () => {
+    expect(videoSize(mp4(tkhd(0, 0)))).toBeNull();
+    expect(videoSize(mp4(tkhd(1080, 1920)).slice(0, 4200))).toBeNull();
+    expect(videoSize(png(1024, 1536))).toBeNull();
+    expect(videoSize(new Uint8Array(8))).toBeNull();
+  });
+});
 
 describe("imageSize: a picture's size from its header", () => {
   test("PNG, GIF, JPEG and the three WebP chunks", () => {
@@ -104,6 +160,15 @@ describe("a stored picture keeps its size", () => {
       channelId: dm.id,
     });
     expect(notes.content).not.toHaveProperty("width");
+    // A video too: a portrait one keeps its upright shape.
+    const clip = await createFileArtifact(f.artifactDeps, person, f.org.id, {
+      title: "clip.mp4",
+      name: "clip.mp4",
+      bytes: mp4(tkhd(0, 0), tkhd(1080, 1920)),
+      contentType: "video/mp4",
+      channelId: dm.id,
+    });
+    expect(clip.content).toMatchObject({ kind: "file", width: 1080, height: 1920 });
 
     await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, dm.id, {
       body: "olha",

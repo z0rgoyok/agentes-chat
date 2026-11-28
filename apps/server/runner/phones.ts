@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import type { EventEmitter } from "node:events";
-import { existsSync, mkdirSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync } from "node:fs";
 import { lchown, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -24,9 +24,12 @@ import {
   adbStateOf,
   androidKind,
   androidTransport,
+  avdOf,
   driverlessPhones,
+  emulatorPort,
   FACTS_SHELL,
   findAdb,
+  findEmulator,
   KEYGUARD_SHELL,
   keyguardShowing,
   PNP_SHELL,
@@ -56,6 +59,7 @@ import { killTree } from "./exec";
 import { isExecutable } from "./executors";
 import { parseIosFlow, runIosFlow } from "./ios-flow";
 import { readJson, writeJson } from "./json-file";
+import { lastLine } from "./lines";
 import { acquireLock, pidAlive, readLock } from "./lock";
 import { usualDirs } from "./login-path";
 import { isInside } from "./paths";
@@ -93,6 +97,8 @@ export const RECONNECT_MS = 15_000;
 /** The longest screen recording, whatever records it: about 45 MB at 2 Mbps, under the 50 MB file limit. */
 export const RECORD_MAX_SECONDS = 170;
 export const IPHONE_LOG_MS = 5000;
+/** A started emulator that hasn't exited within this long is starting: a missing system image or a bad AVD ends it sooner. */
+export const EMULATOR_START_MS = 4000;
 const FLOW_MAX_BYTES = 256 * 1024;
 const LOG_MAX_CHARS = 200_000;
 
@@ -328,6 +334,8 @@ interface Hold {
 interface Tools {
   adb: string | null;
   xcrun: string | null;
+  /** macOS's `open`, to show Simulator. */
+  open: string | null;
   scrcpy: string | null;
   maestro: string | null;
   bundletool: string | null;
@@ -364,6 +372,8 @@ export interface PhoneManagerOptions {
   readOnly?: boolean;
   /** How long a phone's screen may take to open (the server's wait, `STREAM_LIMITS.openTimeoutMs`). */
   openMs?: number;
+  /** The same for an open the server gives a start's wait (`start`: control): `STREAM_LIMITS.startTimeoutMs`. */
+  startMs?: number;
   /** The iPhone test helper (default: one of this OS user's, on a Mac). */
   ios?: IosHelper | null;
   /** What shows and controls an iPhone's screen (default: the test helper's, `ios`). */
@@ -372,6 +382,8 @@ export interface PhoneManagerOptions {
   pairPollMs?: number;
   /** usbmuxd's socket (`USBMUXD_SOCKET`): which iPhones too old for devicectl are plugged in. */
   usbmuxSocket?: string;
+  /** How long a started emulator is watched for an early exit before it counts as starting (`EMULATOR_START_MS`). */
+  emulatorStartMs?: number;
   /** Windows: `PNP_SHELL`'s output (default: PowerShell runs it); null when it couldn't. */
   pnp?: () => Promise<string | null>;
   /** Where the iPhones picked to use over Wi-Fi are kept (`iphonesWifiFileOf`); null, or left out: none is used. */
@@ -510,6 +522,7 @@ export class PhoneManager {
   private readonly ios: IosHelper | null;
   private readonly iosScreen: IosScreenDriverFactory | null;
   private readonly openMs: number;
+  private readonly startMs: number;
 
   constructor(private readonly opts: PhoneManagerOptions) {
     this.env = opts.env ?? process.env;
@@ -517,6 +530,7 @@ export class PhoneManager {
     this.home = opts.home ?? os.homedir();
     this.now = opts.now ?? Date.now;
     this.openMs = opts.openMs ?? STREAM_LIMITS.openTimeoutMs;
+    this.startMs = opts.startMs ?? STREAM_LIMITS.startTimeoutMs;
     this.tunnels = new AppleTunnels({ env: this.env, log: opts.log, now: this.now });
     this.ios =
       opts.ios !== undefined
@@ -604,6 +618,111 @@ export class PhoneManager {
     await this.polling;
     await this.poll();
     return { repairing: true };
+  }
+
+  /**
+   * `phone.power`: starts or shuts down a simulator (a Mac, `simctl`) or an emulator (the Android SDK's `emulator`).
+   * Answers once it is starting or off; the looks after it say when it's ready. A phone in use isn't shut down.
+   */
+  async power(req: {
+    platform?: unknown;
+    serial?: unknown;
+    model?: unknown;
+    on?: unknown;
+  }): Promise<MachineReplies["phone.power"]> {
+    const serial = typeof req.serial === "string" && req.serial.length <= 200 ? req.serial : "";
+    const model = typeof req.model === "string" ? req.model.slice(0, 200) : "";
+    const on = req.on === true;
+    if (!serial || (req.platform !== "ios" && req.platform !== "android"))
+      throw new RunnerError("bad_request", "phone.power names its simulator or emulator (platform, serial)");
+    this.first ??= this.poll();
+    await this.first;
+    const key = `${req.platform}:${serial}`;
+    const seen = this.seen.get(key);
+    const name = seen ? labelOf(seen) : model || "The emulator";
+    if (!on && (this.holds.get(key)?.busy ?? 0) > 0)
+      throw new RunnerError("phone_busy", `${name} is in use right now. Try again when it's free.`);
+    const tools = await this.tools();
+    if (req.platform === "ios") await this.powerSimulator(tools, serial, on);
+    else await this.powerEmulator(tools, serial, model, on, Boolean(seen));
+    this.appleNow = true;
+    await this.polling;
+    await this.poll();
+    return { on };
+  }
+
+  private async powerSimulator(tools: Tools, udid: string, on: boolean) {
+    if (!tools.xcrun) throw new RunnerError("tool_missing", "Simulators need Xcode on this Mac.");
+    const r = await runTool(tools.xcrun, ["simctl", on ? "boot" : "shutdown", udid], {
+      timeoutMs: 150_000,
+      env: this.env,
+    });
+    const said = `${r.stderr}\n${r.stdout.toString("utf8")}`.trim();
+    // Already in the state asked for: simctl refuses with "Unable to … in current state: Booted".
+    if (r.code !== 0 && !/current state: (Booted|Shutdown)/i.test(said)) {
+      if (/Invalid device/i.test(said))
+        throw new RunnerError("phone_missing", "This simulator isn't on this Mac anymore.");
+      throw new RunnerError(
+        "internal",
+        (lastLine(said) ?? "").slice(0, 300) || `simctl ${on ? "boot" : "shutdown"} failed`,
+      );
+    }
+    // The window to watch it in; the simulator runs without it.
+    if (on && tools.open) await runTool(tools.open, ["-a", "Simulator"], { timeoutMs: 15_000, env: this.env });
+  }
+
+  private async powerEmulator(tools: Tools, serial: string, model: string, on: boolean, running: boolean) {
+    const port = emulatorPort(serial);
+    if (!port) throw new RunnerError("bad_request", "Only an emulator starts and shuts down from here.");
+    if (!on) {
+      if (!running) return;
+      if (!tools.adb) throw new RunnerError("tool_missing", "Android emulators need adb on this computer.");
+      await runTool(tools.adb, ["-s", serial, "emu", "kill"], { timeoutMs: 20_000, env: this.env });
+      return;
+    }
+    if (running) return;
+    const emulator = findEmulator(this.env, this.platform, this.home);
+    if (!emulator)
+      throw new RunnerError(
+        "tool_missing",
+        "The Android Emulator isn't installed on this computer (Android Studio › SDK Manager › SDK Tools).",
+      );
+    const listed = await runTool(emulator, ["-list-avds"], { timeoutMs: 20_000, env: this.env });
+    const avd = avdOf(listed.stdout.toString("utf8"), model);
+    if (!avd) throw new RunnerError("phone_missing", `No emulator named ${model} on this computer anymore.`);
+    const log = path.join(
+      path.dirname(this.opts.lockDir ?? path.join(this.home, ".agentes-runner", "phone-locks")),
+      "emulator.log",
+    );
+    mkdirSync(path.dirname(log), { recursive: true });
+    const out = openSync(log, "w");
+    // Its own process group, its output in a file: it outlives this runner, and nothing it writes can block on a pipe.
+    const child = spawn(emulator, ["-avd", avd, "-port", String(port)], {
+      env: this.env,
+      detached: true,
+      stdio: ["ignore", out, out],
+      windowsHide: true,
+    });
+    closeSync(out);
+    const code = await new Promise<number | null | "running">((resolve) => {
+      const timer = setTimeout(() => resolve("running"), this.opts.emulatorStartMs ?? EMULATOR_START_MS);
+      const events = child as unknown as EventEmitter;
+      events.once("error", () => {
+        clearTimeout(timer);
+        resolve(null);
+      });
+      events.once("exit", (c: number | null) => {
+        clearTimeout(timer);
+        resolve(c);
+      });
+    });
+    child.unref();
+    if (code === "running" || code === 0) return;
+    const said = await readFile(log, "utf8").catch(() => "");
+    throw new RunnerError(
+      "internal",
+      (lastLine(said) ?? "").slice(0, 300) || `The emulator stopped as it started (exit code ${code}).`,
+    );
   }
 
   /**
@@ -835,6 +954,7 @@ export class PhoneManager {
       maestro: find("maestro"),
       bundletool: find("bundletool"),
       syslog: find("idevicesyslog"),
+      open: this.platform === "darwin" ? find("open") : null,
       plutil: this.platform === "darwin" ? find("plutil") : null,
       ffmpeg: this.platform === "darwin" ? find("ffmpeg") : null,
     };
@@ -1251,9 +1371,15 @@ export class PhoneManager {
    * A phone's screen live, for one viewer on the data socket `dial` opens (`stream.open` with `kind: "phone"`):
    * pictures as binary frames, at most `PHONE_VIEW.window` the viewer hasn't acknowledged, an unchanged one not sent
    * again. In control (`takeControl`) its taps, swipes, text and keys go to the phone. Answers once the socket is
-   * ready, with the first picture already taken (a phone that can't show refuses the stream instead).
+   * ready, with the first picture already taken (a phone that can't show refuses the stream instead). `start`: the
+   * server waits a start's time for it (control, whose driver may start first), so this does too.
    */
-  async view(target: PhoneTarget | undefined, mode: DesktopMode, dial: () => Promise<DataSocket>): Promise<void> {
+  async view(
+    target: PhoneTarget | undefined,
+    mode: DesktopMode,
+    dial: () => Promise<DataSocket>,
+    o: { start?: boolean } = {},
+  ): Promise<void> {
     const platform = target?.platform === "android" || target?.platform === "ios" ? target.platform : null;
     const serial = target?.serial;
     if (!platform || typeof serial !== "string" || serial === "" || serial.length > 200) {
@@ -1280,10 +1406,13 @@ export class PhoneManager {
     // longer): the phone goes back, and the build goes on for the next try.
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        stop.abort();
-        reject(new RunnerError("phone_not_ready", OPENING_LATE));
-      }, this.openMs);
+      timer = setTimeout(
+        () => {
+          stop.abort();
+          reject(new RunnerError("phone_not_ready", OPENING_LATE));
+        },
+        o.start ? this.startMs : this.openMs,
+      );
     });
     late.catch(() => {});
     try {

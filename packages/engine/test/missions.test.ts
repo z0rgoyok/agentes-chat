@@ -1203,11 +1203,11 @@ describe("missions (ADR 0029)", () => {
         token: paired.token,
         ...RUNNER,
         exec: true,
-        executors: { codex: { version: "codex-cli 0.150.0" } },
+        executors: { codex: { version: "codex-cli 0.170.0" } },
       }),
     );
     const [machine] = await f.db.select().from(schema.machines);
-    expect(machine?.executors).toMatchObject({ codex: { version: "codex-cli 0.150.0" } });
+    expect(machine?.executors).toMatchObject({ codex: { version: "codex-cli 0.170.0" } });
     expect(machineExecutors(machine as typeof schema.machines.$inferSelect)).toEqual({
       available: ["codex", "agent"],
     });
@@ -1227,7 +1227,7 @@ describe("missions (ADR 0029)", () => {
     const codexHere = {
       protocol: 7,
       execAllowed: true,
-      executors: { codex: { version: "codex-cli 0.163.0" }, detectedAt: "x" },
+      executors: { codex: { version: "codex-cli 0.170.0" }, detectedAt: "x" },
     };
     expect(missionExecutors({ ...codexHere, os: "windows" })).toEqual({ available: ["agent"] });
     expect(missionExecutors({ ...codexHere, os: "darwin" }).available).toEqual(["codex", "agent"]);
@@ -1256,7 +1256,7 @@ describe("missions (ADR 0029)", () => {
         ...RUNNER,
         os: "windows",
         exec: true,
-        executors: { codex: { version: "codex-cli 0.150.0" } },
+        executors: { codex: { version: "codex-cli 0.170.0" } },
       }),
     );
     await expect(

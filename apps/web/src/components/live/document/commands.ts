@@ -2,7 +2,7 @@ import { RICH_MAX_LEVEL, type RichAlign, type RichList } from "@agenteschat/live
 import { lift, toggleMark, wrapIn } from "prosemirror-commands";
 import type { Attrs, MarkType, NodeType, Node as PMNode, ResolvedPos } from "prosemirror-model";
 import { type Command, type EditorState, NodeSelection, Selection, TextSelection } from "prosemirror-state";
-import { normalizeHref } from "../rich/commands";
+import { markEverywhere, markValue, normalizeHref, type RichTypeMark } from "../rich/commands";
 import { M, N } from "./schema";
 
 /**
@@ -31,6 +31,12 @@ export interface DocFormat {
   image: boolean;
   /** The selection holds text (not only a caret). */
   ranged: boolean;
+  /** The type marks (ADR 0220 §3) the selection has throughout; null where none or mixed. */
+  font: string | null;
+  weight: number | null;
+  tracking: number | null;
+  highlight: string | null;
+  caps: boolean;
 }
 
 export const NO_DOC_FORMAT: DocFormat = {
@@ -45,6 +51,11 @@ export const NO_DOC_FORMAT: DocFormat = {
   table: false,
   image: false,
   ranged: false,
+  font: null,
+  weight: null,
+  tracking: null,
+  highlight: null,
+  caps: false,
 };
 
 export function sameDocFormat(a: DocFormat, b: DocFormat): boolean {
@@ -131,8 +142,53 @@ export function docFormat(state: EditorState): DocFormat {
     table: depthOf(sel.$from, N.table_cell) > 0 || (sel instanceof NodeSelection && sel.node.type === N.table),
     image,
     ranged: !sel.empty && !(sel instanceof NodeSelection),
+    font: stringOr(markValue(state, M.font, "font")),
+    weight: numberOr(markValue(state, M.weight, "weight")),
+    tracking: numberOr(markValue(state, M.tracking, "tracking")),
+    highlight: stringOr(markValue(state, M.highlight, "color")),
+    caps: markEverywhere(state, M.caps),
   };
 }
+
+const stringOr = (value: unknown): string | null => (typeof value === "string" ? value : null);
+const numberOr = (value: unknown): number | null => (typeof value === "number" ? value : null);
+
+const TYPE_ATTR: Record<RichTypeMark, string> = {
+  font: "font",
+  weight: "weight",
+  tracking: "tracking",
+  highlight: "color",
+};
+
+/** A mark with attributes on the selection (or for what is typed next), or off it with null. */
+function setDocMarkAttrs(type: MarkType, attrs: Record<string, unknown> | null): Command {
+  return (state, dispatch) => {
+    const { from, to, empty } = state.selection;
+    if (!dispatch) return true;
+    const tr = state.tr;
+    if (empty) {
+      const marks = type.removeFromSet(state.storedMarks ?? state.selection.$from.marks());
+      tr.setStoredMarks(attrs ? type.create(attrs).addToSet(marks) : marks);
+    } else {
+      tr.removeMark(from, to, type);
+      if (attrs) tr.addMark(from, to, type.create(attrs));
+    }
+    dispatch(tr.scrollIntoView());
+    return true;
+  };
+}
+
+/**
+ * A type mark (ADR 0220 §3) on the selection: a font ref, a weight, letter spacing, a highlight color; null (or no
+ * spacing) takes it away, so the document's own look shows.
+ */
+export function setDocType(mark: RichTypeMark, value: string | number | null): Command {
+  const off = value === null || (mark === "tracking" && value === 0);
+  return setDocMarkAttrs(M[mark], off ? null : { [TYPE_ATTR[mark]]: value });
+}
+
+/** Capitals on the selection, or off. */
+export const setDocCaps = (on: boolean): Command => setDocMarkAttrs(M.caps, on ? {} : null);
 
 export const toggleDocMark = (key: DocMarkKey): Command => toggleMark(M[key]);
 

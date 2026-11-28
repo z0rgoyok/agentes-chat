@@ -35,6 +35,10 @@ export const KIND_ICON = {
 
 export const isArtifactKind = (v: unknown): v is ArtifactKind => ARTIFACT_KINDS.includes(v as ArtifactKind);
 
+/** What lives in its conversation as a card, never a file's tile (ADR 0113): its height is what it holds. */
+export const isCardKind = (v: unknown): v is "block" | "poll" | "choices" =>
+  v === "block" || v === "poll" || v === "choices";
+
 /**
  * The whole text a viewer's "Copiar texto" takes: a document's Markdown, an HTML page's source, a diagram's Mermaid,
  * a text file's text (code, JSON, Markdown, HTML…, as the server sends it for a file small enough to show). None for

@@ -56,11 +56,12 @@ same shape.
 - **Settings:** six sections in one list (Your account, About you, AI and usage, Connectors, Vault, Computers) and
   the rest under Advanced, collapsed. AI and usage also holds the plan and billing. People joins the list once others are members. Every section still opens by its
   address, from ⌘K and from the right hand's cards.
-- **An agent's page:** its bar is Overview, Instructions, Memory, "Can use" (its apps and mailboxes), Settings (name,
-  look and budget) and Advanced, with no "More". Advanced holds the rest, whole: Activity, Files and Usage a click away,
-  then its owner and who it reports to, who may talk to it, its brakes, conversations, computer, archive and delete,
-  and its built-in areas, databases, rules and skills. Every tab and section keeps its address: one that points into
-  Advanced opens it there.
+- **An agent's page:** its bar is Overview, Instructions, Skills, Memory, "Can use" (its apps and mailboxes), Settings
+  (name, look and budget) and Advanced, with no "More". Advanced holds the rest, whole: Activity, Files and Usage a
+  click away, then its owner and who it reports to, who may talk to it, its brakes, conversations, computer, archive
+  and delete, and its built-in areas, databases and rules. Skills is a tab of its own since Skills became a page of its
+  own (ADR 0020, amendment of 2026-11-25): what an agent knows is something one person looks for, not a setting to dig
+  for. Every tab and section keeps its address: one that points into Advanced opens it there.
 - **On the phone:** the same, from the same shared numbers and helpers: the first question's two cards side by side
   with the same drawings (`@agenteschat/client/lib/purpose-scene`); an agent's brakes, who it reports to, its rules
   for good, its repositories and deleting it on an Advanced screen of its own, a row away from its edit screen and its
@@ -136,3 +137,34 @@ language, and then goes through the onboarding's rail (ADR 0162, amended 2026-11
 business step: its agents (bringing them from another app, or "Seguir sem agentes"), the plan where the workspace waits
 for its first one, and connecting an AI, then the right hand's DM. On a billing hold the card's first row is "Ligue os
 seus agentes.", before the four rows above.
+
+## Amendment (2026-11-26): group conversations by their names and their agents
+
+A personal workspace's group conversations read as conversations with people and agents, not as a team's channels.
+
+- **Name as written.** A group conversation takes the name the person writes ("Viagem pra Lisboa"): spaces, capitals
+  and accents stay, runs of spaces fold to one, a leading `#` is dropped, at most 80 characters on one line, never
+  `dm-` (`personalChannelName` in `packages/engine/src/channels.ts`, used on creating and renaming). A team's channel
+  keeps the lower-case name (`CHANNEL_NAME_PATTERN`). The name stays the channel's `name`, with no second field: the
+  apps show it with no `#`, and a name differing from another only in case is refused (`requireChannelNameFree`).
+  Wherever an agent or a person names a channel by typing it (posting, a routine's place, adding an agent, deleting
+  it), the match ignores case (`namesChannel`, `channelNameIs`), so "#viagem pra lisboa" finds it.
+- **Its face is its agents.** The channel list carries each channel's first four agents and how many it has
+  (`agentIds`, `agentCount`). The web app draws them in the box of one face (`GroupFace`): two on a diagonal, three as
+  two over one, four as two by two, more as three and "+N"; a group with no agent shows an empty tile. The face
+  replaces the `#` in the sidebar (an agent row's size and height), in the header, where a DM shows its face, with
+  who is in it under the name ("Você, Ana, Teo e Rita"), and beside the name while creating it.
+- **A cover at its start.** The conversation opens, once its start is loaded, with the agent page's cover: the sky in
+  the agents' blue, the group's face on its foot, the name and who is in it; while it is empty, the cover says how to
+  call an agent instead of the empty state.
+- **Faces at a team's size.** A personal workspace's agents in the sidebar have the message-size face a team's have
+  (32px, was 40).
+- **The phone app** does the same: the group's face in the conversation list and the switcher, in the header's pill
+  (leading, with who is in it under the name), on the greeting of an empty conversation and as a cover above the
+  first message once the start is loaded; the new conversation's field takes the name as written (capitals and
+  corrections on, no `#`).
+- **Servers and apps of any age.** The new fields are optional. An app tells a server that keeps names as written by the
+  channel list carrying `agentIds` (`groupFaceOf`, `takesGroupNames` in `@agenteschat/client/lib/group-conversations`):
+  from an older server a group conversation stays a channel with its `#`, and the phone's field stays lower case with no
+  spaces, as that server requires. An older phone app on a newer server shows the names as written, with a `#` before
+  them, and creates groups as before.

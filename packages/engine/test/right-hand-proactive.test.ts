@@ -124,6 +124,8 @@ const SHAPES: Record<string, unknown>[] = [
   { dayOff: true, digestOff: true, remindOff: true },
   { off: true, daily: false, digestOff: false },
   { off: false, daily: false, remindOff: true },
+  { off: true, learnOff: true },
+  { learnOff: "no" },
 ];
 
 describe("a person's choice", () => {
@@ -227,6 +229,7 @@ describe("a person's choice", () => {
       const [row] = rowsOf<Record<keyof typeof lodiPrefsSql, unknown>>(
         await f.db.execute(sql`select ${lodiPrefsSql.weekOff} as "weekOff", ${lodiPrefsSql.dayOff} as "dayOff",
             ${lodiPrefsSql.digestOff} as "digestOff", ${lodiPrefsSql.remindOff} as "remindOff",
+            ${lodiPrefsSql.learnOff} as "learnOff",
             ${lodiPrefsSql.day} as "day", ${lodiPrefsSql.weekHour} as "weekHour", ${lodiPrefsSql.dayHour} as "dayHour"
           from organization_members m where m.org_id = ${f.org.id} and m.user_id = ${f.owner.id}`),
       );

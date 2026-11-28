@@ -23,6 +23,7 @@ import {
   Field,
   Icon,
   Input,
+  OptionLinks,
   PixelSpinner,
   type Place,
   PlaceScene,
@@ -363,29 +364,22 @@ function Choose({
       <div className="dk-choose__main">
         <h1>{t(adding ? "desktop.first.addTitle" : "desktop.place.title")}</h1>
         <p className="dk-lead">{t(adding ? "desktop.first.addLead" : "desktop.place.lead")}</p>
-        <div className="ac-optlist dk-choose__list">
-          {places.map((p, i) => (
-            <button
-              key={p}
-              type="button"
-              className="ac-optrow dk-choose__place"
-              // biome-ignore lint/a11y/noAutofocus: the window opens on this choice; Enter on the first goes to the Cloud, as the button it replaces did
-              autoFocus={i === 0}
-              onPointerEnter={() => setShown(p)}
-              onFocus={() => setShown(p)}
-              onClick={() => go(p)}
-            >
-              <span className="ac-optrow__text">
-                <span className="ac-optrow__title">
-                  {p === "cloud" && makeFirst ? t("desktop.first.addCloud") : t(`desktop.place.${p}`)}
-                  {p === "cloud" && <span className="dk-choose__rec">{t("desktop.place.recommended")}</span>}
-                </span>
-                <span className="ac-optrow__desc">{t(`desktop.place.${p}Text`)}</span>
-              </span>
-              <Icon name="chevronRight" size={18} className="dk-choose__chev" />
-            </button>
-          ))}
-        </div>
+        <OptionLinks
+          className="dk-choose__list"
+          options={places.map((p, i) => ({
+            value: p,
+            title: p === "cloud" && makeFirst ? t("desktop.first.addCloud") : t(`desktop.place.${p}`),
+            tag: p === "cloud" ? t("desktop.place.recommended") : undefined,
+            description: t(`desktop.place.${p}Text`),
+            onSelect: () => go(p),
+            button: {
+              // The window opens on this choice: Enter on the first goes to the Cloud.
+              autoFocus: i === 0,
+              onPointerEnter: () => setShown(p),
+              onFocus: () => setShown(p),
+            },
+          }))}
+        />
         {/* Adding, not signed in to the Cloud here: a new workspace there is the line under it. */}
         {adding && !makeFirst && (
           <span className="dk-help dk-choose__more">

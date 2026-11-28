@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   ACCOUNTS_PROTOCOL,
   ASKS_PROTOCOL,
@@ -9,7 +9,9 @@ import {
   CONTEXT_LIMIT_PROTOCOL,
   CONVERSATION_PROTOCOL,
   createMemoryPubSub,
+  HELD_TURN_PROTOCOL,
   MACHINE_PROTOCOL_VERSION,
+  type MachineReplies,
   type MachineRequest,
   type PubSub,
   type ServerFrame,
@@ -33,6 +35,7 @@ import {
   postPersonMessage,
   recordPlanUsage,
   restatesReaction,
+  SHUTDOWN_REASON,
 } from "../src";
 import { type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
@@ -215,6 +218,35 @@ test("before a chat turn: the agent's checkouts set where it starts and add # Yo
     }).run(turn(), io()),
   );
   expect(calls[2]?.request).toMatchObject({ cwd: "", system: "You are dev." });
+});
+
+test("the checkouts' update is the turn's phase: told as it starts and as it ends, before the turn goes out", async () => {
+  const pubsub = createMemoryPubSub();
+  const { hub, calls } = fakeHub(pubsub);
+  const told: { phase: string | null; sent: number }[] = [];
+  const brain = createClaudeCodeBrain({
+    hub,
+    pubsub,
+    agentScope: async (t) => ({ id: t.agentId, handle: "dev" }),
+    finalGraceMs: 20,
+    prepare: async () => ({ cwd: "repos/acme/app", prompt: "", start: "" }),
+  });
+  await collect(brain.run(turn(), { ...io(), phase: (phase) => told.push({ phase, sent: calls.length }) }));
+  expect(told).toEqual([
+    { phase: "code", sent: 0 },
+    { phase: null, sent: 0 },
+  ]);
+  // Nothing to update (a turn of the right hand, or no checkouts set up): no phase.
+  told.length = 0;
+  await collect(
+    createClaudeCodeBrain({
+      hub,
+      pubsub,
+      agentScope: async (t) => ({ id: t.agentId, handle: "dev" }),
+      finalGraceMs: 20,
+    }).run(turn(), { ...io(), phase: (phase) => told.push({ phase, sent: calls.length }) }),
+  );
+  expect(told).toEqual([]);
 });
 
 test("protocol 40: what holds for the conversation, and # Your code, go apart from the system text; an older runner gets one text", async () => {
@@ -441,6 +473,103 @@ test("a turn cut mid-way (the link dropped, the agent's worker stopped) waits fo
     expect(events).toEqual([expect.objectContaining({ type: "error", code: "machine_offline", retryable: true })]);
     expect((events[0] as { serverStop?: boolean }).serverStop === true).toBe(serverStop);
   }
+});
+
+describe("a turn whose computer dropped mid-way (HELD_TURN_PROTOCOL)", () => {
+  /**
+   * The link drops once mid-turn; the computer is back after `awayMs`. `held`: the runner kept the turn and the
+   * `reattach` gets the rest of it; else it answers `not_found` (the runner restarted).
+   */
+  function droppingHub(pubsub: PubSub, opts: { held: boolean; awayMs?: number; protocol?: number }) {
+    const calls: MachineRequest[] = [];
+    let backAt = 0;
+    const hub = {
+      status: async () =>
+        status({
+          protocol: opts.protocol ?? HELD_TURN_PROTOCOL,
+          online: Date.now() >= backAt,
+          lastSeenAt: new Date().toISOString(),
+        }),
+      call: async (_machineId: string, request: MachineRequest) => {
+        calls.push(request);
+        const runId = (request as { runId: string }).runId;
+        const say = (event: WireBrainEvent) =>
+          pubsub.publish(brainTopic(runId), { type: "brain.event", machineId: MACHINE, event });
+        if (calls.length === 1) {
+          await say({ type: "text_delta", text: "Looking" });
+          backAt = Date.now() + (opts.awayMs ?? 0);
+          throw new MachineDroppedError("mac");
+        }
+        if (!opts.held) throw new MachineRequestError("not_found", "The turn stopped on the computer");
+        const final = { type: "done", text: "Looking into it: done.", session: { id: SESSION } } as const;
+        await say(final);
+        await pubsub.publish(brainTopic(runId), { type: "brain.done", machineId: MACHINE });
+        return { runId, final } as never;
+      },
+    };
+    const brain = createClaudeCodeBrain({
+      hub,
+      pubsub,
+      agentScope: async (t) => ({ id: t.agentId, handle: "dev" }),
+      finalGraceMs: 20,
+      heldTurnWaitMs: 2_000,
+    });
+    return { brain, calls };
+  }
+
+  test("before: dropped, the turn failed and was sent again from scratch; now it rides through and ends once", async () => {
+    const pubsub = createMemoryPubSub();
+    const { brain, calls } = droppingHub(pubsub, { held: true, awayMs: 300 });
+    const events = await collect(brain.run(turn(), io()));
+    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "done", text: "Looking into it: done." }));
+    expect(events.some((e) => e.type === "error")).toBe(false);
+    // One turn on the computer: the second ask takes it over, it never starts one.
+    expect(calls.map((r) => (r as { reattach?: boolean }).reattach === true)).toEqual([false, true]);
+  });
+
+  test("the runner no longer has it, an older runner, or a computer not back in time: the drop stands", async () => {
+    for (const opts of [
+      { held: false },
+      { held: true, protocol: HELD_TURN_PROTOCOL - 1 },
+      { held: true, awayMs: 60_000 },
+    ]) {
+      const pubsub = createMemoryPubSub();
+      const { brain } = droppingHub(pubsub, opts);
+      const events = await collect(brain.run(turn(), io()));
+      expect(events.at(-1)).toEqual(expect.objectContaining({ type: "error", code: "machine_offline" }));
+    }
+  }, 15_000);
+
+  test("canceled while it waits for the computer: canceled, not dropped", async () => {
+    const pubsub = createMemoryPubSub();
+    const { brain, calls } = droppingHub(pubsub, { held: true, awayMs: 60_000 });
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(), 200);
+    const events = await collect(brain.run(turn(), io(stop.signal)));
+    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "error", code: "canceled" }));
+    expect(calls).toHaveLength(1);
+  });
+
+  test("before: canceled while away, the turn ran on there; now the computer, back, is told to stop it", async () => {
+    const pubsub = createMemoryPubSub();
+    const { brain, calls } = droppingHub(pubsub, { held: true, awayMs: 400 });
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(new Error("run canceled")), 100);
+    const events = await collect(brain.run(turn(), io(stop.signal)));
+    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "error", code: "canceled" }));
+    for (const until = Date.now() + 4000; calls.length < 2 && Date.now() < until; ) await Bun.sleep(50);
+    expect((calls[1] as { reattach?: unknown }).reattach).toBe("stop");
+  });
+
+  test("our own restart while away: no stop, the next server takes the turn over", async () => {
+    const pubsub = createMemoryPubSub();
+    const { brain, calls } = droppingHub(pubsub, { held: true, awayMs: 400 });
+    const stop = new AbortController();
+    setTimeout(() => stop.abort(SHUTDOWN_REASON), 100);
+    await collect(brain.run(turn(), io(stop.signal)));
+    await Bun.sleep(1_500);
+    expect(calls).toHaveLength(1);
+  });
 });
 
 test("session ids: stable per agent and conversation, UUID-shaped", () => {
@@ -731,6 +860,7 @@ test("brain.warm: the turn's launch without its words, sent only to a runner tha
   const [call] = await warmWith({});
   expect(call?.request).toEqual({
     op: "brain.warm",
+    runId: RUN,
     kind: "claude_code",
     session: { id: SESSION, resume: false },
     cwd: "",
@@ -745,4 +875,41 @@ test("brain.warm: the turn's launch without its words, sent only to a runner tha
   expect(await warmWith({ online: false })).toEqual([]);
   // A background run keeps no process: nothing to warm.
   expect(await warmWith({}, false)).toEqual([]);
+  // What the runner answered: the session's CLI is open now (its turn starts no process), or not.
+  const answering = (reply: MachineReplies["brain.warm"]) =>
+    createClaudeCodeBrain({
+      hub: { status: async () => status({ protocol: BRAIN_WARM_PROTOCOL }), call: async () => reply as never },
+      pubsub,
+      agentScope: async (t) => ({ id: t.agentId, handle: "dev" }),
+      permissions: async () => permissions,
+    }).warm?.(turn());
+  expect(await answering({ open: true, started: false })).toBe(true);
+  expect(await answering({ open: false, started: false })).toBe(false);
+});
+
+test("brain.warm: a locked-down turn (the right hand's) warms with its turn's own launch, never more", async () => {
+  const pubsub = createMemoryPubSub();
+  const { hub, calls } = fakeHub(pubsub, { status: status({ protocol: BRAIN_WARM_PROTOCOL }) });
+  const brain = createClaudeCodeBrain({
+    hub,
+    pubsub,
+    agentScope: async (t) => ({ id: t.agentId, handle: "lodi" }),
+    permissions: async () => ({ mode: "chat" }),
+    personalMcp: () => true,
+    finalGraceMs: 20,
+  });
+  const locked = turn({ session: { id: SESSION, resume: true, machineId: MACHINE, cwd: "", codeSession: true } });
+  await brain.warm?.(locked);
+  await collect(brain.run(locked, io()));
+  const [warm, run] = calls.map((c) => c.request as Record<string, unknown>);
+  // What starts the process: the same on both, so the turn takes the warm one (the runner's `signature`).
+  const launch = (r: Record<string, unknown> | undefined) => {
+    const { session, cwd, model, personalMcp, codeSession, permissions, account, effort, contextTokens, agent } =
+      r ?? {};
+    return { session, cwd, model, personalMcp, codeSession, permissions, account, effort, contextTokens, agent };
+  };
+  expect(warm?.op).toBe("brain.warm");
+  expect(run?.op).toBe("brain.turn");
+  expect(launch(warm)).toEqual(launch(run));
+  expect(launch(warm)).toMatchObject({ permissions: { mode: "chat" }, personalMcp: false, codeSession: undefined });
 });

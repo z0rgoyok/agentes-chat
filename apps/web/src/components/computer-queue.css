@@ -490,8 +490,14 @@ html:not([data-pointer]) .uq__open:focus-visible {
   line-height: 20px;
   color: var(--ink-muted);
 }
-.cq-spill__row > .ac-switch {
-  align-self: center;
+/* The choice goes under the name, as wide as the words above it (16 of icon, 8 of gap). */
+.cq-spill__row {
+  flex-wrap: wrap;
+}
+.cq-spill__row > .cq-spill__use {
+  flex: 1 1 100%;
+  max-width: calc(100% - 24px);
+  margin-left: 24px;
 }
 .cq-spill__name {
   display: flex;

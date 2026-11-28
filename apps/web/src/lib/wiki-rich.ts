@@ -97,7 +97,7 @@ function blockHtml(b: MdRangedBlock, at: number): string {
           return `<li class="md__task"${done ? " data-done" : ""}><span class="md__task-box" contenteditable="false"></span>${inlineHtml(task[2] ?? "")}</li>`;
         })
         .join("");
-      return tag(b.ordered ? "ol" : "ul", items);
+      return tag(b.ordered ? "ol" : "ul", items, b.start ? ` start="${b.start}"` : "");
     }
     case "quote": {
       const callout = (b.lines[0] ?? "").match(CALLOUT);
@@ -268,7 +268,7 @@ function listMarkdown(list: HTMLElement, depth = 0): string {
   const ordered = list.tagName === "OL";
   const indent = "  ".repeat(depth);
   const out: string[] = [];
-  let n = 1;
+  let n = Number.parseInt(list.getAttribute("start") ?? "", 10) || 1;
   for (const li of Array.from(list.children)) {
     if (li.tagName !== "LI") continue;
     const own = list.ownerDocument.createElement("div");

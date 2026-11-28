@@ -370,7 +370,14 @@ export async function createOrganization(
     await ensureRightHand(tx, organization.id);
     const [general] = await tx
       .insert(channels)
-      .values({ orgId: organization.id, name: "general", createdByUserId: userId })
+      .values({
+        orgId: organization.id,
+        name: "general",
+        createdByUserId: userId,
+        // Everyone in a team's workspace ends up in #general, so its agents answer in threads (ADR 0214); a personal
+        // workspace's has no one else to keep its main timeline clear for.
+        ...(input.mode === "personal" ? { replyInThreads: false } : {}),
+      })
       .returning();
     if (!general) throw new Error("channel insert returned nothing");
     await tx.insert(channelMembers).values({ orgId: organization.id, channelId: general.id, userId });
@@ -954,6 +961,7 @@ export async function myAccount(db: Database, userId: string) {
       workArea: users.workArea,
       deletionDueAt: users.deletionDueAt,
       deletionRequestedAt: users.deletionRequestedAt,
+      emailUndelivered: users.emailUndelivered,
     })
     .from(users)
     .where(eq(users.id, userId));
@@ -965,6 +973,7 @@ export async function myAccount(db: Database, userId: string) {
     locale: row?.locale ?? null,
     localeAuto: row?.localeAuto ?? true,
     workArea: row?.workArea ?? null,
+    emailUndelivered: row?.emailUndelivered ?? null,
   };
 }
 
@@ -1344,6 +1353,7 @@ async function takeOut(
       await tx
         .delete(organizationMembers)
         .where(and(eq(organizationMembers.orgId, orgId), eq(organizationMembers.userId, targetUserId)));
+      await enqueueAccountContact(tx, targetUserId);
       // Leaving the organization also leaves its channels.
       await tx
         .delete(channelMembers)
@@ -1531,8 +1541,8 @@ async function takeOut(
   }
   // Their routines pause at once and their work stops; the agents' owners hear it (ADR 0053 §6.2).
   // Loaded here: the routine engine builds on this module.
-  const { pauseRoutinesOfCreator } = await import("./routine-firing");
-  await pauseRoutinesOfCreator({ db, pubsub: options.pubsub }, orgId, targetUserId).catch(() => 0);
+  const { pauseRoutinesOf } = await import("./routine-firing");
+  await pauseRoutinesOf({ db, pubsub: options.pubsub }, orgId, { creatorUserId: targetUserId }).catch(() => 0);
 }
 
 /** A deleted workspace's files leave platform storage (`purgeOrgFiles`). */
@@ -1840,6 +1850,8 @@ export async function sendInvitation(
     tokenHash: sha256(token),
     invitedByUserId: input.invitedBy,
     expiresAt: new Date(now.getTime() + INVITATION_TTL_DAYS * 86_400_000),
+    // Its email goes again: whether this one is delivered is the `email.send` job's to say.
+    undelivered: null,
   };
   const [invitation] = existing
     ? await db.update(organizationInvitations).set(fresh).where(eq(organizationInvitations.id, existing.id)).returning()
@@ -2487,6 +2499,51 @@ export async function holdsInvitation(
 }
 
 /**
+ * The email invitations that wait for this account, with the link that accepts each: neither accepted nor expired,
+ * into an open workspace with room that it isn't in. Only for a confirmed address: anyone can sign up with an address that isn't
+ * theirs. An invitation whose token isn't derived from its id (made before ADR 0090) has no link to give, so none.
+ */
+export async function waitingInvitations(
+  db: Executor,
+  secret: string,
+  user: { id: string; email: string },
+  now = new Date(),
+) {
+  const rows = await db
+    .select({
+      id: organizationInvitations.id,
+      orgId: organizations.id,
+      orgName: organizations.name,
+      tokenHash: organizationInvitations.tokenHash,
+    })
+    .from(organizationInvitations)
+    .innerJoin(organizations, eq(organizations.id, organizationInvitations.orgId))
+    .leftJoin(
+      organizationMembers,
+      and(eq(organizationMembers.orgId, organizationInvitations.orgId), eq(organizationMembers.userId, user.id)),
+    )
+    .where(
+      and(
+        eq(organizationInvitations.email, user.email.trim().toLowerCase()),
+        isNull(organizationInvitations.acceptedAt),
+        gt(organizationInvitations.expiresAt, now),
+        isNull(organizationMembers.userId),
+        openOrg,
+      ),
+    )
+    .orderBy(desc(organizationInvitations.createdAt));
+  const waiting = [];
+  for (const row of rows) {
+    const token = invitationToken(secret, row.id);
+    // A full workspace takes nobody: opening its invitation would only say so, over and over.
+    if (sha256(token) === row.tokenHash && !(await seatsFull(db, row.orgId))) {
+      waiting.push({ orgId: row.orgId, orgName: row.orgName, token });
+    }
+  }
+  return waiting;
+}
+
+/**
  * A request's page key once it signs in no one (ADR 0090): kept so the page that holds the key still finds its request
  * and reads `closed`. Marked, not only hashed again: no key's hash can equal it, so even someone who saw the live hash
  * can't hand it in as a key.
@@ -2527,6 +2584,7 @@ export async function joinOrganization(
   await addMemberRolesInTx(tx, orgId, userId, roleIds);
   // The right hand greets who is new here, once: its job's key is spent for good, so a rejoin gets none.
   if (!member) await queueWelcome(tx, orgId, userId);
+  if (!member) await enqueueAccountContact(tx, userId);
   // Nothing a closed request kept stays (ADR 0090): the password it chose goes, and the page's key is spent, so that
   // page reads it closed and signs in no one.
   const closing = await tx
@@ -2688,7 +2746,8 @@ export async function inviteMany(
 
 /**
  * Sends an invitation again with a fresh 7-day expiry. With `secret` its link stays the same (ADR 0090); without,
- * a new token replaces it and the old link stops working.
+ * a new token replaces it and the old link stops working. `unsuppress`: the last email went nowhere because the mail
+ * provider stopped mailing the address, so the one sent now asks it to mail the address again first.
  */
 export async function resendInvitation(
   db: Database,
@@ -2709,7 +2768,7 @@ export async function resendInvitation(
   // Its roles go again, expired or not: the ones still there, when the sender may give them (ADR 0085). So do its
   // channels and agents, as far as the sender may give them now (ADR 0184).
   const roleIds = await givableRoleIds(db, actor, orgId, await rolesStillThere(db, orgId, existing.roleIds));
-  return sendInvitation(db, {
+  const sent = await sendInvitation(db, {
     orgId,
     email: existing.email,
     role: existing.role,
@@ -2723,6 +2782,7 @@ export async function resendInvitation(
     invitationId,
     resent: true,
   });
+  return { ...sent, unsuppress: existing.undelivered === "suppressed" };
 }
 
 /**
@@ -2753,6 +2813,7 @@ export async function listInvitationsWithStatus(
       channelIds: i.channelIds,
       agentIds: i.agentIds,
       status: i.expiresAt > now ? ("pending" as const) : ("expired" as const),
+      undelivered: i.undelivered,
       expiresAt: i.expiresAt,
       createdAt: i.createdAt,
       invitedByUserId: i.invitedByUserId,

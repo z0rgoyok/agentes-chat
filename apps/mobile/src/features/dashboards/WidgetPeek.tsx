@@ -55,7 +55,8 @@ export const WidgetPeek = memo(function WidgetPeek({
       agentId: w.agentId,
       refreshedAt: w.refreshedAt,
       schedule: w.schedule,
-      w: compact ? 1 : w.layout.w,
+      // On the strip too a medium or large widget takes two columns; every card there is one row tall.
+      w: w.layout.w,
       h: compact ? 1 : w.layout.h,
       needsAi: widgetNeedsAi(w),
       wait: w.wait,

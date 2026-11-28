@@ -1,0 +1,55 @@
+name: CLI pins
+
+# The coding CLIs' pins (packages/providers/src/cli-pins.ts, ADR 0228 §6): once a day, each vendor's latest stable
+# release with its hashes (`bun scripts/cli-pins.ts`), as a pull request on its own branch. Never merged here: a person
+# merges it, and the server sends the new pins to every computer. Nothing new: nothing is opened.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: cli-pins
+  cancel-in-progress: false
+
+jobs:
+  pins:
+    runs-on: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: New pins
+        id: pins
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          bun scripts/cli-pins.ts | tee pins.txt
+          if git diff --quiet -- packages/providers/src/cli-pins.ts; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Pull request
+        if: steps.pins.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="cli-pins/$(date -u +%Y-%m-%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add packages/providers/src/cli-pins.ts
+          git commit -m "chore(providers): the coding CLIs' pins to their vendors' latest stable releases" -m "$(cat pins.txt)"
+          git push --force origin "$branch"
+          if ! gh pr view "$branch" >/dev/null 2>&1; then
+            gh pr create --base main --head "$branch" \
+              --title "The coding CLIs' pins to their latest stable releases" \
+              --body "$(printf 'From `bun scripts/cli-pins.ts` (ADR 0228 §6):\n\n```\n%s\n```\n\nEach build keeps its vendor'"'"'s hash, or the one taken here where the vendor publishes none.' "$(cat pins.txt)")"
+          fi

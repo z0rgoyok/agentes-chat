@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
 import { z } from "@hono/zod-openapi";
 import { issueParams } from "../src/http/errors";
-import { browser, createTestServer, seedOrg, signUp, type TestServer } from "./harness";
+import { browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer;
 beforeEach(async () => {
@@ -282,24 +282,53 @@ describe("chat over HTTP", () => {
     };
     expect(usage.usage[0]?.calls).toBe(1);
     expect(usage.usage[0]?.costUsd).toBeGreaterThan(0);
+    // Typed in our app through a signed-in session: the person's own words (ADR 0250), whatever the body says.
+    const posts = await owner(`/api/app/organizations/${orgId}/channels/${channelId}/messages`, {
+      json: { body: "oi", origin: "mcp" },
+    });
+    const [stored] = await t.db
+      .select({ origin: schema.messages.origin })
+      .from(schema.messages)
+      .where(eq(schema.messages.id, ((await posts.json()) as { id: string }).id));
+    expect(stored?.origin).toBe("app");
   });
 
-  test("a channel created with a category is placed in it", async () => {
+  test("channels in sectors (ADR 0240): who manages channels and a channel's creator move it; a new sector takes it", async () => {
+    await t.close();
+    t = await createTestServer({ env: { ALLOW_SIGNUP: "true" } });
     const owner = browser(t);
     await signUp(owner, "owner@example.com");
-    const { orgId } = await seedOrg(owner);
+    const { orgId, channelId: general } = await seedOrg(owner);
     const org = `/api/app/organizations/${orgId}`;
-    const category = (await (await owner(`${org}/channel-categories`, { json: { name: "Produto" } })).json()) as {
-      id: string;
+    const made = (await (await owner(`${org}/agent-groups`, { json: { name: "Produto" } })).json()) as {
+      groups: { id: string; name: string }[];
     };
-    const res = await owner(`${org}/channels`, { json: { name: "roadmap", categoryId: category.id } });
+    const sector = made.groups.find((g) => g.name === "Produto")?.id ?? "";
+    // Created straight into a sector, listed there.
+    const res = await owner(`${org}/channels`, { json: { name: "roadmap", groupId: sector } });
     expect(res.status).toBe(201);
-    const channel = (await res.json()) as { id: string; categoryId: string | null };
-    expect(channel.categoryId).toBe(category.id);
-    const list = (await (await owner(`${org}/channels`)).json()) as {
-      channels: { id: string; categoryId: string | null }[];
-    };
-    expect(list.channels.filter((c) => c.categoryId === category.id).map((c) => c.id)).toEqual([channel.id]);
+    const roadmap = (await res.json()) as { id: string; groupId: string | null };
+    expect(roadmap.groupId).toBe(sector);
+    const listed = async () =>
+      ((await (await owner(`${org}/channels`)).json()) as { channels: { name: string; groupId: string | null }[] })
+        .channels;
+    expect((await listed()).filter((c) => c.groupId === sector).map((c) => c.name)).toEqual(["roadmap"]);
+
+    const ana = await joinByInvitation(t, owner, orgId, "ana@example.com");
+    const mine = (await (await ana(`${org}/channels`, { json: { name: "ana-notes" } })).json()) as { id: string };
+    const place = (b: typeof owner, channelId: string, groupId: string | null) =>
+      b(`${org}/channels/${channelId}/place`, { method: "PUT", json: { groupId } });
+    // Her own channel, yes; someone else's, no.
+    expect((await place(ana, mine.id, sector)).status).toBe(204);
+    expect((await place(ana, general, sector)).status).toBe(403);
+    // Who manages channels moves any of them.
+    expect((await place(owner, roadmap.id, null)).status).toBe(204);
+    expect((await listed()).filter((c) => c.groupId === sector).map((c) => c.name)).toEqual(["ana-notes"]);
+    // A new sector is made by who manages agents: never by her, not even with her own channel.
+    expect((await ana(`${org}/agent-groups`, { json: { name: "Dela", channelIds: [mine.id] } })).status).toBe(403);
+    expect((await owner(`${org}/agent-groups`, { json: { name: "Novo", channelIds: [roadmap.id] } })).status).toBe(201);
+    // An older app still asks for the channel categories: none.
+    expect(await (await owner(`${org}/channel-categories`)).json()).toEqual({ categories: [] });
   });
 
   test("organizations are isolated: another org's owner can't read or post", async () => {

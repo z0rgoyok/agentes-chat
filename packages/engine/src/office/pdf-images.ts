@@ -142,7 +142,14 @@ function unfilter(data: Uint8Array, offset: number, rows: number, rowBytes: numb
   return out;
 }
 
-export function pngImage(b: Uint8Array): PdfImage | null {
+/**
+ * A PNG as 8-bit RGB and alpha (255 where opaque), whatever its color type, depth or interlacing; null if unreadable or
+ * past `maxPixels`.
+ */
+export function decodePng(
+  b: Uint8Array,
+  maxPixels = PIXELS_MAX,
+): { width: number; height: number; rgb: Uint8Array; alpha: Uint8Array; transparent: boolean } | null {
   if (b.length < 33 || b[0] !== 0x89 || b[1] !== 0x50 || b[2] !== 0x4e || b[3] !== 0x47) return null;
   const view = new DataView(b.buffer, b.byteOffset, b.byteLength);
   let width = 0;
@@ -170,7 +177,7 @@ export function pngImage(b: Uint8Array): PdfImage | null {
     else if (kind === "IEND") break;
     at += 12 + length;
   }
-  if (!width || !height || width * height > PIXELS_MAX) return null;
+  if (!width || !height || width * height > maxPixels) return null;
   const channels = type === 0 ? 1 : type === 2 ? 3 : type === 3 ? 1 : type === 4 ? 2 : type === 6 ? 4 : 0;
   if (!channels || ![1, 2, 4, 8, 16].includes(depth)) return null;
   const bitsPerPixel = channels * depth;
@@ -265,14 +272,20 @@ export function pngImage(b: Uint8Array): PdfImage | null {
       }
     }
   });
+  return { width, height, rgb, alpha, transparent };
+}
+
+export function pngImage(b: Uint8Array): PdfImage | null {
+  const png = decodePng(b);
+  if (!png) return null;
   const image: PdfImage = {
-    width,
-    height,
+    width: png.width,
+    height: png.height,
     dict: "/ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode",
-    data: new Uint8Array(deflateSync(rgb)),
+    data: new Uint8Array(deflateSync(png.rgb)),
     turn: 0,
   };
-  if (transparent) image.mask = new Uint8Array(deflateSync(alpha));
+  if (png.transparent) image.mask = new Uint8Array(deflateSync(png.alpha));
   return image;
 }
 

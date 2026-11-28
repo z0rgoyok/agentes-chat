@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createHmac } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import {
   ComposioActionError,
   ComposioSignatureError,
@@ -482,6 +482,49 @@ describe("Composio client", () => {
     for (const url of ["https://files.example/declared", "https://files.example/streamed"]) {
       await expect(client.fetchFile(url, 10)).rejects.toBeInstanceOf(FileTooLargeError);
     }
+  });
+});
+
+describe("Composio file uploads", () => {
+  test("uploadFile asks where with the file's md5, sends the bytes there, and returns the argument actions take", async () => {
+    const asked: { url: string; init?: RequestInit }[] = [];
+    const data = new Uint8Array([0x50, 0x4b, 3, 4]);
+    const client = createComposioClient({
+      apiKey: "k",
+      fetch: (async (url: string, init?: RequestInit) => {
+        asked.push({ url, ...(init ? { init } : {}) });
+        if (url.endsWith("/files/upload/request"))
+          return Response.json({
+            id: "req_file_1",
+            key: "uploads/abc/relatorio.docx",
+            new_presigned_url: "https://storage.example/put/abc",
+            metadata: { storage_backend: "azure_blob_storage" },
+          });
+        return new Response(null, { status: 201 });
+      }) as unknown as typeof fetch,
+    });
+    const mimetype = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    expect(
+      await client.uploadFile({
+        toolkit: "one_drive",
+        slug: "ONE_DRIVE_ONEDRIVE_UPLOAD_FILE",
+        name: "relatorio.docx",
+        mimetype,
+        data,
+      }),
+    ).toEqual({ name: "relatorio.docx", mimetype, s3key: "uploads/abc/relatorio.docx" });
+    expect(asked[0]?.url).toBe("https://backend.composio.dev/api/v3.1/files/upload/request");
+    expect(JSON.parse(String(asked[0]?.init?.body))).toEqual({
+      toolkit_slug: "one_drive",
+      tool_slug: "ONE_DRIVE_ONEDRIVE_UPLOAD_FILE",
+      filename: "relatorio.docx",
+      mimetype,
+      md5: createHash("md5").update(data).digest("hex"),
+    });
+    expect(asked[1]).toMatchObject({
+      url: "https://storage.example/put/abc",
+      init: { method: "PUT", body: data, redirect: "error", headers: { "x-ms-blob-type": "BlockBlob" } },
+    });
   });
 });
 

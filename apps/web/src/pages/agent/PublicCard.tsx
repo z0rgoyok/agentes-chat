@@ -1,6 +1,13 @@
 import type { Agent } from "@agenteschat/client";
 import { useAgentDetail } from "@agenteschat/client";
-import { audienceSummary } from "@agenteschat/client/lib/audience";
+import {
+  agentUsageFacts,
+  createdText,
+  lockedText,
+  seesFactsOnly,
+  usageTitle,
+} from "@agenteschat/client/lib/agent-facts";
+import { audienceSummary, editorsSummary } from "@agenteschat/client/lib/audience";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { tellsNameStory } from "@agenteschat/client/lib/right-hand";
 import { type AgentColor, Avatar, Button, Card, CardHeader, Chip, Icon, RoleMark } from "@agenteschat/ui";
@@ -10,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useOrg } from "@/components/org-context";
 import { AgentCover } from "@/components/Sky";
+import { useAgentThinks } from "@/hooks/useAgentThinks";
 import { useDirectory } from "@/hooks/useDirectory";
 import { lookOf } from "@/lib/look";
 
@@ -17,14 +25,22 @@ import { lookOf } from "@/lib/look";
  * "Ask for access": a direct message to the agent's owner (none without one: the note names the admins; none either
  * when a role answers for it, ADR 0085, addendum of 2026-11-21: there is no one person to write to).
  */
-export function AskAccessButton({ agent, size = "sm" }: { agent: Pick<Agent, "ownerUserId">; size?: "sm" | "md" }) {
+export function AskAccessButton({
+  agent,
+  size = "sm",
+  label,
+}: {
+  agent: Pick<Agent, "ownerUserId">;
+  size?: "sm" | "md";
+  label?: string;
+}) {
   const { t } = useTranslation();
   const { org } = useOrg();
   if (!agent.ownerUserId) return null;
   return (
     <Button asChild size={size} variant="primary" icon="message">
       <Link to="/org/$orgId/dm/person/$userId" params={{ orgId: org.id, userId: agent.ownerUserId }}>
-        {t("profile.askAccess")}
+        {label ?? t("profile.askAccess")}
       </Link>
     </Button>
   );
@@ -32,7 +48,9 @@ export function AskAccessButton({ agent, size = "sm" }: { agent: Pick<Agent, "ow
 
 /**
  * The agent's page for someone who doesn't see how it works (`seesDetails`): its face, name and role, who answers
- * for it, who it answers, where it works, and a way to ask for access. No tabs.
+ * for it, who it answers, where it works, and a way to ask for access. No tabs. A teammate's private agent seen
+ * through "Editar agentes" (`seesFactsOnly`) adds its facts: the lock, who made it and when, who edits it and this
+ * month's usage, and its locked workings ask its owner.
  */
 export function AgentPublicCard({
   agent,
@@ -42,10 +60,13 @@ export function AgentPublicCard({
   /** Cards first in its column (the team's right hand's own AI for the viewer). */
   children?: ReactNode;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
   const detail = useAgentDetail(org.id, agent.id);
+  const facts = seesFactsOnly(agent);
+  const thinks = useAgentThinks(agent);
+  const nameOf = (id: string) => dir.memberById.get(id)?.name;
   const owner = agent.ownerUserId ? dir.memberById.get(agent.ownerUserId) : undefined;
   const ownerRole = agent.ownerRoleId ? dir.roleById.get(agent.ownerRoleId) : undefined;
   const channels = detail.data?.channels ?? [];
@@ -67,6 +88,15 @@ export function AgentPublicCard({
               <span className="agp-handle">
                 @{agent.handle}
                 {agent.role && ` · ${agent.role}`}
+                {facts && (
+                  <>
+                    {" · "}
+                    <span className="agp-private ac-iconline">
+                      <Icon name="lock" size={14} />
+                      {t("agentPage.facts.private")}
+                    </span>
+                  </>
+                )}
               </span>
               {tellsNameStory(agent) && (
                 <span className="small muted agp-story">{t("rightHand.profile.nameStory")}</span>
@@ -105,6 +135,18 @@ export function AgentPublicCard({
                     </Chip>
                   </span>
                 </div>
+                {facts && detail.data && (
+                  <>
+                    <div>
+                      <span className="agp-k">{t("editors.section")}</span>
+                      <span>{editorsSummary(t, { ...agent, editors: detail.data.editors }, nameOf, dir.roleName)}</span>
+                    </div>
+                    <div>
+                      <span className="agp-k">{t("agentPage.facts.created", g)}</span>
+                      <span>{createdText(t, i18n.language, detail.data, nameOf)}</span>
+                    </div>
+                  </>
+                )}
               </div>
             </Card>
             <Card as="section" className="agp-card" aria-labelledby="pub-where">
@@ -121,11 +163,33 @@ export function AgentPublicCard({
                 <span className="small muted">{t("agentPage.overview.noChannels", { handle: agent.handle })}</span>
               )}
             </Card>
+            {facts && detail.data && (
+              <Card as="section" className="agp-card" aria-labelledby="pub-usage">
+                <CardHeader id="pub-usage" icon="chart" title={usageTitle(t, i18n.language)} />
+                <dl className="agp-facts">
+                  {agentUsageFacts(t, i18n.language, detail.data, thinks?.text ?? null).map((f) => (
+                    <div key={f.key}>
+                      <dt className="agp-k">{f.label}</dt>
+                      <dd>{f.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              </Card>
+            )}
             <Card as="section" className="agp-card" aria-labelledby="pub-hidden">
-              <CardHeader id="pub-hidden" icon="lock" title={t("profile.detailsHiddenTitle")} />
-              <p className="small muted">{t("profile.detailsHidden", agentGrammar(agent.name))}</p>
+              <CardHeader
+                id="pub-hidden"
+                icon="lock"
+                title={facts ? t("agentPage.facts.title", g) : t("profile.detailsHiddenTitle")}
+              />
+              <p className="small muted">
+                {facts ? lockedText(t, agent, owner?.name) : t("profile.detailsHidden", agentGrammar(agent.name))}
+              </p>
               <div className="ac-acts">
-                <AskAccessButton agent={agent} />
+                <AskAccessButton
+                  agent={agent}
+                  {...(facts && owner ? { label: t("agentPage.facts.ask", { owner: owner.name }) } : {})}
+                />
               </div>
             </Card>
           </div>

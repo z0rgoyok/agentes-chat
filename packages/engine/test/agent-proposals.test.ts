@@ -633,6 +633,16 @@ describe("one request, one card: channels, mailboxes and a routine", () => {
     });
   });
 
+  test("a proposed routine takes instructions as long as one made by hand", async () => {
+    f = await setup();
+    const ctx = await runFor(f, f.owner.id, "cria um agente que checa meus emails todo dia meio dia");
+    const prompt = `Regras:\n${"r".repeat(20_000)}`;
+    const out = await propose(f, ctx, { ...CAIO, routine: { ...NOON, prompt } });
+    expect(out.isError).toBeUndefined();
+    const id = (out.data as { agentProposal: { messageId: string } }).agentProposal.messageId;
+    expect((await cardOf(f, id)).params.draft).toMatchObject({ routine: { prompt } });
+  });
+
   test("what it can't name is refused with everything it can, so the next call is right", async () => {
     f = await setup();
     await connect(f, "github", "GitHub");

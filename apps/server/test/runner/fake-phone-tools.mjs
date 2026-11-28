@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Fake adb, xcrun, xcode-select, maestro, scrcpy, bundletool, plutil and idevicesyslog for the phone tests:
+// Fake adb, xcrun, xcode-select, open, emulator, maestro, scrcpy, bundletool, plutil and idevicesyslog for the phone tests:
 // `fake-phone-tools.mjs <tool> args…`. Answers come from $FAKE_PHONE_STATE (JSON, read on every call); every call
 // is logged to $FAKE_PHONE_LOG as one JSON line, [tool, ...args]. State:
 //   adbDevices: what `adb devices -l` prints
@@ -24,6 +24,7 @@
 //   pair: what `adb pair` prints (pairFail: on stderr, exit 1)
 //   connectable: { "host:port": "the adb devices -l line `adb connect` adds" }
 //   details: what `devicectl device info details` writes (an iPhone's tunnel); without it, it fails
+//   simPowerFail: simctl boot/shutdown's error   avds, emulatorFail: the SDK emulator's AVDs and its start's error
 //   observeEnds: `devicectl device notification observe` (the tunnel's keeper) ends at once instead of waiting
 //   for SIGTERM. The fake WebDriverAgent listens on TEST_RUNNER_USE_IP, and logs ["wda-listen", ip, port]
 import {
@@ -169,8 +170,16 @@ else if (tool === "xcrun" && args[0] === "xcodebuild") {
   else if (line.startsWith("simctl launch")) out(`${args.at(-1)}: 4242\n`);
   else if (line.startsWith("simctl get_app_container")) out("/tmp/Acme.app\n");
   else if (line.startsWith("simctl spawn")) out(state.simlog ?? "one\ntwo\nthree\n");
+  else if (line.startsWith("simctl boot") || line.startsWith("simctl shutdown"))
+    state.simPowerFail ? process.stderr.write(state.simPowerFail, () => process.exit(149)) : out("");
   else out("");
-} else if (tool === "maestro") {
+} else if (tool === "emulator") {
+  // The SDK's emulator: `-list-avds` lists `avds`; a start fails with `emulatorFail` or runs a moment, then ends.
+  if (args[0] === "-list-avds") out(`INFO    | Storing crashdata in: /tmp/crash\n${(state.avds ?? []).join("\n")}\n`);
+  else if (state.emulatorFail) process.stdout.write(state.emulatorFail, () => process.exit(1));
+  else setTimeout(() => process.exit(0), 1500);
+} else if (tool === "open") out("");
+else if (tool === "maestro") {
   if (args[0] === "--version") out("2.11.0\n");
   else if (state.javaMissing) fail("ERROR: JAVA_HOME is not set and no 'java' command could be found in your PATH.\n");
   else if (state.videoFirst) {

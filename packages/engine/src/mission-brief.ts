@@ -1,5 +1,6 @@
 import { and, type Database, desc, eq, inArray, isNull, schema } from "@agenteschat/db";
 import { cutText } from "./format";
+import { waitsInQueue } from "./machine-tasks";
 import { MISSION_RULES } from "./mission-rules";
 import { missionCwd, onlyReadsWhileWriting, shortSha } from "./mission-worktree";
 
@@ -104,7 +105,7 @@ export async function missionBrief(db: Database, missionId: string): Promise<str
       ? `Running on ${computer}: ${running
           .map(
             (t) =>
-              `"${t.title}"${t.mode ? ` (${t.mode}${t.status === "queued" && t.startRequest ? ", queued" : ""})` : ""}${
+              `"${t.title}"${t.mode ? ` (${t.mode}${waitsInQueue(t) ? ", queued" : ""})` : ""}${
                 t.lastLine ? `: ${t.lastLine}` : ""
               }`,
           )

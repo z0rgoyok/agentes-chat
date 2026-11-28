@@ -9,10 +9,11 @@ import type {
   WireWorkflowAgent,
 } from "@agenteschat/adapters";
 import type { ToolImage } from "@agenteschat/providers";
+import { CLI_PINS, type PinCli } from "@agenteschat/providers/cli-pins";
 import { planOf } from "@agenteschat/providers/plans";
 import type { CodeSetup } from "../git/machine";
 
-export type BrainKind = "model" | "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+export type BrainKind = "model" | "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
 
 /** A brain that runs on the agent's computer with a person's plan (ADR 0114 adds Cursor). */
 export type ComputerBrainKind = Exclude<BrainKind, "model">;
@@ -25,17 +26,34 @@ export const BRAIN_NAMES: Readonly<Record<ComputerBrainKind, string>> = {
   opencode: "OpenCode",
   grok: "Grok Build",
   antigravity: "Antigravity CLI",
+  devin: "Devin CLI",
 };
 
+/** The pin list's name for each computer brain's CLI (`CLI_PINS`). */
+const PIN_OF_BRAIN: Readonly<Record<ComputerBrainKind, PinCli>> = {
+  claude_code: "claude",
+  codex: "codex",
+  cursor: "cursor",
+  opencode: "opencode",
+  grok: "grok",
+  antigravity: "antigravity",
+  devin: "devin",
+};
+
+/** `hello.os` as the pin list names systems. */
+const PIN_SYSTEM: Readonly<Record<string, string>> = { darwin: "darwin-", linux: "linux-", windows: "win32-" };
+
 /**
- * Whether a computer brain runs on a computer's system (`hello.os`), as its runner allows: Cursor, Grok Build and the
- * Antigravity CLI not on Windows yet (ADR 0143: there it keeps its sign-in in the computer user's one Credential
- * Manager). A system nobody reported passes: the runner says.
+ * Whether a computer brain runs on a computer's system (`hello.os`): its vendor makes a build of its CLI for that
+ * system and the pin list carries it (`CLI_PINS`, ADR 0228 §6). Six do for macOS, Linux and Windows; on Windows each
+ * account's sign-in stays in its own folder (`accountEnv`). The Devin CLI's pin has no Windows build: there it doesn't
+ * read an account's folder as its home (ADR 0253). A system nobody reported, or one the list doesn't name, passes: the
+ * runner says.
  */
 export function brainRunsOn(kind: ComputerBrainKind, os: string | null | undefined): boolean {
-  if (!os) return true;
-  if (kind === "cursor" || kind === "grok" || kind === "antigravity") return os !== "windows";
-  return true;
+  const prefix = os ? PIN_SYSTEM[os] : undefined;
+  if (!prefix) return true;
+  return Object.keys(CLI_PINS[PIN_OF_BRAIN[kind]].builds).some((p) => p.startsWith(prefix));
 }
 
 /** A turn refused because its brain doesn't run on its computer's system (`brainRunsOn`): no runner asked, no retry. */
@@ -49,6 +67,7 @@ export const BRAIN_PLAN_NAMES: Readonly<Record<ComputerBrainKind, string>> = {
   opencode: "OpenCode",
   grok: "Grok",
   antigravity: "Gemini",
+  devin: "Devin",
 };
 
 /**
@@ -66,7 +85,13 @@ export function askingPermissions(
 
 /** Brains that run on the agent's computer with a person's plan. */
 export const isComputerBrain = (v: unknown): v is ComputerBrainKind =>
-  v === "claude_code" || v === "codex" || v === "cursor" || v === "opencode" || v === "grok" || v === "antigravity";
+  v === "claude_code" ||
+  v === "codex" ||
+  v === "cursor" ||
+  v === "opencode" ||
+  v === "grok" ||
+  v === "antigravity" ||
+  v === "devin";
 
 /**
  * Brains whose shell runs in a sandbox of the CLI's own (ADR 0053 §3, 0114, 0142, 0143), the limit of what their turns
@@ -118,6 +143,18 @@ export interface BrainSession {
   ownFolder?: boolean;
   /** A code session's turn (ADR 0215): `cwd` is its worktree. */
   codeSession?: boolean;
+  /**
+   * Resumed from the conversation's last run: what that run's conversation said of the tools and lines here
+   * (`Transcript.sessionParts`; null: nothing kept), so the turn reads them again when they changed.
+   */
+  partsRead?: string | null;
+  /** With `partsRead`: that run's blocks of what it can do here, so the turn says only their changed lines. */
+  refreshRead?: string[];
+  /**
+   * A new session where the conversation had a recent one: why that one wasn't picked up, `size`, and the names of
+   * the parts of its prompt key that changed (`Transcript.promptParts`), else `prompt`.
+   */
+  notPickedUp?: string[];
 }
 
 export interface BrainTurn {
@@ -153,6 +190,11 @@ export interface BrainTurn {
   contextTokens?: number;
   /** Computer brains: a person waits on this turn (the line's first rank); the runner holds a slot for one. */
   personWaiting?: boolean;
+  /**
+   * Computer brains: the IANA zone of "Now" in the context (the person's, else the workspace's, a routine's own), which
+   * the CLI's clock reads too, so the date it sees is the one the person lives.
+   */
+  timeZone?: string;
   /** The text the person/system sent that starts this turn (also the last user message). */
   trigger: string;
   /**
@@ -201,10 +243,20 @@ export interface BrainIO {
    * `null` when it ends. Brains that can't never call it.
    */
   steerable?(steer: ((messages: SteerMessage[]) => Promise<SteerReply>) | null): void;
+  /** A step before the model has the turn (`inPhase`): `null` once it is over. */
+  phase?(phase: BrainPhase | null): void;
 }
+
+/** What a turn waits on before its model: `code`, the agent's checkouts being updated (`prepareAgentCode`). */
+export type BrainPhase = "code";
 
 export type BrainEvent =
   | { type: "text_delta"; text: string }
+  /**
+   * A note the model wrote between its calls that its API keeps apart from the reply's text (Claude's progress update,
+   * a reasoning summary): the work's narration, never the reply. An older server drops it.
+   */
+  | { type: "note"; text: string }
   /** `executed` present = already executed elsewhere (computer brains via the MCP bridge): the engine only records/displays it. */
   | { type: "tool_call"; id: string; name: string; input: unknown; executed?: ToolResult }
   | {
@@ -239,6 +291,8 @@ export type BrainEvent =
       /** Claude Code (runner protocol 50): why the provider refused or failed it, and its HTTP status. */
       cause?: ProviderFailureCause;
       httpStatus?: number;
+      /** How the turn went until it failed (`done.timings`), from a newer runner. */
+      timings?: BrainTurnTimings;
     }
   /** Messages handed mid-turn (`BrainIO.steerable`) that the turn read, by their `uuid`. */
   | { type: "steer_read"; uuids: string[] }
@@ -280,7 +334,8 @@ export interface Brain {
   run(turn: BrainTurn, io: BrainIO): AsyncIterable<BrainEvent>;
   /**
    * The run was claimed: its computer starts the CLI its turn will most likely use now, while the engine builds the
-   * turn (`brain.warm`). Best effort, never fails; `turn` has no words yet.
+   * turn (`brain.warm`). Best effort, never fails; `turn` has no words yet. True: the computer said the session's CLI
+   * is open now, so the turn starts no process.
    */
-  warm?(turn: BrainTurn): Promise<void>;
+  warm?(turn: BrainTurn): Promise<boolean | undefined>;
 }

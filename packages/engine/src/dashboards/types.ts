@@ -62,8 +62,11 @@ export const WIDGET_TITLE_MAX = 80;
 export const WIDGET_PROMPT_MAX = 2000;
 export const WIDGET_ALERT_CONDITION_MAX = 200;
 export const WIDGET_CHANGE_MAX = 1000;
-/** The title an agent writes on a first build or a change: short, in the person's language (ADR 0135 §17). */
-export const WIDGET_AGENT_TITLE_MAX = 40;
+/**
+ * The title an agent writes on a first build or a change: short enough for a small card on the phone's home strip,
+ * in the person's language (ADR 0135 §17).
+ */
+export const WIDGET_AGENT_TITLE_MAX = 20;
 /** Drafts a person keeps per workspace ("Test" in New widget); one more drops their oldest (ADR 0135 §16). */
 export const WIDGET_DRAFTS_MAX = 5;
 /** A draft nobody confirmed is deleted after this long (ADR 0135 §16). */

@@ -400,6 +400,16 @@ export function pushQuote(latest: Pick<NotificationLatest, "text" | "meta">): st
 }
 
 /**
+ * The push's own words for a message with none of the agent's to quote (`pushQuote` null): a reply its computer or a
+ * restart cut before it wrote anything, or a long work moved to the background on its own.
+ */
+export function pushStandIn(latest: Pick<NotificationLatest, "text" | "meta">): PushTextInput["standIn"] {
+  if (latest.meta?.bodyCode === "work_auto_moved") return "moved";
+  const cut = latest.meta?.brainInterrupted ?? latest.meta?.interrupted;
+  return cut && !cut.text ? "cut" : null;
+}
+
+/**
  * Sends the push of one notification to every device of its person, unless
  * it was read, done or snoozed meanwhile: phones through `push` (one call),
  * browsers whose session is still on through `webPush` (one per subscription).
@@ -475,6 +485,9 @@ export async function deliverPush(
     label: source.label,
     title: latest.title,
     text: pushQuote(latest),
+    standIn: pushStandIn(latest),
+    // The English of a body the server wrote: an English device reads it as the apps would.
+    serverText: latest.meta?.bodyCode ? (latest.text ?? null) : null,
     media: await sentMediaOf(db, row.orgId, row.kind, source, latest),
     suggestedBy: latest.suggestedBy ?? null,
     highRisk,

@@ -14,7 +14,7 @@ const { dashboards, dashboardWidgets, dashboardWidgetUpdates, users } = schema;
 
 /** Each kind's data, as `update_widget` takes it (the same shape `validateWidgetSpec` checks). */
 export const WIDGET_KIND_MANUAL = [
-  `- kpi (one number): { "kind": "kpi", "value": 18420, "prefix": "R$", "suffix": "%", "delta": { "text": "+12%", "up": true }, "note": "vs. yesterday", "spark": [numbers, oldest first, at most ${WIDGET_LIMITS.spark}] }. \`up\` true means the good direction, whatever the sign.`,
+  `- kpi (one number): { "kind": "kpi", "value": 18420, "prefix": "R$", "suffix": "%", "delta": { "text": "+12%", "up": true }, "note": "vs. yesterday", "spark": [numbers, oldest first, at most ${WIDGET_LIMITS.spark}], "sparkLabels": [what each spark number is, its date mostly, one per number] }. \`up\` true means the good direction, whatever the sign.`,
   `- goal (progress to a goal): { "kind": "goal", "pct": 0 to 100, "line": "248 of 400", "note": "At this pace…" }.`,
   `- bars (a ranking or a count per category): { "kind": "bars", "labels": [...], "values": [numbers, one per label], "unit": "runs per day", "note": "…", "alertIndex": the bar the alert is about }, at most ${WIDGET_LIMITS.points} bars.`,
   `- line (something over time, oldest first): { "kind": "line", "labels": [...], "values": [numbers, one per label], "unit": "ms", "note": "…" }, at most ${WIDGET_LIMITS.points} points.`,

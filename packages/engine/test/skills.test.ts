@@ -16,7 +16,9 @@ import {
   getSkill,
   getSkillFile,
   importPickedSkills,
+  importPickedZipSkills,
   importSkillFromUrl,
+  importSkillsZip,
   importSkillZip,
   listAgentScopes,
   listConnections,
@@ -474,6 +476,63 @@ describe("import", () => {
       "long: description",
     );
     expect(await listSkills(f.db, f.owner.id, f.org.id)).toEqual([]);
+  });
+
+  test("a repository holding one skill in two folders offers it once; two different skills of one name, one of them", async () => {
+    f = await setup();
+    const md = (name: string, description: string) => `---\nname: ${name}\ndescription: ${description}\n---\n# ${name}`;
+    const archive = zip({
+      "skills-main/skills/memory/SKILL.md": md("memory", "Lembra de cada pessoa."),
+      "skills-main/skills/memory/notes.md": "Notas.",
+      "skills-main/plugins/kit/skills/memory/SKILL.md": md("memory", "Lembra de cada pessoa."),
+      "skills-main/plugins/kit/skills/memory/notes.md": "Notas.",
+      "skills-main/skills/search/SKILL.md": md("search", "Busca nos documentos."),
+      "skills-main/plugins/kit/skills/search/SKILL.md": md("search", "Busca na web."),
+    });
+    const deps = { ...skillDeps(), fetch: fakeGithub({ archive }).fetch };
+    const url = "https://github.com/acme/skills";
+    const listed = await importSkillFromUrl(deps, f.owner.id, f.org.id, url);
+    expect("choices" in listed && listed.choices).toEqual([
+      { path: "plugins/kit/skills/search", name: "search", description: "Busca na web.", sameName: true },
+      { path: "skills/memory", name: "memory", description: "Lembra de cada pessoa." },
+      { path: "skills/search", name: "search", description: "Busca nos documentos.", sameName: true },
+    ]);
+    await expect(
+      importPickedSkills(deps, f.owner.id, f.org.id, url, ["skills/search", "plugins/kit/skills/search"]),
+    ).rejects.toMatchObject({ code: "skill.picked_twice", params: { name: "search" } });
+    expect(await listSkills(f.db, f.owner.id, f.org.id)).toEqual([]);
+  });
+
+  test("a repository of 150 skills lists every one to pick: no cap short of a thousand", async () => {
+    f = await setup();
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 150; i++) files[`skills-main/s${i}/SKILL.md`] = `---\nname: s${i}\ndescription: x\n---\n`;
+    const deps = { ...skillDeps(), fetch: fakeGithub({ archive: zip(files) }).fetch };
+    const listed = await importSkillFromUrl(deps, f.owner.id, f.org.id, "https://github.com/acme/skills");
+    expect("choices" in listed && listed.choices.length).toBe(150);
+  });
+
+  test("a .zip of several skills lists them to pick, nothing installed; the ones picked install from it", async () => {
+    f = await setup();
+    const kit = zip({
+      "kit/skills/deploy/SKILL.md": "---\nname: deploy\ndescription: Antes de qualquer deploy.\n---\n# Deploy",
+      "kit/skills/deploy/run.sh": "echo",
+      "kit/skills/review/SKILL.md": "---\nname: review\ndescription: Revisa um pull request.\n---\n# Review",
+      "__MACOSX/kit/skills/review/._SKILL.md": "x",
+    });
+    const listed = await importSkillsZip(skillDeps(), f.owner.id, f.org.id, kit);
+    expect("choices" in listed && listed.choices).toEqual([
+      { path: "kit/skills/deploy", name: "deploy", description: "Antes de qualquer deploy." },
+      { path: "kit/skills/review", name: "review", description: "Revisa um pull request." },
+    ]);
+    expect(await listSkills(f.db, f.owner.id, f.org.id)).toEqual([]);
+    const installed = await importPickedZipSkills(skillDeps(), f.owner.id, f.org.id, kit, ["kit/skills/deploy"]);
+    expect(installed.map((k) => [k.name, k.source, k.files.map((x) => x.path)])).toEqual([
+      ["deploy", "upload", ["run.sh"]],
+    ]);
+    await expect(
+      importPickedZipSkills(skillDeps(), f.owner.id, f.org.id, kit, ["kit/skills/nope"]),
+    ).rejects.toBeInstanceOf(ValidationError);
   });
 
   test("a repository of 40,000 one-file skill folders is refused for holding too many in a moment", async () => {
@@ -1042,11 +1101,21 @@ describe("private repositories", () => {
 });
 
 describe("runtime", () => {
+  // Saving a skill also queues its line for people, written by the summary model in a job of its own (ADR 0020,
+  // amendment of 2026-11-25): these runs' replies and calls leave that call out.
+  const DESCRIBE = "You describe a skill";
+  type Reply = NonNullable<NonNullable<Parameters<typeof setup>[0]>["reply"]>;
+  const runReply =
+    (reply: Reply): Reply =>
+    (req, call) =>
+      systemText(req.system).startsWith(DESCRIBE) ? { chunks: ["{}"] } : reply(req, call);
+  const runCalls = () => f.provider.calls.filter((c) => !systemText(c.request.system).startsWith(DESCRIBE));
+
   test("the prompt lists only the agent's enabled skills; load_skill returns the body; read_skill_file a file", async () => {
     let step = 0;
     f = await setup({
       skillTools: true,
-      reply: (req: ModelRequest) => {
+      reply: runReply((req: ModelRequest) => {
         step++;
         if (step === 1) return { chunks: [], toolUses: [{ name: "load_skill", input: { name: "relatorio-semanal" } }] };
         if (step === 2)
@@ -1062,7 +1131,7 @@ describe("runtime", () => {
             toolUses: [{ name: "read_skill_file", input: { name: "relatorio-semanal", path: "run.sh" } }],
           };
         return { chunks: [JSON.stringify(req.messages.length)] };
-      },
+      }),
     });
     expect((await listAgentScopes(f.db, f.org.id, f.agent.id)).map((g) => g.scope)).toContain("skills:read");
     const mine = await importSkillZip(
@@ -1084,7 +1153,7 @@ describe("runtime", () => {
     });
     await drainOutbox(f.db, f.handlers);
 
-    const prompt = systemText(f.provider.calls[0]?.request.system ?? "");
+    const prompt = systemText(runCalls()[0]?.request.system ?? "");
     expect(prompt).toContain("# Available skills");
     expect(prompt).toContain("- relatorio-semanal: Escreve o relatório semanal");
     expect(prompt).not.toContain("outra-skill");
@@ -1112,12 +1181,12 @@ describe("runtime", () => {
     let step = 0;
     f = await setup({
       skillTools: true,
-      reply: () => {
+      reply: runReply(() => {
         const path = reads[step++];
         return path
           ? { chunks: [], toolUses: [{ name: "read_skill_file", input: { name: "relatorio-semanal", path } }] }
           : { chunks: ["ok"] };
-      },
+      }),
     });
     const skill = await importSkillZip(
       skillDeps(),
@@ -1194,7 +1263,7 @@ describe("runtime", () => {
     });
     await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body: "@dev oi" });
     await drainOutbox(f.db, f.handlers);
-    const request = f.provider.calls[0]?.request;
+    const request = runCalls()[0]?.request;
     expect(request?.tools?.map((t) => t.name) ?? []).not.toContain("load_skill");
     expect(systemText(request?.system ?? "")).not.toContain("# Available skills");
 

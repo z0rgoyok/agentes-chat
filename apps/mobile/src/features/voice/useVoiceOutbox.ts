@@ -5,6 +5,7 @@ import { AppState } from "react-native";
 import { useToast } from "@/ui";
 import { useConnection, useOrgId } from "../shared/hooks";
 import { flushVoice, removeBubble, restoreVoice } from "./outbox";
+import { useSayVoiceRefusal } from "./useVoiceTake";
 
 /**
  * Recordings that still have to go, whatever screen is open: sent again when the app comes back or the connection
@@ -16,9 +17,8 @@ export function useVoiceOutbox() {
   const connection = useConnection();
   const toast = useToast();
   const { t } = useTranslation();
+  const refused = useSayVoiceRefusal();
   useEffect(() => {
-    const refused = (reason: "limit" | "refused") =>
-      toast({ title: t(reason === "limit" ? "voice.limit" : "voice.notSent"), icon: "x" });
     restoreVoice(qc, orgId);
     void flushVoice(qc, refused);
     const app = AppState.addEventListener("change", (state) => {
@@ -40,5 +40,5 @@ export function useVoiceOutbox() {
       offReconnect?.();
       offUser?.();
     };
-  }, [connection, orgId, qc, t, toast]);
+  }, [connection, orgId, qc, refused, t, toast]);
 }

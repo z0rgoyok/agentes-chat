@@ -1,9 +1,9 @@
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import type { MachineReplies, MachineRequest } from "@agenteschat/adapters/machine-protocol";
-import { credentialHelper } from "../../runner/git";
+import { clearStaleConfigLock, credentialHelper, STALE_CONFIG_LOCK_MS } from "../../runner/git";
 import {
   describeRequest,
   type HandlerContext,
@@ -170,6 +170,48 @@ test("git.sync clones into the agent's folder with only our proxy credential, th
   expect(third.repos[0]).toMatchObject({ status: "updated", branch: "agentes/dev/fix" });
   expect(git(checkout, "rev-parse", "main")).toBe(git(source, "rev-parse", "main"));
   expect(readFileSync(path.join(checkout, "notes.md"), "utf8")).toBe("wip\n");
+});
+
+test("two syncs of one checkout at once both go through; a config lock a dead git left is cleared", async () => {
+  const { ctx } = setup();
+  await handleRequest(ctx, sync([{ repo: "acme/app", clone: true }]), scope());
+  const checkout = path.join(await agentWorkspace(ctx.workspaceReal, AGENT), "repos", "acme", "app");
+  // Two turns of the agent sync the same checkout together: each rewrites its `.git/config`.
+  const both = (await Promise.all(
+    [1, 2, 3].map(() => handleRequest(ctx, sync([{ repo: "acme/app", clone: false }]), scope())),
+  )) as MachineReplies["git.sync"][];
+  expect(both.map((b) => b.repos[0]?.status)).toEqual(["updated", "updated", "updated"]);
+  expect(JSON.stringify(both)).not.toContain("could not lock config file");
+
+  // A git killed while writing the config left its lock: every later sync failed on it.
+  const lock = path.join(checkout, ".git", "config.lock");
+  writeFileSync(lock, "");
+  const old = new Date(Date.now() - STALE_CONFIG_LOCK_MS - 1000);
+  utimesSync(lock, old, old);
+  const after = (await handleRequest(
+    ctx,
+    sync([{ repo: "acme/app", clone: false }]),
+    scope(),
+  )) as MachineReplies["git.sync"];
+  expect(after.repos[0]).toMatchObject({ status: "updated" });
+  expect(existsSync(lock)).toBe(false);
+  // One just taken may be a live git's: left alone.
+  writeFileSync(lock, "");
+  clearStaleConfigLock(checkout);
+  expect(existsSync(lock)).toBe(true);
+});
+
+test("git.sync writes every checkout's GitHub token before it fetches the first", async () => {
+  const { ctx } = setup();
+  const token = `ghs_${"t".repeat(36)}`;
+  // The first checkout's request is refused before anything is fetched: the second's token is on disk already, so
+  // the agent's own git there doesn't wait for the checkouts ahead of it.
+  const request = sync([
+    { repo: "acme/app", dir: ".", clone: false, github: token },
+    { repo: "acme/web", clone: false, github: token },
+  ] as never);
+  await expect(handleRequest(ctx, request, scope())).rejects.toThrow();
+  expect(readFileSync(path.join(ctx.gitDir as string, "github", AGENT.id, "acme", "web.token"), "utf8")).toBe(token);
 });
 
 test("git.sync: not cloned and not asked, refused by the remote, outside the folder, bad requests", async () => {

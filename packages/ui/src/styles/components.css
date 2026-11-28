@@ -601,12 +601,15 @@ html:not([data-pointer]) .ac-link:focus-visible {
   /* An address or a path breaks where it must instead of running past the form. */
   overflow-wrap: anywhere;
 }
-/* A section's heading inside a picker's list (`PickerHeading`): its label, then what picking one means. */
+/*
+ * A section's heading inside a picker's list (`PickerHeading`): its label, then what picking one means, 8 over its
+ * list's first line as every list heading.
+ */
 .ac-picker-head {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding-block: var(--space-2) var(--space-1);
+  padding-block: var(--space-2);
 }
 .ac-picker-head__desc {
   font-size: 13px;
@@ -869,6 +872,10 @@ textarea.ac-input:not(:hover, :focus-visible) {
 }
 .ac-brand svg {
   fill: currentColor;
+}
+/* The kit's own line icon on a tile (a key, a computer): its strokes, never filled. */
+.ac-brand > svg.ac-icon {
+  fill: none;
 }
 /* An image mark that isn't square (Tux) keeps its shape in the square box. */
 .ac-brand img {
@@ -2124,10 +2131,6 @@ html:not([data-pointer]) .ac-eventpill__action:focus-visible {
   height: 14px;
   margin: 0;
 }
-/* An icon's ink starts about 2px into its box: on its side the chip pads 6, so the ink reads 8 on both sides. */
-.ac-chip:has(> .ac-icon:first-child) {
-  padding-inline-start: 6px;
-}
 .ac-chip > :not(.ac-chip__text) {
   flex: none;
 }
@@ -2135,6 +2138,19 @@ html:not([data-pointer]) .ac-eventpill__action:focus-visible {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* The words centre their capitals where the icon centres, not their line, whose baseline each platform rounds to a
+   whole pixel its own way: their box is trimmed to the capitals, then padded back to the line, so the chip keeps its
+   size and the clip keeps the descenders. Source Sans 3's cap height stands 0.045em above its H, so its capitals sit
+   0.27px under a 12px chip's middle. Without text-box, nothing changes. Every engine had lh before text-box: the
+   inner condition only keeps lh behind its own @supports, as everywhere in the kit. */
+@supports (text-box: trim-both cap alphabetic) {
+  @supports (top: 1lh) {
+    .ac-chip__text {
+      text-box: trim-both cap alphabetic;
+      padding-block: calc((1lh - 1cap) / 2);
+    }
+  }
 }
 /* Words with no `.ac-chip__text` have nothing to shrink into: the chip keeps their width, or they'd eat its padding. */
 .ac-chip:not(:has(> .ac-chip__text)) {
@@ -2219,7 +2235,7 @@ html:not([data-pointer]) .ac-chip--button:focus-visible {
   white-space: nowrap;
 }
 
-/* Logo: the agent mark + the wordmark set in Onest */
+/* Logo: the agent mark + the wordmark set in Funnel Display */
 .ac-logo {
   display: inline-flex;
   align-items: center;
@@ -2236,6 +2252,23 @@ html:not([data-pointer]) .ac-chip--button:focus-visible {
   width: 1.25em;
   height: 1.25em;
   flex: none;
+}
+/* The mark's middle on the wordmark's capitals' middle at every size, as an `.ac-iconline` lead's. Centring the line
+   box left it up to 2.5px high: Funnel Display's capitals sit low in its line, and the baseline lands on a whole pixel.
+   So the words' boxes are trimmed to the font's cap height, which stands 0.027em above its capitals (0.702em against
+   0.675em), and the mark moves down half that. Without text-box it moves down from the line box's middle to the
+   capitals' middle, 0.0525em under it in Funnel Display light. */
+.ac-logo > span,
+.ac-logo__word > span {
+  text-box: trim-both cap alphabetic;
+}
+.ac-logo > .ac-logo__mark {
+  translate: 0 0.0135em;
+}
+@supports not (text-box: trim-both cap alphabetic) {
+  .ac-logo > .ac-logo__mark {
+    translate: 0 0.0525em;
+  }
 }
 .ac-logo__body {
   fill: var(--agent);
@@ -2458,6 +2491,11 @@ html:not([data-pointer]) .ac-select__trigger:focus-visible,
 .ac-menu--dropdown {
   min-width: 200px;
   max-height: var(--radix-dropdown-menu-content-available-height);
+}
+/* An item that explains itself (a switch with its sentence under it) wraps its sentence at a menu's width, never
+   stretches the whole menu across the page. A list of people keeps its one-line descriptions. */
+.ac-menu--dropdown:has(.ac-menu__desc):not(:has(.ac-menu__leading > .ac-avatar)) {
+  max-width: min(360px, calc(100vw - 24px));
 }
 /* The right click (MenuAt): at the pointer at once, like the system's menus. */
 .ac-menu.ac-menu--at[data-state="open"] {
@@ -3016,13 +3054,14 @@ html:not([data-pointer]) .ac-tab:focus-visible {
   position: fixed;
   z-index: var(--z-dialog);
   left: 50%;
-  top: 50%;
+  /* Centred in the window's room under `--window-top`. */
+  top: calc(50% + var(--window-top) / 2);
   transform: translate(-50%, -50%);
   width: min(var(--ac-dialog-width, 600px), calc(100% - 32px));
   /* Fixed head and foot; the body scrolls (viewport minus margins). */
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - 48px - var(--window-top));
   /* biome-ignore lint/suspicious/noDuplicateProperties: dvh with a vh fallback for older browsers */
-  max-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 48px - var(--window-top));
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -3891,12 +3930,13 @@ html:not([data-pointer]) .ac-back:focus-visible {
   position: fixed;
   z-index: var(--z-dialog);
   left: 50%;
-  top: 50%;
+  /* Centred in the window's room under `--window-top`, as `.ac-dialog`. */
+  top: calc(50% + var(--window-top) / 2);
   transform: translate(-50%, -50%);
   width: min(720px, calc(100% - 48px));
-  max-height: calc(100vh - 48px);
+  max-height: calc(100vh - 48px - var(--window-top));
   /* biome-ignore lint/suspicious/noDuplicateProperties: dvh with a vh fallback for older browsers */
-  max-height: calc(100dvh - 48px);
+  max-height: calc(100dvh - 48px - var(--window-top));
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
@@ -3938,9 +3978,9 @@ html:not([data-pointer]) .ac-back:focus-visible {
 }
 /* Always the full height: changing tabs inside never makes it jump. */
 .ac-details--fill {
-  height: calc(100vh - 48px);
+  height: calc(100vh - 48px - var(--window-top));
   /* biome-ignore lint/suspicious/noDuplicateProperties: dvh with a vh fallback for older browsers */
-  height: calc(100dvh - 48px);
+  height: calc(100dvh - 48px - var(--window-top));
 }
 .ac-details:focus {
   outline: none;
@@ -5163,6 +5203,56 @@ html:not([data-pointer]) .ac-switch:focus-visible {
   border-radius: var(--radius-md);
   background: var(--surface-raised);
 }
+/* A list kept while its next tab or filter loads (Refreshing): dimmed, with a bar running over its top edge. The bar
+   floats, so the list doesn't move when it comes or goes. Its parts stack with its parent's gap, as they would
+   without it. */
+.ac-refreshing {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: inherit;
+  min-width: 0;
+}
+/* Nothing in it yet (its first load shows elsewhere): no box, so no gap of its parent's around it. */
+.ac-refreshing:empty {
+  display: none;
+}
+.ac-refreshing > :not(.ac-refreshing__bar) {
+  transition: opacity 150ms ease-out;
+}
+.ac-refreshing[data-busy] > :not(.ac-refreshing__bar) {
+  opacity: 0.5;
+}
+/* Just over the list's top edge, in the gap the list keeps under its toolbar or header. */
+.ac-refreshing__bar {
+  position: absolute;
+  inset: calc(-1 * var(--space-1)) 0 auto;
+  z-index: var(--z-raised);
+  height: 2px;
+  overflow: hidden;
+  border-radius: var(--radius-full);
+  background: var(--line);
+}
+.ac-refreshing__bar::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--ink);
+  opacity: 0.6;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ac-refreshing__bar::before {
+    animation: ac-top-progress 1.4s ease-in-out infinite;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-refreshing__bar::before {
+    width: 100%;
+    opacity: 0.35;
+  }
+}
 @keyframes ac-top-progress {
   from {
     transform: translateX(-100%);
@@ -5305,7 +5395,8 @@ html:not([data-pointer]) .ac-switch:focus-visible {
 /*
  * Motion (2026-10): enters and exits, 120–200 ms (`--dur-fast`, `--dur-base`; a side panel's slide `--dur-panel`), ease-out,
  * exits faster than entrances, opacity and transform only (no layout shift). Nothing moves with
- * prefers-reduced-motion. What people do by keyboard many times a day (⌘K) has none.
+ * prefers-reduced-motion: what arrives only fades in (120ms). What people do by keyboard many times a day (⌘K) has
+ * none. A size change in place is `useMorph` and `MorphRoom` (motion.tsx).
  */
 @media (prefers-reduced-motion: no-preference) {
   .ac-dialog__scrim[data-state="open"] {
@@ -5402,6 +5493,79 @@ html:not([data-pointer]) .ac-switch:focus-visible {
   .ac-hint__bubble[data-state="open"][data-side="right"] {
     animation-name: ac-pop-right;
   }
+}
+/*
+ * What arrives after a click (the team's first tasks, its waving faces): fades and rises 6px as a 2px blur clears, in
+ * turn (`--arrive-delay`), and takes no click until it is in, so a quick second click lands on nothing. Under reduced
+ * motion it only fades in (120ms).
+ */
+@media (prefers-reduced-motion: no-preference) {
+  .ac-arrive {
+    animation: ac-arrive var(--dur-base) var(--out) var(--arrive-delay, 0ms) backwards;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-arrive {
+    animation: ac-fade-in 120ms ease-out;
+  }
+}
+@keyframes ac-arrive {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(2px);
+    pointer-events: none;
+  }
+  99% {
+    pointer-events: none;
+  }
+}
+/*
+ * A row that arrives after its list first painted (`data-arriving`: the sidebar's new channels and agents) opens its
+ * room first, so what's under it slides down instead of jumping, then fades in. `--arrive-delay` staggers a team's
+ * rows. Where height can't grow to `auto` (WebKit, the desktop app) it only fades. Reduced motion: a 200ms fade.
+ */
+@media (prefers-reduced-motion: no-preference) {
+  [data-arriving] {
+    transition: opacity var(--dur-base) var(--out) calc(var(--arrive-delay, 0ms) + var(--dur-fast));
+  }
+  @starting-style {
+    [data-arriving] {
+      opacity: 0;
+    }
+  }
+  @supports (interpolate-size: allow-keywords) {
+    [data-arriving] {
+      interpolate-size: allow-keywords;
+      transition:
+        height var(--dur-fast) var(--move) var(--arrive-delay, 0ms),
+        opacity var(--dur-base) var(--out) calc(var(--arrive-delay, 0ms) + var(--dur-fast));
+    }
+    @starting-style {
+      [data-arriving] {
+        height: 0;
+        opacity: 0;
+      }
+    }
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-arriving] {
+    transition: opacity 200ms ease-out;
+  }
+  @starting-style {
+    [data-arriving] {
+      opacity: 0;
+    }
+  }
+}
+/* `MorphRoom`: its inner box holds its parts' margins (what is measured is what it takes); empty, it takes no room once
+   its room has closed (`data-closing` while it glides shut). */
+.ac-morph__in {
+  display: flow-root;
+}
+.ac-morph:not([data-closing]):has(> .ac-morph__in:empty) {
+  display: none;
 }
 @keyframes ac-dialog-out {
   to {
@@ -6231,6 +6395,13 @@ html:not([data-pointer]) .ac-seg__item:focus-visible {
   border-radius: var(--radius-section);
   box-shadow: var(--e3), var(--top);
 }
+/* Dark: the face is barely lighter than the page under the scrim, so its edge lifts it (e3 with a brighter line). */
+[data-theme="dark"] .ac-dialog {
+  box-shadow:
+    0 28px 64px -16px rgba(0, 0, 0, 0.8),
+    0 0 0 1px rgba(255, 255, 255, 0.22),
+    var(--top);
+}
 .ac-dialog__scrim {
   background: var(--scrim);
 }
@@ -6464,6 +6635,8 @@ html:not([data-pointer]) .ac-hint:focus-visible {
   max-width: min(280px, calc(100vw - 32px));
   padding: 8px 12px;
   text-wrap: pretty;
+  /* A name with no place to break (a computer named by its address) wraps inside the bubble. */
+  overflow-wrap: anywhere;
   border-radius: 12px;
   color: var(--ink2);
   font-size: 13px;
@@ -6649,6 +6822,13 @@ html:not([data-pointer]) .ac-hint:focus-visible {
 }
 .ac-rolemark .ac-icon {
   filter: drop-shadow(0 1px 0 rgba(0, 0, 0, 0.22));
+}
+/* An integration app (ADR 0251): a person's tile shape, its initial in white like a role's icon. */
+.ac-appmark {
+  border-radius: 30%;
+  font-weight: 650;
+  line-height: 1;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.22);
 }
 
 /* People: the tile (a rounded square, radius 30% of the side) in a neutral gradient with initials or a photo; presence badge on the corner */
@@ -7430,6 +7610,19 @@ html:not([data-pointer]) .ac-react:focus-visible {
 .ac-composer__tools:empty {
   display: none;
 }
+/* More than one line (`data-wide`): the text takes the card's whole width, the tools a row of their own under it, at
+   its two ends, the text's edge on the attach button's. */
+.ac-composer[data-wide] .ac-composer__row {
+  flex-wrap: wrap;
+  row-gap: var(--space-1);
+}
+.ac-composer[data-wide] .ac-composer__text {
+  order: -1;
+  flex: 1 0 100%;
+}
+.ac-composer[data-wide] .ac-composer__text ~ .ac-composer__tools {
+  margin-left: auto;
+}
 /* In the column the height comes from the text (Composer measures it); `flex: 1` from the row layout above would
    pin it to its minimum. */
 .ac-composer textarea {
@@ -7805,10 +7998,13 @@ button.ac-voice__play:active {
   font-variant-numeric: tabular-nums;
   color: var(--muted);
 }
+/* One width for 1×, 1.5× and 2×: the chip and what is beside it hold still as the speed goes round. */
 .ac-voice__speed {
   flex: none;
+  width: 36px;
   height: 22px;
-  padding: 0 6px;
+  padding: 0;
+  text-align: center;
   border: 0;
   border-radius: 6px;
   background: var(--plate);
@@ -7884,13 +8080,19 @@ button.ac-voice__play:active {
   border-radius: 16px 16px 16px 4px;
   box-shadow: 0 0 0 1px var(--line);
 }
-/* One box from the first paint, the video whole inside it: its own proportions are known only once its metadata
-   loads, and a tile that took them then would move every row under it. Full screen stretches the player itself over
-   the screen (the browser's :fullscreen rules), so there the box would leave the video small in its corner. */
+/* One box from the first paint, the video whole inside it: a tile that took the video's shape once its metadata loads
+   would move every row under it. The shape the server read (`data-ratio`) is there from the start: as wide as a 16:9
+   one, an upright one as tall as 360. Unknown, 16:9. Full screen stretches the player itself over the screen (the
+   browser's :fullscreen rules), so there the box would leave the video small in its corner. */
 .ac-video--tile:not([data-full]) .ac-video__media {
   width: 320px;
   max-width: 100%;
   height: 180px;
+}
+.ac-video--tile[data-ratio]:not([data-full]) .ac-video__media {
+  width: min(320px, calc(360px * var(--ratio)));
+  height: auto;
+  aspect-ratio: var(--ratio);
 }
 .ac-video--viewer {
   width: 100%;
@@ -8092,10 +8294,13 @@ button.ac-voice__play:active {
   white-space: nowrap;
   color: var(--muted);
 }
+/* One width for 1×, 1.5× and 2×: the chip and what is beside it hold still as the speed goes round. */
 .ac-video__speed {
   flex: none;
+  width: 36px;
   height: 22px;
-  padding: 0 6px;
+  padding: 0;
+  text-align: center;
   border: 0;
   border-radius: 6px;
   background: var(--plate);
@@ -8140,12 +8345,15 @@ button.ac-voice__play:active {
 .ac-video__filled {
   background: var(--ink);
 }
+/* The knob travels inside its track, so no box that clips the slider (the volume's, as it slides open) cuts it at an end. */
 .ac-video__knob {
+  --knob: 12px;
   position: absolute;
   top: 50%;
-  width: 12px;
-  height: 12px;
-  margin: -6px 0 0 -6px;
+  left: calc(var(--knob) / 2 + var(--at, 0) * (100% - var(--knob)));
+  width: var(--knob);
+  height: var(--knob);
+  margin: calc(var(--knob) / -2) 0 0 calc(var(--knob) / -2);
   border-radius: 50%;
   background: var(--ink);
   box-shadow: 0 0 0 2px var(--raised);
@@ -8194,10 +8402,11 @@ button.ac-voice__play:active {
   overflow: hidden;
   transition: width 0.2s;
 }
+/* Room on both sides for the knob's hover scale and its ring, inside the box that slides open. */
 .ac-video__volume .ac-video__rail {
   width: 56px;
   min-width: 0;
-  margin: 0 6px 0 2px;
+  margin: 0 4px;
 }
 .ac-video__sound:hover .ac-video__volume,
 .ac-video__sound:focus-within .ac-video__volume {
@@ -9354,6 +9563,127 @@ html:not([data-pointer]) button.ac-tools__row:focus-visible {
   min-width: 0;
 }
 
+/*
+ * An agent at work (`OrbitGlyph`): two rings around its glyph in its own colours (`orbitColors`), whole behind it, and
+ * on each a light (a fading arc, a small dot at its head) that passes over the glyph on the near half and behind it on
+ * the far one. The overlay is 2.2 glyphs wide and takes no room (it reaches into the row's gap), but its box counts as
+ * overflow: the row holding it clips (`overflow: clip`), or a scrolling list would scroll by it. Each ring also turns
+ * slowly round the glyph (`ac-orbit__roll`), its light riding it. Only transforms move; reduced motion draws them
+ * still, and off screen they pause.
+ */
+.ac-orbit {
+  --orbit-1: var(--orbit-l1);
+  --orbit-2: var(--orbit-l2);
+  --orbit-head: var(--orbit-lh);
+  /* The light's head and the rings' widths, whatever the glyph's size. */
+  --orbit-w: 2.2px;
+  --orbit-ring-w: 1.25px;
+  --orbit-ring-alpha: 0.45;
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  isolation: isolate;
+}
+[data-theme="dark"] .ac-orbit {
+  --orbit-1: var(--orbit-d1);
+  --orbit-2: var(--orbit-d2);
+  --orbit-head: var(--orbit-dh);
+  --orbit-ring-alpha: 0.55;
+}
+.ac-orbit:has(> .ac-avatar--lg, > .ac-avatar--xl) {
+  --orbit-w: 2.6px;
+  --orbit-ring-w: 1.5px;
+}
+.ac-orbit > .ac-orbit__back,
+.ac-orbit > .ac-orbit__front {
+  position: absolute;
+  inset: -60%;
+  overflow: visible;
+  pointer-events: none;
+}
+.ac-orbit > .ac-orbit__back {
+  z-index: var(--z-under);
+}
+.ac-orbit > :not(svg) {
+  position: relative;
+}
+.ac-orbit > .ac-orbit__front {
+  z-index: var(--z-raised);
+}
+.ac-orbit__path {
+  fill: none;
+  stroke: var(--orbit-1);
+  stroke-width: var(--orbit-ring-w);
+  vector-effect: non-scaling-stroke;
+  opacity: var(--orbit-ring-alpha);
+}
+.ac-orbit__ring--2 .ac-orbit__path {
+  stroke: var(--orbit-2);
+}
+.ac-orbit__light {
+  fill: none;
+  vector-effect: non-scaling-stroke;
+}
+.ac-orbit__dot {
+  fill: var(--orbit-head);
+}
+.ac-orbit__back .ac-orbit__dot {
+  opacity: 0.7;
+}
+.ac-orbit__spin {
+  transform-origin: 0 0;
+  transform: rotate(var(--start));
+}
+.ac-orbit__unspin {
+  transform-origin: 0 0;
+  transform: rotate(calc(-1 * var(--start)));
+}
+.ac-orbit__roll {
+  transform-origin: 0 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .ac-orbit__roll {
+    animation: ac-orbit-roll var(--spin) linear infinite;
+  }
+  .ac-orbit__spin {
+    animation: ac-orbit-turn var(--turn) linear infinite;
+  }
+  .ac-orbit__unspin {
+    animation: ac-orbit-unturn var(--turn) linear infinite;
+  }
+  .ac-orbit[data-paused="true"] :is(.ac-orbit__spin, .ac-orbit__unspin, .ac-orbit__roll) {
+    animation-play-state: paused;
+  }
+}
+@keyframes ac-orbit-turn {
+  from {
+    transform: rotate(var(--start));
+  }
+  to {
+    transform: rotate(calc(var(--start) + 360deg));
+  }
+}
+@keyframes ac-orbit-roll {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes ac-orbit-unturn {
+  from {
+    transform: rotate(calc(-1 * var(--start)));
+  }
+  to {
+    transform: rotate(calc(-1 * var(--start) - 360deg));
+  }
+}
+/* The glyph's own working halo would be a second ring: the orbit says it. */
+.ac-orbit .ac-avatar--running::after {
+  display: none;
+}
+
 /* Agent look: the halo takes the agent's color. */
 .ac-avatar--agent[style*="--av-top"].ac-avatar--running::after {
   border-color: color-mix(in srgb, var(--av-bottom) 45%, transparent);
@@ -9586,6 +9916,14 @@ html:not([data-pointer]) .ac-recur__day:focus-visible {
   font-size: 13px;
   color: var(--muted);
 }
+/* SearchSelect's `footer`: under the list whatever is typed, past a menu's separator, its rows drawn as a menu's. */
+.ac-tz__foot {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--menu-pad) var(--menu-pad);
+}
 .ac-tz__option[aria-disabled="true"] {
   color: var(--ink-muted);
   cursor: not-allowed;
@@ -9742,6 +10080,26 @@ html:not([data-pointer]) .ac-recur__day:focus-visible {
   align-items: center;
   gap: 8px;
   min-height: var(--control-h-md);
+  margin-left: auto;
+}
+/* The line under the title with a control at its end (`metaActions`): the words where they'd be under the title alone
+   (the row's gap and the control's taller box taken back), the control on the header's end edge, under the title's. */
+.ac-pagehead__metaline {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  margin-top: calc(-1 * var(--space-6));
+}
+.ac-pagehead__metaline > .ac-pagehead__meta {
+  flex: 1 1 0;
+  margin: 0;
+}
+.ac-pagehead__metaacts {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: none;
   margin-left: auto;
 }
 .ac-pagehead__bar {
@@ -10991,7 +11349,7 @@ html:not([data-pointer]) .ac-filter__option:focus-visible {
     max-width: none;
   }
   .ac-palette {
-    top: calc(env(safe-area-inset-top, 0px) + 12px);
+    top: calc(env(safe-area-inset-top, 0px) + var(--window-top) + 12px);
   }
   .ac-palette__list {
     max-height: 50vh;
@@ -11009,9 +11367,9 @@ html:not([data-pointer]) .ac-filter__option:focus-visible {
     left: 0;
     transform: none;
     width: 100%;
-    max-height: calc(100vh - 12px);
+    max-height: calc(100vh - 12px - var(--window-top));
     /* biome-ignore lint/suspicious/noDuplicateProperties: dvh with a vh fallback for older browsers */
-    max-height: calc(100dvh - 12px - env(safe-area-inset-top, 0px));
+    max-height: calc(100dvh - 12px - env(safe-area-inset-top, 0px) - var(--window-top));
     border-radius: var(--radius-section) var(--radius-section) 0 0;
     padding-bottom: env(safe-area-inset-bottom, 0px);
     --dialog-pad: 16px;
@@ -11033,7 +11391,7 @@ html:not([data-pointer]) .ac-filter__option:focus-visible {
     /* biome-ignore lint/suspicious/noDuplicateProperties: dvh with a vh fallback for older browsers */
     height: 100dvh;
     border-radius: 0;
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: calc(env(safe-area-inset-top, 0px) + var(--window-top));
     padding-bottom: env(safe-area-inset-bottom, 0px);
     --details-pad: 16px;
   }
@@ -11214,6 +11572,45 @@ html:not([data-pointer]) .ac-run-bars__bar:focus-visible {
 }
 .ac-menu__hint > .ac-chip {
   margin-block: -1px;
+}
+
+/* ---------- InlineName: a name renamed where it stands ---------- */
+/* The font, size and line of what it replaces, so nothing moves; no box, only the ring. Its 4px of side padding are
+   pulled back out, so the text stays on the name's own edge. */
+.ac-inlinename {
+  display: block;
+  box-sizing: content-box;
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  line-height: inherit;
+  outline: none;
+  box-shadow: inset 0 -1px 0 var(--line2);
+}
+@supports (top: 1lh) {
+  .ac-inlinename {
+    height: 1lh;
+  }
+}
+.ac-inlinename:focus {
+  box-shadow: var(--field-ring);
+}
+.ac-inlinename--fit {
+  width: auto;
+}
+.ac-inlinename[aria-busy] {
+  opacity: 0.6;
+}
+.ac-inlinename::placeholder {
+  color: var(--faint);
 }
 
 /* ---------- Choice rows (OptionList.tsx): full width, one left edge, neutral selection ---------- */
@@ -11598,6 +11995,125 @@ html:not([data-pointer]) .ac-effort:focus-visible .ac-effort__ramp {
 @media (max-width: 640px) {
   .ac-optrow__side {
     display: none;
+  }
+}
+/*
+ * Links (OptionLinks): the row's look for a choice that opens its own steps. The title is the button, stretched over
+ * the row, so a link in the description stays clickable above it; nothing stays chosen, the chevron says it moves on.
+ */
+.ac-optlinks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ac-optrow--link {
+  position: relative;
+  cursor: pointer;
+}
+/* The chevron ends every row 16 in: the leading picture starts as far in. */
+.ac-optrow--link.ac-optrow--lead {
+  padding-left: 16px;
+}
+.ac-optrow__hit {
+  appearance: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: inherit;
+  cursor: pointer;
+}
+.ac-optrow__hit::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+html:not([data-pointer]) .ac-optrow__hit:focus-visible {
+  outline: none;
+}
+html:not([data-pointer]) .ac-optrow--link:has(.ac-optrow__hit:focus-visible) {
+  box-shadow:
+    inset 0 0 0 1px var(--line2),
+    var(--field-ring);
+}
+.ac-optrow--link .ac-optrow__title {
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+.ac-optrow--link .ac-optrow__desc :is(a, button) {
+  position: relative;
+  z-index: var(--z-raised);
+}
+.ac-optrow__go {
+  flex: none;
+  color: var(--faint);
+  transition:
+    color 0.15s,
+    transform 0.2s var(--out);
+}
+.ac-optrow--link:hover .ac-optrow__go {
+  color: var(--ink);
+  transform: translateX(2px);
+}
+.ac-optrow--link[data-disabled] {
+  cursor: default;
+  opacity: 0.5;
+}
+.ac-optrow--link[data-disabled]:hover {
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.ac-optrow--link[data-disabled]:active,
+.ac-optrow--link[data-disabled]:hover .ac-optrow__go {
+  transform: none;
+}
+.ac-optrow--link[data-disabled] .ac-optrow__hit {
+  cursor: default;
+}
+/* A row's quiet end words stay on a phone too: they are part of the choice ("Um login por agente"). */
+.ac-optrow__side--link {
+  display: inline-flex;
+  flex: 0 1 auto;
+  max-width: 40%;
+  white-space: normal;
+  text-align: end;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ac-optrow--link:hover .ac-optrow__go {
+    transform: none;
+  }
+}
+/* A phone: the leading picture and the title share the first line, the line under them takes the row's width. */
+@media (width <= 480px) {
+  .ac-optrow--link.ac-optrow--lead {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    row-gap: 4px;
+  }
+  .ac-optrow--link.ac-optrow--lead > .ac-optrow__text {
+    display: contents;
+  }
+  .ac-optrow--link.ac-optrow--lead > .ac-optrow__lead {
+    grid-area: 1 / 1;
+  }
+  .ac-optrow--link.ac-optrow--lead .ac-optrow__title {
+    grid-area: 1 / 2;
+  }
+  .ac-optrow--link.ac-optrow--lead > .ac-optrow__go {
+    grid-area: 1 / 3;
+  }
+  .ac-optrow--link.ac-optrow--lead .ac-optrow__desc {
+    grid-column: 1 / -1;
+    margin-top: 0;
+  }
+  .ac-optrow--link.ac-optrow--lead > .ac-optrow__side--link {
+    grid-column: 1 / -1;
+    max-width: none;
+    text-align: start;
   }
 }
 .ac-optrow__more--cards {
@@ -12131,6 +12647,11 @@ html:not([data-pointer]) .ac-msg__note:focus-visible {
 .ac-mo__kbd {
   visibility: hidden;
 }
+/* A row with no shortcut (a workspace) keeps no room for one: its hint ("You're here", a count) ends on the row's
+   padding, as its face starts on the other side, instead of a hidden key's width further in. */
+.ac-mo__kbd:empty {
+  display: none;
+}
 .ac-mo__item:hover .ac-mo__kbd:not(:empty),
 .ac-mo__item:focus-visible .ac-mo__kbd:not(:empty) {
   visibility: visible;
@@ -12144,8 +12665,9 @@ html:not([data-pointer]) .ac-msg__note:focus-visible {
   margin: -6px;
 }
 /* A face there (a personal workspace's, ADR 0159) is the slot's size, as a workspace's mark is: a larger one would
-   reach into the gap before the name. */
-.ac-mo__leading > .ac-avatar {
+   reach into the gap before the name. Also when a wrapper holds it (the desktop app's list by server dims an offline
+   server's rows in one). */
+.ac-mo__leading .ac-avatar {
   width: 32px;
   height: 32px;
 }
@@ -13080,6 +13602,15 @@ html:not([data-pointer]) .ac-foldrow__head:focus-visible {
 @supports (top: 1lh) {
   .ac-foldrow__head .ac-chip > .ac-icon {
     translate: 0 calc(0.5lh - var(--cap-mid) - 50%);
+  }
+}
+/* Its words trimmed to their capitals and padded back to the line (`.ac-chip__text`): the first line's capitals sit
+   at its middle, with no --cap-mid to make up. */
+@supports (text-box: trim-both cap alphabetic) {
+  @supports (top: 1lh) {
+    .ac-foldrow__head .ac-chip > .ac-icon {
+      translate: 0 calc(0.5lh - 50%);
+    }
   }
 }
 .ac-foldrow__head .ac-chip__text {

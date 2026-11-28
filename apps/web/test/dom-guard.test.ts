@@ -3,7 +3,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import { tolerateForeignDomEdits } from "../src/lib/dom-guard";
+import { dropKeylessKeyEvents, tolerateForeignDomEdits } from "../src/lib/dom-guard";
 
 describe("a page edited behind React's back", () => {
   let original: Pick<Node, "removeChild" | "insertBefore">;
@@ -32,5 +32,17 @@ describe("a page edited behind React's back", () => {
     expect(parent.lastChild).toBe(added);
     const put = parent.insertBefore(document.createElement("s"), first);
     expect(parent.firstChild).toBe(put);
+  });
+});
+
+describe("a key event with no key (autofill, a password manager)", () => {
+  test("never reaches a shortcut listener; a real key press does", () => {
+    const target = new EventTarget() as Window;
+    dropKeylessKeyEvents(target);
+    const keys: string[] = [];
+    target.addEventListener("keydown", (e) => keys.push(String((e as KeyboardEvent).key)));
+    target.dispatchEvent(new Event("keydown"));
+    target.dispatchEvent(new KeyboardEvent("keydown", { key: "N" }));
+    expect(keys).toEqual(["N"]);
   });
 });

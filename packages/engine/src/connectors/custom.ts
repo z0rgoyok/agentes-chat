@@ -1,17 +1,19 @@
 import { createHash } from "node:crypto";
-import type { BlobStore } from "@agenteschat/adapters";
+import type { BlobStore, PubSub } from "@agenteschat/adapters";
 import { and, asc, type Database, type Executor, eq, inArray, isNull, like, schema, sql } from "@agenteschat/db";
+import { releaseUnasked } from "../approvals";
 import { recordAudit } from "../audit";
 import { caches } from "../cache";
 import { type ConnectorEventId, connectorEventsOf } from "../connector-triggers";
 import { randomToken, sealSecret, sha256 } from "../crypto";
 import { ConflictError, isUniqueViolation, NotFoundError, ValidationError } from "../errors";
-import { valueAtPath } from "../format";
+import { cutText, pgSafeText, valueAtPath } from "../format";
 import type { Judge } from "../judge";
 import { oneLine } from "../mail/text";
 import { assertPublicHttpsUrl } from "../net-guard";
 import { can, requirePermission } from "../organizations";
 import { isAgentesCloud } from "../telemetry";
+import { neutralizeUntrusted } from "../untrusted";
 import {
   classifyByRules,
   classifyTools,
@@ -47,6 +49,7 @@ import {
 import type { McpCallResult, McpConnect, McpSession, McpTool } from "./mcp";
 import {
   authServerMetadata,
+  discoveryFailed,
   ensureOAuthClient,
   type McpOAuthDeps,
   oauthScope,
@@ -208,6 +211,14 @@ export interface CustomServerView {
   tools: CustomToolView[];
   /** What routines can wait on from it (ADR 0130): MillionSend's received email. */
   events: ConnectorEventId[];
+  /**
+   * What the server said in `initialize` on how to use it, as agents read it (`serverInstructionsPrompt`): neutralised
+   * and cut at `maxChars` (`cut`: it said more). Null when it said nothing, and for a reader who doesn't manage
+   * connectors.
+   */
+  instructions: { text: string; cut: boolean; maxChars: number } | null;
+  /** Agents granted its tools get `instructions`: on unless who may change the connection turned it off. */
+  useInstructions: boolean;
   reviewedAt: string | null;
   createdAt: string;
   /**
@@ -234,6 +245,8 @@ export interface CustomDeps extends McpOAuthDeps {
   /** Where servers' icons are kept (the platform store); none: no icons. */
   blobs?: BlobStore;
   log?: { warn(message: string, data?: Record<string, unknown>): void };
+  /** Tells the apps when a classification frees requests still waiting (`releaseUnasked`). */
+  pubsub?: PubSub;
 }
 
 const aadFor = (orgId: string, id: string) => `connector-connection|${orgId}|${id}`;
@@ -281,6 +294,40 @@ function toolView(t: ToolRow, prefix: string | null): CustomToolView {
   };
 }
 
+/** The most of one server's instructions a run reads; past it the text is cut, with a note saying how much. */
+export const SERVER_INSTRUCTIONS_MAX_CHARS = 4000;
+/** The most of a server's instructions kept: enough to say how much a run leaves out, never a whole book. */
+const INSTRUCTIONS_KEPT_CHARS = 65_536;
+
+/** What a session's server said in `initialize` on how to use it, trimmed and bounded; null when it said nothing. */
+export const instructionsOf = (session: Pick<McpSession, "instructions">): string | null =>
+  cutText(pgSafeText(session.instructions?.() ?? "").trim(), INSTRUCTIONS_KEPT_CHARS) || null;
+
+/**
+ * Keeps what a listing found in a server's `instructions` when it changed, so its screen shows what agents read. The
+ * row's `updated_at` stays: it keys the tool source's listing, which already holds the new text.
+ */
+export async function keepInstructions(
+  db: Database,
+  c: Pick<ConnectorConnection, "id" | "orgId" | "instructions">,
+  said: string | null,
+) {
+  if (c.instructions === said) return;
+  await db
+    .update(connectorConnections)
+    .set({ instructions: said })
+    .where(and(eq(connectorConnections.id, c.id), eq(connectorConnections.orgId, c.orgId)));
+  caches.connections.delete(`${c.orgId}:active`);
+}
+
+/** Kept instructions as a run's prompt holds them: neutralised, then cut. */
+function instructionsShown(said: string | null): CustomServerView["instructions"] {
+  if (!said) return null;
+  const clean = neutralizeUntrusted(said);
+  const max = SERVER_INSTRUCTIONS_MAX_CHARS;
+  return { text: cutText(clean, max), cut: clean.length > max, maxChars: max };
+}
+
 /**
  * `whole`: the reader manages connectors (or it is their own), so sees the address as it was typed and the names of
  * its headers. `actorId`: someone else's personal connection shows its name, service and person only.
@@ -300,6 +347,8 @@ function view(c: ConnectorConnection, tools: ToolRow[], whole = true, actorId?: 
       toolsError: null,
       tools: [],
       events: [],
+      instructions: null,
+      useInstructions: c.useInstructions,
       reviewedAt: null,
       createdAt: c.createdAt.toISOString(),
       ownerUserId: c.ownerUserId,
@@ -320,6 +369,8 @@ function view(c: ConnectorConnection, tools: ToolRow[], whole = true, actorId?: 
     toolsError: c.status === "needs_reconnect" ? null : c.lastError,
     tools: mine.map((t) => toolView(t, prefix)),
     events: connectorEventsOf(c.serverUrl),
+    instructions: whole ? instructionsShown(c.instructions) : null,
+    useInstructions: c.useInstructions,
     reviewedAt: c.reviewedAt ? c.reviewedAt.toISOString() : null,
     createdAt: c.createdAt.toISOString(),
     ownerUserId: c.ownerUserId,
@@ -712,6 +763,7 @@ export async function syncCustomTools(deps: CustomDeps, c: ConnectorConnection) 
   const preset = presetForServer(c.serverUrl);
   let listed: McpTool[];
   let info: McpServerInfo | null = null;
+  let instructions: string | null = null;
   let account: ProviderAccount | null = null;
   try {
     if (!deps.connect) throw new Error("no MCP connect configured");
@@ -719,6 +771,7 @@ export async function syncCustomTools(deps: CustomDeps, c: ConnectorConnection) 
     try {
       listed = await session.listTools();
       info = session.serverInfo?.() ?? null;
+      instructions = instructionsOf(session);
       if (listed.some((t) => t.name === preset?.account?.tool)) {
         account = await askAccount(session, preset?.account).catch(() => null);
       }
@@ -821,7 +874,11 @@ export async function syncCustomTools(deps: CustomDeps, c: ConnectorConnection) 
   }
   await deps.db
     .update(connectorConnections)
-    .set({ updatedAt: new Date(), ...(c.status === "needs_reconnect" ? {} : { lastError: null }) })
+    .set({
+      updatedAt: new Date(),
+      instructions,
+      ...(c.status === "needs_reconnect" ? {} : { lastError: null }),
+    })
     .where(eq(connectorConnections.id, c.id));
   caches.connections.delete(`${c.orgId}:active`);
   caches.connections.delete(toolsKey(c));
@@ -932,7 +989,7 @@ export async function connectCustomServer(
       "connector.headers_with_sign_in",
     );
   }
-  return beginMcpOAuth(deps, actorId, orgId, {
+  const started = beginMcpOAuth(deps, actorId, orgId, {
     connector: "custom",
     serverUrl,
     label,
@@ -943,13 +1000,20 @@ export async function connectCustomServer(
     connectionId: input.connectionId,
     personal,
   });
+  if (!probe.optional) return started;
+  // It also lets in without a sign-in: one it can't start connects it as it answered.
+  const signIn = await started.catch((error) => {
+    if (error instanceof ValidationError) return null;
+    throw error;
+  });
+  return signIn?.status === "oauth" ? signIn : stored("none", null);
 }
 
 /**
  * Starts an MCP-native OAuth authorization: authorization server metadata,
  * a registered client (DCR), state + PKCE S256 + `resource`. `needs_key` when
  * the server can't do it, with `not_approved` when it only registers clients
- * it approved.
+ * it approved; `connector.oauth_discovery` when its metadata can't be read.
  */
 export async function beginMcpOAuth(
   deps: McpOAuthDeps,
@@ -970,7 +1034,7 @@ export async function beginMcpOAuth(
   },
 ): Promise<Exclude<CustomConnectStart, { status: "connected" }>> {
   const meta = await authServerMetadata(deps, input.issuer);
-  if (!meta) return { status: "needs_key" };
+  if (!meta) throw discoveryFailed(input.issuer);
   const redirectUri = oauthRedirectUri(deps.publicUrl);
   // Worked out again each time: a client still in use keeps the scope it was registered with, maybe without
   // offline_access.
@@ -1043,14 +1107,15 @@ export interface ToolDecisionInput {
  * Saves the label and each tool's classification (admins). Only classified
  * tools are offered to agents; `approval` tools always ask a person; `off`
  * tools are never offered and don't wait for review. Sensitive tools may
- * only ask for approval or be off.
+ * only ask for approval or be off. `useInstructions`, when given: whether
+ * agents get the server's own instructions (left as it is otherwise).
  */
 export async function saveCustomTools(
   deps: CustomDeps,
   actorId: string,
   orgId: string,
   id: string,
-  input: { label: string; tools: ToolDecisionInput[] },
+  input: { label: string; tools: ToolDecisionInput[]; useInstructions?: boolean },
 ) {
   await connectionFor(deps.db, actorId, orgId, id, "change");
   const c = await loadCustom(deps.db, orgId, id);
@@ -1068,6 +1133,8 @@ export async function saveCustomTools(
     }
   }
   const now = new Date();
+  // Only when the request says: a save that leaves it out never writes back what this one read.
+  const switched = input.useInstructions === undefined ? {} : { useInstructions: input.useInstructions };
   await deps.db.transaction(async (tx) => {
     const asked = input.label.trim();
     const label = asked && asked !== c.label ? await checkLabel(tx, orgId, asked, c) : c.label;
@@ -1085,7 +1152,7 @@ export async function saveCustomTools(
     }
     await tx
       .update(connectorConnections)
-      .set({ label, reviewedAt: now, updatedAt: now })
+      .set({ label, ...switched, reviewedAt: now, updatedAt: now })
       .where(eq(connectorConnections.id, c.id));
     await recordAudit(tx, {
       orgId,
@@ -1094,6 +1161,7 @@ export async function saveCustomTools(
       target: { type: "connector_connection", id: c.id },
       details: {
         tools: input.tools.map((t) => ({ name: t.name, access: t.access })),
+        ...(input.useInstructions !== undefined && input.useInstructions !== c.useInstructions ? switched : {}),
         ...(c.ownerUserId ? { label: auditLabel({ ...c, label }), personalOf: c.ownerUserId } : {}),
       },
     });
@@ -1101,6 +1169,12 @@ export async function saveCustomTools(
   caches.connections.delete(`${orgId}:active`);
   caches.connections.delete(toolsKey(c));
   caches.scopes.deletePrefix(`${orgId}:`);
+  // A tool that no longer asks frees the requests of it still waiting: their runs call it again (`releaseUnasked`).
+  const freed = input.tools
+    .filter((t) => known.get(t.name)?.access === "approval" && (t.access === "read" || t.access === "write"))
+    .map((t) => t.name);
+  // The names the agent called them by: the prefix as it was before this rename.
+  await releaseUnasked(deps, actorId, orgId, { connectionId: c.id, prefix: toolPrefixOfConnection(c), tools: freed });
   return serverView(deps.db, orgId, id);
 }
 

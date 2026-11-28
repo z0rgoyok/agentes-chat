@@ -4,9 +4,14 @@ import { join } from "node:path";
 import {
   ACCOUNTS_PROTOCOL,
   ANTIGRAVITY_MAC_PROTOCOL,
+  ANTIGRAVITY_WINDOWS_PROTOCOL,
   BRAIN_PROTOCOL,
+  CLI_COPIES_PROTOCOL,
+  CODEX_UNELEVATED_PROTOCOL,
   CODEX_WINDOWS_PROTOCOL,
   CONTEXT_LIMIT_PROTOCOL,
+  DEVIN_PROTOCOL,
+  GROK_WINDOWS_PROTOCOL,
   MISSION_PROTOCOL,
   OPENCODE_ACP_PROTOCOL,
   SPEED_PROTOCOL,
@@ -55,7 +60,7 @@ const mac = (patch: Record<string, unknown> = {}) => ({
   name: "mac",
   protocol: BRAIN_PROTOCOL,
   execAllowed: true,
-  executors: { claude: { version: "2.1.0" }, detectedAt: "2026-10-17" },
+  executors: { claude: { version: "2.1.300" }, detectedAt: "2026-10-17" },
   online: true,
   lastSeenAt: new Date(),
   deletedAt: null,
@@ -74,6 +79,7 @@ describe("brain settings", () => {
     expect(normalizeBrainModel("claude_code", "fable")).toBe("fable");
     expect(normalizeBrainModel("claude_code", "claude-fable-5-2")).toBe("fable");
     expect(brainModelId("claude_code", "fable")).toBe("claude-fable-5-2");
+    expect(brainModelLabel("claude_code", "fable")).toBe("Fable 5.2");
     expect(brainModelOptions("codex").every((o) => o.modelId?.startsWith("gpt"))).toBe(true);
     // Codex offers the catalog's OpenAI rows, the Astras among them; the newest Sol is its default.
     expect(brainModelOptions("codex").map((o) => o.label)).toEqual([
@@ -175,6 +181,52 @@ describe("brain settings", () => {
     ]);
   });
 
+  test("options: on Windows, Codex says what holds its commands there before anyone picks it", () => {
+    const codexOf = (
+      sandbox: "mxc" | "unelevated" | "none" | undefined,
+      patch: Record<string, unknown> = {},
+      chat = false,
+    ) =>
+      brainOptions(
+        mac({
+          os: "windows",
+          protocol: CODEX_UNELEVATED_PROTOCOL,
+          executors: {
+            claude: { version: "2" },
+            codex: { version: "codex-cli 0.170.0", ...(sandbox ? { sandbox } : {}) },
+            detectedAt: "x",
+          },
+          ...patch,
+        }),
+        { chat },
+      ).find((o) => o.kind === "codex");
+    // MXC, or not known yet: nothing new to say.
+    for (const sandbox of ["mxc", undefined] as const) {
+      expect(codexOf(sandbox)).toMatchObject({ available: true });
+      expect(codexOf(sandbox)).not.toHaveProperty("reason");
+      expect(codexOf(sandbox)).not.toHaveProperty("sandbox");
+    }
+    // Codex's own sandbox: it stays a choice, with its hint.
+    expect(codexOf("unelevated")).toMatchObject({ available: true, sandbox: "partial" });
+    expect(codexOf("unelevated")).not.toHaveProperty("reason");
+    // Nothing could hold it: unavailable there, with its own reason, instead of failing in the chat.
+    expect(codexOf("none")).toMatchObject({ available: false, reason: "windows_sandbox" });
+    expect(codexOf("none")).not.toHaveProperty("sandbox");
+    // Switched off there: that first (turning it on is the way out, and its runner checks only then).
+    const off = { access: { folders: [], tools: { claude: true, codex: false, commands: true } } };
+    expect(codexOf("none", off)).toMatchObject({ available: false, reason: "tool_off" });
+    expect(codexOf("unelevated", off)).not.toHaveProperty("sandbox");
+    // Only Windows reads it, and only for Codex.
+    expect(codexOf("none", { os: "linux" })).toMatchObject({ available: true });
+    expect(brainOptions(mac({ os: "windows", protocol: CODEX_UNELEVATED_PROTOCOL }))[1]).not.toHaveProperty("sandbox");
+    // Turns that run no commands (the team's right hand): nothing for a sandbox to hold, so nothing to say either.
+    for (const sandbox of ["unelevated", "none"] as const) {
+      expect(codexOf(sandbox, {}, true)).toMatchObject({ available: true });
+      expect(codexOf(sandbox, {}, true)).not.toHaveProperty("reason");
+      expect(codexOf(sandbox, {}, true)).not.toHaveProperty("sandbox");
+    }
+  });
+
   test("options: on Windows OpenCode needs a runner that speaks ACP; a CLI that doesn't run on the computer's system says so", () => {
     const executors = {
       claude: { version: "2" },
@@ -190,20 +242,41 @@ describe("brain settings", () => {
           .slice(3)
           .map((o) => [o.kind, o.reason ?? null]),
       );
-    // An older Windows runner refuses every OpenCode turn; Cursor, Grok Build and the Antigravity CLI don't run on
-    // Windows; a Mac runner before `ANTIGRAVITY_MAC_PROTOCOL` refuses Gemini.
+    // An older Windows runner refuses every OpenCode turn, and runs Grok Build from `GROK_WINDOWS_PROTOCOL`, the
+    // Antigravity CLI from `ANTIGRAVITY_WINDOWS_PROTOCOL` and Cursor from `CLI_COPIES_PROTOCOL` on (ADR 0228 §7); a Mac
+    // runner before `ANTIGRAVITY_MAC_PROTOCOL` refuses Gemini.
     expect(reasons(mac({ os: "windows", protocol: OPENCODE_ACP_PROTOCOL - 1, executors }))).toEqual({
-      cursor: "system",
+      cursor: "runner_old",
       opencode: "runner_old",
-      grok: "system",
-      antigravity: "system",
+      grok: "runner_old",
+      antigravity: "runner_old",
+      devin: "runner_old",
     });
+    expect(reasons(mac({ os: "windows", protocol: CLI_COPIES_PROTOCOL, executors }))).toEqual({
+      cursor: null,
+      opencode: null,
+      grok: null,
+      antigravity: null,
+      devin: "runner_old",
+    });
+    // The Devin CLI's pin has no Windows build: there it doesn't run, installed or not (ADR 0253).
+    const withDevin = { ...executors, devin: { version: "devin 3000.15.14 (abc)" } };
+    expect(reasons(mac({ os: "windows", protocol: DEVIN_PROTOCOL, executors: withDevin })).devin).toBe("system");
+    expect(reasons(mac({ os: "linux", protocol: DEVIN_PROTOCOL, executors: withDevin })).devin).toBeNull();
+    expect(reasons(mac({ os: "windows", protocol: CLI_COPIES_PROTOCOL - 1, executors })).cursor).toBe("runner_old");
     expect(reasons(mac({ os: "windows", protocol: OPENCODE_ACP_PROTOCOL, executors })).opencode).toBeNull();
+    expect(reasons(mac({ os: "windows", protocol: GROK_WINDOWS_PROTOCOL - 1, executors })).grok).toBe("runner_old");
+    expect(reasons(mac({ os: "windows", protocol: GROK_WINDOWS_PROTOCOL, executors })).grok).toBeNull();
+    expect(reasons(mac({ os: "windows", protocol: ANTIGRAVITY_WINDOWS_PROTOCOL - 1, executors })).antigravity).toBe(
+      "runner_old",
+    );
+    expect(reasons(mac({ os: "windows", protocol: ANTIGRAVITY_WINDOWS_PROTOCOL, executors })).antigravity).toBeNull();
     expect(reasons(mac({ os: "darwin", protocol: OPENCODE_ACP_PROTOCOL - 1, executors }))).toEqual({
       cursor: null,
       opencode: null,
       grok: null,
       antigravity: "runner_old",
+      devin: "runner_old",
     });
     expect(reasons(mac({ os: "darwin", protocol: ANTIGRAVITY_MAC_PROTOCOL, executors })).antigravity).toBeNull();
     expect(reasons(mac({ os: "linux", protocol: OPENCODE_ACP_PROTOCOL, executors }))).toEqual({
@@ -211,6 +284,7 @@ describe("brain settings", () => {
       opencode: null,
       grok: null,
       antigravity: null,
+      devin: "runner_old",
     });
   });
 
@@ -225,6 +299,7 @@ describe("brain settings", () => {
       ["opencode", false, "no_computer"],
       ["grok", false, "no_computer"],
       ["antigravity", false, "no_computer"],
+      ["devin", false, "no_computer"],
     ]);
     expect(reasons(mac())).toEqual([
       ["model", true, null],
@@ -238,6 +313,8 @@ describe("brain settings", () => {
       ["grok", false, "runner_old"],
       // The Antigravity CLI needs runner protocol 44 (`ANTIGRAVITY_PROTOCOL`).
       ["antigravity", false, "runner_old"],
+      // The Devin CLI needs runner protocol 89 (`DEVIN_PROTOCOL`).
+      ["devin", false, "runner_old"],
     ]);
     expect(reasons(mac({ execAllowed: false }))[1]).toEqual(["claude_code", false, "exec_off"]);
     expect(reasons(mac({ protocol: MISSION_PROTOCOL - 1 }))[1]).toEqual(["claude_code", false, "runner_old"]);
@@ -253,13 +330,24 @@ describe("brain settings", () => {
       ["claude_code", true, null],
       ["codex", false, "not_reported"],
     ]);
-    // Codex counts at any version, whatever its line says.
-    for (const version of ["codex-cli 0.100.0", "codex-cli 0.170.0", ""]) {
+    // Codex counts at its floor or newer, and when its line has no version in it; below, it needs an update.
+    for (const version of ["codex-cli 0.164.0", "codex-cli 0.170.0", ""]) {
       expect(reasons(mac({ executors: { codex: { version }, detectedAt: "x" } })).slice(1, 3)).toEqual([
         ["claude_code", false, "not_installed"],
         ["codex", true, null],
       ]);
     }
+    expect(reasons(mac({ executors: { codex: { version: "codex-cli 0.163.0" }, detectedAt: "x" } }))[2]).toEqual([
+      "codex",
+      false,
+      "cli_outdated",
+    ]);
+    const oldClaude = mac({ executors: { claude: { version: "2.1.205 (Claude Code)" }, detectedAt: "x" } });
+    expect(brainOptions(oldClaude).find((o) => o.kind === "claude_code")).toMatchObject({
+      available: false,
+      reason: "cli_outdated",
+      outdated: { version: "2.1.205", min: "2.1.206", command: "claude update" },
+    });
     // There and failing to start: said as that, never "not installed".
     const broken = mac({ executors: { codex: { version: "0.170.0" }, broken: { claude: "boom" }, detectedAt: "x" } });
     expect(reasons(broken).slice(1, 3)).toEqual([
@@ -268,7 +356,9 @@ describe("brain settings", () => {
     ]);
     const both = mac({ executors: { claude: { version: "2" }, codex: { version: "0.170.0" }, detectedAt: "x" } });
     expect(
-      brainOptions(both).every((o) => o.available || ["cursor", "opencode", "grok", "antigravity"].includes(o.kind)),
+      brainOptions(both).every(
+        (o) => o.available || ["cursor", "opencode", "grok", "antigravity", "devin"].includes(o.kind),
+      ),
     ).toBe(true);
     // Installed but turned off in the app's Tools: says so (not "not installed"); turned on, available.
     const off = mac({ ...both, access: { tools: { claude: false, codex: true } } });
@@ -757,6 +847,87 @@ describe("a plan thinks only for its owner's agents, one account each", () => {
     expect(await row()).toMatchObject({ brain: "model", brainAccountId: null });
   });
 
+  test("account-only brains (antigravity, grok) reject account: null or missing account on switch", async () => {
+    const { fx, deps, machineId, row } = await world();
+    await fx.db
+      .update(schema.machines)
+      .set({
+        os: "linux",
+        protocol: ANTIGRAVITY_MAC_PROTOCOL,
+        executors: {
+          claude: { version: "2.1.0" },
+          antigravity: { version: "1.5.13" },
+          grok: { version: "1.0.89" },
+          detectedAt: "2026-11-20",
+        },
+      })
+      .where(eq(schema.machines.id, machineId));
+    const GEMINI = "0193eeee-0000-7000-8000-000000000099";
+    await fx.db.insert(schema.machineAccounts).values({
+      id: GEMINI,
+      orgId: fx.org.id,
+      machineId,
+      kind: "antigravity",
+      label: "Gemini",
+      status: "active",
+      shared: true,
+      createdBy: fx.owner.id,
+    });
+    // Explicit account: null is rejected even for the computer's pairer.
+    const explicitNull = await setAgentBrain(deps, fx.owner.id, fx.org.id, fx.agent.id, {
+      brain: "antigravity",
+      account: null,
+    }).catch((e) => e);
+    expect(explicitNull).toBeInstanceOf(ValidationError);
+    expect(explicitNull.code).toBe("account.invalid");
+    // Switching onto antigravity/grok without passing an account is also rejected.
+    const omitted = await setAgentBrain(deps, fx.owner.id, fx.org.id, fx.agent.id, {
+      brain: "antigravity",
+    }).catch((e) => e);
+    expect(omitted).toBeInstanceOf(ValidationError);
+    expect(omitted.code).toBe("account.invalid");
+    const grokNull = await setAgentBrain(deps, fx.owner.id, fx.org.id, fx.agent.id, {
+      brain: "grok",
+      account: null,
+    }).catch((e) => e);
+    expect(grokNull).toBeInstanceOf(ValidationError);
+    expect(grokNull.code).toBe("account.invalid");
+    // With a connected account, saving succeeds; clearing back to null afterward is rejected.
+    const saved = await setAgentBrain(deps, fx.owner.id, fx.org.id, fx.agent.id, {
+      brain: "antigravity",
+      account: GEMINI,
+    });
+    expect(saved).toMatchObject({ brain: "antigravity", account: GEMINI });
+    expect(await row()).toMatchObject({ brain: "antigravity", brainAccountId: GEMINI });
+    const cleared = await setAgentBrain(deps, fx.owner.id, fx.org.id, fx.agent.id, { account: null }).catch((e) => e);
+    expect(cleared).toBeInstanceOf(ValidationError);
+    expect(cleared.code).toBe("account.invalid");
+    // Even if an agent row already has brain='antigravity' and brainAccountId=null, saving only model/effort without
+    // an account must still be rejected instead of keeping brainAccountId=null.
+    await fx.db
+      .update(schema.agents)
+      .set({ brain: "antigravity", brainAccountId: null })
+      .where(eq(schema.agents.id, fx.agent.id));
+    const modelOnly = await setAgentBrain(deps, fx.owner.id, fx.org.id, fx.agent.id, {
+      brain: "antigravity",
+      model: "gemini-4-neon-high",
+    }).catch((e) => e);
+    expect(modelOnly).toBeInstanceOf(ValidationError);
+    expect(modelOnly.code).toBe("account.invalid");
+  });
+
+  test("an account-only brain's account goes: its agent goes to the API, even on its owner's own computer", async () => {
+    const { fx, account, row } = await world();
+    await account(ANAS, fx.owner.id);
+    await fx.db.update(schema.machineAccounts).set({ kind: "grok" }).where(eq(schema.machineAccounts.id, ANAS));
+    await fx.db
+      .update(schema.agents)
+      .set({ brain: "grok", brainAccountId: ANAS })
+      .where(eq(schema.agents.id, fx.agent.id));
+    expect(await releaseAgents(fx.db, fx.org.id, [ANAS])).toEqual([fx.agent.id]);
+    expect(await row()).toMatchObject({ brain: "model", brainAccountId: null });
+  });
+
   test("a new owner who doesn't own the plan sends the agent to the API (audited); one who does answers alone", async () => {
     const { fx, bia, account, row, audits } = await world();
     await account(ANAS, fx.owner.id);
@@ -1098,5 +1269,29 @@ describe("what the agent thinks with changes: its computer waits look again", ()
     expect(await wokenNow(fx, ranTools)).toBe(false);
     expect(await wokenNow(fx, planCut)).toBe(false);
     expect(await wokenNow(fx, noTools)).toBe(true);
+  });
+});
+
+describe("the key an agent on the API thinks with (the picker's Conta)", () => {
+  test("its own key; else its provider's, though nobody made it the default; none without one or on a plan", async () => {
+    const { fx, deps } = await world();
+    const keyId = async () => (await getAgentBrain(deps, fx.owner.id, fx.org.id, fx.agent.id)).keyId;
+    const agent = (patch: Partial<typeof schema.agents.$inferInsert>) =>
+      fx.db.update(schema.agents).set(patch).where(eq(schema.agents.id, fx.agent.id));
+    // The fixture's agent points at the workspace's only key, added without being made the default.
+    expect(await keyId()).toBe(fx.credential.id);
+    // With no key of its own its calls take its provider's all the same: the picker shows that one chosen.
+    await agent({ credentialId: null });
+    expect(await keyId()).toBe(fx.credential.id);
+    // On a plan it thinks with no key.
+    await agent({ brain: "claude_code" });
+    expect(await keyId()).toBeNull();
+    // With no live key, none (the server's own may serve).
+    await agent({ brain: "model" });
+    await fx.db
+      .update(schema.providerCredentials)
+      .set({ revokedAt: new Date() })
+      .where(eq(schema.providerCredentials.id, fx.credential.id));
+    expect(await keyId()).toBeNull();
   });
 });

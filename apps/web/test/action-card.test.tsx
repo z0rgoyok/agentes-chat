@@ -687,6 +687,42 @@ describe("an agent's card to install or update a skill", () => {
     ]);
   });
 
+  test("a .zip sent in the conversation: Instalar reads it from Drive, its one skill picked, and installs it on for the agent", async () => {
+    const state = seedState();
+    const kit = { file: "f-kit", name: "kit-main.zip", skills: ["deploy"], why: "Faz deploys." };
+    state.messages.push(offer("c-zip", "install_skill", kit));
+    await open(state);
+    const row = cardRow("Instalar uma skill");
+    expect(row.textContent).toContain("Faz deploys.");
+    expect(row.textContent).toContain("kit-main.zip");
+    await click(within(row).getByRole("button", { name: "Instalar" }), 8);
+    const install = dialog("Instalar skill") as HTMLElement;
+    expect(install.textContent).toContain("kit-main.zip");
+    // Read on the server by its Drive id, nothing installed yet; no GitHub link kept for the way back.
+    expect(state.calls.filter((c) => c.method === "skills.import").map((c) => c.args[1])).toEqual([
+      { fileId: "f-kit", list: true },
+    ]);
+    expect(sessionStorage.getItem("agentes.skills.installFor")).toBeNull();
+    expect(
+      within(install)
+        .getByRole("checkbox", { name: /deploy/ })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(within(install).getByRole("checkbox", { name: "Fica ligada para Atlas" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    await click(within(install).getByRole("button", { name: "Instalar" }));
+    await settle(6);
+    expect(state.calls.find((c) => c.method === "skills.importPickedFile")?.args.slice(1)).toEqual([
+      "f-kit",
+      ["skills/deploy"],
+      ATLAS_ID,
+    ]);
+    // Done once the library has every skill its .zip names.
+    await settle(8);
+    expect(cardRow("Instalada")?.textContent).toContain("Instalada: kit-main.zip");
+  });
+
   test("unchecked, or on a link typed over the card's, what installs goes on for nobody; a same name says it replaces", async () => {
     const state = seedState();
     const api = createFakeApi(state);
@@ -837,7 +873,7 @@ describe("an agent's card to install or update a skill", () => {
     const flow = screen().getByRole("dialog", { name: "Conectar GitHub" });
     await click(within(flow).getByRole("button", { name: "Continuar no GitHub" }), 4);
     expect(state.calls.find((c) => c.method === "connectors.startOAuth")?.args[2]).toEqual({
-      returnTo: `/org/${ORG_ID}/settings/skills?install=${encodeURIComponent(link)}&agent=${ATLAS_ID}`,
+      returnTo: `/org/${ORG_ID}/skills?install=${encodeURIComponent(link)}&agent=${ATLAS_ID}`,
       serverUrl: undefined,
     });
   });
@@ -868,7 +904,7 @@ describe("an agent's card to install or update a skill", () => {
     expect(within(row).queryByRole("button", { name: "Instalar" })).toBeNull();
   });
 
-  test("an update waiting on its scripts: Revisar opens the skill, where it is applied", async () => {
+  test("an update waiting on its scripts: Review opens the skill's page, where it is applied", async () => {
     const state = seedState();
     const api = createFakeApi(state);
     const [review] = await api.skills.list(ORG_ID);
@@ -880,9 +916,9 @@ describe("an agent's card to install or update a skill", () => {
     await settle(5);
     const row = cardRow("Atualizar uma skill");
     await click(within(row).getByRole("button", { name: "Revisar" }), 8);
-    const sheet = dialog(review.name) as HTMLElement;
-    expect(sheet.textContent).toContain("A atualização do link muda arquivos que rodam: scripts/lint.sh");
-    await click(within(sheet).getByRole("button", { name: "Aplicar atualização" }), 8);
+    const page = document.querySelector(".sk-one") as HTMLElement;
+    expect(page.textContent).toContain("A atualização do link muda arquivos que rodam: scripts/lint.sh");
+    await click(within(page).getByRole("button", { name: "Aplicar atualização" }), 8);
     expect(state.calls.some((c) => c.method === "skills.approveUpdate")).toBe(true);
   });
 });

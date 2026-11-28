@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { and, eq, schema } from "@agenteschat/db";
 import type { ModelRequest } from "@agenteschat/providers";
 import {
+  ANSWER_NUDGE,
   answerQuestion,
   createMission,
   drainOutbox,
@@ -206,6 +207,8 @@ describe("a mission keeps going between people's messages", () => {
           };
         }
         if (last.includes("leitura-de-teste")) return { chunks: ["Recebi, sigo com o relatório."] };
+        // A plan saved with no words after it is asked for its answer: no reply is made up for it.
+        if (last.includes(ANSWER_NUDGE)) return { chunks: ["Plano salvo."] };
         if (last.includes("tool_result")) return { chunks: [""] };
         if (last.includes("PLAN MODE"))
           return { chunks: [], toolUses: [{ name: "update_plan", input: { items: PLAN } }] };

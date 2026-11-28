@@ -142,3 +142,7 @@ desktops, their programs and holds. `resume` dials at once.
 - A lock needs logind. Where it refuses, the tool says the computer refused the lock.
 - Root processes run in the agent's slice (the lock and its wait): a guard that looks for the agent's own programs
   tells them apart by their scope.
+
+## Addendum (2026-11-27): no standby while an agent's turn runs (protocol 93)
+
+A standby drops the link, and the guard asks for it before its last census, so a pause asked while an agent's turn ran cut that turn even when the census then called the pause off. From `HELD_TURN_PROTOCOL` the runner turns a new ask down while a turn runs there (`refusesStandby`): `standby-ack.json` carries `refused` with why, `agentes-runner standby` prints it and exits 1, and the guard reads that as a refused pause (`sleepBlocked`). That ask stays void after the turn ends; the next pause asks again. A renewal while in standby and a resume are as before.

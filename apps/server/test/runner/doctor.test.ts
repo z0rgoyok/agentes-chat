@@ -1,8 +1,9 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { cpuName } from "@agenteschat/adapters/host-stats";
 import { createTerm } from "@agenteschat/setup/src/term";
-import { connections, cpuName, type DoctorPhone, type DoctorSources, runDoctor } from "../../runner/doctor";
+import { connections, type DoctorPhone, type DoctorSources, runDoctor } from "../../runner/doctor";
 import { acquireLock } from "../../runner/lock";
 import { keepAfterLogout, lingerOn, systemdUnitPath, userUnitLinger } from "../../runner/service";
 import { removeDirs, tempDir } from "./helpers";
@@ -156,7 +157,7 @@ test("doctor: a connection that isn't running says how to start it; Linux shows 
   );
   expect(r.text).toContain("https://app.example.com · each agent works here as a user of its own");
   expect(r.text).toContain(
-    "○  No agent apps here (Claude Code, Codex, Cursor, OpenCode, Grok Build, Antigravity CLI (Gemini))\n",
+    "○  No agent apps here (Claude Code, Codex, Cursor, OpenCode, Grok Build, Antigravity CLI (Gemini), Devin CLI)\n",
   );
   expect(r.text).toContain("○  Not found: JDK, Android SDK, adb, Maestro, scrcpy, Node\n");
 

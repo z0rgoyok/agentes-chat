@@ -30,7 +30,7 @@ const CARD_ROUTINES = 3;
 
 /**
  * Equipe › Setores (ADR 0148): the agent groups (ADR 0083) as setores, one card each: who leads it and who covers,
- * its agents, the people around them, the channels they are in and their routines. Who holds "Edit agents" creates,
+ * its agents, the people around them, its channels and the ones its agents are in, and their routines. Who holds "Edit agents" creates,
  * edits, orders and deletes them and picks the lead and the substitute; an agent is dragged between cards, and a
  * setor's agents get a supervisor, only by who manages them (`TeamAgent.canManage`, ADR 0085 addendum of 2026-11-17).
  * The sidebar's AGENTES sections are the same groups.
@@ -211,7 +211,11 @@ function SectorCard({
       <span className="team-gap">{t("team.sectors.nobody")}</span>
     );
   };
-  const channels = reach.channelIds.flatMap((id) => look.channelById.get(id) ?? []);
+  // The setor's own channels (ADR 0240), then the others its agents are in.
+  const own = [...look.channelById.values()].filter((c) => c.groupId === group.id);
+  const channels = [...own, ...reach.channelIds.flatMap((id) => look.channelById.get(id) ?? [])].filter(
+    (c, i, all) => all.indexOf(c) === i,
+  );
   return (
     <Card
       className="team-sector-card"

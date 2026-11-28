@@ -1,12 +1,16 @@
-import type { SpeechKey, SpeechProvider } from "@agenteschat/client";
+import type { LocalSpeech, SpeechKey, SpeechProvider } from "@agenteschat/client";
 import {
+  useInstallSpeechLocal,
   useRemoveSpeechKey,
+  useRemoveSpeechLocal,
   useSaveSpeechKey,
   useSettings,
   useSpeechKey,
+  useSpeechLocal,
   useUpdateSettings,
 } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
+import { formatBytes } from "@agenteschat/client/lib/files";
 import { can } from "@agenteschat/client/lib/permissions";
 import {
   Button,
@@ -15,17 +19,20 @@ import {
   Icon,
   Input,
   Locked,
+  Meter,
   ProviderLogo,
   Radio,
   RadioGroup,
   SettingNote,
   Switch,
 } from "@agenteschat/ui";
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { PrefRow } from "@/components/NoticePrefs";
 import { useOrg } from "@/components/org-context";
+import { copyText } from "@/lib/context-menu";
+import { useToast } from "@/lib/toast";
 
 /** Who can be chosen, in the order the list shows them. Their names are the providers' own. */
 const PROVIDERS: { id: SpeechProvider; name: string }[] = [
@@ -55,6 +62,7 @@ export function VoiceSettingsSection() {
     <VoiceSettingsCard
       on={on}
       available={settings.data.voiceAvailable}
+      micAlways={settings.data.speechState !== undefined}
       editable={editable}
       onChange={(voiceMessages) => {
         if (editable) update.mutate({ voiceMessages });
@@ -71,16 +79,28 @@ export function VoiceSettingsSection() {
 export function VoiceSettingsCard({
   on,
   available,
+  micAlways = false,
   editable,
   onChange,
 }: {
   on: boolean;
   available: boolean;
+  /** The server records with no engine too (`speechState`): the switch works, notes go as audio meanwhile. */
+  micAlways?: boolean;
   editable: boolean;
   onChange: (next: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const view = useSpeechKey().data;
+  const speech = useSpeechKey();
+  const view = speech.data;
+  // Asked only of the owner, who alone gets the picker (`speechKey` answers null to everyone else).
+  const local = useSpeechLocal(Boolean(view));
+  // With no engine, the way to one: below, for the installation's owner (the only one the picker answers), else who.
+  const noEngine = view
+    ? "voice.settings.noEngineHere"
+    : speech.isPending
+      ? "voice.settings.noEngine"
+      : "voice.settings.noEngineAsk";
   return (
     <Card aria-label={t("voice.settings.title")}>
       <div className="settings-rows">
@@ -89,23 +109,25 @@ export function VoiceSettingsCard({
           icon="mic"
           label={t("voice.settings.on")}
           hint={available ? t("voice.settings.onHelp") : undefined}
-          status={!available && t("voice.settings.noEngine")}
+          status={!available && t(noEngine)}
           control={
             <Switch
-              checked={available && on}
+              checked={(micAlways || available) && on}
               onCheckedChange={onChange}
-              disabled={!editable || !available}
+              disabled={!editable || !(micAlways || available)}
               aria-label={t("voice.settings.on")}
             />
           }
         />
       </div>
+      {view && local.data && <LocalSpeechChoice view={local.data} />}
       {view && <SpeechProviderPicker view={view} />}
     </Card>
   );
 }
 
-function SpeechProviderPicker({ view }: { view: SpeechKey }) {
+/** What turns voice into text, for the installation's owner: here and in the first press's dialog (`VoiceSetupDialog`). */
+export function SpeechProviderPicker({ view, onSaved }: { view: SpeechKey; onSaved?: () => void }) {
   const { t } = useTranslation();
   const save = useSaveSpeechKey();
   const remove = useRemoveSpeechKey();
@@ -130,6 +152,7 @@ function SpeechProviderPicker({ view }: { view: SpeechKey }) {
       onSuccess: () => {
         setValue("");
         setTested(true);
+        onSaved?.();
       },
       onError: (e) => setError(errorText(t, e)),
     });
@@ -227,3 +250,120 @@ function SpeechProviderPicker({ view }: { view: SpeechKey }) {
     </div>
   );
 }
+
+/** Where its words come from when the browser is on the server's own computer (the desktop app's own server). */
+const onThisComputer = () => ["127.0.0.1", "localhost", "[::1]"].includes(window.location.hostname);
+
+/**
+ * "On this computer": the speech model downloaded to the server's own computer and run there (`speech-local.ts`),
+ * for the installation's owner. The first choice when it fits; when it doesn't, the real reason in numbers.
+ */
+export function LocalSpeechChoice({ view, onReady }: { view: LocalSpeech; onReady?: () => void }) {
+  const { t, i18n } = useTranslation();
+  const toast = useToast();
+  const install = useInstallSpeechLocal();
+  const remove = useRemoveSpeechLocal();
+  const bytes = (n: number) => formatBytes(i18n.language, n);
+  const s = view.status;
+  const here = onThisComputer();
+  const ready = s.state === "ready";
+  useEffect(() => {
+    if (ready) onReady?.();
+  }, [ready, onReady]);
+  const start = () => install.mutate(undefined, { onError: (e) => toast.show(errorText(t, e), "error") });
+  const why =
+    view.fit === "memory"
+      ? t("voice.local.tooSmall", { memory: bytes(view.memoryBytes) })
+      : view.fit === "disk"
+        ? t("voice.local.noDisk", { free: bytes(view.freeDiskBytes ?? 0), need: bytes(view.needDiskBytes) })
+        : view.fit === "platform"
+          ? t("voice.local.noBuild")
+          : null;
+  return (
+    <div className="voice-engine">
+      <div className="voice-engine__body">
+        <h3 className="voice-engine__title">{t(here ? "voice.local.titleHere" : "voice.local.titleServer")}</h3>
+        {s.state === "downloading" ? (
+          <>
+            <Meter value={s.doneBytes} max={s.totalBytes} label={t("voice.local.downloading")} />
+            <span className="voice-engine__saved">
+              <span className="small muted">
+                {t("voice.local.progress", { done: bytes(s.doneBytes), total: bytes(s.totalBytes) })}
+              </span>
+              <Button size="sm" variant="ghost" loading={remove.isPending} onClick={() => remove.mutate()}>
+                {t("common.cancel")}
+              </Button>
+            </span>
+            <p className="ac-field__example">{t("voice.local.meanwhile")}</p>
+          </>
+        ) : s.state === "starting" ? (
+          <SettingNote icon="clock" live>
+            {t("voice.local.starting")}
+          </SettingNote>
+        ) : ready ? (
+          <span className="voice-engine__saved">
+            <Chip icon="check" tone="done">
+              {t(here ? "voice.local.titleHere" : "voice.local.titleServer")}
+            </Chip>
+            <a className="small" href={NOTICE_URL} target="_blank" rel="noreferrer">
+              {t("voice.local.licenses")}
+            </a>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="ac-btn--danger"
+              loading={remove.isPending}
+              onClick={() => remove.mutate()}
+            >
+              {t("settings.remove")}
+            </Button>
+          </span>
+        ) : s.state === "failed" ? (
+          <>
+            <SettingNote icon="alert">
+              {s.reason === "download"
+                ? t("voice.local.stopped", { detail: s.detail })
+                : s.reason === "disk"
+                  ? t("voice.local.diskFull")
+                  : t("voice.local.didntStart", { detail: s.detail })}
+            </SettingNote>
+            <span className="voice-engine__saved">
+              <Button size="sm" loading={install.isPending} onClick={start}>
+                {t(s.reason === "download" ? "voice.local.resume" : "common.retry")}
+              </Button>
+              {s.reason === "start" && (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => void copyText(s.detail, () => toast.show(t("voice.local.copied")))}
+                >
+                  {t("voice.local.copy")}
+                </Button>
+              )}
+            </span>
+          </>
+        ) : (
+          <>
+            <p className="ac-field__example">
+              {t(here ? "voice.local.textHere" : "voice.local.textServer", { size: bytes(view.sizeBytes) })}
+            </p>
+            {why && <SettingNote icon="info">{why}</SettingNote>}
+            <span className="voice-engine__saved">
+              <Button
+                variant="primary"
+                icon="download"
+                disabled={why !== null}
+                loading={install.isPending}
+                onClick={start}
+              >
+                {t("voice.local.download")}
+              </Button>
+            </span>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const NOTICE_URL = "https://github.com/agentes-chat/agentes-chat/blob/main/tools/speech-helper/NOTICE";

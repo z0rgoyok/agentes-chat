@@ -1,11 +1,12 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { type MachineOs, MIN_RUNNER_PROTOCOL, type PubSub } from "@agenteschat/adapters";
-import { and, count, type Database, eq, gt, inArray, isNull, schema } from "@agenteschat/db";
+import { and, count, type Database, type Executor, eq, gt, inArray, isNull, schema } from "@agenteschat/db";
 import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import type { DeviceAudience } from "./devices";
 import { ForbiddenError, isUniqueViolation, NotFoundError, ValidationError } from "./errors";
 import { publishOrgEvent } from "./events";
+import { defaultMachineName, distinctMachineName, hostnameLike, machineOwner } from "./machine-names";
 import {
   cleanMachineName,
   generateMachineToken,
@@ -98,6 +99,8 @@ export interface DeviceStartInput {
   arch: string;
   hostname: string;
   version: string;
+  /** Its maker's model as the runner read it ("MacBook Pro"); older runners send none. */
+  model?: string;
   /** Optional extras a runner may send; copied to the machine (its `hello` updates them anyway). */
   protocol?: number;
   workspace?: string;
@@ -130,7 +133,7 @@ export async function startDeviceCode(
   link?: { id: string; orgId: string },
 ) {
   if (input.protocol !== undefined && input.protocol < MIN_RUNNER_PROTOCOL) {
-    throw new ValidationError("This runner is too old. Download the latest one.", "machine.outdated");
+    throw new ValidationError("This version of agentes.chat is too old. Download the latest one.", "machine.outdated");
   }
   const now = nowOf(deps);
   const ip = requester.ip.slice(0, 100);
@@ -158,6 +161,7 @@ export async function startDeviceCode(
         os: OSES.find((o) => o === input.os) ?? "other",
         arch: input.arch.slice(0, 40),
         hostname: input.hostname.slice(0, 200),
+        model: (input.model ?? "").slice(0, 100),
         runnerVersion: input.version.slice(0, 40),
         ...(input.protocol !== undefined ? { protocol: input.protocol } : {}),
         ...(input.workspace !== undefined ? { workspace: input.workspace.slice(0, 500) } : {}),
@@ -349,7 +353,7 @@ const notFound = () =>
 export async function getDeviceCode(deps: DeviceDeps, userCode: string, actorId?: string) {
   const row = await pendingCode(deps.db, userCode, nowOf(deps));
   if (!row) throw notFound();
-  const view = deviceCodeView(row);
+  const view = { ...deviceCodeView(row), name: await suggestedName(deps.db, row, actorId) };
   if (!actorId || !row.previousMachineId) return view;
   const target = await reconnectTarget(deps.db, actorId, row.previousMachineId);
   if (!target) return view;
@@ -379,6 +383,16 @@ async function reconnectTarget(
   if (!member || closedRefusal(member.standing) || !can(member, "pair_computers")) return null;
   if (!can(member, "configure") && machine.pairedByUserId !== actorId) return null;
   return { machine, orgName: member.orgName };
+}
+
+/**
+ * The name a computer asking to connect is offered under: the one it was started with (`--name`), else the one
+ * `defaultMachineName` makes for `ownerId`, who would connect it.
+ */
+export async function suggestedName(db: Executor, row: DeviceCodeRow, ownerId: string | null | undefined) {
+  const given = cleanMachineName(row.name);
+  if (given && !hostnameLike(given, row.hostname)) return given;
+  return defaultMachineName(row, await machineOwner(db, ownerId));
 }
 
 export function deviceCodeView(row: DeviceCodeRow): DeviceCodeView {
@@ -513,7 +527,12 @@ export async function confirmPendingCode(
         restored = back.map((a) => a.id);
       }
     } else {
-      const name = cleanMachineName(input.name) || claimed.name || claimed.hostname.slice(0, 80) || "Computer";
+      // A name typed on the confirm page stays; with none, the one the computer asked under, or its default.
+      const name = await distinctMachineName(
+        tx,
+        orgId,
+        cleanMachineName(input.name) || (await suggestedName(tx, claimed, actorId)),
+      );
       const rule = input.audience
         ? {
             audienceMode: input.audience.mode,

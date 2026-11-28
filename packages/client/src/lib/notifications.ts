@@ -217,6 +217,8 @@ export function workspaceHeadline(n: Pick<AppNotification, "kind" | "latest">) {
   if (n.kind === "composio_limit") return "connectors.composio.limitNotice" as const;
   if (n.kind === "computer_disk_full") return "machines.shared.diskFullNotice" as const;
   if (n.kind === "computer_no_chrome") return "machines.chromeMissingNotice" as const;
+  if (n.kind === "computer_down") return "machines.outage.down" as const;
+  if (n.kind === "computer_back") return "machines.outage.back" as const;
   if (n.kind === "skill_update") {
     const to = n.latest.statusTo;
     return to === "waiting"
@@ -332,6 +334,7 @@ const FAILED_CAUSES = new Set([
   "gave_up",
   "missing_credential",
   "credential_revoked",
+  "credential_unreadable",
 ]);
 const PLAN_CAUSES = new Set(["not_logged_in", "plan_limit"]);
 
@@ -412,7 +415,16 @@ export type OpenTarget =
   | {
       to: "/org/$orgId/settings/$section";
       params: {
-        section: "computers" | "members" | "invites" | "usage" | "connectors" | "billing" | "approvals" | "right_hand";
+        section:
+          | "computers"
+          | "members"
+          | "invites"
+          | "usage"
+          | "connectors"
+          | "billing"
+          | "approvals"
+          | "right_hand"
+          | "voice";
       };
     }
   | { to: "/org/$orgId/home"; search?: { widget: string } }
@@ -479,6 +491,8 @@ export function openTarget(n: AppNotification): OpenTarget | null {
   if (n.kind === "admin_ask" && n.latest.reason === "create_agents")
     return { to: "/org/$orgId/settings/$section", params: { section: "members" } };
   if (n.kind === "admin_ask" && n.latest.reason === "webhook") return { to: "/org/$orgId/routines" };
+  if (n.kind === "admin_ask" && n.latest.reason === "voice")
+    return { to: "/org/$orgId/settings/$section", params: { section: "voice" } };
   // Someone accepted an invitation (ADR 0090): a conversation with them, to say hi.
   if (n.kind === "invitation_accepted") {
     const who = n.actors[0];
@@ -535,7 +549,9 @@ export function openTarget(n: AppNotification): OpenTarget | null {
     n.kind === "machine_connected" ||
     n.kind === "computer_ready" ||
     n.kind === "computer_disk_full" ||
-    n.kind === "computer_no_chrome"
+    n.kind === "computer_no_chrome" ||
+    n.kind === "computer_down" ||
+    n.kind === "computer_back"
   )
     return s.machineId
       ? { to: "/org/$orgId/settings/computers/$machineId", params: { machineId: s.machineId } }
@@ -561,15 +577,13 @@ export function openTarget(n: AppNotification): OpenTarget | null {
   // What a routine found opens the agent's message in its conversation (below); without one, the routine.
   if (ROUTINE_TROUBLE.has(n.kind) || (n.kind === "routine_finished" && !s.messageId && !s.threadId))
     return s.routineId ? { to: "/org/$orgId/routines", search: { open: s.routineId } } : { to: "/org/$orgId/routines" };
-  // An agent's answer or request in my DM with it opens that DM (a DM has no channel page of its own); one in a thread
-  // there opens the thread, the only place its message is.
+  // An agent's answer or request in a DM opens the DM it was posted in, by its channel (that page opens the DM's own):
+  // the agent that wrote it may not be the DM's, as with a delegated agent's report in the right hand's DM. One in a
+  // thread there opens the thread, the only place its message is.
   if (s.dmId && n.actors[0]?.type === "agent" && !s.threadId)
-    return { to: "/org/$orgId/dm/agent/$agentId", params: { agentId: n.actors[0].id }, ...at };
-  if (n.kind === "dm" && !s.threadId) {
-    const who = n.actors[0];
-    if (who?.type === "agent") return { to: "/org/$orgId/dm/agent/$agentId", params: { agentId: who.id }, ...at };
-    if (who) return { to: "/org/$orgId/dm/person/$userId", params: { userId: who.id }, ...at };
-  }
+    return { to: "/org/$orgId/c/$channelId", params: { channelId: s.dmId }, ...at };
+  if (n.kind === "dm" && !s.threadId && n.actors[0])
+    return { to: "/org/$orgId/dm/person/$userId", params: { userId: n.actors[0].id }, ...at };
   if (s.threadId) return { to: "/org/$orgId/threads/$threadId", params: { threadId: s.threadId }, ...at };
   const channelId = channelOf(n);
   if (channelId) return { to: "/org/$orgId/c/$channelId", params: { channelId }, ...at };

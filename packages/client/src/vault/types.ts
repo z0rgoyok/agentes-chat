@@ -184,6 +184,14 @@ export interface VaultItemPatch {
   accessFromConnection?: boolean;
 }
 
+/** A passwords file to import, or with `dryRun` to count. `access`: the new logins' (absent: the scope's default). */
+export interface VaultImportInput {
+  csv: string;
+  scope: VaultScope;
+  dryRun: boolean;
+  access?: VaultAccess;
+}
+
 export interface VaultImportResult {
   added: number;
   updated: number;

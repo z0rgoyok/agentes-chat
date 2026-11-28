@@ -1,6 +1,8 @@
 import {
   askControlWords,
+  DESKTOP_SLOW_MS,
   type DesktopMode,
+  type DesktopOpenWhy,
   type DesktopViewState,
   desktopMode,
   desktopStatusState,
@@ -68,7 +70,6 @@ import {
   useTheme,
   useToast,
 } from "@/ui";
-import { useInfoHint } from "@/ui/InfoHint";
 import { useNotNow } from "../browser/HandoffCard";
 import { keyPastDraft } from "../browser/logic";
 import { TypeBar } from "../browser/parts";
@@ -120,7 +121,7 @@ import { type PadLesson, padLesson } from "./trackpad";
 import type { AgentComputerView } from "./useAgentComputer";
 import { useSideways } from "./useSideways";
 
-/** How long the screen may stay opening before it says it can't: a socket refused before it opens never closes with a code. */
+/** How long the screen may stay opening before it is reported: a socket refused before it opens never closes with a code. */
 const STUCK_MS = 30_000;
 /** The trackpad's height: a thumb's reach, the rest goes to the screen. */
 const PAD_HEIGHT = 224;
@@ -218,6 +219,9 @@ export function AgentScreen({
   const [ready, setReady] = useState(false);
   const [page, setPage] = useState<DesktopViewState>("connecting");
   const [stuck, setStuck] = useState(false);
+  // The page's last failed try to open the screen: why, and whether it stopped trying.
+  const [failed, setFailed] = useState<{ why: DesktopOpenWhy; gaveUp: boolean } | null>(null);
+  const [fresh, setFresh] = useState(0);
   // How far the page got, for the report of a screen that never opens.
   const pageNow = useRef({ ready, page, status: view.desktopQ.status });
   pageNow.current = { ready, page, status: view.desktopQ.status };
@@ -246,6 +250,10 @@ export function AgentScreen({
   useEffect(() => {
     if (ready) web.current?.call("set", { connect, mode });
   }, [ready, connect, mode]);
+  // Opened again (back in front, a state that let it): the page tries afresh, and so does what its cover says.
+  useEffect(() => {
+    if (connect) setFailed(null);
+  }, [connect]);
 
   const s = useSharedValue(0.25);
   const x = useSharedValue(0);
@@ -333,7 +341,17 @@ export function AgentScreen({
     }, STUCK_MS);
     return () => clearTimeout(id);
   }, [waitsOn, agentId]);
-  const lost = stuck && waitsOn;
+  // A switch the stream never takes can't be shown; a screen still opening says so on its own cover (`slow`).
+  const lost = stuck && waitsOn && switching !== null;
+  const opening = active && !failed?.gaveUp && (shown === "connecting" || shown === "offline");
+  const [slow, setSlow] = useState(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Tentar de novo (`fresh`) starts the wait again
+  useEffect(() => {
+    setSlow(false);
+    if (!opening) return;
+    const id = setTimeout(() => setSlow(true), DESKTOP_SLOW_MS);
+    return () => clearTimeout(id);
+  }, [opening, fresh]);
   const words = askControlWords(status, Boolean(f?.browser), Boolean(run));
   // Watching, a tap on the screen asks before control and reaches nothing there; the question stays until Cancelar.
   const offer = live && !inControl && !switching && !status?.controllerUserId && !waiting && canTakeOver;
@@ -371,16 +389,8 @@ export function AgentScreen({
   // What can be done with the screen now, on the capsule across its bottom edge (sideways, the side dock has it):
   // in control the keyboard, laying it down, a note and the way out; watching, taking control.
   const mayTake = live && !status?.controllerUserId && !waiting && canTakeOver && words.mayTake;
-  // What taking control means, behind an ⓘ (ADR 0076): it leads the capsule, as on the sideways dock, and its words
-  // open under the header.
-  const notice = useInfoHint({
-    name: t("common.about", { label: t("desktop.session.check") }),
-    text: `${t("desktop.control.notice", g)}${f?.edition === "cloud" ? ` ${t("desktop.session.screening")}` : ""}`,
-    variant: "footnote",
-  });
   const dock = inControl ? (
     <>
-      <View style={styles.dockInfo}>{notice.button}</View>
       <DockIcon icon="keyboard" label={t("desktop.keyboard.label")} onPress={() => setTyping("screen")} />
       <DockIcon icon="expand" label={t("agentComputer.phone.turn")} onPress={sideways.lieDown} />
       {ask ? <DockIcon icon="x" label={t("mobile.browser.live.couldnt")} onPress={couldnt} /> : null}
@@ -438,6 +448,8 @@ export function AgentScreen({
 
   const retry = () => {
     setStuck(false);
+    setFailed(null);
+    setFresh((n) => n + 1);
     setPage("connecting");
     if (ready) web.current?.call("retry");
     else setLife((n) => n + 1);
@@ -446,7 +458,6 @@ export function AgentScreen({
   const again = <DockText label={t("desktop.retry")} onPress={retry} />;
   const { color } = agentLook(agent);
   const tones = bodyTones(color);
-  const opening = <Cover fill sky spinner color={color} text={t("agentComputer.state.opening", g)} />;
   const cantShow = (
     <Cover
       fill
@@ -487,19 +498,27 @@ export function AgentScreen({
       }
     />
   );
-  const covers: Record<Exclude<DesktopViewState, "live">, ReactNode> = {
-    connecting: stuck ? cantShow : opening,
-    hidden: <Cover fill icon="eyeoff" text={t("browser.inCard.hiddenHelp", g)} />,
-    offline: (
+  // Opening, then the cause and Tentar de novo once a try failed or it took long; stopped, the cause stays.
+  const cause: DesktopOpenWhy | null = failed?.why ?? (slow ? (shown === "offline" ? "offline" : "slow") : null);
+  const openLine = cause ? t(`desktop.open.${cause}` as const, { computer }) : undefined;
+  const openingCover = (help?: string) =>
+    failed?.gaveUp ? (
+      <Cover fill icon="eyeoff" text={t("desktop.open.gaveUp", g)} help={openLine} action={again} />
+    ) : (
       <Cover
         fill
         sky
         spinner
         color={color}
         text={t("agentComputer.state.opening", g)}
-        help={t("desktop.state.retrying")}
+        help={openLine ?? help}
+        action={cause ? again : undefined}
       />
-    ),
+    );
+  const covers: Record<Exclude<DesktopViewState, "live">, ReactNode> = {
+    connecting: openingCover(),
+    hidden: <Cover fill icon="eyeoff" text={t("browser.inCard.hiddenHelp", g)} />,
+    offline: openingCover(t("desktop.state.retrying")),
     busy: <Cover fill spinner color={color} text={t("desktop.state.busy")} help={t("desktop.state.retrying")} />,
     noRoom: <Cover fill icon="clock" text={t("agentComputer.state.noRoom", { computer })} action={again} />,
     paused: <Cover fill icon="pause" text={t("agentComputer.state.pausedPlain", { computer })} />,
@@ -774,7 +793,6 @@ export function AgentScreen({
           back that would hand the screen back mid-gesture (the bar's back still leaves). */}
       <Stack.Screen options={barOptions} />
       {wide ? null : top(sub)}
-      {inControl && !wide ? <View style={styles.notice}>{notice.text}</View> : null}
       {wide ? null : banner}
       {/* The screen and, across its bottom edge, the capsule (it hangs past the screen into this view's margin). */}
       <View style={[inControl || wide ? styles.fill : styles.stage, docked && styles.docked]}>
@@ -803,7 +821,10 @@ export function AgentScreen({
                   agentId={agentId}
                   onEvent={(event) => {
                     if (event.type === "ready") setReady(true);
-                    else if (event.type === "view") setPage(event.state);
+                    else if (event.type === "view") {
+                      setPage(event.state);
+                      if (event.state === "live") setFailed(null);
+                    } else if (event.type === "why") setFailed({ why: event.why, gaveUp: event.gaveUp });
                     else if (event.type === "session") setSession(event.mode);
                     else if (event.type === "size") setDeskSize({ width: event.width, height: event.height });
                     else if (event.type === "changed") void view.desktopQ.refetch();
@@ -812,6 +833,7 @@ export function AgentScreen({
                   onGone={() => {
                     setReady(false);
                     setSession(null);
+                    setFailed(null);
                     // The page that said "live" is gone: the new one starts over, so its cover and the wait for it do.
                     setPage("connecting");
                     setLife((n) => n + 1);
@@ -859,7 +881,6 @@ export function AgentScreen({
               <TouchDock
                 shown={dockShown}
                 right={insets.right + 10}
-                notice={notice}
                 onKeyboard={() => setTyping("screen")}
                 onUpright={sideways.forced ? sideways.standUp : undefined}
                 onCouldnt={ask ? couldnt : undefined}
@@ -1191,7 +1212,6 @@ function Trackpad({
 function TouchDock({
   shown,
   right,
-  notice,
   onKeyboard,
   onUpright,
   onCouldnt,
@@ -1201,7 +1221,6 @@ function TouchDock({
 }: {
   shown: SharedValue<number>;
   right: number;
-  notice: { button: ReactNode; text: ReactNode; open: boolean };
   onKeyboard: () => void;
   /** Only when the button laid the view down: otherwise turning the phone does it. */
   onUpright?: () => void;
@@ -1215,38 +1234,25 @@ function TouchDock({
   const { colors, shadows } = useTheme();
   const rest = useAnimatedStyle(() => ({ opacity: shown.value }));
   return (
-    <>
-      <Animated.View style={[styles.dock, { right, boxShadow: shadows.e2 }, rest]}>
-        <Glass liquid intensity={70} style={[styles.dockGlass, { borderColor: colors.line2 }]}>
-          <View style={styles.dockInfo}>{notice.button}</View>
-          <IconButton icon="keyboard" label={t("desktop.keyboard.label")} onPress={onKeyboard} />
-          {onUpright ? <IconButton icon="expand" label={t("agentComputer.phone.upright")} onPress={onUpright} /> : null}
-          {onCouldnt ? <IconButton icon="x" label={t("mobile.browser.live.couldnt")} onPress={onCouldnt} /> : null}
-          <IconButton icon="compose" label={t("browser.inCard.addNote")} onPress={onNote} />
-          <PressScale
-            to={0.9}
-            onPress={onDone}
-            accessibilityRole="button"
-            accessibilityLabel={doneLabel}
-            hitSlop={4}
-            style={[styles.dockDone, { backgroundColor: colors.ink }]}
-            contentStyle={styles.dockDoneIn}
-          >
-            <Icon name="check" size={20} color={colors.bg} />
-          </PressScale>
-        </Glass>
-      </Animated.View>
-      <View
-        pointerEvents="box-none"
-        style={[
-          styles.dockNotice,
-          { right },
-          notice.open && [styles.dockNoticeOpen, { backgroundColor: colors.raised, boxShadow: shadows.e2 }],
-        ]}
-      >
-        {notice.text}
-      </View>
-    </>
+    <Animated.View style={[styles.dock, { right, boxShadow: shadows.e2 }, rest]}>
+      <Glass liquid intensity={70} style={[styles.dockGlass, { borderColor: colors.line2 }]}>
+        <IconButton icon="keyboard" label={t("desktop.keyboard.label")} onPress={onKeyboard} />
+        {onUpright ? <IconButton icon="expand" label={t("agentComputer.phone.upright")} onPress={onUpright} /> : null}
+        {onCouldnt ? <IconButton icon="x" label={t("mobile.browser.live.couldnt")} onPress={onCouldnt} /> : null}
+        <IconButton icon="compose" label={t("browser.inCard.addNote")} onPress={onNote} />
+        <PressScale
+          to={0.9}
+          onPress={onDone}
+          accessibilityRole="button"
+          accessibilityLabel={doneLabel}
+          hitSlop={4}
+          style={[styles.dockDone, { backgroundColor: colors.ink }]}
+          contentStyle={styles.dockDoneIn}
+        >
+          <Icon name="check" size={20} color={colors.bg} />
+        </PressScale>
+      </Glass>
+    </Animated.View>
   );
 }
 
@@ -1516,7 +1522,6 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   grow: { flex: 1, minWidth: 0 },
   bold: { fontWeight: "600" },
-  notice: { paddingHorizontal: 14 },
   stage: { flexShrink: 1 },
   docked: { marginBottom: DOCK_HANG + 12 },
   box: { marginHorizontal: 12, borderRadius: 20, overflow: "hidden", backgroundColor: "#101010" },
@@ -1574,11 +1579,8 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     overflow: "hidden",
   },
-  dockInfo: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
   dockDone: { width: 40, height: 40, borderRadius: 20 },
   dockDoneIn: { alignItems: "center", justifyContent: "center" },
-  dockNotice: { position: "absolute", top: 70 },
-  dockNoticeOpen: { width: 300, paddingHorizontal: 14, paddingBottom: 12, paddingTop: 8, borderRadius: 14 },
   typing: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 8 },
   typingField: { alignItems: "flex-end" },
   // Focusable and so given the keyboard, but never seen or touched: the keys show on the screen itself.

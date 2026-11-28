@@ -8,6 +8,7 @@ import type { Judge } from "../judge";
 import { notifySkillUpdate } from "../notification-producers";
 import { requirePermission } from "../organizations";
 import { enqueue } from "../outbox";
+import { queueSkillDescribe } from "../skill-library";
 import { restoreSkillSnapshot, type SkillSnapshot } from "../skill-updates";
 import {
   agentSkillByName,
@@ -39,7 +40,7 @@ import {
   mergeEvidence,
 } from "./items";
 import { overlap } from "./judgments";
-import { proposeSkillChange } from "./proposals";
+import { askedWords, proposeSkillChange } from "./proposals";
 import { type ContextDeps, judgeOf, resolveSummaryModel } from "./summaries";
 
 const { skills, agentSkills, contextItems, contextUsage, outcomes, agentRuns, agentActions, routines, channels } =
@@ -167,6 +168,16 @@ export async function changeSkillAsAgent(
     throw new ValidationError("Give the skill's new body or the files to change.");
   for (const t of [text ?? "", ...edits.map((e) => e.content)])
     if (looksLikeSecret(t)) throw new ValidationError("This looks like a credential, so it can't go in a skill.");
+  if (!asked?.person) {
+    const [self] = await ctx.db
+      .select({ learns: schema.agents.learnsSkills })
+      .from(schema.agents)
+      .where(and(eq(schema.agents.id, ctx.agentId), eq(schema.agents.orgId, ctx.orgId)));
+    if (self && !self.learns)
+      throw new ForbiddenError(
+        "A person set you not to change skills on your own: say what you'd change, and change it only when someone asks.",
+      );
+  }
   const reads = await readsInRun(ctx, name);
   if (!reads.loaded) throw new ValidationError(`Load the skill ${name} with load_skill first, then change it.`);
   const mine = await agentSkillByName(ctx.db, ctx.orgId, ctx.agentId, name, ctx.runId);
@@ -244,6 +255,7 @@ export async function changeSkillAsAgent(
         file,
         requesterId: asked?.person,
         origin: why === "outside" ? "outside" : decides ? "asked" : asked?.person ? "asked_other" : "agent",
+        words: await askedWords(ctx.db, ctx, asked?.person),
       },
     );
     if (p) proposalIds.push(p.id);
@@ -380,6 +392,7 @@ export async function createSkillAsAgent(
       .returning();
     if (!skill) throw new Error("skill insert returned nothing");
     await db.insert(agentSkills).values({ orgId: ctx.orgId, agentId: ctx.agentId, skillId: skill.id, enabled: true });
+    await queueSkillDescribe(db, ctx.orgId, skill.id);
     await recordAgentActions(db, ctx, [
       {
         kind: "skill.created",
@@ -483,6 +496,16 @@ export async function promoteHowTos(deps: ContextDeps, orgId: string, skillAfter
         sql`${contextItems.agentId} is not null`,
       ),
     );
+  // An agent a person set not to learn on its own ("Learns on its own" off) keeps its how-tos as they are.
+  const still = new Set(
+    (
+      await db
+        .select({ id: schema.agents.id })
+        .from(schema.agents)
+        .where(and(eq(schema.agents.orgId, orgId), eq(schema.agents.learnsSkills, false)))
+    ).map((a) => a.id),
+  );
+  if (still.size > 0) notes.splice(0, notes.length, ...notes.filter((n) => !n.agentId || !still.has(n.agentId)));
   if (notes.length === 0) return 0;
   const ids = sql.join(
     notes.map((n) => sql`${n.id}::uuid`),
@@ -627,6 +650,7 @@ async function promoteCluster(deps: ContextDeps, orgId: string, agentId: string,
       .returning();
     if (!skill) throw new Error("skill insert returned nothing");
     await tx.insert(agentSkills).values({ orgId, agentId, skillId: skill.id, enabled: true });
+    await queueSkillDescribe(tx, orgId, skill.id);
     await tx
       .update(contextItems)
       .set({ status: "archived", updatedAt: new Date() })

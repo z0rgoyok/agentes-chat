@@ -1,4 +1,10 @@
-import type { PlanDropped } from "@agenteschat/client";
+import type { ComputerMaintenance, PlanDropped } from "@agenteschat/client";
+import {
+  maintenanceLine,
+  maintenanceNamed,
+  maintenanceOf,
+  maintenanceShort,
+} from "@agenteschat/client/lib/computer-maintenance";
 import { joinNames } from "@agenteschat/client/lib/format";
 import {
   agentWaitingPhrase,
@@ -38,6 +44,9 @@ export interface MachineOutage {
   /** The workspace's own computer (ADR 0056 §10). */
   managed?: boolean;
   offlineSince: string;
+  /** Away for what we do to it (`maintenance` says what): it comes back by itself. */
+  moving?: boolean;
+  maintenance?: ComputerMaintenance | null;
   agents: MachineOutageAgent[];
   waitingRuns: number;
 }
@@ -67,6 +76,7 @@ export const BRAIN_NAME: Record<ComputerBrain, string> = {
   opencode: "OpenCode",
   grok: "Grok Build",
   antigravity: "Antigravity CLI",
+  devin: "Devin CLI",
 };
 
 // ── Words ───────────────────────────────────────────────────────────────────
@@ -91,18 +101,21 @@ export function noticeText(t: TFunction, o: OutageLike, cloud = false) {
     names.length === 1
       ? t("mobile.outage.whoOne", { name: names[0] })
       : t("mobile.outage.whoMany", { names: namesText(t, names) });
+  const away = maintenanceOf(o);
   const sub = [
-    cloud ? t("mobile.outage.cloudSub") : null,
+    cloud && !away ? t("mobile.outage.cloudSub") : null,
     who,
     n.tasks > 0 ? t("mobile.outage.tasks", { count: n.tasks }) : null,
   ]
     .filter(Boolean)
     .join(" · ");
   return {
-    title: cloud
-      ? t("mobile.outage.titleCloud", { computer: n.computer })
-      : t("mobile.outage.title", { computer: n.computer }),
-    a11y: cloud ? t("mobile.outage.a11yCloud") : t("mobile.outage.a11y"),
+    title: away
+      ? maintenanceLine(t, away)
+      : cloud
+        ? t("mobile.outage.titleCloud", { computer: n.computer })
+        : t("mobile.outage.title", { computer: n.computer }),
+    a11y: away ? maintenanceShort(t, away) : cloud ? t("mobile.outage.a11yCloud") : t("mobile.outage.a11y"),
     sub,
   };
 }
@@ -205,7 +218,9 @@ export function waitCardText(
   const line = t("mobile.outage.card.body", { brain: BRAIN_NAME[brain] });
   const p = state.waiting ? agentWaitingPhrase(state.waiting) : null;
   return {
-    title: t("mobile.outage.card.waiting", { computer: state.computer }),
+    title: state.maintenance
+      ? maintenanceNamed(t, state.maintenance, state.computer)
+      : t("mobile.outage.card.waiting", { computer: state.computer }),
     body: p ? `${line} · ${t(`mobile.outage.waiting.${p.kind}`, { count: p.count })}` : `${line}.`,
     done: false,
   };

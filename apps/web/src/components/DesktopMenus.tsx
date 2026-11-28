@@ -152,11 +152,27 @@ const OWN_KEYS: Record<string, string> = { k: "search", "[": "back", "]": "forwa
 const ECHO_MS = 400;
 
 /**
+ * The person's organizations, for the app: its Go menu lists them, and on the server the app runs here a new one has
+ * this computer join it within seconds (main_window.rs `orgs` → `host_sync::trigger`), not at the app's next sync
+ * minutes later. The workspace sends them, and so does the onboarding, which creates a workspace before any of its
+ * pages open.
+ */
+export function useDesktopOrgs(organizations: Parameters<typeof workspaceNotes>[2] | undefined) {
+  const { t, i18n } = useTranslation();
+  const notes = organizations ? workspaceNotes(t, i18n.language, organizations) : null;
+  const list = organizations?.map((o) => ({ id: o.id, name: workspaceLabel(o.name, notes?.get(o.id)) }));
+  const key = list ? JSON.stringify(list) : null;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the list is sent when its content changes
+  useEffect(() => {
+    if (list && inDesktopApp()) void thisMac.orgs(list).catch(() => {});
+  }, [key]);
+}
+
+/**
  * The Mac's menu bar choices that are the site's (menus.rs `SITE_ACTIONS`): the app calls
  * `window.__agentesMenu(action)`. Mounted in the workspace, where they make sense.
  */
 export function MenuBarActions({ orgId }: { orgId: string }) {
-  const { t, i18n } = useTranslation();
   const router = useRouter();
   // A window narrow enough for the drawer: View → sidebar opens and closes it, as the title bar's button does.
   const navDrawer = useNavDrawer();
@@ -199,15 +215,8 @@ export function MenuBarActions({ orgId }: { orgId: string }) {
     };
   }, [router, orgId]);
 
-  // The Go menu lists the person's organizations.
   const { me } = useOrg();
-  const notes = workspaceNotes(t, i18n.language, me.organizations);
-  const orgList = me.organizations.map((o) => ({ id: o.id, name: workspaceLabel(o.name, notes.get(o.id)) }));
-  const orgsKey = JSON.stringify(orgList);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the list is sent when its content changes
-  useEffect(() => {
-    void thisMac.orgs(orgList).catch(() => {});
-  }, [orgsKey]);
+  useDesktopOrgs(me.organizations);
 
   // The Dock's badge: what waits on the person in this organization (a dot for unread only).
   const counts = useNotificationCount(orgId).data;

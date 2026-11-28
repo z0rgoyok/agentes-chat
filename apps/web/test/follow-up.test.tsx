@@ -156,7 +156,7 @@ test("a cancel the server refuses says why, and the return stays", async () => {
   );
 });
 
-test("work comes first: an agent at work here takes the box, and the return comes back after", async () => {
+test("work comes first: an agent at work here is the conversation's last row, its return comes back after", async () => {
   const state = seedState();
   state.followUps = [ret()];
   const { socket } = await open(state);
@@ -166,7 +166,7 @@ test("work comes first: an agent at work here takes the box, and the return come
     );
   await push({ type: "agent.thinking", runId: "r-ada", agentId: ADA_ID });
   await settle(2);
-  expect(bar().dataset.active).toBe("true");
+  expect(document.querySelector(".working-tail")).not.toBeNull();
   expect(bar().dataset.rest).toBeUndefined();
   expect(bar().querySelector(".ac-typing__menu")).toBeNull();
   await push({ type: "run.finished", runId: "r-ada", agentId: ADA_ID, status: "done" });

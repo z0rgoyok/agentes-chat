@@ -14,11 +14,11 @@ export const SKILL_ZIP_MB = Math.floor(SKILL_ZIP_BYTES / 1024 / 1024);
 export const MAX_PREVIEW_BYTES = 25 * 1024 * 1024;
 
 /**
- * How a file shows inline: from its bytes (`image`, `pdf`, `video`), or as the server read it (ADR 0198): a workbook
+ * How a file shows inline: from its bytes (`image`, `pdf`, `video`, `audio`), or as the server read it (ADR 0198): a workbook
  * drawn by the spreadsheet view (`office-sheet`), a deck by the slides view (`office-slides`), a Word document's HTML in
  * an isolated frame (`office-doc`).
  */
-export type PreviewKind = "image" | "pdf" | "video" | OfficePreviewKind;
+export type PreviewKind = "image" | "pdf" | "video" | "audio" | OfficePreviewKind;
 
 /** The Office previews, which the server reads (`…/preview`) instead of the apps loading the bytes. */
 export type OfficePreviewKind = "office-sheet" | "office-slides" | "office-doc";
@@ -29,8 +29,8 @@ export const isOfficePreview = (kind: PreviewKind | null | undefined): kind is O
 
 /**
  * The only types previewed inline (ADR 0025): raster images and PDF, loaded
- * from the download as a blob of exactly this type; videos, played by a video
- * player straight from the download (in parts), never as a page; and Office
+ * from the download as a blob of exactly this type; videos and audio, played by a
+ * media player straight from the download (in parts), never as a page; and Office
  * files the server reads for the apps to draw (ADR 0198). SVG, HTML and the
  * rest are download-only.
  */
@@ -43,6 +43,19 @@ const PREVIEW: Record<string, PreviewKind> = {
   "video/mp4": "video",
   "video/webm": "video",
   "video/quicktime": "video",
+  "audio/mpeg": "audio",
+  "audio/mp3": "audio",
+  "audio/mp4": "audio",
+  "audio/x-m4a": "audio",
+  "audio/aac": "audio",
+  "audio/wav": "audio",
+  "audio/x-wav": "audio",
+  "audio/wave": "audio",
+  "audio/ogg": "audio",
+  "audio/opus": "audio",
+  "audio/webm": "audio",
+  "audio/flac": "audio",
+  "audio/x-flac": "audio",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "office-sheet",
   "application/vnd.ms-excel": "office-sheet",
   "application/vnd.oasis.opendocument.spreadsheet": "office-sheet",
@@ -69,6 +82,14 @@ const PREVIEW_BY_EXTENSION: Record<string, PreviewKind> = {
   mp4: "video",
   webm: "video",
   mov: "video",
+  mp3: "audio",
+  m4a: "audio",
+  aac: "audio",
+  wav: "audio",
+  ogg: "audio",
+  oga: "audio",
+  opus: "audio",
+  flac: "audio",
   xlsx: "office-sheet",
   xls: "office-sheet",
   ods: "office-sheet",
@@ -79,15 +100,15 @@ const PREVIEW_BY_EXTENSION: Record<string, PreviewKind> = {
 };
 
 /**
- * `image`, `pdf`, `video`, an Office preview, or null (download only). `contentType` may carry parameters; `name`,
- * when given, says what a generic type (`application/octet-stream`) doesn't, for Office files only.
+ * `image`, `pdf`, `video`, `audio`, an Office preview, or null (download only). `contentType` may carry parameters; `name`,
+ * when given, says what a generic type (`application/octet-stream`) doesn't, for Office and audio files only.
  */
 export function previewKind(contentType: string, name?: string): PreviewKind | null {
   const base = contentType.split(";")[0]?.trim().toLowerCase() ?? "";
   const byType = PREVIEW[base];
   if (byType) return byType;
   const byName = name ? PREVIEW_BY_EXTENSION[extensionOf(name)] : undefined;
-  return byName && isOfficePreview(byName) ? byName : null;
+  return byName && (isOfficePreview(byName) || byName === "audio") ? byName : null;
 }
 
 /**
@@ -228,8 +249,9 @@ export function formatBytes(locale: string, bytes: number) {
 export const fitsUpload = (file: { size: number }) => file.size <= MAX_UPLOAD_BYTES;
 
 /**
- * A picture's width over its height, when the server read both (`width`/`height` on the file's content or on its ref
- * in a message), kept between 1:4 and 4:1: a lone picture in a conversation takes that shape before it loads.
+ * A picture's or a video's width over its height, when the server read both (`width`/`height` on the file's content or
+ * on its ref in a message), kept between 1:4 and 4:1: a lone picture and every video in a conversation take that shape
+ * before they load.
  */
 export const pictureRatio = (size: { width?: number; height?: number } | null | undefined) =>
   size?.width && size.height && size.width > 0 && size.height > 0

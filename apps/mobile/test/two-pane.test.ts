@@ -195,3 +195,19 @@ describe("the panes in the app (ADR 0212)", () => {
     );
   });
 });
+
+describe("the readable column on a large screen", () => {
+  test("content stays at most READABLE_MAX wide, centred; nothing changes on a phone or a narrow pane", async () => {
+    const { READABLE_MAX, readableSide } = await import("../src/ui/readable");
+    expect(readableSide(430)).toBe(0);
+    expect(readableSide(READABLE_MAX)).toBe(0);
+    expect(readableSide(1024)).toBe(152);
+    expect(readableSide(1366)).toBe(323);
+    // The page components keep their content in it; covers stay edge to edge.
+    const read = (f: string) => readFileSync(join(import.meta.dir, "../src", f), "utf8");
+    expect(read("features/shared/PushedLargeTitle.tsx")).toContain("<ReadableColumn>{children}</ReadableColumn>");
+    expect(read("ui/LargeTitleScreen.tsx")).toContain("<ReadableColumn>{children}</ReadableColumn>");
+    expect(read("features/settings/parts.tsx")).toContain("paddingHorizontal: BODY_SIDE + side");
+    expect(read("features/agents/AgentProfileScreen.tsx")).toContain("<View style={[styles.prof, sides]}>");
+  });
+});

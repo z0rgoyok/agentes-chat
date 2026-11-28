@@ -101,9 +101,10 @@ describe("every sheet is the system's own (TrueSheet), and a sheet's next step s
     expect(picker).toMatch(/setQuery\(""\);\s*setTyping\(false\);/);
   });
 
-  test("a pick's bar is the task sheets' bar: × at the left, the title centered; a menu of actions keeps no bar", () => {
+  test("a pick's bar is the task sheets' bar with no ×: the title centered; a menu of actions keeps no bar", () => {
     const picker = src("features/shared/PickerSheet.tsx");
-    expect(picker).toContain("<SheetBar title={ask.title} onClose={() => finish(null)} />");
+    // A pull down or a tap outside closes it, as the system's sheets.
+    expect(picker).toContain("<SheetBar title={ask.title} />");
     expect(picker).not.toContain('t("mobile.common.cancel")');
     expect(picker).toContain('ask?.mode === "pick" ? (');
   });

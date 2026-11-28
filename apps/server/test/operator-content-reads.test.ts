@@ -314,6 +314,82 @@ test("an agent's instructions and settings, masked", async () => {
   expect(entry?.details).toMatchObject({ field: "settings", purpose: "investigation", agentId: w.agentId });
 });
 
+test("a webhook routine run's kept calls: headers and bodies, masked, each from offset", async () => {
+  const [routine] = await db
+    .insert(schema.routines)
+    .values({
+      orgId: w.orgId,
+      agentId: w.agentId,
+      name: "Linear hook",
+      prompt: "Triage it.",
+      target: { type: "channel", channelId: w.generalId },
+      triggerType: "event",
+      event: "webhook.received",
+      timezone: "UTC",
+      createdByUserId: w.ownerId,
+    })
+    .returning({ id: schema.routines.id });
+  const body = JSON.stringify({ data: { id: "ISS-7", note: `token ${FAKE_KEY}` }, pad: "y".repeat(5000) });
+  const [run] = await db
+    .insert(schema.routineRuns)
+    .values({
+      orgId: w.orgId,
+      routineId: routine?.id ?? "",
+      at: new Date(),
+      trigger: "event",
+      status: "reported",
+      event: {
+        type: "webhook.received",
+        summary: "1 webhook call",
+        calls: [{ at: new Date().toISOString(), headers: { "linear-delivery": "del-9" }, bytes: body.length, body }],
+      },
+    })
+    .returning({ id: schema.routineRuns.id });
+  const res = await post(`/routine-runs/${run?.id}/calls`, {});
+  expect(res.status).toBe(200);
+  const read = (await res.json()) as {
+    calls: { n: number; headers: Record<string, string>; text: string; chars: number; more: boolean }[];
+  };
+  expect(read.calls).toHaveLength(1);
+  expect(read.calls[0]).toMatchObject({ n: 1, headers: { "linear-delivery": "del-9" }, more: true });
+  expect(read.calls[0]?.text).toContain('"id":"ISS-7"');
+  expect(read.calls[0]?.text).not.toContain(FAKE_KEY);
+  const next = (await (await post(`/routine-runs/${run?.id}/calls`, { offset: 4000 })).json()) as typeof read;
+  expect(next.calls[0]?.more).toBe(false);
+  const [entry] = await entries();
+  expect(entry).toMatchObject({ targetType: "routine", targetId: routine?.id });
+  expect(entry?.details).toMatchObject({ field: "calls", purpose: "investigation", routineRunId: run?.id });
+  expect((await post(`/routine-runs/${UNKNOWN}/calls`, {})).status).toBe(404);
+});
+
+test("an agent's Always approve rules, and the calls of a run they let run", async () => {
+  const [rule] = await db
+    .insert(schema.approvalRules)
+    .values({ orgId: w.orgId, agentId: w.agentId, tool: "save_issue", action: "", createdByUserId: w.ownerId })
+    .returning({ id: schema.approvalRules.id });
+  await db.insert(schema.auditLog).values({
+    orgId: w.orgId,
+    actorType: "agent",
+    actorId: w.agentId,
+    action: "tool.call",
+    targetType: "tool",
+    targetId: "save_issue",
+    runId: w.runId,
+    outcome: "done",
+    details: { approvalRules: [rule?.id] },
+  });
+  const res = await post(`/agents/${w.agentId}/approval-rules`, { runId: w.runId });
+  expect(res.status).toBe(200);
+  const read = (await res.json()) as {
+    rules: { id: string; tool: string; action: string }[];
+    calls: { tool: string; approvalRules: string[] }[];
+  };
+  expect(read.rules).toEqual([expect.objectContaining({ id: rule?.id, tool: "save_issue", action: "" })]);
+  expect(read.calls).toEqual([expect.objectContaining({ tool: "save_issue", approvalRules: [rule?.id] })]);
+  const [entry] = await entries();
+  expect(entry?.details).toMatchObject({ field: "approval_rules", agentId: w.agentId });
+});
+
 test("a page ends at its last message to the microsecond: messages a microsecond apart are each read once", async () => {
   const [room] = await db
     .insert(schema.channels)

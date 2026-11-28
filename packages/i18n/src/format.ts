@@ -3,6 +3,8 @@
  * is an Intl tag (`intlLocale`) or an app code: both work.
  */
 
+import { type AppLocale, appLocale } from "./locale";
+
 /** A plural form from `forms`: `zero` at 0 when given, else the language's category, else `other`. */
 export function plural(
   locale: string,
@@ -13,12 +15,44 @@ export function plural(
   return forms[new Intl.PluralRules(locale).select(n)] ?? forms.other;
 }
 
+/**
+ * CLDR's long list patterns per language, for engines without Intl.ListFormat (the phone's Hermes has only Collator,
+ * DateTimeFormat and NumberFormat): the separator, then "and" between two and before the last of more, then "or" the
+ * same way. A test holds each row to Intl.ListFormat.
+ */
+const LIST_WORDS: Record<AppLocale, readonly [string, string, string, string, string]> = {
+  en: [", ", " and ", ", and ", " or ", ", or "],
+  "pt-BR": [", ", " e ", " e ", " ou ", " ou "],
+  es: [", ", " y ", " y ", " o ", " o "],
+  fr: [", ", " et ", " et ", " ou ", " ou "],
+  de: [", ", " und ", " und ", " oder ", " oder "],
+  it: [", ", " e ", " e ", " o ", " o "],
+  nl: [", ", " en ", " en ", " of ", " of "],
+  ja: ["、", "、", "、", "または", "、または"],
+  ko: [", ", " 및 ", " 및 ", " 또는 ", " 또는 "],
+  "zh-Hans": ["、", "和", "和", "或", "或"],
+  id: [", ", " dan ", ", dan ", " atau ", ", atau "],
+  tr: [", ", " ve ", " ve ", " veya ", " veya "],
+  pl: [", ", " i ", " i ", " lub ", " lub "],
+  ru: [", ", " и ", " и ", " или ", " или "],
+};
+
+/** `formatList` without Intl.ListFormat: the language's own words from `LIST_WORDS`, English's for any other. */
+export function joinList(locale: string, items: readonly string[], type: "conjunction" | "disjunction"): string {
+  const [sep, pairAnd, lastAnd, pairOr, lastOr] = LIST_WORDS[appLocale([locale], true) ?? "en"];
+  if (items.length < 3) return items.join(type === "conjunction" ? pairAnd : pairOr);
+  return items.slice(0, -1).join(sep) + (type === "conjunction" ? lastAnd : lastOr) + items[items.length - 1];
+}
+
 /** "Ada, Atlas and Theo", "Ada、Atlas、Theo". */
 export const formatList = (
   locale: string,
   items: readonly string[],
-  type: Intl.ListFormatType = "conjunction",
-): string => new Intl.ListFormat(locale, { type, style: "long" }).format(items);
+  type: "conjunction" | "disjunction" = "conjunction",
+): string =>
+  typeof Intl.ListFormat === "function"
+    ? new Intl.ListFormat(locale, { type, style: "long" }).format(items)
+    : joinList(locale, items, type);
 
 /**
  * US dollars in the language's own way ("$0.42", "US$ 0,42", "0,42 $"), with more decimals for tiny amounts: 3 under
@@ -41,6 +75,17 @@ export const formatDate = (locale: string, d: Date | string | number, opts: Intl
 /** "10:42", "10:42 AM", by the language's own clock. */
 export const formatTime = (locale: string, d: Date | string | number) =>
   formatDate(locale, d, { hour: "numeric", minute: "2-digit" });
+
+/** How long something lasted, to the minute: "42 min", "2 hr 5 min", "2 時間 5 分". */
+export function formatSpan(locale: string, ms: number): string {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  const unit = (n: number, u: "hour" | "minute") =>
+    new Intl.NumberFormat(locale, { style: "unit", unit: u, unitDisplay: "short" }).format(n);
+  if (minutes < 60) return unit(minutes, "minute");
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return m === 0 ? unit(h, "hour") : `${unit(h, "hour")} ${unit(m, "minute")}`;
+}
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
   ["year", 365 * 86_400_000],
@@ -158,3 +203,16 @@ export const formatPhone = (value: string) => printPhone(value, false);
  * phone number comes back as given, unmasked: the caller masks it some other way.
  */
 export const maskPhone = (value: string) => printPhone(value, true);
+
+/** The app's own starter names (`newAgent.roles.*.agent`) that are feminine without ending in "a". */
+const FEMININE = new Set(["iris"]);
+
+/**
+ * A name's grammatical gender, for the languages whose sentences agree with it ("a Ada", "o Theo", she/he): one
+ * agent is never "it" in one line and "her" in the next. Agents and people store none, so it comes from the name: names
+ * ending in "a" are feminine. A name someone types that is feminine and ends otherwise ("Beatriz") reads as masculine.
+ */
+export function isFeminineName(name: string) {
+  const plain = name.trim().normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  return plain.endsWith("a") || FEMININE.has(plain);
+}

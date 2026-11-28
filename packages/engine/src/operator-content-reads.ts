@@ -30,7 +30,18 @@ import { neutralizeUntrusted } from "./untrusted";
  * read. Every text is masked whole before it is cut.
  */
 
-const { agentRuns, agentRunSteps, agents, channels, messages, operatorEvents } = schema;
+const {
+  agentRuns,
+  agentRunSteps,
+  agents,
+  approvalRules,
+  auditLog,
+  channels,
+  messages,
+  operatorEvents,
+  routineRuns,
+  routines,
+} = schema;
 
 /** The longest stretch of a conversation one read covers. */
 export const CONTENT_READ_MAX_MS = 48 * 3600_000;
@@ -396,5 +407,150 @@ export async function operatorAgentSettings(
     mergeRepos: masked(mergeRepos) as string[],
     browserAllowedDomains: masked(browserAllowedDomains) as string[] | null,
     setup: masked(setup) as Record<string, unknown> | null,
+  };
+}
+
+/** One call a webhook routine's run carries, as it was kept (`routine_runs.event.calls`). */
+interface KeptCall {
+  at?: unknown;
+  method?: unknown;
+  headers?: unknown;
+  bytes?: unknown;
+  body?: unknown;
+  cut?: unknown;
+  binary?: unknown;
+  test?: unknown;
+}
+
+/**
+ * The calls a webhook routine's run carries, as they were kept (their headers and body excerpts, ADR 0106), each body
+ * from `offset`, `CONTENT_ITEM_MAX_CHARS` of it at most. One 404 for another workspace's run, a deleted routine's and
+ * nobody's.
+ */
+export async function operatorRoutineRunCalls(
+  db: Database,
+  orgId: string,
+  input: InvestigationInput & { routineRunId: string; offset: number },
+  now = new Date(),
+) {
+  await checkRead(db, orgId, input, now);
+  const where = and(eq(routineRuns.id, input.routineRunId), eq(routineRuns.orgId, orgId));
+  const [found] = await db
+    .select({ id: routineRuns.id, routineId: routineRuns.routineId })
+    .from(routineRuns)
+    .innerJoin(routines, and(eq(routines.id, routineRuns.routineId), isNull(routines.deletedAt)))
+    .where(where);
+  if (!found) throw noSuchRecord();
+  await onRecord(db, orgId, input, {
+    ref: `reveal:routine_run:${found.id}`,
+    field: "calls",
+    direct: false,
+    target: { type: "routine", id: found.routineId },
+    names: { routineId: found.routineId, routineRunId: found.id },
+  });
+  const [run] = await db
+    .select({
+      status: routineRuns.status,
+      agentRunId: routineRuns.agentRunId,
+      at: routineRuns.at,
+      event: routineRuns.event,
+    })
+    .from(routineRuns)
+    .where(where);
+  if (!run) throw noSuchRecord();
+  const kept = Array.isArray(run.event?.calls) ? (run.event.calls as KeptCall[]) : [];
+  return {
+    id: found.id,
+    routineId: found.routineId,
+    agentRunId: run.agentRunId,
+    status: run.status,
+    at: run.at,
+    calls: kept.map((c, i) => {
+      const whole = clean(typeof c.body === "string" ? c.body : "");
+      const text = cutText(whole.slice(input.offset), CONTENT_ITEM_MAX_CHARS);
+      return {
+        n: i + 1,
+        at: typeof c.at === "string" ? c.at : null,
+        method: typeof c.method === "string" ? c.method : "POST",
+        headers: masked(c.headers && typeof c.headers === "object" ? c.headers : {}) as Record<string, string>,
+        bytes: typeof c.bytes === "number" ? c.bytes : 0,
+        keptCut: c.cut === true,
+        binary: c.binary === true,
+        test: c.test === true,
+        text,
+        chars: whole.length,
+        more: input.offset + text.length < whole.length,
+      };
+    }),
+  };
+}
+
+/**
+ * An agent's "Aprovar sempre" rules, and with `runId` the tool calls of that run of the agent that a rule let run
+ * (their `approvalRules`, ADR 0015). A rule's action may hold what a call named (a command's kind, a SQL read's
+ * target): masked as any text the door gives. One 404 for another workspace's agent, a deleted one and nobody's.
+ */
+export async function operatorApprovalRules(
+  db: Database,
+  orgId: string,
+  input: InvestigationInput & { agentId: string; runId?: string },
+  now = new Date(),
+) {
+  await checkRead(db, orgId, input, now);
+  const [found] = await db
+    .select({ id: agents.id })
+    .from(agents)
+    .where(and(eq(agents.id, input.agentId), eq(agents.orgId, orgId), isNull(agents.deletedAt)));
+  if (!found) throw noSuchRecord();
+  await onRecord(db, orgId, input, {
+    ref: `reveal:agent:${found.id}`,
+    field: "approval_rules",
+    direct: false,
+    target: { type: "agent", id: found.id },
+    names: { agentId: found.id, ...(input.runId ? { runId: input.runId } : {}) },
+  });
+  const rules = await db
+    .select({
+      id: approvalRules.id,
+      connectionId: approvalRules.connectionId,
+      tool: approvalRules.tool,
+      action: approvalRules.action,
+      createdByUserId: approvalRules.createdByUserId,
+      createdAt: approvalRules.createdAt,
+    })
+    .from(approvalRules)
+    .where(and(eq(approvalRules.orgId, orgId), eq(approvalRules.agentId, found.id)))
+    .orderBy(asc(approvalRules.createdAt), asc(approvalRules.id));
+  const calls = input.runId
+    ? await db
+        .select({
+          id: auditLog.id,
+          at: auditLog.createdAt,
+          tool: auditLog.targetId,
+          outcome: auditLog.outcome,
+          details: auditLog.details,
+        })
+        .from(auditLog)
+        .where(
+          and(
+            eq(auditLog.orgId, orgId),
+            eq(auditLog.actorType, "agent"),
+            eq(auditLog.actorId, found.id),
+            eq(auditLog.runId, input.runId),
+            eq(auditLog.action, "tool.call"),
+            sql`${auditLog.details} ? 'approvalRules'`,
+          ),
+        )
+        .orderBy(asc(auditLog.createdAt), asc(auditLog.id))
+        .limit(CONTENT_READ_MAX_ITEMS)
+    : [];
+  return {
+    agentId: found.id,
+    rules: rules.map((r) => ({ ...r, tool: clean(r.tool), action: clean(r.action) })),
+    calls: calls.map(({ details, ...c }) => ({
+      ...c,
+      tool: c.tool === null ? null : clean(c.tool),
+      approvalRules: Array.isArray(details.approvalRules) ? (details.approvalRules as string[]) : [],
+    })),
   };
 }

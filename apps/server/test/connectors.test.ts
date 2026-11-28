@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { createFakeComposioClient, createFakeErrorReporter, createFakeMailConnector } from "@agenteschat/adapters";
 import { and, eq, schema } from "@agenteschat/db";
-import { type McpConnect, mcpPreset } from "@agenteschat/engine";
+import { desktopBackLink, type McpConnect, mcpPreset } from "@agenteschat/engine";
 import { browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer;
@@ -188,7 +188,11 @@ test("connectors API: the phone app's OAuth hands the code back to the app, whic
   const toDesktop = await systemBrowser(`/api/app/connectors/oauth/callback?state=${desktop}&code=abc`, {
     origin: null,
   });
-  const desktopLink = new URL(toDesktop.headers.get("location") ?? "");
+  // Through the browser's page that says where the person went (the tab no longer stands on the provider's page).
+  const toPage = new URL(toDesktop.headers.get("location") ?? "");
+  expect(toPage.pathname).toBe("/desktop/back");
+  expect(toPage.search).toBe("");
+  const desktopLink = new URL(desktopBackLink(toPage.href));
   expect(`${desktopLink.protocol}//${desktopLink.host}${desktopLink.pathname}`).toBe(
     "agenteschat://desktop/connectors/oauth",
   );
@@ -210,7 +214,7 @@ test("connectors API: the phone app's OAuth hands the code back to the app, whic
     `/api/app/connectors/oauth/callback?state=${refusedDesktop}&error=access_denied`,
     { origin: null },
   );
-  expect(noDesktop.headers.get("location")).toBe(
+  expect(desktopBackLink(noDesktop.headers.get("location") ?? "")).toBe(
     `agenteschat://desktop/connectors/oauth?org=${orgId}&error=access_denied`,
   );
 
@@ -613,6 +617,54 @@ test("connector tools API: classified on listing (judge for ambiguous names), se
   expect([all.status, await all.json()]).toEqual([200, { accepted: 0 }]);
   // The endpoints change nothing: the next listing by an agent settles what waited.
   expect(await waiting()).toEqual([{ pending: "v2" }]);
+});
+
+test("a server's own instructions: shown as agents read them to who may change it, turned off with the tools' save", async () => {
+  const said = "Call preview_change before apply_change.\n\nAsk the person before apply_change.";
+  const mcpConnect: McpConnect = async () => ({
+    listTools: async () => [{ name: "preview_change", inputSchema: { type: "object" }, readOnlyHint: true }],
+    callTool: async () => ({ content: "ok", isError: false }),
+    instructions: () => `  ${said}\n`,
+    close: async () => {},
+  });
+  t = await createTestServer({ mcpConnect, resolveHost: async () => ["93.184.216.34"] });
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId } = await seedOrg(owner);
+  const custom = `/api/app/organizations/${orgId}/connectors/custom`;
+  const started = (await (
+    await owner(custom, { json: { serverUrl: "https://changes.example.com/mcp", apiKey: "chg_secret_12345" } })
+  ).json()) as { server: { id: string; instructions: unknown; useInstructions: boolean } };
+  // Trimmed, whole (under the limit), and on.
+  expect(started.server).toMatchObject({
+    instructions: { text: said, cut: false, maxChars: 4000 },
+    useInstructions: true,
+  });
+
+  const save = (as: typeof owner, body: Record<string, unknown>) =>
+    as(`${custom}/${started.server.id}/tools`, {
+      method: "PUT",
+      json: { label: "Changes", tools: [{ name: "preview_change", access: "read", label: "Preview" }], ...body },
+    });
+  // Who may only read the workspace's connectors neither changes it nor reads the text.
+  const member = await joinByInvitation(t, owner, orgId, "ada@example.com", { role: "member" });
+  expect((await save(member, { useInstructions: false })).status).toBe(403);
+  const theirs = (await (await member(custom)).json()) as { servers: { instructions: unknown }[] };
+  expect(theirs.servers.map((s) => s.instructions)).toEqual([null]);
+
+  const off = await save(owner, { useInstructions: false });
+  expect(off.status).toBe(200);
+  expect(await off.json()).toMatchObject({ useInstructions: false, instructions: { text: said } });
+  // Left out, the switch stays as it was.
+  expect(await (await save(owner, {})).json()).toMatchObject({ useInstructions: false });
+  const listed = (await (await owner(custom)).json()) as { servers: { useInstructions: boolean }[] };
+  expect(listed.servers.map((s) => s.useInstructions)).toEqual([false]);
+  // The change is in the audit log once, on the save that made it.
+  const audits = await t.db
+    .select({ details: schema.auditLog.details })
+    .from(schema.auditLog)
+    .where(eq(schema.auditLog.action, "connector.custom_tools_classified"));
+  expect(audits.map((a) => (a.details as { useInstructions?: boolean }).useInstructions)).toEqual([false, undefined]);
 });
 
 /**

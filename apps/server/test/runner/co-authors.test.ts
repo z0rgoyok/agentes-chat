@@ -7,8 +7,8 @@ import { handleRequest, type RequestScope } from "../../runner/handlers";
 import { agentSecrets } from "../../runner/secrets";
 import { hasGit, removeDirs, tempDir } from "./helpers";
 
-const NICK = "Co-authored-by: Nick <noreply@agentes.chat>";
-const ANA = "Co-authored-by: Ana <583231+ana-gh@users.noreply.github.com>";
+const NICK = "Co-Authored-By: Nick <noreply@agentes.chat>";
+const ANA = "Co-Authored-By: Ana <583231+ana-gh@users.noreply.github.com>";
 const CLAUDE = "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>";
 
 const hasLfs = hasGit && spawnSync("git", ["lfs", "version"]).status === 0;
@@ -62,13 +62,16 @@ function repo(lines: string[] = [NICK, ANA]) {
 }
 
 describe("the lines a request carries", () => {
-  test("only `Co-authored-by: Name <address>` on one line, four at most", () => {
+  test("only `Co-Authored-By: Name <address>` on one line, four at most", () => {
     const agent = { id: "a", handle: "nick" };
     expect(coAuthorLines(agent)).toEqual([]);
     expect(
       coAuthorLines({ ...agent, coAuthors: [NICK, `${NICK}\nSigned-off-by: x <x@x>`, "Nick <a@b>", 7] as never }),
     ).toEqual([NICK]);
     expect(coAuthorLines({ ...agent, coAuthors: [NICK, NICK, NICK, NICK, ANA] })).toHaveLength(4);
+    // A server older than protocol 85 writes `Co-authored-by`.
+    const old = "Co-authored-by: Nick <noreply@agentes.chat>";
+    expect(coAuthorLines({ ...agent, coAuthors: [old] })).toEqual([old]);
   });
 
   test("the hook folder after whatever `git -c` settings the environment had; nothing without lines", () => {
@@ -100,10 +103,10 @@ describe.skipIf(!hasGit)("git in the agent's processes", () => {
     r.git("commit", "-q", "--allow-empty", "-m", `Add c\n\nBody.\n\n${CLAUDE}`);
     expect(r.message()).toBe(`Add c\n\nBody.\n\n${CLAUDE}\n${NICK}\n${ANA}`);
     // The agent wrote one itself, in other capitals: it stays alone.
-    r.git("commit", "-q", "--allow-empty", "-m", "Add d\n\nCo-Authored-By: Nick <noreply@agentes.chat>");
-    expect(r.message()).toBe(`Add d\n\nCo-Authored-By: Nick <noreply@agentes.chat>\n${ANA}`);
+    r.git("commit", "-q", "--allow-empty", "-m", "Add d\n\nco-authored-by: Nick <noreply@agentes.chat>");
+    expect(r.message()).toBe(`Add d\n\nco-authored-by: Nick <noreply@agentes.chat>\n${ANA}`);
     r.git("commit", "-q", "--amend", "--allow-empty", "--no-edit");
-    expect(r.message()).toBe(`Add d\n\nCo-Authored-By: Nick <noreply@agentes.chat>\n${ANA}`);
+    expect(r.message()).toBe(`Add d\n\nco-authored-by: Nick <noreply@agentes.chat>\n${ANA}`);
     // A merge commit is the agent's too.
     r.git("checkout", "-q", "-b", "side");
     r.git("commit", "-q", "--allow-empty", "-m", "side");

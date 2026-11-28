@@ -8,11 +8,22 @@ import type { SurfaceLink, SurfaceLinks } from "../src/api/types";
 import { ApiError } from "../src/index";
 import { errorText } from "../src/lib/errors";
 import { rightHandName } from "../src/lib/right-hand";
-import { CODE_TTL_MS, codeDeadline, newlyLinked, surfaceRowOf, surfaceViaName } from "../src/lib/surface-links";
+import {
+  CODE_TTL_MS,
+  codeDeadline,
+  newlyLinked,
+  PIN_SHAPE,
+  pinChosen,
+  pinDigits,
+  pinMismatch,
+  surfaceRowOf,
+  surfaceViaName,
+} from "../src/lib/surface-links";
 import { appVia, surfaceVia } from "../src/lib/via";
 
 const NOW = Date.parse("2026-01-10T12:00:00Z");
 const link = (extra: Partial<SurfaceLink> = {}): SurfaceLink => ({
+  nudge: { on: true, afterHours: 4, quietFrom: 22, quietTo: 8 },
   id: "l1",
   status: "active",
   display: "+1 555 0100",
@@ -22,6 +33,7 @@ const link = (extra: Partial<SurfaceLink> = {}): SurfaceLink => ({
   createdAt: "2026-01-10T11:00:00Z",
   confirmedAt: "2026-01-10T11:01:00Z",
   expiresAt: null,
+  pinSet: false,
   ...extra,
 });
 const pending = (expiresAt: string) => link({ id: "p1", status: "pending", confirmedAt: null, expiresAt });
@@ -95,6 +107,8 @@ test("every refusal of linking says its cause in the person's words", () => {
     "surface.taken": en.errors.surface.taken,
     "surface.undo_gone": en.errors.surface.undoGone,
     "surface.code_gone": en.errors.surface.codeGone,
+    "surface.pin_unset": en.errors.surface.pinUnset,
+    "surface.email_unverified": en.errors.surface.emailUnverified,
   };
   for (const [code, line] of Object.entries(lines)) expect(errorText(t.t, new ApiError(409, code, "x"))).toBe(line);
 });
@@ -130,4 +144,16 @@ test("the right hand's name, null while the agents load or when there is none", 
       { builtin: "right_hand", name: "Iris" },
     ]),
   ).toBe("Iris");
+});
+
+test("a PIN field keeps six digits; choosing one takes the same six twice", () => {
+  expect(pinDigits("48 2-9a13 77")).toBe("482913");
+  expect(PIN_SHAPE.test("482913")).toBe(true);
+  expect(PIN_SHAPE.test("48291")).toBe(false);
+  expect(pinChosen("482913", "482913")).toBe(true);
+  expect(pinChosen("482913", "482914")).toBe(false);
+  expect(pinChosen("48291", "48291")).toBe(false);
+  // Said only once the second is whole, never while it is still being typed.
+  expect(pinMismatch("482913", "4829")).toBe(false);
+  expect(pinMismatch("482913", "482914")).toBe(true);
 });

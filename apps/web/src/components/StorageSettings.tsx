@@ -1,5 +1,6 @@
 import type { StorageConfig, StoragePlatform, StorageProvider, StorageTestResult } from "@agenteschat/client";
 import {
+  useMachines,
   useSaveStorage,
   useStartMigration,
   useStorage,
@@ -7,7 +8,11 @@ import {
   useTestStorage,
   useWorkspaceLimits,
 } from "@agenteschat/client";
+import { mayAsk } from "@agenteschat/client/lib/audience";
+import { formatBytes } from "@agenteschat/client/lib/files";
+import { computerStorage } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
+import { rightHandOf } from "@agenteschat/client/lib/right-hand";
 import {
   AWS_REGIONS,
   awsBucketPolicy,
@@ -25,6 +30,7 @@ import {
   Alert,
   Button,
   Card,
+  CardHeader,
   Checkbox,
   Chip,
   Dialog,
@@ -38,22 +44,27 @@ import {
   List,
   Locked,
   Meter,
+  OptionLinks,
   RadioCard,
   RadioGroup,
   Select,
   SettingNote,
+  UsageSwatch,
 } from "@agenteschat/ui";
 import { type CSSProperties, type ReactNode, useEffect, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
+import { AskAgentButton } from "@/components/AskAgentButton";
 import { StorageMeter } from "@/components/Limits";
 import { LoadingCards } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
 import { useRevealsFiles } from "@/components/ThisMac";
-import { useComputerEdition } from "@/components/WorkspaceComputer";
+import { managedOf, useComputerEdition } from "@/components/WorkspaceComputer";
+import { useDirectory } from "@/hooks/useDirectory";
 import { copyText } from "@/lib/context-menu";
 import { thisMac } from "@/lib/desktop";
 import { softBreaks } from "@/lib/soft-breaks";
 import { useToast } from "@/lib/toast";
+import "./plan-usage.css";
 import "./storage.css";
 
 type Choice = "agentes" | "s3";
@@ -94,7 +105,7 @@ function PathCode({ path }: { path: string }) {
  * A service's mark in its color, at an icon's size on the name's line (no tile: a tile beside a name and a line that
  * wraps would own a column); "Other" our database icon.
  */
-function ProviderMark({ provider, size = 20 }: { provider: StorageProvider; size?: 14 | 20 }) {
+function ProviderMark({ provider, size = 20 }: { provider: StorageProvider; size?: 14 | 16 | 20 }) {
   if (provider === "other") return <Icon name="database" size={size} className="storage-mark" />;
   const mark = MARKS[provider];
   return (
@@ -162,80 +173,142 @@ export function StorageSection() {
   const cloud = edition === "cloud";
   const place = t(cloud ? "storage.place.agentes" : "storage.place.server");
   return (
-    // The page's title names the card: a title of its own would say it twice.
-    <Card aria-label={t("storage.title")}>
-      <StorageMeter />
-      {(storage.isLoading || (storage.data && !edition)) && <LoadingCards count={2} />}
-      {config && (
-        <>
-          <RadioGroup
-            value={choice}
-            onValueChange={(v) => setChoice(v as Choice)}
-            aria-label={t("storage.options")}
-            className="stack-4"
-            style={{ gap: 8 }}
-          >
-            {(["agentes", "s3"] as const).map((k) => (
-              <RadioCard
-                key={k}
-                value={k}
-                id={`storage-${k}`}
-                checked={choice === k}
-                title={t(k === "s3" ? "storage.s3" : cloud ? "storage.agentes" : "storage.server")}
-                description={
-                  k === "s3" ? (
-                    config.kind === "s3" ? (
-                      <InUseLine config={config} />
+    <>
+      {/* The page's title names the card: a title of its own would say it twice. */}
+      <Card aria-label={t("storage.title")}>
+        <StorageMeter />
+        {(storage.isLoading || (storage.data && !edition)) && <LoadingCards count={2} />}
+        {config && (
+          <>
+            <RadioGroup
+              value={choice}
+              onValueChange={(v) => setChoice(v as Choice)}
+              aria-label={t("storage.options")}
+              className="stack-4"
+              style={{ gap: 8 }}
+            >
+              {(["agentes", "s3"] as const).map((k) => (
+                <RadioCard
+                  key={k}
+                  value={k}
+                  id={`storage-${k}`}
+                  checked={choice === k}
+                  title={t(k === "s3" ? "storage.s3" : cloud ? "storage.agentes" : "storage.server")}
+                  description={
+                    k === "s3" ? (
+                      config.kind === "s3" ? (
+                        <InUseLine config={config} />
+                      ) : (
+                        t("storage.s3Text")
+                      )
+                    ) : cloud ? (
+                      t("storage.agentesText")
                     ) : (
-                      t("storage.s3Text")
+                      <PlatformLine platform={config.platform} />
                     )
-                  ) : cloud ? (
-                    t("storage.agentesText")
-                  ) : (
-                    <PlatformLine platform={config.platform} />
-                  )
-                }
-                aside={
-                  // The radio says which is in use until another is picked: then this says it.
-                  config.kind === k && choice !== k ? <Chip icon="check">{t("storage.current")}</Chip> : undefined
-                }
-                detail={
-                  config.kind === k && !(k === "agentes" && metered)
-                    ? storageUsageLine(t, i18n.language, config)
-                    : undefined
-                }
-              />
-            ))}
-          </RadioGroup>
-          {/* Under the options, not in one: each option is a label, which can't hold a button. */}
-          {!cloud && reveals && config.platform.folder && (
-            <div className="row">
-              <Button size="sm" variant="ghost" onClick={() => void thisMac.revealFiles().catch(() => {})}>
-                {t("storage.showFolder")}
-              </Button>
-            </div>
-          )}
-          {config.kind === "s3" ? (
-            <InUse config={config} place={place} onEdit={() => setConnect("edit")} />
-          ) : (
-            choice === "s3" && (
-              // `ac-acts` straight in the card: on a phone its lone button takes the card's width.
-              <div className="ac-acts">
-                <Button variant="primary" onClick={() => setConnect("new")}>
-                  {t("storage.connect.open")}
+                  }
+                  aside={
+                    // The radio says which is in use until another is picked: then this says it.
+                    config.kind === k && choice !== k ? <Chip icon="check">{t("storage.current")}</Chip> : undefined
+                  }
+                  detail={
+                    config.kind === k && !(k === "agentes" && metered)
+                      ? storageUsageLine(t, i18n.language, config)
+                      : undefined
+                  }
+                />
+              ))}
+            </RadioGroup>
+            {/* Under the options, not in one: each option is a label, which can't hold a button. */}
+            {!cloud && reveals && config.platform.folder && (
+              <div className="row">
+                <Button size="sm" variant="ghost" onClick={() => void thisMac.revealFiles().catch(() => {})}>
+                  {t("storage.showFolder")}
                 </Button>
               </div>
-            )
-          )}
-          <ConnectDialog
-            open={connect !== null}
-            editing={connect === "edit"}
-            config={config}
-            onOpenChange={(open) => {
-              if (!open) setConnect(null);
-            }}
-          />
-        </>
+            )}
+            {config.kind === "s3" ? (
+              <InUse config={config} place={place} onEdit={() => setConnect("edit")} />
+            ) : (
+              choice === "s3" && (
+                // `ac-acts` straight in the card: on a phone its lone button takes the card's width.
+                <div className="ac-acts">
+                  <Button variant="primary" onClick={() => setConnect("new")}>
+                    {t("storage.connect.open")}
+                  </Button>
+                </div>
+              )
+            )}
+            <ConnectDialog
+              open={connect !== null}
+              editing={connect === "edit"}
+              config={config}
+              onOpenChange={(open) => {
+                if (!open) setConnect(null);
+              }}
+            />
+          </>
+        )}
+      </Card>
+      <ComputerStorageCard />
+    </>
+  );
+}
+
+/**
+ * The workspace's own Cloud computer's disk: what takes it by kind, as a bar with its legend (each kind's name and
+ * amount, then what is free), and near full the way out: an agent clears caches and temporary files.
+ */
+function ComputerStorageCard() {
+  const { t, i18n } = useTranslation();
+  const { org } = useOrg();
+  const storage = computerStorage(managedOf(useMachines(org.id).data)?.disk ?? null);
+  const lodi = rightHandOf(useDirectory(org.id).agents);
+  if (!storage) return null;
+  const size = (gb: number) => formatBytes(i18n.language, gb * 2 ** 30);
+  return (
+    <Card aria-labelledby="storage-computer">
+      <CardHeader
+        id="storage-computer"
+        icon="computer"
+        title={t("storage.computer.title")}
+        subtitle={t("storage.computer.used", { used: size(storage.usedGb), size: size(storage.sizeGb) })}
+      />
+      <Meter
+        value={storage.usedGb}
+        max={storage.sizeGb}
+        label={t("storage.computer.bar")}
+        segments={storage.parts.map((p) => ({ key: p.key, value: p.gb, deep: p.light, light: p.dark }))}
+      />
+      {storage.parts.length > 0 ? (
+        <div className="plan-legend storage-legend">
+          {storage.parts.map((p) => (
+            <span
+              key={p.key}
+              className="plan-legend__item"
+              style={{ "--seg-deep": p.light, "--seg-light": p.dark } as CSSProperties}
+            >
+              <UsageSwatch />
+              {t(`storage.computer.part.${p.key}`)} <b>{size(p.gb)}</b>
+            </span>
+          ))}
+          <span className="plan-legend__item storage-legend__free">
+            <UsageSwatch />
+            {t("storage.computer.part.free")} <b>{size(storage.freeGb)}</b>
+          </span>
+        </div>
+      ) : (
+        <p className="small muted">{t("storage.computer.measuring")}</p>
+      )}
+      {storage.full && (
+        <SettingNote
+          icon="alert"
+          action={
+            lodi && mayAsk(org, lodi) ? <AskAgentButton agent={lodi} draft={t("storage.computer.ask")} /> : undefined
+          }
+        >
+          {t("storage.computer.full", { free: size(storage.freeGb) })}
+        </SettingNote>
       )}
     </Card>
   );
@@ -370,20 +443,20 @@ function ConnectDialog({
         width={560}
       >
         <DialogBody>
-          <List className="storage-pick">
-            {STORAGE_PROVIDERS.map((p) => (
-              <button key={p} type="button" className="ac-list__row storage-pick__row" onClick={() => setProvider(p)}>
-                <span className="ac-iconline storage-pick__main">
-                  <ProviderMark provider={p} />
-                  <span className="list-col">
-                    <span className="storage-pick__name">{t(`storage.connect.provider.${p}`)}</span>
-                    <span className="small muted">{t(`storage.connect.providerText.${p}`)}</span>
-                  </span>
+          <OptionLinks
+            className="storage-pick"
+            options={STORAGE_PROVIDERS.map((p) => ({
+              value: p,
+              leading: (
+                <span className="ac-brand ac-brand--sm ac-brand--mono" aria-hidden="true">
+                  <ProviderMark provider={p} size={16} />
                 </span>
-                <Icon name="chevronRight" size={16} className="storage-pick__go" />
-              </button>
-            ))}
-          </List>
+              ),
+              title: t(`storage.connect.provider.${p}`),
+              description: t(`storage.connect.providerText.${p}`),
+              onSelect: () => setProvider(p),
+            }))}
+          />
         </DialogBody>
         <DialogFooter>
           <Button onClick={() => onOpenChange(false)}>{t("common.cancel")}</Button>

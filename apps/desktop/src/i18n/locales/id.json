@@ -1,4 +1,20 @@
 {
+  "permissionAsk": {
+    "title": "agentes.chat memerlukan {{permission}}",
+    "done": "Sudah saya izinkan",
+    "later": "Nanti saja",
+    "trayTitle": "Menunggu {{permission}}",
+    "why": {
+      "app_management": "Agen memerlukannya untuk mengubah app di {{device}} ini.",
+      "screen": "Agen memerlukannya untuk mengambil tangkapan layar {{device}} ini.",
+      "accessibility": "Agen memerlukannya untuk mengeklik dan mengetik di app pada {{device}} ini.",
+      "disk": "Agen memerlukannya untuk membuka file Anda tanpa macOS bertanya untuk setiap folder.",
+      "network": "Agen memerlukannya untuk menjangkau ponsel dan perangkat di jaringan Anda.",
+      "camera": "Agen memerlukannya untuk memakai kamera {{device}} ini.",
+      "microphone": "Agen memerlukannya untuk memakai mikrofon {{device}} ini.",
+      "automation": "Agen memerlukannya untuk mengendalikan app lain di {{device}} ini."
+    }
+  },
   "device": {
     "mac": "Mac",
     "windows": "PC",
@@ -7,6 +23,11 @@
   "windowTitle": {
     "welcome": "Selamat datang",
     "prefs": "Preferensi"
+  },
+  "background": {
+    "title": "agentes.chat masih berjalan",
+    "bodyMac": "Temukan di bar menu di bagian atas layar. Buka atau keluar dari sana.",
+    "bodyTray": "Temukan di baki sistem. Buka atau keluar dari sana."
   },
   "common": {
     "cancel": "Batal",
@@ -66,6 +87,12 @@
         "capturing": "mengambil tangkapan layar",
         "tabs": "berpindah tab"
       }
+    },
+    "apps": {
+      "title": "{{agent}} sedang menggunakan {{app}}",
+      "detail": "Mouse dan keyboard tetap milik Anda",
+      "stop": "Hentikan",
+      "stopped": "{{agent}} berhenti menggunakan aplikasi Anda"
     },
     "label": "agentes.chat",
     "now": "Sekarang",
@@ -127,12 +154,17 @@
     "allowedOne": "{{folder}} diizinkan untuk {{agent}}",
     "allowedAll": "{{folder}} diizinkan untuk semua agen",
     "denied": "Ditolak. {{agent}} memberi tahu mereka di obrolan.",
+    "answerFailed": "Tidak bisa menjawab permintaan ini: {{message}}",
     "notifTitle": "{{agent}} ingin memakai folder {{folder}}",
     "allowedTitle": "{{name}} menyalakan {{tool}} dari agentes.chat",
     "allowedBody": "Kalau bukan kamu, batalkan di sini.",
     "allowedUndo": "Urungkan",
     "allowedOk": "Oke",
     "allowedUndone": "Mati lagi: {{tool}}",
+    "pickTitle": "{{name}} meminta folder untuk para agen",
+    "pickTitleAgent": "{{name}} meminta folder untuk {{agent}}",
+    "pickBody": "Pilih folder mana yang diizinkan di {{device}} ini.",
+    "pickChoose": "Pilih folder",
     "quitTitle": "Keluar dari agentes.chat?",
     "quitBody": "Agen tidak bisa memakai {{device}} ini selama aplikasi tertutup. Yang sudah berjalan akan selesai dan mengirim hasilnya saat kamu membukanya lagi.",
     "quitHereBody": "agentes.chat berhenti di {{device}} ini: tidak ada yang bisa memakainya, di sini, di ponselmu, atau di ponsel rekan timmu, sampai kamu membuka aplikasinya lagi.",
@@ -230,7 +262,7 @@
     "openTailscale": "Buka Tailscale",
     "getTailscale": "Dapatkan Tailscale",
     "usage": "Kirim statistik pemakaian anonim ke agentes.chat",
-    "usageText": "Angka seperti jumlah orang, agen, ukuran mesin, token AI yang dipakai, dan berapa banyak data yang dikirim dan diterima browser agen. Tidak pernah pesan, file, nama, atau situs.",
+    "usageText": "Angka seperti jumlah orang, agen, ukuran mesin, token AI yang dipakai, berapa banyak data yang dikirim dan diterima browser agen, dan seberapa cepat aplikasi terbuka dan berjalan. Tidak pernah pesan, file, nama, atau situs.",
     "start": "Mulai",
     "setting": "Menyiapkan semuanya",
     "rest": "Saat kamu menutup aplikasi, agenmu beristirahat. Mereka kembali begitu kamu membukanya lagi.",
@@ -451,6 +483,16 @@
     "linkBody": "Kalau kamu tidak memintanya, pilih Nanti saja.",
     "waiting": "Menunggu {{by}} mengizinkannya masuk…",
     "done": "Terhubung ke {{org}}",
+    "share": "Izinkan seluruh ruang kerja memakainya",
+    "internet": "Agen memakai internet komputer ini",
+    "internetOn": "Situs dan server yang dijangkau agen melihat lokasimu",
+    "internetOff": "Mati: agen memakai koneksi biasa mereka",
+    "internetHint": "Agen di workspace terhubung ke internet lewat koneksi komputer ini: situs web, git, SSH, database, dan koneksi TCP lainnya. Tidak pernah apa pun di jaringanmu sendiri, dan tidak pernah email lewat port 25. AI agen, pencarian nama, panggilan, dan lalu lintas UDP lainnya memakai koneksi biasa mereka, begitu juga semuanya selama komputer ini offline.",
+    "internetHintProxy": "Browser agen di workspace dan program yang mengikuti pengaturan proxy (git lewat HTTPS, curl, sebagian besar alat baris perintah) terhubung ke internet lewat koneksi komputer ini. SSH, klien database, dan program lain yang mengabaikan pengaturan proxy memakai koneksi biasa mereka, begitu juga AI agen, pencarian nama, dan lalu lintas UDP. Tidak pernah apa pun di jaringanmu sendiri, dan tidak pernah email lewat port 25. Selama komputer ini offline, semuanya memakai koneksi biasa.",
+    "internetOnly": "Pakai hanya internet komputer ini",
+    "internetOnlyHint": "Agen hanya memakai internet komputer ini, termasuk untuk AI mereka, dan tidak pernah koneksi biasa. Selama komputer ini offline, agen tidak punya internet sampai komputer ini kembali.",
+    "shareOff": "Hanya kamu untuk saat ini",
+    "shareHint": "Agen semua orang di {{org}} bisa menjalankan tugas di sana sebagai penggunamu.",
     "addFolders": "Tambahkan folder",
     "expired": "Link ini sudah kedaluwarsa. Buat yang baru di Perangkat.",
     "openDevices": "Buka Perangkat",
@@ -494,6 +536,9 @@
     "grokDesc": "Menulis dan mengubah kode di folder yang diizinkan, dengan akun Grok-mu.",
     "antigravityName": "Antigravity CLI",
     "antigravityDesc": "Menulis dan mengubah kode di folder yang diizinkan, dengan akun Gemini-mu.",
+    "devinName": "Devin CLI",
+    "devinDesc": "Menulis dan mengubah kode di folder yang diizinkan, dengan akun Devin-mu.",
+    "devinWindows": "Devin belum berjalan di Windows: di sini CLI-nya tidak bisa memisahkan login setiap akun. Agen berpikir dengan Devin di komputer Mac atau Linux.",
     "found": "Ditemukan",
     "notFound": "Tidak ditemukan",
     "loggedOut": "Belum masuk",
@@ -783,6 +828,7 @@
       "brainMax": "Percakapan terbuka",
       "brainMaxDesc": "Berapa banyak yang tetap terbuka di setiap ruang kerja. Makin banyak, makin cepat menjawab, tapi memakai lebih banyak memori.",
       "brainIdle": "Tutup percakapan yang menganggur setelah",
+      "mixed": "Tidak sama di semua tempat: {{values}}. Perubahan di sini berlaku untuk semuanya.",
       "folder": "Folder agen",
       "folderDesc": "Satu folder per ruang kerja, dengan satu folder untuk setiap agen."
     }

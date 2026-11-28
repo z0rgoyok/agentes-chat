@@ -14,8 +14,10 @@ import Animated, {
 import { WorkspaceSky } from "@/sky/Sky";
 import { Button, Text, useReducedMotion } from "@/ui";
 import { AgentFace, Face } from "../shared/Face";
+import { GroupFace } from "../shared/GroupFace";
 import { useMeId } from "../shared/hooks";
 import { tapHaptic } from "../shared/parts";
+import type { GroupConversation } from "./GroupCover";
 import { useKeyboardRoom } from "./keyboard-room";
 
 /** The channels whose greeting already played while the app runs: the crew rises once, then just stands there. */
@@ -26,6 +28,8 @@ const EASE_OUT = Easing.bezier(0.23, 1, 0.32, 1);
 const CREW = 6;
 /** A framed face, the lists' smaller framed size. */
 const FACE = 36;
+/** A group conversation's face on the horizon (`group`): the web's cover's. */
+const GROUP_FACE = 88;
 /** The sky band the crew stands on. */
 const BAND = 136;
 
@@ -67,6 +71,9 @@ function play(value: SharedValue<number>, at: number, duration: number) {
  *
  * The first time a channel shows it while the app runs, the crew rises onto the horizon; later visits and reduced
  * motion draw it in place.
+ *
+ * A personal workspace's group conversation (`group`, ADR 0159) is its cover instead: its agents as one face on the
+ * horizon, its name as written and who is in it, then how to start.
  */
 export function ChannelHello({
   channelId,
@@ -78,9 +85,12 @@ export function ChannelHello({
   bottomInset,
   keyboardLift,
   onAsk,
+  group,
 }: {
   channelId: string;
   channel: string;
+  /** A personal workspace's group conversation, from a server that lists its agents. */
+  group?: GroupConversation | null;
   /** What the channel is for, when someone wrote it. */
   topic?: string | null;
   /** Its agents one may talk to, the first to greet first. */
@@ -179,7 +189,7 @@ export function ChannelHello({
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
       >
-        {crew.length > 0 ? (
+        {crew.length > 0 || group ? (
           <View style={styles.band} accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
             <Animated.View style={[StyleSheet.absoluteFill, skyIn]}>
               {/* A band in the middle of the screen: it comes in from nothing over its top half and goes back to the
@@ -187,22 +197,33 @@ export function ChannelHello({
               <WorkspaceSky fadeTop={0.5} fade={0.6} style={styles.fill} />
             </Animated.View>
             <View style={styles.crew}>
-              {crew.map((m, i) => (
-                <Animated.View key={`${m.type}:${m.id}`} style={faceIn[i]}>
-                  {m.type === "agent" ? (
-                    <AgentFace agentId={m.id} size={FACE} framed />
-                  ) : (
-                    <Face who={{ type: m.type, id: m.id }} size={FACE} />
-                  )}
+              {group ? (
+                <Animated.View style={faceIn[0]}>
+                  <GroupFace agentIds={group.agentIds} count={group.count} size={GROUP_FACE} />
                 </Animated.View>
-              ))}
+              ) : (
+                crew.map((m, i) => (
+                  <Animated.View key={`${m.type}:${m.id}`} style={faceIn[i]}>
+                    {m.type === "agent" ? (
+                      <AgentFace agentId={m.id} size={FACE} framed />
+                    ) : (
+                      <Face who={{ type: m.type, id: m.id }} size={FACE} />
+                    )}
+                  </Animated.View>
+                ))
+              )}
             </View>
           </View>
         ) : null}
         <Animated.View style={[styles.words, wordsIn]}>
           <Text variant="title2" style={styles.center} accessibilityRole="header">
-            {t("chat.sayHiChannel", { channel })}
+            {group ? channel : t("chat.sayHiChannel", { channel })}
           </Text>
+          {group ? (
+            <Text variant="subhead" tone="muted" style={styles.center} numberOfLines={2}>
+              {group.who}
+            </Text>
+          ) : null}
           <Text variant="subhead" tone="muted" style={styles.center} numberOfLines={3}>
             {line}
           </Text>

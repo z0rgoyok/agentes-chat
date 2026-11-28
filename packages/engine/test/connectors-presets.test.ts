@@ -33,6 +33,20 @@ describe("one-click MCP connectors", () => {
     expect(presetForServer("https://example.com/mcp")).toBeNull();
   });
 
+  test("Datadog: one preset per site, each at its own site's server", () => {
+    expect(
+      MCP_PRESETS.filter((p) => p.icon === "datadog").map((p) => [p.id, p.label, new URL(p.serverUrl).host]),
+    ).toEqual([
+      ["datadog", "Datadog", "mcp.datadoghq.com"],
+      ["datadog-us3", "Datadog (US3)", "mcp.us3.datadoghq.com"],
+      ["datadog-us5", "Datadog (US5)", "mcp.us5.datadoghq.com"],
+      ["datadog-eu", "Datadog (EU)", "mcp.datadoghq.eu"],
+      ["datadog-ap1", "Datadog (AP1)", "mcp.ap1.datadoghq.com"],
+      ["datadog-ap2", "Datadog (AP2)", "mcp.ap2.datadoghq.com"],
+    ]);
+    expect(presetForServer("https://mcp.us5.datadoghq.com/api/unstable/mcp-server/mcp")?.id).toBe("datadog-us5");
+  });
+
   test("a service goes through Composio only on Composio's own OAuth app: no key to paste, no app of ours", () => {
     const ways = MCP_PRESETS.flatMap((p) => (p.composio ? [[p.id, p.composio.auth]] : []));
     expect(ways.length).toBeGreaterThan(0);

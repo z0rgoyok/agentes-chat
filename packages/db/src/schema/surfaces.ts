@@ -1,5 +1,16 @@
 import { sql } from "drizzle-orm";
-import { check, index, integer, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  index,
+  integer,
+  pgTable,
+  smallint,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { users } from "./auth";
 import { organizations } from "./tenancy";
 
@@ -29,9 +40,33 @@ export const surfaceLinks = pgTable(
     createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
     confirmedAt: timestamp({ withTimezone: true }),
     lastSeenAt: timestamp({ withTimezone: true }),
+    /**
+     * The person's six-digit PIN for confirming a sensitive act from the surface (ADR 0226), hashed. Null until they
+     * choose one. It goes with the link, so a new password or an unlink clears it too.
+     */
+    pinHash: text(),
+    pinFailures: integer().notNull().default(0),
+    /** Three wrong PINs in a row lock confirming until then. */
+    pinLockedUntil: timestamp({ withTimezone: true }),
+    /** Locks since the last right PIN: each one lasts longer (15 minutes, an hour, then a day). */
+    pinLockouts: integer().notNull().default(0),
+    /**
+     * The unread nudge (ADR 0234): on, after how many hours unread, never between `quiet_from` and `quiet_to` (whole
+     * hours in the person's time zone). The person's own settings; they go with the link.
+     */
+    nudgeOn: boolean().notNull().default(true),
+    nudgeAfterHours: smallint().notNull().default(4),
+    quietFrom: smallint().notNull().default(22),
+    quietTo: smallint().notNull().default(8),
+    /** The last nudge queued: at most one a day. */
+    nudgedAt: timestamp({ withTimezone: true }),
   },
   (t) => [
     check("surface_links_status", sql`${t.status} in ('pending', 'active')`),
+    check(
+      "surface_links_nudge",
+      sql`${t.nudgeAfterHours} between 1 and 24 and ${t.quietFrom} between 0 and 23 and ${t.quietTo} between 0 and 23`,
+    ),
     uniqueIndex("surface_links_one_per_sender").on(t.surface, t.externalId).where(sql`${t.status} = 'active'`),
     uniqueIndex("surface_links_one_per_account").on(t.userId, t.surface).where(sql`${t.status} = 'active'`),
     index().on(t.userId),
@@ -39,7 +74,8 @@ export const surfaceLinks = pgTable(
 );
 
 /**
- * What the surface's service should send: a reply of the right hand, or the notice that a link is active. Pulled,
+ * What the surface's service should send: a reply of the right hand, the notice that a link is active, or a nudge
+ * about what waits unread (only to a service that asks for nudges). Pulled,
  * never pushed. Closed once (`taken_at`) by the service or by the fallback to an in-app notification, whichever is
  * first. `message_id` has no foreign key: `messages` is partitioned (ADR 0009).
  */
@@ -54,7 +90,7 @@ export const surfaceDeliveries = pgTable(
       .references(() => organizations.id, { onDelete: "cascade" }),
     /** Null once the link ended: the row stays so the reply still reaches the person in the app. */
     linkId: uuid().references(() => surfaceLinks.id, { onDelete: "set null" }),
-    kind: text().$type<"reply" | "linked">().notNull(),
+    kind: text().$type<"reply" | "linked" | "nudge">().notNull(),
     messageId: uuid(),
     messageCreatedAt: timestamp({ withTimezone: true }),
     /** The person's surface message the run read last. */
@@ -64,7 +100,7 @@ export const surfaceDeliveries = pgTable(
     outcome: text().$type<"sent" | "unsent" | "fallback" | "dropped">(),
   },
   (t) => [
-    check("surface_deliveries_kind", sql`${t.kind} in ('reply', 'linked')`),
+    check("surface_deliveries_kind", sql`${t.kind} in ('reply', 'linked', 'nudge')`),
     check("surface_deliveries_outcome", sql`${t.outcome} in ('sent', 'unsent', 'fallback', 'dropped')`),
     index("surface_deliveries_open").on(t.createdAt).where(sql`${t.takenAt} is null`),
     // A retried `notifications.message` job finds the reply's row instead of sending it twice.
@@ -93,4 +129,41 @@ export const surfaceCalls = pgTable(
     externalHash: text(),
   },
   (t) => [index().on(t.at)],
+);
+
+/**
+ * A page of ours opened from a link sent on the surface (ADR 0226): one page, opened once within 10 minutes, then
+ * open for its kind's time in that browser alone (`browser_hash`). It ends with its surface link.
+ */
+export const surfacePageLinks = pgTable(
+  "surface_page_links",
+  {
+    id: uuid()
+      .primaryKey()
+      .$defaultFn(() => Bun.randomUUIDv7()),
+    orgId: uuid()
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    linkId: uuid()
+      .notNull()
+      .references(() => surfaceLinks.id, { onDelete: "cascade" }),
+    userId: text()
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text().$type<"confirm" | "screen" | "control">().notNull(),
+    /** What the page shows: an approval for `confirm`. */
+    targetId: uuid().notNull(),
+    /** SHA-256 of the token in the URL; the token itself is never kept. */
+    tokenHash: text().notNull(),
+    /** SHA-256 of the secret the first browser to open it holds in a cookie. */
+    browserHash: text(),
+    createdAt: timestamp({ withTimezone: true }).notNull().defaultNow(),
+    openedAt: timestamp({ withTimezone: true }),
+  },
+  (t) => [
+    check("surface_page_links_kind", sql`${t.kind} in ('confirm', 'screen', 'control')`),
+    uniqueIndex().on(t.tokenHash),
+    index().on(t.linkId),
+    index().on(t.createdAt),
+  ],
 );

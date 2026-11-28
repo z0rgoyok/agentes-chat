@@ -36,11 +36,8 @@ const list = async (who: ReturnType<typeof browser>, url: string) =>
 test("a member connects their own; another member never sees it; who manages connectors sees a bare row only when asking", async () => {
   const { owner, walter, bia, base, mine } = await walterWithLinear();
   expect(mine.ownerUserId).not.toBeNull();
-  // The team's needs managing connectors; GitHub connects for the team only.
+  // The team's needs managing connectors.
   expect((await walter(base, { json: { connector: "linear", apiKey: "lin_api_FAKE_team_12345" } })).status).toBe(403);
-  expect(
-    (await walter(base, { json: { connector: "github", apiKey: "ghp_FAKE_walter_123456", personal: true } })).status,
-  ).toBe(400);
 
   expect((await list(walter, base)).map((c) => c.id)).toEqual([mine.id]);
   expect((await list(bia, `${base}?others=1`)).map((c) => c.id)).toEqual([]);

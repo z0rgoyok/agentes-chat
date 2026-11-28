@@ -15,6 +15,7 @@ import { StyleSheet, View } from "react-native";
 import {
   AgentAvatar,
   Button,
+  GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
@@ -104,6 +105,8 @@ export function BusinessStep({
           minHeight={88}
           scrollEnabled={false}
         />
+        {/* "Outra coisa" has no words of its own: Continue waits for the sentence, and says so in sight. */}
+        {other && !text ? <GroupedFooter>{t("agentSetup.firstRun.about.otherNeeded")}</GroupedFooter> : null}
       </Locked>
       {save.isError ? <Failed text={stepFailedText(t, save.error, i18n.language)} /> : null}
       <View style={styles.action}>

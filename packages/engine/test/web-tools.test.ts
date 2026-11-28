@@ -158,6 +158,65 @@ describe("web_fetch", () => {
     expect(out.content).toContain("your browser");
   });
 
+  test("on a self-hosted server, pages and DuckDuckGo go through the lending computer first (ADR 0237)", async () => {
+    const lentAsked: { org: string; url: string }[] = [];
+    let lending = true;
+    let broken = false;
+    const w = web(
+      {
+        "https://site.example.com/a": () => new Response("direct"),
+        "https://html.duckduckgo.com/": () => new Response(DDG),
+        "https://search.example.org/": () => new Response(JSON.stringify({ results: [] })),
+      },
+      {
+        searxngUrl: "https://search.example.org",
+        lent: async (orgId) =>
+          lending
+            ? {
+                only: false,
+                fetch: async (url: string) => {
+                  lentAsked.push({ org: orgId, url });
+                  if (broken) throw new Error("the tunnel broke");
+                  return new Response(url.includes("duckduckgo") ? DDG : "lent");
+                },
+              }
+            : null,
+      },
+    );
+    expect((await w.run("web_fetch", { url: "https://site.example.com/a" })).content).toContain("lent");
+    await w.run("web_search", { query: "notícias" });
+    // The search service the operator set never goes through someone's home connection.
+    expect(lentAsked).toEqual([
+      { org: "o", url: "https://site.example.com/a" },
+      { org: "o", url: "https://html.duckduckgo.com/html/?q=not%C3%ADcias" },
+    ]);
+    expect(w.asked).toContain("https://search.example.org/search?q=not%C3%ADcias&format=json");
+    expect(w.asked).not.toContain("https://site.example.com/a");
+    // A lent connection that fails, or none lent now: the usual way.
+    broken = true;
+    expect((await w.run("web_fetch", { url: "https://site.example.com/a" })).content).toContain("direct");
+    lending = false;
+    expect((await w.run("web_fetch", { url: "https://site.example.com/a" })).content).toContain("direct");
+  });
+
+  test("a workspace lent only one computer's internet: a page that fails there never goes the usual way (ADR 0237)", async () => {
+    const w = web(
+      { "https://site.example.com/a": () => new Response("direct") },
+      {
+        lent: async () => ({
+          only: true,
+          fetch: async () => {
+            throw new Error("No internet: Ana's laptop is offline");
+          },
+        }),
+      },
+    );
+    const read = (await w.run("web_fetch", { url: "https://site.example.com/a" })).content;
+    expect(read).toContain("No internet: Ana's laptop is offline");
+    expect(read).not.toContain("direct");
+    expect(w.asked).not.toContain("https://site.example.com/a");
+  });
+
   test("every run may read the web, a routine's included", () => {
     const routine = { kind: "routine", personId: null, brief: null } as const;
     for (const name of ["web_search", "web_fetch"])

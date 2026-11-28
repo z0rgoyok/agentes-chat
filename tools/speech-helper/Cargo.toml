@@ -1,0 +1,30 @@
+[package]
+name = "agentes-speech"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-only"
+description = "Speech to text for agentes.chat voice messages on the server's own computer: Parakeet on sherpa-onnx, behind the OpenAI transcription API"
+publish = false
+
+[[bin]]
+name = "agentes-speech"
+path = "src/main.rs"
+
+[dependencies]
+# ONNX Runtime comes inside its static libraries (Apache-2.0, ONNX Runtime MIT).
+sherpa-onnx = { version = "=2.0.3", default-features = false, features = ["static"] }
+# MPL-2.0. MP4/AAC from the phone and Safari, WAV, MP3, Ogg (WhatsApp and Telegram notes).
+symphonia = { version = "=0.5.4", default-features = false, features = ["aac", "isomp4", "ogg", "wav", "pcm", "mp3"] }
+# libopus (BSD-3-Clause), built from its bundled source: Opus in WebM (the browser) and Ogg.
+opus = "=0.4.0"
+tiny_http = "=0.12.0"
+serde_json = "1"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+strip = true

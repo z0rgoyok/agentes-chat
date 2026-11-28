@@ -36,15 +36,12 @@ test("'Falar com o Theo' hands '@theo ' to that conversation's composer, once", 
   expect(currentComposerRequest()).toBeNull();
 });
 
-test("the agents' talk quoted in a reply: its head on one line, the subject in up to two, the time never cut", () => {
+test("the agents' row before a reply: the names give way to nothing but the subject, how it went never cut", () => {
   const group = readFileSync(join(import.meta.dir, "../../src/features/chat/ConsultGroup.tsx"), "utf8");
-  const quoted = group.slice(group.indexOf("export function ConsultQuote("));
-  // The head: the agent asked and how it went, on one line; the name gives way, the time never.
-  expect(quoted).toContain('name: { fontWeight: "600", flexShrink: 1 },');
-  expect(quoted).toContain("how: { flexShrink: 0 },");
-  expect(quoted).toContain("{`· $" + "{how}`}");
-  // The question's subject in up to two lines under it: what supports a card's title (13 under the names' 15).
-  expect(quoted).toContain('<Text variant="footnote" tone="muted" numberOfLines={2}>');
+  const row = group.slice(group.indexOf("export function ConsultPairRow("));
+  expect(row).toContain('name: { fontWeight: "600", flexShrink: 1 },');
+  expect(row).toContain("whole: { flexShrink: 0 },");
+  expect(row).toContain('<Text variant="footnote" tone="faint" numberOfLines={1} style={row.whole}>');
 });
 
 test("two agents' conversation is a sheet over the one that asked, as the web's dialog", () => {
@@ -64,4 +61,17 @@ test("the composer names whom it writes to in its placeholder only: no face in a
   expect(composer).not.toMatch(/\bface\?:/);
   const agentScreen = readFileSync(join(import.meta.dir, "../../src/features/computer/AgentScreen.tsx"), "utf8");
   for (const screen of [chatScreenSource(), agentScreen]) expect(screen).not.toMatch(/\bface[=:]\s*[{<]<?AgentFace/);
+});
+
+test("an agent's reply that passes on another agent's words quotes them, and their bubble folds away", () => {
+  const relay = readFileSync(join(import.meta.dir, "../../src/features/chat/RelayQuote.tsx"), "utf8");
+  // The same plate as the pair's quote, opening the two agents' conversation.
+  expect(relay).toContain("style={({ pressed }) => [quote.box,");
+  expect(relay).toContain("router.push(consultationHref(consultation.id, channelId))");
+  const rows = readFileSync(join(import.meta.dir, "../../src/features/chat/screen/useChatRows.ts"), "utf8");
+  expect(rows).toContain("relayedAnswers(");
+  expect(rows).toContain("relays.relayed.has(m.id)");
+  const row = readFileSync(join(import.meta.dir, "../../src/features/chat/MessageRow.tsx"), "utf8");
+  expect(row).toContain("<RelayQuote relay={relay} channelId={m.channelId} />");
+  expect(row).toContain("c.id !== relay?.consultation.id");
 });
