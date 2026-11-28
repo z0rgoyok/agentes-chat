@@ -31,10 +31,21 @@ test("a settings row is the agent's review's: Reviewing… until it ends, then h
   const card = src("right-hand/SettingsCard.tsx");
   expect(card).toContain("const outcome = proposalOutcome(t, p, meId);");
   expect(card).toContain("waitsFor={outcome.reviewing ? outcome.words : null}");
-  expect(card).toContain("p.undoable && !back ? <UndoProposal id={p.id} /> : null");
+  expect(card).toContain("p.undoable && !back ? (\n        <UndoProposal id={p.id} />");
+  // Left out by the review, whoever may make it applies it themselves, as on the web.
+  expect(card).toContain(") : p.applicable ? (\n        <ApplyProposal id={p.id} />");
   expect(card).not.toContain("decidersOf(");
   expect(card).not.toContain("useAskProposal");
   expect(card).not.toContain("useDecideProposal");
+});
+
+test("a change the review left out offers Apply anyway to whoever may make it, on every card, as the web does", () => {
+  const card = src("agents/InstructionProposalCard.tsx");
+  expect(card).toContain("{p.undoable ? <UndoProposal id={p.id} row /> : <ApplyProposal id={p.id} row />}");
+  expect(card).toContain(") : only.applicable ? (\n            <ApplyProposal id={only.id} />");
+  expect(card).toContain("const apply = useApplyProposal(orgId);");
+  expect(card).toContain('label={t("proposals.applyAnyway")}');
+  expect(src("right-hand/TeamWeekCard.tsx")).toContain("<ApplyProposal id={proposal.id} row />");
 });
 
 test("a workspace change's card says who asked, and its tap says which action this app showed", () => {

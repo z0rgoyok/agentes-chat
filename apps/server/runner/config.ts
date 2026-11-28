@@ -40,6 +40,8 @@ export interface RunnerConfig {
   exec: boolean;
   /** Background tasks at once on this computer (default: sized to it, `sizedTaskLimit`). */
   maxConcurrentTasks?: number;
+  /** The owner's Push harder (`TASK_ROOM_PROTOCOL`): tasks may fill memory down to 0.5 GB free, whatever the processor. */
+  pushHarder?: boolean;
   /** A background task is stopped after this many seconds (default 4 h). */
   taskMaxSeconds?: number;
   /** Brain turns (protocol 8): a Claude Code process with no turn this long is closed (default 10). */
@@ -248,6 +250,7 @@ export function normalizeStored(raw: Record<string, unknown>): StoredConfig {
     ...(text(raw.workspace, 4000) ? { workspace: text(raw.workspace, 4000) } : {}),
     ...(typeof raw.exec === "boolean" ? { exec: raw.exec } : {}),
     ...(positive(raw.maxConcurrentTasks) ? { maxConcurrentTasks: positive(raw.maxConcurrentTasks) } : {}),
+    ...(raw.pushHarder === true ? { pushHarder: true } : {}),
     ...(positive(raw.taskMaxSeconds) ? { taskMaxSeconds: positive(raw.taskMaxSeconds) } : {}),
     ...(positive(raw.brainIdleMinutes) ? { brainIdleMinutes: positive(raw.brainIdleMinutes) } : {}),
     ...(positive(raw.brainMaxProcesses) ? { brainMaxProcesses: positive(raw.brainMaxProcesses) } : {}),
@@ -324,9 +327,9 @@ export function pairedConfig(stored: StoredConfig, file = "config.json"): Runner
 
 /**
  * The coding CLIs that follow Codex's switch until they have one of their own (Cursor's, protocol 36; OpenCode's, 39;
- * Grok's, 43; the Antigravity CLI's, 44).
+ * Grok's, 43; the Antigravity CLI's, 44; the Devin CLI's, 89).
  */
-const FOLLOW_CODEX = ["cursor", "opencode", "grok", "antigravity"] as const;
+const FOLLOW_CODEX = ["cursor", "opencode", "grok", "antigravity", "devin"] as const;
 
 /**
  * The access to write back: while Cursor or OpenCode has no switch of its own (and this write doesn't set one), it
@@ -359,13 +362,14 @@ export function effectiveAccess(config: StoredConfig | null): RunnerAccess {
         opencode: tools.opencode ?? tools.codex,
         grok: tools.grok ?? tools.codex,
         antigravity: tools.antigravity ?? tools.codex,
+        devin: tools.devin ?? tools.codex,
       },
     };
   }
   const on = config ? config.exec !== false : false;
   return {
     folders: [],
-    tools: { claude: on, codex: on, cursor: on, opencode: on, grok: on, antigravity: on, commands: on },
+    tools: { claude: on, codex: on, cursor: on, opencode: on, grok: on, antigravity: on, devin: on, commands: on },
   };
 }
 

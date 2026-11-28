@@ -24,6 +24,7 @@ const LONG_PROFILE = "Ana 🌟 مرحبا بالعالم من مساحة الع�
 const LONG_WORKSPACE = "Northwind Industries Holdings and Partners Worldwide Operations";
 
 const link = (over: Partial<SurfaceLink> = {}): SurfaceLink => ({
+  nudge: { on: true, afterHours: 4, quietFrom: 22, quietTo: 8 },
   id: "link-1",
   status: "pending",
   display: "5511900000001",
@@ -33,6 +34,7 @@ const link = (over: Partial<SurfaceLink> = {}): SurfaceLink => ({
   createdAt: new Date().toISOString(),
   confirmedAt: null,
   expiresAt: new Date(Date.now() + 9 * 60_000).toISOString(),
+  pinSet: false,
   ...over,
 });
 
@@ -184,6 +186,64 @@ describe("the outside chat app's row in Notificações", () => {
     expect(calls(state, "surfaces.remove")).toEqual([["link-1"]]);
     expect(document.body.textContent).toContain("Example Chat desvinculado");
     expect(within(row() as HTMLElement).getByRole("button", { name: "Vincular" })).toBeTruthy();
+  });
+
+  test("linked: the unread reminder, on by default; its delay and quiet hours save at once (ADR 0234)", async () => {
+    const { state } = await notifications({
+      name: "Example Chat",
+      links: [link({ status: "active", expiresAt: null, confirmedAt: new Date().toISOString() })],
+    });
+    const toggle = screen().getByRole("switch", { name: "Lembrete de não lidas" });
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    const after = screen().getByRole("combobox", { name: "Lembrar depois de" });
+    expect(after.textContent).toBe("4 h");
+    after.focus();
+    await act(async () => fireEvent.keyDown(after, { key: "Enter" }));
+    await click(screen().getByRole("option", { name: "8 h" }));
+    expect(screen().getByRole("combobox", { name: "De" }).textContent).toBe("22:00");
+    expect(screen().getByRole("combobox", { name: "Até" }).textContent).toBe("8:00");
+    await click(toggle);
+    expect(calls(state, "surfaces.setNudge")).toEqual([
+      ["link-1", { afterHours: 8 }],
+      ["link-1", { on: false }],
+    ]);
+    expect(screen().queryByRole("combobox", { name: "Lembrar depois de" })).toBeNull();
+  });
+
+  test("linked: Definir PIN chooses it here, typed twice; the page from the chat opens it with ?pin=1", async () => {
+    const { state } = await notifications({
+      name: "Example Chat",
+      links: [link({ status: "active", expiresAt: null, confirmedAt: new Date().toISOString() })],
+    });
+    // A row of its own under the linked one, so each keeps its one button.
+    const pinRow = () => document.querySelector("#notice-surface-pin-help")?.closest(".settings-row") as HTMLElement;
+    expect(pinRow().classList.contains("settings-row--button")).toBe(true);
+    await click(within(pinRow()).getByRole("button", { name: "Definir PIN" }));
+    const dialog = dialogOf("Seu PIN do Example Chat");
+    const save = () => within(dialog).getByRole("button", { name: "Salvar PIN" }) as HTMLButtonElement;
+    const type = async (label: string, value: string) => {
+      await act(async () => fireEvent.change(within(dialog).getByLabelText(label), { target: { value } }));
+      await settle(2);
+    };
+    await type("Escolha um PIN", "4829x13");
+    expect(save().disabled).toBe(true);
+    await type("Digite de novo", "482914");
+    expect(dialog.textContent).toContain("Os dois PINs não são iguais.");
+    await type("Digite de novo", "482913");
+    await click(save());
+    expect(calls(state, "surfaces.setPin")).toEqual([[{ linkId: "link-1", pin: "482913" }]]);
+    expect(document.body.textContent).toContain("PIN salvo");
+    expect(within(pinRow()).getByRole("button", { name: "Trocar PIN" })).toBeTruthy();
+    cleanup();
+
+    const state2 = seedState();
+    state2.surface = {
+      name: "Example Chat",
+      links: [link({ status: "active", expiresAt: null, confirmedAt: new Date().toISOString() })],
+    };
+    await renderApp(`/org/${ORG_ID}/settings/notifications?pin=1`, { api: createFakeApi(state2) });
+    await settle(6);
+    expect(dialogOf("Seu PIN do Example Chat")).toBeTruthy();
   });
 
   test("each failure says what happened with one way out", async () => {
@@ -360,6 +420,11 @@ describe("the outside chat app's row in Notificações", () => {
         expect(document.getElementById("notice-surface-status")?.textContent ?? null).toBe(
           links.length ? `${LONG_DISPLAY} · ${LONG_PROFILE}` : null,
         );
+        // The PIN row sits right under the app's own: its name leaves the app's out, so a long one can't wrap it to a
+        // third line beside its button.
+        const pin = document.getElementById("notice-surface-pin-help")?.closest(".settings-row");
+        expect(Boolean(pin)).toBe(links.length > 0);
+        expect(pin?.querySelector(".settings-row__label")?.textContent ?? "").not.toContain(LONG_SURFACE);
       }
       cleanup();
     }

@@ -13,6 +13,7 @@ import { absolutePositionToRelativePosition, ySyncPluginKey } from "y-prosemirro
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import {
+  capsWholeText,
   colorWholeText,
   listNumbers,
   markWholeText,
@@ -21,13 +22,17 @@ import {
   type RichTextHandle,
   RichView,
   richSchema,
+  setRichCaps,
   setRichColor,
+  setRichLineHeight,
   setRichLink,
+  setRichType,
   setWholeParagraphs,
   shiftRichLevel,
   shiftWholeLevels,
   toggleRichList,
   toggleRichMark,
+  typeWholeText,
   wholeFormat,
 } from "@/components/live/rich";
 import { liftParagraph, splitParagraph } from "@/components/live/rich/commands";
@@ -77,7 +82,20 @@ function typeText(view: EditorView, text: string) {
 describe("the schema and numbering", () => {
   test("the schema has the stored nodes and marks", () => {
     expect(Object.keys(richSchema.nodes).sort()).toEqual(["doc", "hard_break", "paragraph", "text"]);
-    expect(Object.keys(richSchema.marks).sort()).toEqual(["bold", "color", "italic", "link", "strike", "underline"]);
+    expect(Object.keys(richSchema.marks).sort()).toEqual([
+      "bold",
+      "caps",
+      "color",
+      "font",
+      "highlight",
+      "italic",
+      "link",
+      "size",
+      "strike",
+      "tracking",
+      "underline",
+      "weight",
+    ]);
   });
 
   test("numbered items count per list and level; anything else at that level starts again", () => {
@@ -105,6 +123,36 @@ describe("the schema and numbering", () => {
 });
 
 describe("RichView", () => {
+  test("draws the type marks (ADR 0220): font, size, weight, highlight, letter spacing, capitals; never a bad value", () => {
+    const { container } = render(
+      <RichView
+        doc={[
+          {
+            lineHeight: 1.6,
+            spaceAfter: 12,
+            runs: [
+              { text: "Brand", font: "inter", size: 30, weight: 600, highlight: "#ffff00", tracking: 80, caps: true },
+              { text: " bad", font: "not-a-font", size: 9999 },
+            ],
+          },
+        ]}
+      />,
+    );
+    const spans = [...container.querySelectorAll("span[style]")] as HTMLElement[];
+    const css = spans.map((s) => s.getAttribute("style") ?? "").join(";");
+    expect(css).toContain("Inter");
+    expect(css).toContain("font-size: 30px");
+    expect(css).toContain("font-weight: 600");
+    expect(css).toContain("letter-spacing: 0.08em");
+    expect(css).toContain("text-transform: uppercase");
+    expect(css).toContain("background-color");
+    expect(css).not.toContain("not-a-font");
+    expect(css).not.toContain("9999");
+    const p = container.querySelector("p") as HTMLElement;
+    expect(p.style.lineHeight).toBe("1.6");
+    expect(p.style.marginBottom).toBe("12px");
+  });
+
   test("draws marks, lists, safe links and colors; never an unsafe one", () => {
     const { container } = render(
       <RichView
@@ -195,6 +243,46 @@ describe("RichText", () => {
     });
     expect(readRich(fragment)[0]?.list).toBeUndefined();
     expect(readRich(fragment)[0]?.level).toBeUndefined();
+  });
+
+  test("the type commands on words (ADR 0220 §8): font, weight, spacing, highlight, capitals, line height", () => {
+    const { fragment } = boxWith([{ runs: [{ text: "Meta do ano" }] }]);
+    const { ref, view } = mount(fragment);
+    act(() => {
+      select(view(), 1, 5);
+      ref.current?.run(setRichType("font", "inter"));
+      ref.current?.run(setRichType("weight", 600));
+      ref.current?.run(setRichType("tracking", 60));
+      ref.current?.run(setRichType("highlight", "#fff176"));
+      ref.current?.run(setRichCaps(true));
+      ref.current?.run(setRichLineHeight(1.4));
+    });
+    expect(readRich(fragment)[0]).toEqual({
+      lineHeight: 1.4,
+      runs: [
+        { text: "Meta", font: "inter", weight: 600, tracking: 60, highlight: "#fff176", caps: true },
+        { text: " do ano" },
+      ],
+    });
+    expect(ref.current?.format()).toMatchObject({
+      font: "inter",
+      weight: 600,
+      tracking: 60,
+      highlight: "#fff176",
+      caps: true,
+      lineHeight: 1.4,
+    });
+    // No spacing, no font, no capitals: the box's own look again.
+    act(() => {
+      ref.current?.run(setRichType("tracking", 0));
+      ref.current?.run(setRichType("font", null));
+      ref.current?.run(setRichCaps(false));
+      ref.current?.run(setRichLineHeight(null));
+    });
+    expect(readRich(fragment)[0]).toEqual({
+      runs: [{ text: "Meta", weight: 600, highlight: "#fff176" }, { text: " do ano" }],
+    });
+    expect(ref.current?.format()).toMatchObject({ font: null, tracking: null, caps: false, lineHeight: null });
   });
 
   test("typed shortcuts start lists; Enter keeps the list, Enter on an empty item and Backspace leave it", () => {
@@ -306,5 +394,31 @@ describe("formatting a whole box", () => {
     undo.undo();
     expect(readRich(fragment)[1]).toMatchObject({ list: "bullet" });
     expect(wholeFormat(readRich(fragment)).bold).toBe(false);
+  });
+
+  test("type marks on every character, and taken away so the box's own style shows (ADR 0220 §8)", () => {
+    const { doc, fragment } = boxWith([
+      {
+        lineHeight: 2,
+        runs: [
+          { text: "Meta", font: "inter", weight: 700 },
+          { text: " do ano", tracking: 60 },
+        ],
+      },
+    ]);
+    // Mixed: the toolbar shows the box's own.
+    expect(wholeFormat(readRich(fragment))).toMatchObject({ font: null, weight: null, tracking: null, caps: false });
+    doc.transact(() => {
+      typeWholeText(fragment, "font", null, LOCAL);
+      typeWholeText(fragment, "weight", null, LOCAL);
+      typeWholeText(fragment, "tracking", null, LOCAL);
+      typeWholeText(fragment, "highlight", "#bbdefb", LOCAL);
+      capsWholeText(fragment, true, LOCAL);
+      setWholeParagraphs(fragment, { lineHeight: null }, LOCAL);
+    }, LOCAL);
+    expect(readRich(fragment)).toEqual([{ runs: [{ text: "Meta do ano", highlight: "#bbdefb", caps: true }] }]);
+    expect(wholeFormat(readRich(fragment))).toMatchObject({ highlight: "#bbdefb", caps: true, lineHeight: null });
+    typeWholeText(fragment, "font", "fraunces", LOCAL);
+    expect(wholeFormat(readRich(fragment)).font).toBe("fraunces");
   });
 });

@@ -1,5 +1,6 @@
 import { keys, type Me, meQuery, useApi, useAuthConfig } from "@agenteschat/client";
 import { ErrorBoundary } from "@agenteschat/client/lib/error-boundary";
+import { joinInstead } from "@agenteschat/client/lib/guards";
 import { serverHost } from "@agenteschat/client/lib/server";
 import { skyHourOf } from "@agenteschat/ui/sky/workspace";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,7 +35,7 @@ import { ScreenError } from "@/features/shared/ScreenError";
 import { catchGlobalErrors, setErrorScope, startErrorReports } from "@/lib/error-reports";
 import { keepLastCrash } from "@/lib/last-crash";
 import { newWorkspaceDone, newWorkspaceMade, newWorkspaceShown, useNewWorkspaceAsk } from "@/lib/new-workspace";
-import { enteringShown, firstRunMounted, suspendedOf } from "@/lib/org-choice";
+import { enteringShown, firstRunMounted, joinFirstOf, suspendedOf } from "@/lib/org-choice";
 import { followScreens } from "@/lib/orientation";
 import { useServer } from "@/lib/server";
 import { AppProviders } from "@/providers/AppProviders";
@@ -70,8 +71,12 @@ export default function RootLayout() {
   );
 }
 
-/** The signed-in person's id and account deletion, all the root gate reads of `me`. */
-const gateMeOf = (me: Me | null) => ({ userId: me?.user.id, deletion: me?.user.deletion });
+/** The signed-in person's id, account deletion and the invitation they join instead of a first run: all the root gate reads of `me`. */
+const gateMeOf = (me: Me | null) => ({
+  userId: me?.user.id,
+  deletion: me?.user.deletion,
+  join: me ? joinInstead(me) : null,
+});
 
 /**
  * Signed out → `(auth)`; signed in → `(app)` (the screens, which wait for the organization themselves). The
@@ -166,10 +171,31 @@ function Gate() {
   useResumeAsk(!signedIn && !session.pending, pathname);
   // An invitation's own screen stays in front of the first run: someone with no workspace yet may be joining one.
   const onInvite = pathname.startsWith("/invite/");
+  // An invitation waiting for someone with no workspace yet opens instead of the first run (unless they asked for a
+  // new workspace), once per invitation; going back from it opens the first run.
+  const [leftInvitation, setLeftInvitation] = useState<string | null>(null);
+  const joinFirst = joinFirstOf(
+    ready && signedIn && org.none && !fresh && !accepting,
+    me.data?.join ?? null,
+    leftInvitation,
+  );
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once per invitation, not again each time the screen changes
+  useEffect(() => {
+    if (joinFirst && !onInvite) router.navigate(`/invite/${joinFirst}` as Href);
+  }, [joinFirst]);
+  const wasOnInvite = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only leaving the invitation's screen counts
+  useEffect(() => {
+    if (onInvite) wasOnInvite.current = true;
+    else if (wasOnInvite.current) {
+      wasOnInvite.current = false;
+      if (joinFirst) setLeftInvitation(joinFirst);
+    }
+  }, [onInvite]);
   const [firstRunBefore, setFirstRunBefore] = useState(false);
   const firstRun = firstRunMounted(
     firstRunBefore,
-    ready && signedIn && (org.none || fresh) && !accepting && !accountDeletion,
+    ready && signedIn && (org.none || fresh) && !accepting && !accountDeletion && !joinFirst,
     onInvite,
   );
   if (firstRun !== firstRunBefore) setFirstRunBefore(firstRun);

@@ -46,6 +46,7 @@ export const WidgetSpec = z
         .optional(),
       note: z.string().optional(),
       spark: z.array(z.number()).optional(),
+      sparkLabels: z.array(z.string()).optional().openapi({ description: "One per `spark` number: its date, mostly." }),
     }),
     z.object({
       kind: z.literal("goal"),

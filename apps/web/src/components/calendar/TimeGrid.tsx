@@ -1,16 +1,16 @@
 import {
   addMinutes,
   type CalItem,
+  dayItemsKey,
   dragRange,
   grownHeights,
   HOUR_PX,
   hourLabel,
   initialScrollMinutes,
-  isRunMark,
+  keptHeights,
   layoutBars,
   layoutDay,
   minutesOfDay,
-  runStacks,
   SNAP_MIN,
   sameDay,
   shiftDays,
@@ -30,8 +30,6 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { EventChip } from "./EventChip";
-import { RoutineBand } from "./RoutineBand";
-import { RunsPopover } from "./RunsPopover";
 
 const HOURS = Array.from({ length: 24 }, (_, h) => h);
 const NO_HEIGHTS: ReadonlyMap<string, number> = new Map();
@@ -53,12 +51,16 @@ interface Gesture {
   moved: boolean;
 }
 
+/** A day's measured heights (px, by key), and what the day held when they were measured (`dayItemsKey`). */
+interface DayMeasure {
+  held: string;
+  heights: ReadonlyMap<string, number>;
+}
+
 /**
  * The day/week grid: hours 00:00–24:00 in a scroll area (opens around 07:00
  * or the first event), all-day and multi-day items as bars on top,
- * routines that run often as one band each (their runs as ticks), single
- * routine runs as one-line rows at their time (stacked, then "+N rotinas"),
- * overlapping items side by side, today's column tinted with a filled day
+ * reminders as one-line rows at their time, overlapping items side by side, today's column tinted with a filled day
  * pill, and the current-time line. Drag on empty space to create; drag a
  * chip to move it, its bottom edge to resize.
  */
@@ -97,17 +99,8 @@ export function TimeGrid({
   const gestureRef = useRef<Gesture | null>(null);
   gestureRef.current = gesture;
   const suppressClick = useRef(false);
-  // Routines that run often get their own band under the all-day bars.
-  const bars = layoutBars(
-    items.filter((it) => !it.runs),
-    days,
-  );
-  const bands = layoutBars(
-    items.filter((it) => it.runs),
-    days,
-  );
+  const bars = layoutBars(items, days);
   const lanes = Math.max(0, ...bars.map((b) => b.lane + 1));
-  const bandLanes = Math.max(0, ...bands.map((b) => b.lane + 1));
   const cols = days.length;
 
   // Opens scrolled to ~07:00 or a little before the first event (once per set of days).
@@ -121,23 +114,30 @@ export function TimeGrid({
     el.scrollTop = (initialScrollMinutes(items, days) / 60) * HOUR_PX;
   }, [daysKey, loading]);
 
-  // How tall each block and stack of runs is drawn: a name that wraps reaches past its slot, and what starts under it
-  // then goes beside it, never under it (`layoutDay`, `runStacks`). For one set of days at one width they only grow
-  // (`grownHeights`), so the layout settles; other days or another width measure again from nothing. The grid's own
-  // width, not the scroll area's: a scrollbar that comes and goes with what is drawn must not start it over.
-  const [measured, setMeasured] = useState<{ at: string; heights: ReadonlyMap<string, number> }>(() => ({
-    at: "",
-    heights: NO_HEIGHTS,
-  }));
-  const heights = measured.at.startsWith(`${daysKey}@`) ? measured.heights : NO_HEIGHTS;
+  // How tall each block and reminder is drawn: a name that wraps reaches past its slot, and what starts under it
+  // then goes beside it, never under it (`layoutDay`). For one set of days at one width they only grow
+  // (`grownHeights`), so the layout settles; other days or another width measure again from nothing, and on a day
+  // whose items changed (`dayItemsKey`), so does whatever met the change (`keptHeights`), drawn first without its
+  // height. The grid's own width, not the scroll area's: a scrollbar that comes and goes with what is drawn must not
+  // start it over.
+  const [measured, setMeasured] = useState<{ at: string; days: readonly DayMeasure[] }>(() => ({ at: "", days: [] }));
+  const held = days.map((d) => dayItemsKey(items, d));
+  const heightsOn = (i: number) => {
+    const day = measured.at.startsWith(`${daysKey}@`) ? measured.days[i] : undefined;
+    return day ? keptHeights(day.heights, day.held, held[i] as string) : NO_HEIGHTS;
+  };
   useLayoutEffect(() => {
     const at = `${daysKey}@${scroller.current?.parentElement?.clientWidth ?? 0}`;
-    const drawn = new Map<string, number>();
-    for (const el of scroller.current?.querySelectorAll<HTMLElement>("[data-measure]") ?? [])
-      if (el.offsetHeight > 0) drawn.set(el.dataset.measure ?? "", el.offsetHeight);
-    const before = measured.at === at ? heights : NO_HEIGHTS;
-    const next = grownHeights(before, drawn);
-    if (measured.at !== at || next !== heights) setMeasured({ at, heights: next });
+    const cols = scroller.current?.querySelectorAll<HTMLElement>(".cal-week__col");
+    const next = held.map((h, i): DayMeasure => {
+      const drawn = new Map<string, number>();
+      for (const el of cols?.[i]?.querySelectorAll<HTMLElement>("[data-measure]") ?? [])
+        if (el.offsetHeight > 0) drawn.set(el.dataset.measure ?? "", el.offsetHeight);
+      const was = measured.at === at ? measured.days[i] : undefined;
+      const heights = grownHeights(was ? keptHeights(was.heights, was.held, h) : NO_HEIGHTS, drawn);
+      return was?.held === h && was.heights === heights ? was : { held: h, heights };
+    });
+    if (measured.at !== at || next.some((day, i) => day !== measured.days[i])) setMeasured({ at, days: next });
   });
 
   const colAt = (clientX: number, clientY: number) => {
@@ -291,30 +291,6 @@ export function TimeGrid({
           </div>
         </div>
       )}
-      {bandLanes > 0 && (
-        <div className="cal-week__bars cal-week__bars--routines">
-          <div className="cal-week__gutter cal-week__gutter--top muted" title={t("calendar.filter.routine")}>
-            <Icon name="routines" size={14} label={t("calendar.filter.routine")} />
-          </div>
-          <div className="cal-week__barlane">
-            {[...bands]
-              .sort((a, b) => a.from - b.from || a.item.title.localeCompare(b.item.title))
-              .map((b, row) => (
-                <RoutineBand
-                  key={b.item.key}
-                  item={b.item}
-                  now={now}
-                  // One row per routine across the week (names line up on the left); the line covers its days.
-                  track={{ from: b.from, span: b.span, cols }}
-                  style={{ gridColumn: "1 / -1", gridRow: row + 1 }}
-                  open={openKey === b.item.key}
-                  onOpenChange={(o) => onOpenKey(o ? b.item.key : null)}
-                  details={details(b.item)}
-                />
-              ))}
-          </div>
-        </div>
-      )}
       <div className="cal-week__scroll" ref={scroller}>
         <div className="cal-week__body">
           <div className="cal-week__hours" aria-hidden="true">
@@ -325,26 +301,12 @@ export function TimeGrid({
             ))}
           </div>
           {days.map((d, i) => {
-            // A stack of runs is one item beside the meetings it meets: a meeting at the same time sits beside it.
-            const stacks = runStacks(items, d, heights);
-            const placed = layoutDay(
-              items.filter((it) => !isRunMark(it)),
-              d,
-              stacks,
-              heights,
-            );
+            const placed = layoutDay(items, d, heightsOn(i));
             const isToday = sameDay(d, today);
             const ghost =
               gesture?.kind === "create" && gesture.dayIndex === i
                 ? dragRange(d, gesture.colY0, gesture.moved ? gesture.colY1 : gesture.colY0)
                 : null;
-            const opens = (key: string) => ({
-              open: openKey === key && !gesture,
-              onOpenChange: (o: boolean) => onOpenKey(o ? key : null),
-            });
-            const run = (it: CalItem) => (
-              <EventChip key={it.key} item={it} variant="run" now={now} details={details(it)} {...opens(it.key)} />
-            );
             return (
               <div
                 key={toYmd(d)}
@@ -368,27 +330,19 @@ export function TimeGrid({
                     top: (p.top / 60) * HOUR_PX + 1,
                     "--col": p.col,
                     "--cols": p.cols,
-                    "--thins": p.thins,
-                    "--thin-before": p.thinBefore,
                   } as CSSProperties;
-                  // Runs at one place, and a reminder: moments, a line each at their time.
-                  if (it.kind === "runs")
-                    return (
-                      <div
-                        key={it.key}
-                        className="cal-week__runs"
-                        data-measure={it.key}
-                        data-thin={p.thin || undefined}
-                        style={at}
-                      >
-                        {it.runs.slice(0, it.shown).map((r) => run(r.item))}
-                        {it.more > 0 && <RunsPopover runs={it.runs} more={it.more} {...opens(it.key)} />}
-                      </div>
-                    );
+                  // A reminder: a moment, one line at its time.
                   if (it.kind === "reminder")
                     return (
-                      <div key={it.key} className="cal-week__runs" data-measure={it.key} style={at}>
-                        {run(it)}
+                      <div key={it.key} className="cal-week__moment" data-measure={it.key} style={at}>
+                        <EventChip
+                          item={it}
+                          variant="moment"
+                          now={now}
+                          details={details(it)}
+                          open={openKey === it.key && !gesture}
+                          onOpenChange={(o) => onOpenKey(o ? it.key : null)}
+                        />
                       </div>
                     );
                   const g = gesture && gesture.item?.key === it.key && gesture.moved ? gesture : null;

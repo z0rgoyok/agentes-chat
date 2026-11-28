@@ -109,8 +109,10 @@ function domainError(error: unknown): [ContentfulStatusCode, string, string, Rec
     ];
   }
   if (error instanceof MissingCredentialError) {
+    const detail = runErrorDetail(error.message);
+    if (detail?.errorCode === "run.credential_unreadable") return [400, "credential_unreadable", error.message];
     // `provider`: the one whose key is missing, when the message names it (the app says it in the person's words).
-    const provider = runErrorDetail(error.message)?.errorParams?.provider;
+    const provider = detail?.errorParams?.provider;
     return [400, "missing_credential", error.message, provider ? { provider } : undefined];
   }
   // A connected computer (ADR 0025, ADR 0036) that can't take the request now.

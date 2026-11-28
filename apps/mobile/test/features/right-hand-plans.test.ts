@@ -110,3 +110,10 @@ test("the workspace's plans it can't think with now list each account once, as o
   const screen = readFileSync(join(import.meta.dir, "../../src/features/right-hand/SettingsScreen.tsx"), "utf8");
   expect(screen).toContain("const cant = rightHandUnusable(aiAccounts, view?.account);");
 });
+
+test("Connect for someone else's agent that the person manages signs a plan in for it, as on the web", () => {
+  const sheet = source("ConnectAi.tsx");
+  expect(sheet).toContain("named.includes(a.id) && connectsPlanFor(a, meId)");
+  // `locked` (who connects it) is only for an agent that left the list: one they neither own nor manage.
+  expect(sheet).toContain("agents.length > 0 || bare ? undefined : one ? noAiLockedLine(t, one.name, owner)");
+});

@@ -210,8 +210,16 @@ test("each tool is one agent-browser command in the agent's session, with its si
   sent = b.since();
   await b.call("browser_check", { target: "e3", checked: false });
   expect(sent()[0]).toMatchObject({ command: "uncheck", args: ["@e3"] });
-  await b.call("browser_tabs", { action: "switch", index: 1 });
-  expect(b.calls.at(-1)).toMatchObject({ command: "tab", args: ["1"] });
+  // A tab by its id from `list`: `agent-browser` refuses a bare number, and a flag never goes.
+  await b.call("browser_tabs", { action: "switch", tab: "t2" });
+  expect(b.calls.at(-1)).toMatchObject({ command: "tab", args: ["t2"] });
+  await b.call("browser_tabs", { action: "close", tab: "t3" });
+  expect(b.calls.at(-1)).toMatchObject({ command: "tab", args: ["close", "t3"] });
+  const tabsSent = b.calls.length;
+  for (const tab of ["2", "--help", " ", "close", "new"]) {
+    expect((await b.call("browser_tabs", { action: "switch", tab })).isError).toBe(true);
+  }
+  expect(b.calls).toHaveLength(tabsSent);
   await b.call("browser_wait", { text: "Order placed", timeout_seconds: 10 });
   expect(b.calls.at(-1)).toMatchObject({ command: "wait", args: ["--text", "Order placed", "--timeout", "10000"] });
   const shot = await b.call("browser_screenshot", { path: "shots/cart.png" });
@@ -521,7 +529,7 @@ test("stale numbers, covered clicks and runner refusals reach the agent as plain
   const silent = (await b.call("browser_read", {})).content;
   expect(silent).toContain("The computer MacBook didn't answer within 140 s and didn't say why.");
   expect(silent).toContain("Don't guess why and don't try again right away");
-  expect(silent).toContain("runner log");
+  expect(silent).toContain("the agentes.chat app's log there says why");
   expect(silent).not.toContain("still be loading");
   // The runner's own deadline names the step it got stuck on.
   b.s.error = null;
@@ -1107,12 +1115,12 @@ test("the agent hears its open tabs and what the runner closed; one tab, or an o
       : { ...ok(), tabs };
   const opened = await b.call("browser_open", { url: "https://shop.example/" });
   expect(opened.content).toContain(
-    '\nTabs open: 3 (this one: "Shop" (shop.example); others: "Sign in [marker removed]" (accounts.example.com), blank). Closed to keep your tabs tidy: blank ×2, site.example, so the tab numbers from list changed.',
+    '\nTabs open: 3 (this one: "Shop" (shop.example); others: "Sign in [marker removed]" (accounts.example.com), blank). Closed to keep your tabs tidy: blank ×2, site.example.',
   );
   const listed = await b.call("browser_tabs", { action: "list" });
   expect(listed.content).toContain("Tabs open: 3 (this one:");
   tabs = { count: 1, open: [{ title: "Shop", host: "shop.example", current: true }] };
-  expect((await b.call("browser_tabs", { action: "close", index: 1 })).content).not.toContain("Tabs open");
+  expect((await b.call("browser_tabs", { action: "close", tab: "t2" })).content).not.toContain("Tabs open");
   tabs = undefined;
   expect((await b.call("browser_open", { url: "https://shop.example/" })).content).not.toContain("Tabs open");
   const tool = (await f.tools?.list(b.ctx))?.find((t) => t.name === "browser_tabs");

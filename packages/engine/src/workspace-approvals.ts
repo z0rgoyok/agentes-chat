@@ -1,5 +1,6 @@
 import type { PubSub } from "@agenteschat/adapters";
 import { and, count, type Database, type Executor, eq, isNull, schema } from "@agenteschat/db";
+import { releaseUnasked } from "./approvals";
 import { recordAudit } from "./audit";
 import { caches } from "./cache";
 import { ValidationError } from "./errors";
@@ -75,6 +76,9 @@ export async function setWorkspaceApprovalsLevel(
   });
   for (const { id } of changed) caches.agents.delete(`${orgId}:${id}`);
   caches.agents.delete(`${orgId}:team`);
+  if (level === "never") {
+    await releaseUnasked({ db, pubsub: options.pubsub }, actorId, orgId, { agentIds: changed.map((a) => a.id) });
+  }
   await publishAgentsChanged(options.pubsub, orgId);
   return { level, ownAgents: everyAgent ? 0 : await agentsWithOwnApprovalsLevel(db, orgId) };
 }

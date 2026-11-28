@@ -1,5 +1,6 @@
 import { chmodSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
+import { LIGHT_INK } from "@agenteschat/ui/org-logo";
 import type { FetchFn } from "./pairing";
 
 /**
@@ -50,10 +51,13 @@ function writeCachedLogo(home: string, logo: CachedLogo) {
   renameSync(tmp, file);
 }
 
-/** `data:image/png;base64,…` for the app; null for a type the app shouldn't draw. */
+/**
+ * `data:image/png;base64,…` for the app, with the server's light-ink mark (in the ETag) after it, as on a logo's
+ * address; null for a type the app shouldn't draw.
+ */
 export function logoDataUrl(logo: CachedLogo | null): string | null {
   if (!logo || !TYPES.has(logo.contentType)) return null;
-  return `data:${logo.contentType};base64,${logo.base64}`;
+  return `data:${logo.contentType};base64,${logo.base64}${logo.etag.includes(LIGHT_INK) ? LIGHT_INK : ""}`;
 }
 
 /**

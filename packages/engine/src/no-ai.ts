@@ -508,7 +508,9 @@ export async function answerNow(
       canTalkTo(r.agent, r.requester, talks.get(r.requester) ?? { talks: false, roleIds: [] }),
     );
     const [first] = ready;
-    if (heard.length === 0 && first) throw await audienceError(deps.db, first.agent);
+    // The refusal speaks to whoever pressed it: their own check only when they asked, else whom the agent answers.
+    if (heard.length === 0 && first)
+      throw await audienceError(deps.db, first.agent, first.requester === userId ? userId : null);
     const runs: Answering = [];
     let worked = false;
     for (const r of heard) {

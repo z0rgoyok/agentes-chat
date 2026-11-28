@@ -51,17 +51,18 @@ import { sha256 } from "../crypto";
 import { provenReadOnly } from "../databases/guard";
 import { errorNumber, isUnexpectedError, ToolOffError } from "../errors";
 import { cutMarked, cutText, inertJson, inertLinks, pgSafeJson, pgSafeText } from "../format";
+import { gitVerbOf } from "../git/hosts/refs";
 import { mergeReposOfCall, recordMergeDone, reposOfGithubCall } from "../git/repos";
 import { recordRead } from "../outbound";
 import { ownerOnlyPerson, personalLostNote } from "../personal-use";
-import { routineCreatorOf } from "../requester";
+import { relayedRefusal, routineCreatorOf } from "../requester";
 import { isRightHand, RIGHT_HAND_NOT_OFFERED } from "../right-hand";
 import { type RoutineBrief, routineBriefOf } from "../routine-brief";
 import { keysOfCall, RUN_CODE_TOOL, routineKeysAllowed, routineKeysKind } from "../routine-keys";
 import { addRunStep } from "../runs";
 import { describeWhen } from "../schedule";
 import { REQUEST_SECRET_TOOL } from "../secrets";
-import { surfaceRefusal } from "../surfaces/turn";
+import { surfaceGate } from "../surfaces/turn";
 import {
   callTargets,
   checkTeamAction,
@@ -112,7 +113,7 @@ import {
 } from "./scopes";
 import type { AheadOutcome, AheadRequest, ToolContext, ToolDefinition, ToolOutput, ToolSource } from "./types";
 
-const { approvals, agents, agentConsultations, agentRuns, agentRunSteps, messages, routines } = schema;
+const { approvals, approvalRules, agents, agentConsultations, agentRuns, agentRunSteps, messages, routines } = schema;
 type AuditOutcome = schema.AuditOutcome;
 
 /** Merge, deploy and rollback need a person whatever a connector says, unless the agent never asks (ADR 0173). */
@@ -125,8 +126,9 @@ export const ALWAYS_SENSITIVE = /(^|[^a-z])(merge|deploy|rollback|revert_deploy|
 const sensitiveByName = (name: string, scope = "") =>
   !opensPullRequestName(name) && (ALWAYS_SENSITIVE.test(name) || ALWAYS_SENSITIVE.test(scope));
 
-export const isSensitive = (tool: Pick<ToolDefinition, "name" | "scope" | "sensitive" | "unasked">) =>
-  !tool.unasked && (tool.sensitive === true || sensitiveByName(tool.name, tool.scope));
+export const isSensitive = (
+  tool: Pick<ToolDefinition, "name" | "scope" | "sensitive" | "unasked" | "alwaysApproved">,
+) => !tool.unasked && !tool.alwaysApproved && (tool.sensitive === true || sensitiveByName(tool.name, tool.scope));
 
 /**
  * Also as a noun or under another name: a deployment, a build, a dispatch or a release (they start workflows), a
@@ -217,7 +219,7 @@ export async function rememberKinds(
 /** Our own tools whose job is asking a person: the agent chose to ask, so one that never asks still does. */
 const ASKING_TOOLS = new Set(["request_approval", REQUEST_PERMISSION_TOOL, "send_feedback"]);
 export const asksByChoice = (tool: Pick<ToolDefinition, "name" | "scope" | "connectionId">) =>
-  tool.connectionId ? tool.name === "request_branch_push" && serverGitTool(tool) : ASKING_TOOLS.has(tool.name);
+  tool.connectionId ? gitVerbOf(tool) === "request_branch_push" : ASKING_TOOLS.has(tool.name);
 
 /**
  * "Nunca perguntar" (`agents.approvals_level` = `never`, ADR 0173 as amended 2026-11-12): whether a call of this tool
@@ -336,10 +338,7 @@ const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/;
 /** The most of a tool's output the model gets. */
 export const MAX_RESULT_CHARS = 50_000;
 /** Server-owned Git tools have a connection ID only to use that connection's credential. */
-const serverGitTool = (tool: Pick<ToolDefinition, "name" | "scope">) =>
-  (tool.name === "git_clone" && tool.scope === "github:git.read") ||
-  (tool.name === "open_pull_request" && tool.scope === "github:pr.write") ||
-  ((tool.name === "delete_branches" || tool.name === "request_branch_push") && tool.scope === "github:git.write");
+const serverGitTool = (tool: Pick<ToolDefinition, "name" | "scope">) => gitVerbOf(tool) !== null;
 /**
  * One of the server's own tools, never a connected app's: its name is written here, not by a workspace or by the
  * server it connected.
@@ -405,6 +404,43 @@ const INPUT_ALIASES = new Map<string, (input: Record<string, unknown>) => Record
 /** Whether a call of this tool opens an approval card, by the policy's answer or the tool's own marks. */
 const needsApproval = (tool: ToolDefinition, decision: PolicyDecision) =>
   decision.action === "approve" || isSensitive(tool);
+
+/**
+ * The rule key (`connectionId|tool`) of a tool whose every call has one kind, the tool itself (`rememberKinds`), so a
+ * whole-tool "Aprovar sempre" covers it whatever its input; null for any other (by its target, command, SQL or
+ * actions, a mailbox's, one that asks by choice, a merge or a deploy).
+ */
+const wholeToolKey = (tool: ToolDefinition) =>
+  tool.rememberTarget ||
+  tool.rememberCommand ||
+  tool.sqlReads ||
+  tool.actions ||
+  tool.scope.startsWith("mail:") ||
+  asksByChoice(tool) ||
+  sensitiveByName(tool.name, tool.scope)
+    ? null
+    : `${tool.connectionId ?? ""}|${tool.rememberAs ?? tool.name}`;
+
+/**
+ * The agent's approvals level and, with `withRules`, its whole-tool "Aprovar sempre" rules by `wholeToolKey`, in one
+ * statement: the tool list is read before every model call.
+ */
+async function levelAndWholeToolRules(
+  ctx: Pick<ToolContext, "db" | "orgId" | "agentId">,
+  withRules: boolean,
+): Promise<[ApprovalsLevel, Set<string>]> {
+  if (!withRules) return [await approvalsLevelOf(ctx.db, ctx.orgId, ctx.agentId), new Set()];
+  const [row] = await ctx.db
+    .select({
+      level: agents.approvalsLevel,
+      rules: sql<
+        string[] | null
+      >`(select json_agg(coalesce(${approvalRules.connectionId}::text, '') || '|' || ${approvalRules.tool}) from ${approvalRules} where ${approvalRules.orgId} = ${ctx.orgId} and ${approvalRules.agentId} = ${ctx.agentId} and ${approvalRules.action} = '')`,
+    })
+    .from(agents)
+    .where(and(eq(agents.orgId, ctx.orgId), eq(agents.id, ctx.agentId)));
+  return [row?.level ?? DEFAULT_APPROVALS_LEVEL, new Set(row?.rules ?? [])];
+}
 
 /** Whether a call of this tool waits for a person: an approval, or a built-in question. */
 const asksPerson = (tool: ToolDefinition, decision: PolicyDecision) =>
@@ -523,9 +559,12 @@ const policyFor = (
  * "asks a person's approval" in a directory), and every tool that asks a person takes the required
  * `why` the card shows. The same list goes to the model loop and to the bridge.
  */
-function asListed(tool: ToolDefinition, decision: PolicyDecision, never = false): ToolDefinition {
+function asListed(tool: ToolDefinition, decision: PolicyDecision, never = false, ruled = false): ToolDefinition {
   // An agent that never asks sees the tool as it runs for it: no card, no `why`.
   if (never && needsApproval(tool, decision)) return { ...tool, sensitive: false, unasked: true };
+  // A rule someone kept for the whole tool runs every call without a card: listed so, or the agent tells people one
+  // opens.
+  if (ruled && needsApproval(tool, decision)) return { ...tool, sensitive: false, alwaysApproved: true };
   if (!asksPerson(tool, decision)) return tool;
   return {
     ...tool,
@@ -598,6 +637,9 @@ const stubbed = (output: ToolOutput): ToolOutput => ({
   ...(output.data ? { data: output.data } : {}),
 });
 
+/** A source of tools slower than this to list is told (`ToolContext.slowSource`): a run waits on its tools. */
+export const SLOW_TOOL_SOURCE_MS = 500;
+
 export function createToolGateway(deps: {
   sources: ToolSource[];
   now?: () => Date;
@@ -616,9 +658,18 @@ export function createToolGateway(deps: {
   async function allTools(ctx: ToolContext) {
     const byName = new Map<string, ToolDefinition>();
     // Sources are independent reads: all run at once, and the merge below keeps their order.
+    const timed = async (source: ToolSource) => {
+      const started = Date.now();
+      try {
+        return await source.tools(ctx);
+      } finally {
+        const ms = Date.now() - started;
+        if (ms > SLOW_TOOL_SOURCE_MS) ctx.slowSource?.(source.name, ms);
+      }
+    };
     const [agent, lists] = await Promise.all([
       getAgentCached(ctx.db, ctx.orgId, ctx.agentId),
-      Promise.all(deps.sources.map((source) => source.tools(ctx))),
+      Promise.all(deps.sources.map(timed)),
     ]);
     const rightHand = isRightHand(agent);
     for (const list of lists) {
@@ -653,17 +704,24 @@ export function createToolGateway(deps: {
     known?: Map<string, ToolDefinition>,
     heldBack?: string[],
   ): Promise<ToolDefinition[]> {
-    const [keys, all, level, decides] = await Promise.all([
+    const [keys, all, [level, rules], decides] = await Promise.all([
       grantedScopeKeys(ctx.db, ctx.orgId, ctx.agentId),
       known ?? allTools(ctx),
-      approvalsLevelOf(ctx.db, ctx.orgId, ctx.agentId),
+      levelAndWholeToolRules(ctx, Boolean(authority)),
       creatorDecides(ctx, authority),
     ]);
+    // Rules are kept, and read by a call, only at "Só o que é arriscado" (`rememberKinds`).
+    const ruled = (t: ToolDefinition) => {
+      const key = level === "risky" ? wholeToolKey(t) : null;
+      return key !== null && rules.has(key);
+    };
     return [...all.values()]
       .filter((t) => isAllowed(accessWithNeeds(keys, t).state))
       .flatMap((t) => {
         const decision = policyFor(authority, t, level, decides);
-        if (decision.action !== "refuse") return [asListed(t, decision, unaskedAtNever(level, t, authority))];
+        if (decision.action !== "refuse") {
+          return [asListed(t, decision, unaskedAtNever(level, t, authority), ruled(t))];
+        }
         heldBack?.push(t.name);
         return [];
       })
@@ -808,6 +866,8 @@ export function createToolGateway(deps: {
   ): Promise<AheadOutcome> {
     const no = (message: string): AheadOutcome => ({ ok: false, message });
     if (authority?.kind !== "person") return no("Only a person's request can have an action approved ahead.");
+    // An approval asked ahead stands until its time (ADR 0250): only for a request the person typed in our apps.
+    if (authority.relayed) return no(relayedRefusal().content);
     const tool = (await allTools(ctx)).get(request.tool.trim());
     if (!tool)
       return no(`No tool named "${request.tool}": use its exact name (a big connector's find_tools gives it).`);
@@ -1473,10 +1533,10 @@ export function createToolGateway(deps: {
         if (actions?.length && actions.every(opensPullRequestName)) tool = { ...tool, opensPullRequest: true };
       }
       if (tool.sensitive && tool.asksNobody?.(call.input)) tool = { ...tool, sensitive: false };
-      const surfaceNo = await surfaceRefusal(ctx, tool, call.input);
-      if (surfaceNo) {
+      const surfaceSays = await surfaceGate(ctx, tool, call.input);
+      if (surfaceSays && "refuse" in surfaceSays) {
         return finish(
-          { content: surfaceNo, isError: true, data: { code: "tool.surface", refusal: "surface" } },
+          { content: surfaceSays.refuse, isError: true, data: { code: "tool.surface", refusal: "surface" } },
           "refused",
         );
       }
@@ -1750,7 +1810,12 @@ export function createToolGateway(deps: {
         const [ran] = await ctx.db.select().from(approvals).where(eq(approvals.id, ahead.id));
         return { type: "result", output, ...(ran ? { ran } : {}) };
       }
-      const askPerson = async (why: string, remember: RememberedKind | null): Promise<InvokeResult> => {
+      const askPerson = async (
+        why: string,
+        remember: RememberedKind | null,
+        /** The person of a surface turn, who alone decides it, with their PIN (ADR 0226). */
+        onSurface?: { userId: string; name: string },
+      ): Promise<InvokeResult> => {
         const owner = await ownerOf(ctx);
         // A routine's request goes to the conversation it reports to, never its room; one asked by another
         // agent (ADR 0034) where the person is, not in the agents' DM.
@@ -1800,7 +1865,16 @@ export function createToolGateway(deps: {
             ownerRoleId: owner.ownerRoleId,
             expiresAt: new Date(now().getTime() + APPROVAL_TTL_MS),
             approveAlways: remember,
-            approvers: asked?.approvers ?? null,
+            approvers: onSurface
+              ? {
+                  userIds: [onSurface.userId],
+                  label: onSurface.name,
+                  requestedBy: onSurface.userId,
+                  requesterDecides: true,
+                  // Not an admin nor whoever covers them: their say would stand in for the PIN.
+                  required: true,
+                }
+              : (asked?.approvers ?? null),
             requestedByUserId: authority ? (authority.personId ?? routineCreatorOf(authority)) : null,
             highRisk: highRisk(tool.name, tool.scope),
           })
@@ -1824,6 +1898,13 @@ export function createToolGateway(deps: {
         await audit("pending", { reason: why || null, approvalId: row.id });
         return { type: "approval", approval: row };
       };
+      // A surface turn's act that would run without asking anyone waits for the person's own say, given with their
+      // PIN on a page the surface links to (ADR 0226): no rule, level or allowed repository stands in for it, since
+      // nothing typed on the surface proves who typed it. What asks someone anyway asks them as usual.
+      if (surfaceSays && !approves) {
+        unasked = false;
+        return askPerson(why, null, surfaceSays.confirm);
+      }
       if (approves) {
         // A card of a run doing a routine's job (its own run, or one its report or a teammate's answer woke:
         // `ownJobBrief`) offers "Sempre nesta rotina" where the action can be its own: the narrower word for the same

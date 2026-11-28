@@ -55,12 +55,22 @@ describe("headers: the native bar's, never one drawn in the content", () => {
     expect(screen).toContain("update.mutate({ defaultCredentialId: k.id }, { onError: failed })");
   });
 
-  test("Conectar uma IA asks its question in the bar; a plan's page names the plan there, its mark under it", () => {
+  test("Conectar uma IA: the system's own title in the bar, the question under the team's cover, the step in the page", () => {
     const sheet = source("ai/ConnectAi.tsx");
-    expect(sheet).not.toContain('variant="title2"');
     expect(sheet).toContain('t("mobile.ai.question", agentGrammar(one.name))');
-    // The step and the agent are the bar's line under its question.
-    expect(sheet).toContain("<PushedHeader title={title} subtitle={subtitle} solid={false} grouped />");
+    // The bar's title is the system's own words on every page, never a view of ours with a line under it.
+    expect(sheet).not.toContain("subtitle=");
+    expect(sheet).toContain("<PushedHeader title={title} solid={false} grouped />");
+    // The first page: the night edge to edge behind the clear bar, stretching on a pull; its question in the page, which
+    // the bar takes as its title once it has gone under it.
+    expect(sheet).toContain("<ConnectScene y={y} height={insets.top + BAR_HEIGHT + SCENE_HEIGHT} />");
+    expect(sheet).toContain('<PushedHeader title={titled ? title : ""} plate solid={false} />');
+    expect(sheet).toContain('<Text variant="display2" accessibilityRole="header">');
+    expect(source("ai/ConnectScene.tsx")).toContain("<CoverParallax y={y} style={StyleSheet.absoluteFill}>");
+    // What the question leaves open sits under it, 20 clear of the list, never glued to the list's top.
+    expect(sheet).toContain("intro: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 20, gap: 6 },");
+    // Past it, where the flow stands and for whom, as a line at the top of the page.
+    expect(sheet).toContain('style={[styles.step, view.page === "plan" ? styles.center : null]}');
     const steps = source("ai/ConnectAiSteps.tsx");
     const hero = steps.slice(steps.indexOf("function Hero("), steps.indexOf("function CliMissingCard("));
     expect(hero).not.toContain("title2");
@@ -163,4 +173,10 @@ test("Answer now that fails says why when the person pressed it", () => {
   const card = source("ai/NoAiCard.tsx");
   expect(card).toContain('if (code !== "ai.still_missing") failed(error);');
   expect(card).toContain("if (tapped) failed(error);");
+});
+
+test("the plans' list says which plans don't run on the computer's system, before one is picked", () => {
+  const steps = source("ai/ConnectAiSteps.tsx");
+  expect(steps).toContain("offSystem={(choice) => planOffSystem(t, gateAt(choice))}");
+  expect(steps).toContain('? t("connectAi.offSystem", { system: offSystem(c) })');
 });

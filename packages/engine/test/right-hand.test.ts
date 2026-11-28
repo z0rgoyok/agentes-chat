@@ -190,7 +190,7 @@ test("it is in no channel and on no computer, whoever asks", async () => {
   const { machineId } = await pairMachine({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, { name: "MacBook" });
   await expect(
     setAgentComputerTarget({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, lodi.id, machineId),
-  ).rejects.toMatchObject(permanent);
+  ).rejects.toMatchObject({ code: "agent.right_hand_computer" });
 });
 
 test("its prompt says what the person may do, and shows only the agents they may see", async () => {
@@ -288,6 +288,31 @@ test("called in a channel, its prompt holds no private channel, money or app: ot
   expect(channel).not.toContain("Linear");
   expect(channel).toMatch(/@dev \(Dev\)[^\n]*in #general;[^\n]*% of its monthly budget used/);
   expect(channel).not.toContain("An agent is in no channel");
+});
+
+test("its apps are named in the order they were connected, so the session's system text stays the same", async () => {
+  f = await setup({ rightHand: true });
+  const [lodi] = await rightHandOf(f.org.id);
+  if (!lodi) throw new Error("no right hand");
+  const connect = (label: string, key: string, createdAt: Date) =>
+    f.db
+      .insert(schema.connectorConnections)
+      .values({
+        orgId: f.org.id,
+        connector: key,
+        toolPrefix: key,
+        label,
+        serverUrl: `https://${label.toLowerCase()}.example.com/mcp`,
+        authType: "none",
+        createdAt,
+      })
+      .returning();
+  // A read without an order gets the rows in whatever order its plan reads them (a table written again since, an
+  // index), not the order they were connected in.
+  await connect("Sentry", "a_sentry", new Date(Date.now() - 1000));
+  await connect("Linear", "b_linear", new Date(Date.now() - 2000));
+  const dm = await rightHandPrompt({ db: f.db }, { orgId: f.org.id, agent: lodi, personId: f.owner.id, inDm: true });
+  expect(dm).toContain("Apps connected: Linear, Sentry.");
 });
 
 test("its setup checklist names the workspace's context and a computer until they are there", async () => {
@@ -434,6 +459,27 @@ test("with nobody behind its run (another agent's message), it still keeps to it
   );
   expect(text).toContain("# Your tools\nYour tools are the agentes tools listed to you");
   expect(text).toContain("Use nothing that isn't an agentes tool");
+});
+
+test("in a person's DM, a teammate's message for them reads the same block as their own: its session goes on", async () => {
+  f = await setup({ rightHand: true });
+  const [lodi] = await rightHandOf(f.org.id);
+  if (!lodi) throw new Error("no right hand");
+  const dm = await openPersonAgentDm(f.db, f.org.id, f.owner.id, lodi.id);
+  const trigger = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, dm.id, { body: "oi" });
+  const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, trigger.id));
+  if (!run) throw new Error("no run");
+  // A teammate's answer it asked for, in this DM, waking it for the same person.
+  const reply = await insertMessage(f.db, {
+    orgId: f.org.id,
+    channelId: dm.id,
+    author: { type: "agent", agentId: f.agent.id, runId: null, hop: 1, stretchId: null },
+    body: "Pronto, o relatório está no Drive.",
+  });
+  const own = await buildRunContext(f.db, run, lodi, { maxMessages: 10 });
+  const theirs = await buildRunContext(f.db, { ...run, triggerMessageId: reply.id }, lodi, { maxMessages: 10 });
+  expect(systemText(theirs.system)).toContain("# Who you talk to");
+  expect(theirs.sessionPrompt).toEqual(own.sessionPrompt);
 });
 
 test("in no channel, an @mention in any channel still reaches it, and only that", async () => {

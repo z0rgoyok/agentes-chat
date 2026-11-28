@@ -23,7 +23,7 @@ import {
   type RouterStrategy,
   runAuthorityById,
 } from "../src";
-import { addMember, type Fixture, setup } from "./fixtures";
+import { addMember, everyoneWithout, type Fixture, setup } from "./fixtures";
 import { pairMachine } from "./machine-fixtures";
 
 /**
@@ -110,7 +110,13 @@ test("no key: the run fails with no_ai before any judge or model call, and one c
   });
   expect(events).toContainEqual(expect.objectContaining({ type: "message.created", messageId: card?.id }));
   expect(events).toContainEqual(
-    expect.objectContaining({ type: "message.handled", messageId: asked.id, status: "failed", reason: "no_ai" }),
+    expect.objectContaining({
+      type: "message.handled",
+      messageId: asked.id,
+      status: "failed",
+      reason: "no_ai",
+      errorCode: "no_key",
+    }),
   );
   expect(events).toContainEqual(
     expect.objectContaining({ type: "agent.run", status: "failed", error: "no_ai", errorCode: "run.no_ai" }),
@@ -119,7 +125,7 @@ test("no key: the run fails with no_ai before any judge or model call, and one c
   // The list's receipts say why (a reload shows the same row as the live event).
   const listed = (await listMessages(f.db, f.owner.id, f.org.id, f.general.id)).find((m) => m.id === asked.id);
   expect(listed?.receipts?.handled).toEqual([
-    { agentId: f.agent.id, runId: run?.id ?? "", status: "failed", reason: "no_ai" },
+    { agentId: f.agent.id, runId: run?.id ?? "", status: "failed", reason: "no_ai", errorCode: "no_key" },
   ]);
   // The card routes nobody (like a notice).
   const decided = await f.db
@@ -240,7 +246,7 @@ test("Codex saved on the workspace's computer's own sign-in: the run fails at on
     execAllowed: true,
     os: "linux",
     protocol: 26,
-    executors: { codex: { version: "codex-cli 0.163.0" }, detectedAt: new Date().toISOString() },
+    executors: { codex: { version: "codex-cli 0.170.0" }, detectedAt: new Date().toISOString() },
   };
   const handlers = createJobHandlers({ ...f.jobDeps, machines: { status: async () => status } });
   await post("@dev oi");
@@ -401,6 +407,26 @@ test("Responder agora for someone the agent no longer answers (a personal plan a
     expect(refused).toMatchObject({ name: "ForbiddenError", code: "audience.only" });
   }
   expect(await runs()).toMatchObject([{ id: failed.id, status: "failed", error: "no_ai" }]);
+});
+
+test("Responder agora for someone whose roles lost Talk to agents: she hears her roles, the owner doesn't", async () => {
+  f = await setup();
+  await revokeKeys();
+  const bia = await addMember(f.db, f.org.id, "member", "bia");
+  await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { userId: bia.id });
+  await postPersonMessage({ db: f.db, pubsub: f.pubsub }, bia.id, f.org.id, f.general.id, {
+    body: "@dev resume o canal",
+  });
+  await drainOutbox(f.db, f.handlers);
+  const [card] = await cards();
+  if (!card) throw new Error("no card");
+  await restoreKeys();
+  await everyoneWithout(f.db, f.org.id, "talk_to_agents");
+  const hers = await answerNow(deps(), bia.id, f.org.id, card.id).catch((e) => e);
+  expect(hers).toMatchObject({ name: "ForbiddenError", code: "audience.no_talk" });
+  const his = await answerNow(deps(), f.owner.id, f.org.id, card.id).catch((e) => e);
+  expect(his).toMatchObject({ name: "ForbiddenError" });
+  expect(his.code).not.toBe("audience.no_talk");
 });
 
 test("Responder agora never starts over a run that had done something: 409, and the run stays", async () => {

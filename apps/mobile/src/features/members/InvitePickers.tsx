@@ -1,4 +1,4 @@
-import { type InviteLinkTtl, useApi, useChannelCategories, useChannels, useRoles } from "@agenteschat/client";
+import { type InviteLinkTtl, useAgentGroups, useApi, useChannels, useRoles } from "@agenteschat/client";
 import { formatShortDate } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { INVITE_LINK_MAX_USES, INVITE_LINK_TTLS, inviteStart } from "@agenteschat/client/lib/invite-start";
@@ -146,16 +146,16 @@ function CargoPick({ draft, change }: PickProps) {
   );
 }
 
-/** Canais: what the picked cargos bring first, then the sidebar's categories; #general ticked and fixed. */
+/** Canais: what the picked cargos bring first, then the sidebar's sectors; #general ticked and fixed. */
 function ChannelsPick({ draft, change }: PickProps) {
   const { t } = useTranslation();
   const { orgId, org } = useOrg();
   const [query, setQuery] = useState("");
   const roles = useRoles(orgId).data?.roles ?? [];
   const channels = useChannels(orgId).data ?? [];
-  const categories = useChannelCategories(orgId).data ?? [];
-  const all = channelPicks(t, { channels, categories, roles, draft });
-  const groups = query ? channelPicks(t, { channels, categories, roles, draft, query }) : all;
+  const sectors = useAgentGroups(orgId).data ?? [];
+  const all = channelPicks(t, { channels, sectors, roles, draft });
+  const groups = query ? channelPicks(t, { channels, sectors, roles, draft, query }) : all;
   const flip = (id: string) => change((d) => ({ ...d, ...flipStart(roles, d, "channelIds", id) }));
   return (
     <SettingsPage

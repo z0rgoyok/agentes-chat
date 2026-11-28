@@ -324,7 +324,7 @@ test("a search for an app the workspace hasn't connected says it exists and how 
   // The workspace's own Drive matches the word: Google Drive still closes the answer.
   expect(drive).toContain("- list_artifacts");
   expect(drive).toEndWith(
-    `\n\n${TO_GET}\n- Google Drive: Google Drive files and folders: search, read, create and share. Not available on this installation: whoever runs the installation has to turn it on first.`,
+    `\n\n${TO_GET}\n- Google Drive: Google Drive files and folders: search, read, create, upload and share. Not available on this installation: whoever runs the installation has to turn it on first.`,
   );
   expect(await findTools(ctx, "set up github")).toContain(
     "- GitHub: Repositories, pull requests, issues and Actions. Not connected in this workspace: an admin connects it in Settings › Connectors and MCPs › Browse connectors › GitHub",

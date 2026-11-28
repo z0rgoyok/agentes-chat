@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { createHmac } from "node:crypto";
 import { eq, schema } from "@agenteschat/db";
 import {
   archiveChannel,
@@ -15,11 +14,12 @@ import {
   insertMessage,
   mintBillingLink,
   openAgentDm,
+  openLinkToken,
   openPersonAgentDm,
   saveStorage,
+  sealLinkToken,
   setBillingHold,
   setOrgStanding,
-  signBillingLink,
   testStorage,
   updateIssue,
 } from "../src";
@@ -32,7 +32,7 @@ beforeEach(async () => {
 });
 afterEach(() => f.close());
 
-// The billing service checks the same vector: both sides sign and verify these exact bytes.
+// The billing service checks the same vector: the same key, nonce and claims give these exact bytes on both sides.
 const SECRET = "test-billing-link-secret-000000000000000";
 const VECTOR: BillingLinkClaims = {
   aud: "agentes-billing",
@@ -60,8 +60,9 @@ const VECTOR: BillingLinkClaims = {
     since: 1782864000,
   },
 };
+const NONCE = Buffer.from("000102030405060708090a0b", "hex");
 const TOKEN =
-  "v1.eyJhdWQiOiJhZ2VudGVzLWJpbGxpbmciLCJqdGkiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwMDEiLCJpYXQiOjE3OTg3NjE2MDAsImV4cCI6MTc5ODc2MTkwMCwib3JnSWQiOiIwMDAwMDAwMC0wMDAwLTQwMDAtODAwMC0wMDAwMDAwMDAwYWEiLCJvcmdOYW1lIjoiQWNtZSIsInVzZXJJZCI6InVzZXJfdGVzdF8xIiwiZW1haWwiOiJhbmFAZXhhbXBsZS5jb20iLCJuYW1lIjoiQW5hIiwicm9sZSI6Im93bmVyIiwibG9jYWxlIjoicHQtQlIiLCJmcm9tIjoic2V0dGluZ3MiLCJyZXR1cm4iOiIvb3JnLzAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDBhYS9zZXR0aW5ncy9iaWxsaW5nIiwidXNhZ2UiOnsibWVtYmVycyI6MywiYWdlbnRzIjo2LCJzdG9yYWdlQnl0ZXMiOjEwNzM3NDE4MjQsIm1lc3NhZ2VzIjo0ODIxMCwiY2hhbm5lbHMiOjEyLCJmaWxlcyI6MzcsIndpa2lQYWdlcyI6OSwiaXNzdWVzIjo1NCwic2luY2UiOjE3ODI4NjQwMDB9fQ.f02uFh5tHCLVCq8HCwhzN8RM2Ne6EdD5DDxmHFR2qv4";
+  "v2.AAECAwQFBgcICQoL.4mXFzaaVtaXxnkAAGO7bTeJrx6CcLnIJVtW5CtprgGzRTOpN1T2QKli761vnU-HRfO9tS4k0Cf1vLZ-xcaOij1eOLsvTajFwDl9qpLvtPv1958CLWxNlChZRt8e5JhzzVq9ikWJ2qK6YRMTKyQ6fywD9I6KRyVmLUmNEGFd5-vbPgyCLr5P4WfCvPCUf5oGr2JnuiQFaLTRVcwDS2wwl752KsC6LTcTMcrtsSs_YM4UWuhYeOevuDYB_FuYpRdJP7K5bQEbZIL38wfPj7P5gftzTnqeB4CypTFTrysDbWwLNAXUsqo-AXK3B0gS3EKUymSehFpyNrMinLHms_FBqswIAgKtQ_9QDmTDU_SGmi5SKLUvG5QuVbqvBPyg4_sB2uXCiaj386abqvzdlZGPbYmpeClfRgKEFP-5bZYwp2MHc46Jzs9NJkRB5K87EWuauxctUBCf5Kn22z-7GoI3mTyYluPLJk1jbL2coOgKUicg122ScIWn7_LEemp4uFNK52uFBHrNtHc5odDiYOURwhH0aoQw0PLxfdH1aLHkn0dPHDrGeZfoxlqfBYJFKSOB5RYF9CZ6bF7tI4u-ScnqoC4iHG-SN8zeVA5EOAlASt3pNC_fJvrtL3QNQev7Kc-xZiU_BQOQnVO_TIYKYb5kf8A.MKnd_x1NJIHv8r82xcU-rQ";
 
 const NOW = new Date("2027-01-01T00:00:00Z");
 const mint = (
@@ -70,25 +71,31 @@ const mint = (
   baseUrl = "https://billing.example.com",
 ) => mintBillingLink(f.db, { secret: SECRET, baseUrl, userId, orgId: f.org.id, from, now: NOW });
 
-/** The link's token, checked like the billing service checks it: the HMAC over the payload as sent. */
+/** The link's token, opened like the billing service opens it. */
 function claimsOf(url: string) {
-  const token = new URL(url).searchParams.get("t") ?? "";
-  const [version, payload, signature] = token.split(".");
-  expect(version).toBe("v1");
-  expect(signature).toBe(createHmac("sha256", SECRET).update(`v1.${payload}`).digest("base64url"));
-  return JSON.parse(Buffer.from(payload ?? "", "base64url").toString()) as BillingLinkClaims;
+  return openLinkToken(SECRET, new URL(url).searchParams.get("t") ?? "") as BillingLinkClaims;
 }
 
-describe("signBillingLink", () => {
+describe("sealLinkToken", () => {
   test("the shared test vector, byte for byte", () => {
-    expect(signBillingLink(SECRET, VECTOR)).toBe(TOKEN);
+    expect(sealLinkToken(SECRET, VECTOR, NONCE)).toBe(TOKEN);
+    expect(openLinkToken(SECRET, TOKEN)).toEqual(VECTOR);
+  });
+
+  test("the address carries nothing readable, and each link has its own nonce", () => {
+    const decoded = TOKEN.split(".").map((part) => Buffer.from(part, "base64url").toString("latin1"));
+    for (const word of ["Acme", "ana@example.com", "agentes-billing", "settings"]) {
+      expect([TOKEN, ...decoded].filter((text) => text.includes(word))).toEqual([]);
+    }
+    expect(sealLinkToken(SECRET, VECTOR)).not.toBe(sealLinkToken(SECRET, VECTOR));
+    expect(() => openLinkToken("another-secret-of-thirty-two-characters", TOKEN)).toThrow();
   });
 });
 
 describe("mintBillingLink", () => {
   test("an owner's link: who, where, for 5 minutes, in the vector's key order", async () => {
     const link = await mint(f.owner.id);
-    expect(link.url.startsWith("https://billing.example.com/link?t=v1.")).toBe(true);
+    expect(link.url.startsWith("https://billing.example.com/link?t=v2.")).toBe(true);
     expect(link.expiresAt).toEqual(new Date(NOW.getTime() + 300_000));
     const [owner] = await f.db.select().from(schema.users).where(eq(schema.users.id, f.owner.id));
     const claims = claimsOf(link.url);

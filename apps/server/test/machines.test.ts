@@ -688,6 +688,100 @@ test("a tool turned on from the apps: only whoever connected it; anyone else ask
   expect(sent).toHaveLength(1);
 }, 30_000);
 
+test("a folder asked for from the apps: the app on the computer is asked, by whoever manages it; without the app it says so", async () => {
+  const { owner, orgId } = await start();
+  const orgApi = (b: typeof owner) => (path: string, init?: Parameters<typeof owner>[1]) =>
+    b(`/api/app/organizations/${orgId}${path}`, init);
+  const bia = await joinByInvitation(t, owner, orgId, "bia@example.com");
+  const caio = await joinByInvitation(t, owner, orgId, "caio@example.com");
+  const runner = { ...RUNNER, os: "darwin", protocol: MACHINE_PROTOCOL_VERSION };
+  const paired = await pairComputer(t, orgApi(bia), { ...runner, exec: true }, { name: "Bia's Mac" });
+  const hub = t.engine.machineHub;
+  const sent: Extract<MachineRequest, { op: "access.pick" }>[] = [];
+  const conn = hub.open({
+    send(text: string) {
+      const frame = JSON.parse(text) as ServerFrame;
+      if (frame.type !== "request" || frame.op !== "access.pick") return;
+      sent.push(frame);
+      const data = { asked: true };
+      setTimeout(() => void hub.message(conn, JSON.stringify({ type: "result", id: frame.id, ok: true, data })), 1);
+    },
+    close() {},
+  });
+  const hello = (over: object, on = conn) =>
+    hub.message(on, JSON.stringify({ type: "hello", token: paired.token, ...runner, exec: true, ...over }));
+  const path = `/machines/${paired.machineId}/access/pick`;
+  type Listed = { machines: { id: string; folderPick: boolean }[] };
+  const pickable = async () =>
+    ((await (await orgApi(bia)("/machines")).json()) as Listed).machines.find((m) => m.id === paired.machineId)
+      ?.folderPick;
+
+  // A runner installed from the terminal: no app to pick in, and the apps show the command instead.
+  await hello({}, hub.open({ send() {}, close() {} }));
+  expect(await pickable()).toBe(false);
+  const noApp = await orgApi(bia)(path, { json: {} });
+  expect(noApp.status).toBe(400);
+  expect(((await noApp.json()) as { error: { code: string } }).error.code).toBe("machine.no_app");
+
+  await hello({ app: true });
+  expect(await pickable()).toBe(true);
+  // Only an admin or whoever connected it asks; a member doesn't.
+  const refused = await orgApi(caio)(path, { json: {} });
+  expect(refused.status).toBe(403);
+  expect(sent).toHaveLength(0);
+  expect((await orgApi(bia)(path, { json: {} })).status).toBe(200);
+  expect((await orgApi(owner)(path, { json: {} })).status).toBe(200);
+  expect(sent[0]).toMatchObject({ op: "access.pick", by: expect.any(String), byName: expect.any(String) });
+  expect(sent[0]?.agentId).toBeUndefined();
+  // An agent that doesn't work there isn't asked for.
+  const stranger = await orgApi(bia)(path, { json: { agentId: "0193aaaa-bbbb-7ccc-8ddd-eeeeffff0000" } });
+  expect(stranger.status).toBe(404);
+  // A request to show again must be one of this computer's, still waiting.
+  const gone = await orgApi(bia)(path, { json: { requestId: "0193aaaa-bbbb-7ccc-8ddd-eeeeffff0001" } });
+  expect(gone.status).toBe(404);
+  expect(((await gone.json()) as { error: { code: string } }).error.code).toBe("machine.request_not_found");
+  expect(sent).toHaveLength(2);
+}, 30_000);
+
+test("a Windows computer says its build and what holds Codex there; the apps read it as its runner learns it", async () => {
+  const { api } = await start();
+  const runner = { ...RUNNER, os: "windows", protocol: MACHINE_PROTOCOL_VERSION };
+  const paired = await pairComputer(t, api, { ...runner, exec: true }, { name: "Desk" });
+  const hub = t.engine.machineHub;
+  const conn = hub.open({ send() {}, close() {} });
+  const codex = { version: "codex-cli 0.170.0" };
+  await hub.message(
+    conn,
+    JSON.stringify({
+      type: "hello",
+      token: paired.token,
+      ...runner,
+      exec: true,
+      windowsBuild: "10.0.19045",
+      executors: { codex },
+    }),
+  );
+  type Listed = { machines: { codexSandbox?: string | null }[] };
+  const listed = async () => ((await (await api("/machines")).json()) as Listed).machines[0];
+  const stored = async () =>
+    (
+      await t.db
+        .select({ executors: schema.machines.executors })
+        .from(schema.machines)
+        .where(eq(schema.machines.id, paired.machineId))
+    )[0]?.executors;
+  // Its check hasn't ended: nothing said yet.
+  expect(await listed()).toMatchObject({ codexSandbox: null });
+  expect(await stored()).toMatchObject({ windowsBuild: "10.0.19045", codex });
+  // It ends after hello: the apps hear what holds Codex there, and the build stays through the CLIs' looks.
+  await hub.message(
+    conn,
+    JSON.stringify({ type: "executors.changed", executors: { codex: { ...codex, sandbox: "unelevated" } } }),
+  );
+  expect(await listed()).toMatchObject({ codexSandbox: "unelevated" });
+  expect(await stored()).toMatchObject({ windowsBuild: "10.0.19045", codex: { ...codex, sandbox: "unelevated" } });
+});
+
 test("a coding CLI from the apps: anyone looks again; only whoever connected it installs it, anyone else asks them", async () => {
   const { owner, orgId } = await start();
   const orgApi = (b: typeof owner) => (path: string, init?: Parameters<typeof owner>[1]) =>
@@ -774,3 +868,29 @@ test("a coding CLI from the apps: anyone looks again; only whoever connected it 
   expect(outdated.status).toBe(400);
   expect(((await outdated.json()) as { error: { code: string } }).error.code).toBe("machine.cli_outdated");
 }, 30_000);
+
+test("a computer whose runner is behind this server says so with its update, until the app or a current runner says hello", async () => {
+  const { api, pair } = await start();
+  const paired = await pair();
+  const hub = t.engine.machineHub;
+  const hello = (over: object) =>
+    hub.message(
+      hub.open({ send() {}, close() {} }),
+      JSON.stringify({ type: "hello", token: paired.token, ...RUNNER, exec: true, ...over }),
+    );
+  const update = async () =>
+    ((await (await api("/machines")).json()) as { machines: { id: string; update: string | null }[] }).machines.find(
+      (m) => m.id === paired.machineId,
+    )?.update;
+
+  // The same version label as a current runner, from before agents got the images they read.
+  await hello({ version: "0.13.0", protocol: 56 });
+  expect(await update()).toBe("command");
+  await hello({ version: "0.13.0", protocol: MACHINE_PROTOCOL_VERSION, app: true });
+  expect(await update()).toBeNull();
+  const [row] = await t.db
+    .select({ executors: schema.machines.executors })
+    .from(schema.machines)
+    .where(eq(schema.machines.id, paired.machineId));
+  expect(row?.executors.app).toBe(true);
+});

@@ -1,6 +1,6 @@
 import { type HTMLAttributes, useLayoutEffect, useRef } from "react";
 import type { Expression } from "../agent/engine.js";
-import { addLiveAgent, drawLive, type LiveAgent } from "../agent/live";
+import { addLiveAgent, drawLive, type LiveAgent, wakeLiveAgents } from "../agent/live";
 import { cx } from "../cx";
 import { initialsOf } from "../names";
 import { recipeOfUrl } from "../person/engine.js";
@@ -106,11 +106,14 @@ function AgentBody({
       stop();
     };
   }, []);
-  // The loop stands still with reduced motion: a new look (or face) is drawn at once.
+  // The loop stands still (reduced motion, nothing moving): a new look (or face) is drawn at once, and an agent that
+  // starts working starts the loop.
   const { color, eyes, accessory } = look.current;
   // biome-ignore lint/correctness/useExhaustiveDependencies: redraw when what is drawn changes
   useLayoutEffect(() => {
-    if (live.current) drawLive(live.current, typeof performance === "object" ? performance.now() / 1000 : 0);
+    if (!live.current) return;
+    drawLive(live.current, typeof performance === "object" ? performance.now() / 1000 : 0);
+    wakeLiveAgents();
   }, [color, eyes, accessory, state, expression, framed]);
   return <canvas className="ac-avatar__canvas" ref={canvas} />;
 }

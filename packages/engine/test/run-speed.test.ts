@@ -110,6 +110,12 @@ test("a request done in one step: two model round trips and one turn-end judgmen
   expect(report.judgments.filter((k) => k === "follow_through")).toHaveLength(1);
   // The turn's end waits for its one judgment alone.
   expect(report.stages.some((s) => s.startsWith("turn_end#2"))).toBe(true);
+  // The call it ran is a stage of its own between the two turns, never in the next turn's model time.
+  expect(report.stages.map((s) => s.split(" ")[0]).filter((s) => /^(model|tools)#/.test(s ?? ""))).toEqual([
+    "model#1",
+    "tools#1",
+    "model#2",
+  ]);
 });
 
 test("told to go on, a turn that only re-runs the same call earns no second nudge", async () => {

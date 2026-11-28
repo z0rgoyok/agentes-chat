@@ -39,7 +39,7 @@ const SUMMARY_CHARS = 300;
 // ── What counts ───────────────────────────────────────────────────────────
 
 /** Tools that act outside though the policy table files them as internal work; a connected app's pull request too. */
-const OUTSIDE_BY_NAME = new Set(["open_pull_request"]);
+const OUTSIDE_BY_NAME = new Set(["open_pull_request", "gitlab_open_pull_request", "bitbucket_open_pull_request"]);
 
 /**
  * Whether a call of this tool acts outside the organization: a connected app's write (the policy's

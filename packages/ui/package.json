@@ -18,6 +18,7 @@
       "default": "./src/agent/engine.js"
     },
     "./agent/look": "./src/components/AgentLook.ts",
+    "./agent/orbit": "./src/agent/orbit-rings.ts",
     "./agent/stickers": "./src/agent/stickers.ts",
     "./brain/portrait": {
       "types": "./src/brain/portrait.d.ts",
@@ -28,8 +29,10 @@
       "default": "./src/computer/portrait.js"
     },
     "./brand/marks": "./src/brand/marks.ts",
+    "./icons/data": "./src/icons/data.ts",
     "./presence/badge": "./src/presence/badge.ts",
     "./sfx": "./src/sfx/synth.ts",
+    "./voice/bars": "./src/components/voice-bars.ts",
     "./sky/engine": "./src/sky/engine.ts",
     "./sky/math": "./src/sky/math.ts",
     "./sky/forming": "./src/sky/forming.ts",
@@ -48,6 +51,7 @@
     "./markdown": "./src/markdown.ts",
     "./media-grid": "./src/media-grid.ts",
     "./names": "./src/names.ts",
+    "./org-logo": "./src/org-logo.ts",
     "./plan-state": "./src/plan-state.ts",
     "./recurrence": "./src/recurrence.ts",
     "./search": "./src/search.ts",

@@ -49,7 +49,7 @@ export const NO_SEAT_MESSAGE =
 
 /** The workspace has no computer of its own connected: the right hand has none either. */
 export const NO_HOME_MESSAGE =
-  "You have no computer here: this workspace has no computer of its own connected. An admin connects one in Settings, under Computers: say so. Until then hand this to an agent that has a computer (ask_agent, tell_agent, or create_issue assigned to it) when one does, and never ask the person to try again.";
+  'You have no computer here: this workspace has no computer of its own connected. An admin connects one in Settings, under Computers, or makes one an admin connected there the workspace\'s own: on its page, "Belongs to the workspace" on and open to everyone in the workspace. Say so. Until then hand this to an agent that has a computer (ask_agent, tell_agent, or create_issue assigned to it) when one does, and never ask the person to try again.';
 
 /** Another computer of the workspace (one a person brought, a phone's host): the right hand has no seat there. */
 export const notHomeMessage = (computer: string) =>

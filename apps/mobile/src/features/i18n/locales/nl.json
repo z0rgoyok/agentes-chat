@@ -4,22 +4,17 @@
     "send": "Versturen"
   },
   "categories": {
-    "title": "Categorieën",
-    "where": "Waar #{{channel}} staat",
-    "whereHelp": "Verandert voor iedereen. Wie er in het kanaal meedoet, blijft hetzelfde.",
-    "create": "Aanmaken",
-    "endOfList": "Komt voor iedereen onderaan de lijst.",
-    "channelCount_one": "{{count}} kanaal",
-    "channelCount_other": "{{count}} kanalen",
-    "none": "Nog geen categorieën.",
-    "manageHint": "Volgorde, namen en verwijderen",
-    "deleteTitle": "{{name}} verwijderen?",
-    "order": "Plek in de lijst",
     "up": "Omhoog",
     "down": "Omlaag",
-    "position": "{{at}} van {{count}}.",
-    "channelPosition": "{{at}} van {{count}}.",
-    "itsChannels": "Kanalen"
+    "channelPosition": "{{at}} van {{count}}."
+  },
+  "sections": {
+    "title": "Sectie",
+    "where": "Waar #{{channel}} voor jou staat",
+    "whereHelp": "Alleen jouw lijst verandert. Iedereen ordent zijn eigen secties.",
+    "none": "Geen sectie",
+    "order": "Plek in de sectie",
+    "tooLong": "Gebruik maximaal 40 tekens."
   },
   "blocks": {
     "send": "Versturen",
@@ -70,6 +65,17 @@
     "raw": "Origineel",
     "more": "Alle {{count}} regels bekijken",
     "gone": "Deze code is niet meer open."
+  },
+  "table": {
+    "label_one": "Tabel · {{count}} rij",
+    "label_other": "Tabel · {{count}} rijen",
+    "title": "Tabel",
+    "rows_one": "{{count}} rij",
+    "rows_other": "{{count}} rijen",
+    "copy": "De tabel kopiëren",
+    "copied": "Tabel gekopieerd",
+    "more": "Alle {{count}} rijen bekijken",
+    "gone": "Deze tabel is niet meer open."
   },
   "time": {
     "today": "Vandaag",
@@ -187,11 +193,11 @@
       "text": "Misschien is hij offline of buiten je netwerk. Je gesprekken verschijnen vanzelf zodra hij terug is.",
       "kept": "Je ziet wat al in de app stond."
     },
-    "pinned": "Vastgezet",
+    "favorites": "Favorieten",
     "recent": "Recent",
     "view": {
       "title": "Gesprekken tonen",
-      "sectors": "Afdelingen",
+      "sections": "Secties",
       "dms": "Directe berichten",
       "channels": "Kanalen"
     },
@@ -847,6 +853,7 @@
   },
   "agent": {
     "talk": "Gesprek",
+    "responsible": "Verantwoordelijke",
     "task": "Taak",
     "owner": "eigenaar: {{name}}",
     "cantTalk": "Deze agent werkt niet met jou.",
@@ -927,6 +934,7 @@
       "admin_ask_channel_agent": "{{names}} vraagt je {{agent}} toe te voegen aan #{{label}}",
       "admin_ask_create_agents": "{{names}} vraagt om agents te mogen maken",
       "admin_ask_webhook": "{{names}} vraagt je de {{service}}-webhook voor routines in te stellen",
+      "admin_ask_voice": "{{names}} vraagt je spraakberichten aan te zetten",
       "routine_paused_one": "Routine gepauzeerd",
       "routine_paused_other": "Routines gepauzeerd",
       "routine_stalled_one": "Routine wacht op de computer",
@@ -995,6 +1003,10 @@
       "computer_disk_full_other": "Schijven van computers zijn bijna vol",
       "computer_no_chrome_one": "Een computer heeft Google Chrome nodig. Download het op google.com/chrome",
       "computer_no_chrome_other": "Computers hebben Google Chrome nodig. Download het op google.com/chrome",
+      "computer_down_one": "Een computer reageert niet",
+      "computer_down_other": "Een computer reageert niet",
+      "computer_back_one": "Een computer is terug",
+      "computer_back_other": "Een computer is terug",
       "app_created_one": "Een AI-app heeft dingen voor je aangemaakt",
       "app_created_other": "AI-apps hebben dingen voor je aangemaakt"
     },
@@ -1510,6 +1522,15 @@
     "next": {
       "pr": "Branch gepusht, nog geen pull request",
       "mergeLocal": "Klaar om in {{base}} te mergen"
+    },
+    "terminal": {
+      "keys": "Terminaltoetsen",
+      "keyboard": "Toetsenbord",
+      "pasteHint": "Plak wat je hebt gekopieerd in de terminal",
+      "key": {
+        "CtrlC": "Control-C, onderbreken",
+        "CtrlD": "Control-D, einde van invoer"
+      }
     }
   },
   "taskManager": {
@@ -2092,6 +2113,7 @@
       "tool_request": "{{names}} vraagt je {{tool}} aan te zetten op je {{device}}",
       "cli_request": "{{names}} vraagt je {{tool}} te installeren op je {{device}}",
       "folder_request": "{{names}} vraagt je om de map {{path}} op je {{device}}",
+      "internet_shared": "Agents openen websites nu via het internet van {{device}}",
       "allowOnce": "Eén keer toestaan",
       "always": "{{name}} altijd toestaan",
       "no": "Nee",
@@ -2802,11 +2824,12 @@
     },
     "formatAuto": "{{name}} kiest de beste",
     "newWidget": {
-      "alerts": "Melding aan",
       "realData": "Echte gegevens",
       "editAsk": "Vraag wijzigen",
       "asked": "“{{ask}}”",
-      "autoFormat": "Automatische vorm"
+      "testReal": "Testen met echte gegevens",
+      "addHome": "Toevoegen aan Start",
+      "addTo": "Toevoegen aan {{where}}"
     },
     "agentPick": {
       "search": "Agents zoeken",
@@ -3248,7 +3271,8 @@
       "workspaceSub": "API-sleutel van de workspace",
       "key": "API-sleutel",
       "keyDefault": "standaard van de workspace",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} gebruikt het dan niet meer."
     },
     "missionAi": "AI",
     "missionLocked": "Wie het werk doet kies je vóór Start. Het model kan altijd veranderen."

@@ -63,6 +63,23 @@ index 5da1196..7769932 100644
    }
  
    // We didn't detect any controllers for dismissal, thus we start presenting new VCs
+diff --git a/ios/RNSScreenStackHeaderConfig.mm b/ios/RNSScreenStackHeaderConfig.mm
+index e217b24..dfe1117 100644
+--- a/ios/RNSScreenStackHeaderConfig.mm
++++ b/ios/RNSScreenStackHeaderConfig.mm
+@@ -212,7 +212,11 @@ - (void)updateHeaderStateInShadowTreeInContextOfNavigationBar:(nullable UINaviga
+   [self updateShadowStateWithSize:navigationBar.frame.size
+                        edgeInsets:[self computeEdgeInsetsOfNavigationBar:navigationBar]
+                       frameOrigin:navBarFrameInScreenView.origin];
+-  for (RNSScreenStackHeaderSubview *subview in self.reactSubviews) {
++  // agentes: iterate over a copy, as upstream does after 4.30.1. Updating a subview's shadow state can trigger a
++  // synchronous commit that mounts or unmounts header subviews, which mutates `reactSubviews` while it is still being
++  // enumerated (an NSGenericException that aborts the app). Remove when the dependency carries the fix.
++  // See: https://github.com/software-mansion/react-native-screens/issues/4811
++  for (RNSScreenStackHeaderSubview *subview in [self.reactSubviews copy]) {
+     [subview updateShadowStateInContextOfAncestorView:navigationBar];
+   }
+ }
 diff --git a/ios/integrations/RNSDismissibleModalProtocol.h b/ios/integrations/RNSDismissibleModalProtocol.h
 index dd08f3a..d9f4c94 100644
 --- a/ios/integrations/RNSDismissibleModalProtocol.h

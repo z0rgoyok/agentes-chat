@@ -8,7 +8,12 @@ const { organizations, agents, skills, skillFiles, agentSkills, channels, channe
   schema;
 
 /** A stored skill as a `SKILL.md`: name, description and the rest of its frontmatter, then the body. */
-function skillMarkdown(s: { name: string; description: string; body: string; metadata: Record<string, unknown> }) {
+export function skillMarkdown(s: {
+  name: string;
+  description: string;
+  body: string;
+  metadata: Record<string, unknown>;
+}) {
   const frontmatter = Bun.YAML.stringify({ name: s.name, description: s.description, ...s.metadata }, null, 2);
   return `---\n${frontmatter.trimEnd()}\n---\n\n${s.body}\n`;
 }

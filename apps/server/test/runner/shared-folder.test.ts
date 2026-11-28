@@ -7,6 +7,7 @@ import { allowedFor, foldersFor } from "../../runner/access";
 import { lookFiles } from "../../runner/desktop-look";
 import type { RunCommand } from "../../runner/service";
 import {
+  applySharedBin,
   duGb,
   ensureSingleShared,
   ensureSystemShared,
@@ -181,4 +182,24 @@ test("the owner's fix: a moved-in folder gets setgid and the group's rwx, a 644 
   expect(mode("render") & 0o2070).toBe(0o2070);
   expect(mode("render/cut.mp4") & 0o060).toBe(0o060);
   expect(mode("run.sh") & 0o070).toBe(0o070);
+});
+
+test("applySharedBin preserves Windows Path casing instead of overwriting PATH with only shared/bin", () => {
+  // Folders without a drive letter: on the POSIX machine the test runs on, `path.delimiter` is the drive's colon.
+  const existing = ["/windows/system32", "/users/user/.local/bin"].join(path.delimiter);
+  const env: Record<string, string | undefined> = { Path: existing };
+  const shared = path.join("/users/user/agentes", "shared");
+  applySharedBin(env, shared, "win32");
+
+  expect(env.PATH).toBeUndefined();
+  expect(env.Path).toBe(`${existing}${path.delimiter}${path.join(shared, "bin")}`);
+
+  // Idempotent on second call.
+  applySharedBin(env, shared, "win32");
+  expect(env.Path).toBe(`${existing}${path.delimiter}${path.join(shared, "bin")}`);
+
+  // POSIX still uses PATH directly.
+  const posixEnv: Record<string, string | undefined> = { PATH: "/usr/bin" };
+  applySharedBin(posixEnv, "/srv/shared", "linux");
+  expect(posixEnv.PATH).toBe(`/usr/bin${path.delimiter}${path.join("/srv/shared", "bin")}`);
 });

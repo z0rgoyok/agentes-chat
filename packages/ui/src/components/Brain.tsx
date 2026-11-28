@@ -72,7 +72,7 @@ export function BrainLogo({
   kind,
   ...rest
 }: {
-  kind: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+  kind: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
   size?: "xs" | "tile" | "sm";
   off?: boolean;
   label?: string;

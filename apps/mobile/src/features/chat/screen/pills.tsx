@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
 import { Icon, type IconName } from "@/ui";
 import { AgentFace, Face } from "../../shared/Face";
+import { GroupFace } from "../../shared/GroupFace";
 import { useColors, useDirectory } from "../../shared/hooks";
 import { useDmStatusLine } from "../../status/hooks";
 import { HeaderPill } from "../HeaderPill";
@@ -144,11 +145,16 @@ export const DmPill = memo(function DmPill({
   );
 });
 
-/** A channel's pill: its name, how many are in it and the first faces; a tap opens who is in it. */
+/**
+ * A channel's pill: its name, how many are in it and the first faces; a tap opens who is in it. A personal workspace's
+ * group conversation (`group`, ADR 0159) leads with its agents as its face, where a DM's face is, and has no faces after
+ * its name.
+ */
 export const ChannelPill = memo(function ChannelPill({
   title,
   subtitle,
   label,
+  group,
   color,
   roster,
   extraActions,
@@ -158,6 +164,7 @@ export const ChannelPill = memo(function ChannelPill({
   title: string;
   subtitle: string | undefined;
   label: string;
+  group: { agentIds: string[]; count: number } | null;
   color: ComponentProps<typeof HeaderPill>["color"];
   roster: RosterMember[] | undefined;
   extraActions: number;
@@ -165,10 +172,18 @@ export const ChannelPill = memo(function ChannelPill({
   inView: boolean;
 }) {
   const c = useColors();
-  const lead = useMemo(() => <Icon name="hash" size={18} color={c.muted} />, [c.muted]);
+  const lead = useMemo(
+    () =>
+      group ? (
+        <GroupFace agentIds={group.agentIds} count={group.count} size={32} />
+      ) : (
+        <Icon name="hash" size={18} color={c.muted} />
+      ),
+    [c.muted, group],
+  );
   const trailing = useMemo(
     () =>
-      roster && roster.length > 0 ? (
+      !group && roster && roster.length > 0 ? (
         <View style={styles.faces}>
           {roster.slice(0, 3).map((r, i) => (
             // Every face the same size and shape box, ringed in the pill's glass: an agent in its tile
@@ -187,7 +202,7 @@ export const ChannelPill = memo(function ChannelPill({
           ))}
         </View>
       ) : undefined,
-    [roster, c.glassSolid],
+    [group, roster, c.glassSolid],
   );
   return (
     <HeaderPill

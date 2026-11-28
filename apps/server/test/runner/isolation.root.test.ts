@@ -20,6 +20,8 @@ import {
   adbServerPort,
   agentGid,
   agentSubids,
+  agentTmpMemoryBytes,
+  idleTmpLines,
   readAgentUsers,
   systemLauncher,
 } from "../../runner/agent-users";
@@ -36,6 +38,7 @@ import {
   AGENT_DISK_TMP_ROOT,
   AGENT_RAM_ROOT,
   AGENT_TMP_CLEANUP,
+  AGENT_TMP_POOL,
   AGENT_TMP_ROOT,
   agentCgroup,
   agentSlice,
@@ -188,6 +191,8 @@ let B: AgentUser;
 let C: AgentUser | undefined;
 /** The fourth: where its /tmp goes, boot after boot. */
 let D: AgentUser | undefined;
+/** The fifth: its /tmp in the agents' pool. */
+let E: AgentUser | undefined;
 let guard: LoopbackGuard;
 let policy: BindPolicyOptions;
 const running: ChildProcess[] = [];
@@ -356,7 +361,7 @@ describe.if(ROOT)("the agents' isolation on this computer, as root", () => {
     runSync("ip", ["link", "del", GUEST.bridge]);
     runSync("ip", ["link", "del", GUEST.veth]);
     runSync("ip", ["netns", "del", GUEST.ns]);
-    for (const u of [A, B, C, D]) {
+    for (const u of [A, B, C, D, E]) {
       if (!u) continue;
       runSync("systemctl", ["stop", agentSlice(u.uid)]);
       runSync("userdel", ["-r", u.user]);
@@ -366,6 +371,8 @@ describe.if(ROOT)("the agents' isolation on this computer, as root", () => {
     }
     runSync("umount", ["-l", path.join(AGENT_DISK_TMP_ROOT, "fs")]);
     rmSync(AGENT_DISK_TMP_ROOT, { recursive: true, force: true });
+    runSync("umount", ["-l", AGENT_TMP_POOL]);
+    rmSync(AGENT_TMP_POOL, { recursive: true, force: true });
     rmSync(HOME, { recursive: true, force: true });
     rmSync(OPT, { recursive: true, force: true });
   });
@@ -798,6 +805,88 @@ describe.if(ROOT)("the agents' isolation on this computer, as root", () => {
     expect(existsSync(image)).toBe(false);
     expect(sh(true, seen)).toEqual([disk, "root 1777", "none"]);
     expect(must("findmnt", ["-n", "-o", "FSTYPE", fs])).toBe("ext4");
+  });
+
+  test("the agents' /tmp in memory is one tmpfs of a fifth of the RAM for all of them, and the pool where their filesystem on disk can't be made (ADR 0243)", () => {
+    E = users.ensure({ id: "e0000000-0000-4000-8000-000000000005", handle: "e", name: "Agent E" });
+    const agent = E;
+    const sh = (u: AgentUser, onDisk: boolean, line: string) => {
+      const l = systemLauncher(u, true, undefined, false, onDisk);
+      const r = spawnSync(l.prefix[0] as string, [...l.prefix.slice(1), "/bin/sh", "-c", line], {
+        cwd: "/",
+        env: l.env,
+        encoding: "utf8",
+        timeout: 60_000,
+      });
+      return `${r.stdout ?? ""}${r.stderr ?? ""}`.trim().split("\n");
+    };
+    const ram = Number(/^MemTotal:\s+(\d+) kB$/m.exec(readFileSync("/proc/meminfo", "utf8"))?.[1]) * 1024;
+    const fsOf = 'stat -f -c "%T %i %b" /tmp';
+    // In memory: the pool, which A's /tmp is in too, a fifth of the RAM for all of them, root's and 0700.
+    const [own = ""] = sh(agent, false, `${fsOf}; head -c 8388608 /dev/zero > /tmp/eight`);
+    expect(own).toBe(sh(A, false, fsOf)[0] ?? "");
+    expect(own.startsWith("tmpfs ")).toBe(true);
+    expect(must("findmnt", ["-n", "-o", "FSTYPE", AGENT_TMP_POOL])).toBe("tmpfs");
+    const size = Number(must("findmnt", ["-bno", "SIZE", AGENT_TMP_POOL]));
+    expect(Math.abs(size - ram * 0.2)).toBeLessThan(ram * 0.01);
+    expect(must("stat", ["-c", "%U %a", AGENT_TMP_POOL])).toBe("root 700");
+    // Out of B's reach, and what it holds is in the computer's figure.
+    expect(sh(B, false, "ls /tmp")).not.toContain("eight");
+    expect(agentTmpMemoryBytes()).toBeGreaterThanOrEqual(8 * 2 ** 20);
+    sh(agent, false, "rm /tmp/eight");
+    // Its next boot with its /tmp on disk where that filesystem can't be made: the pool, and the launch runs.
+    must("umount", ["-l", path.join(AGENT_RAM_ROOT, String(agent.uid))]);
+    runSync("umount", ["-l", path.join(AGENT_DISK_TMP_ROOT, "fs")]);
+    rmSync(AGENT_DISK_TMP_ROOT, { recursive: true, force: true });
+    writeFileSync(AGENT_DISK_TMP_ROOT, "");
+    expect(sh(agent, true, `${fsOf}; echo ran`)).toEqual([own, "ran"]);
+    rmSync(AGENT_DISK_TMP_ROOT, { force: true });
+  });
+
+  test("a launch's mountinfo shows the agent's /tmp at /tmp alone: Codex's sandbox masks every alias it lists, and bwrap can't under a root-only folder", () => {
+    if (!E) throw new Error("no agent E");
+    const l = systemLauncher(E, true, undefined, false, false);
+    const r = spawnSync(l.prefix[0] as string, [...l.prefix.slice(1), "/bin/sh", "-c", "cat /proc/self/mountinfo"], {
+      cwd: "/",
+      env: l.env,
+      encoding: "utf8",
+      timeout: 60_000,
+    });
+    const lines = (r.stdout ?? "").trim().split("\n");
+    const at = (target: string) => lines.filter((line) => line.split(" ")[4] === target);
+    const [tmp = ""] = at("/tmp");
+    expect(tmp).not.toBe("");
+    const dev = tmp.split(" ")[2];
+    expect(lines.filter((line) => line.split(" ")[2] === dev).map((line) => line.split(" ")[4])).toEqual(["/tmp"]);
+    const under = (root: string) => (line: string) => {
+      const target = line.split(" ")[4] ?? "";
+      return target === root || target.startsWith(`${root}/`);
+    };
+    expect(lines.filter(under(AGENT_RAM_ROOT))).toEqual([]);
+    expect(lines.filter(under(AGENT_TMP_POOL))).toEqual([]);
+    expect(lines.filter(under(AGENT_DISK_TMP_ROOT))).toEqual([]);
+    // The computer's own view keeps them.
+    expect(must("findmnt", ["-n", "-o", "FSTYPE", AGENT_TMP_POOL])).toBe("tmpfs");
+  });
+
+  test("systemd-tmpfiles takes the lines for agents with nothing running from its standard input: only their folders", () => {
+    if (!E) throw new Error("no agent E");
+    const left = path.join(agentTmp(E.uid), "agentes-isolation-left");
+    const other = path.join(agentTmp(A.uid), "agentes-isolation-other");
+    writeFileSync(left, "");
+    writeFileSync(other, "");
+    const clean = (lines: string) =>
+      spawnSync("systemd-tmpfiles", ["--clean", "-"], { input: lines, encoding: "utf8" });
+    // Fresh: kept.
+    const kept = clean(idleTmpLines([E.uid]));
+    expect(`${kept.stdout}${kept.stderr}`).not.toMatch(/fail|invalid|unknown/i);
+    expect(kept.status).toBe(0);
+    expect(existsSync(left)).toBe(true);
+    // The same lines at age 0 empty E's folders, and nobody else's.
+    expect(clean(idleTmpLines([E.uid]).replaceAll(" 6h", " 0")).status).toBe(0);
+    expect(existsSync(left)).toBe(false);
+    expect(existsSync(other)).toBe(true);
+    rmSync(other, { force: true });
   });
 
   test.if(has(ADB))("adb: each agent its own server, at once", () => {

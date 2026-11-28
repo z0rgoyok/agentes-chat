@@ -82,7 +82,8 @@ length, `forwarded`, `replyTo`):
    sha256(surface:messageId)[0..40]` and `meta.via = { kind: "surface", surface, linkId, forwarded? }`. Clients can't
    write `meta`, so the mark can't be forged. A message the surface marks as forwarded also gets `meta.readOutside`
    (ADR 0117): someone else's words, read as quoted text, never as the person's instruction. The person's own words
-   carry no outside mark.
+   carry no outside mark and get `meta.ownWords` (ADR 0250 §2, amended): they may keep a rule or a memory in the
+   person's name, so the service marks as forwarded any post with a part the sender didn't write.
 6. The DM is marked read up to it: the person is reading where they write.
 
 ### 4. Where the reply goes
@@ -135,14 +136,14 @@ not a member of in good standing; read anything but its own deliveries and their
 password or email change; decide an approval; write `meta` other than `via` and the forwarded mark.
 
 ### Later
-What a surface may send first, and a confirmation for sensitive acts, are later decisions, each with its own ADR.
+What a surface may send first, and a confirmation for sensitive acts, are later decisions, each with its own ADR. The confirmation is ADR 0226: §6's sensitive classes now wait for the person's PIN on a page linked from the surface. The first thing a surface sends first is the unread nudge, ADR 0234.
 
 ## Consequences
 
 - A server without `SURFACE_BRIDGE_TOKEN` runs as before: empty tables, no new listener, no row in the apps.
 - A self-hoster can connect any chat app by writing a small service against this contract.
 - A stolen bridge token can post as any linked person into their own DM with the right hand (which then acts with the
-  right hand's grants, minus what §6 refuses), read every reply to linked people and its files, claim a code someone
+  right hand's grants, minus what §6 refuses, and keeps rules, memories and routines in that person's name, ADR 0250), read every reply to linked people and its files, claim a code someone
   gives away (the owner still has to confirm, seeing a `display` the token wrote), and unlink anyone. It can't sign in,
   read other conversations or workspaces, or reach the operator API. Unsetting the value and restarting stops it.
 - Replies read on a surface are not pushed or put in the inbox, unless the service couldn't send them within 5 minutes.

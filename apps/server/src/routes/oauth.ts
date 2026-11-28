@@ -4,15 +4,20 @@ import {
   appPrincipal,
   appsUrls,
   authenticateAppBearer,
+  authenticateIntegrationApp,
+  consumeIntegrationCall,
   createAppsMcpHandler,
   exchangeCode,
   type FetchAppDocument,
+  INTEGRATION_RATE,
+  isIntegrationBearer,
   mcpRequestHeaders,
   type OauthDeps,
   refreshTokens,
   registerApp,
   revokeToken,
   startAuthorization,
+  TooManyError,
   touchGrant,
 } from "@agenteschat/engine";
 import type { OpenAPIHono } from "@hono/zod-openapi";
@@ -153,6 +158,44 @@ export function registerAppsRoot(app: OpenAPIHono, deps: AppDeps, options: AppsR
             400,
           );
         const id = parsed && typeof parsed === "object" ? ((parsed as { id?: unknown }).id ?? null) : null;
+        const tooMany = (retry: number) =>
+          c.json(
+            { jsonrpc: "2.0", id, error: { code: -32013, message: "Too many requests", data: { retry_after: retry } } },
+            429,
+            { "retry-after": String(retry) },
+          );
+        // An integration app's token (ADR 0251): its own three tools as itself, never a person's grant.
+        if (isIntegrationBearer(c.req.header("authorization"))) {
+          const app = await authenticateIntegrationApp(deps.db, c.req.header("authorization"));
+          if (!app) {
+            const bad = await deps.adapters.rateLimiter.consume(
+              `integration:bad-token:${requestLimitIp(c.req.raw.headers, deps.config.TRUSTED_PROXIES)}`,
+              INTEGRATION_RATE.badTokenMinute,
+            );
+            if (!bad.allowed) return tooMany(retryInSeconds(bad.resetAt));
+            return c.json({ jsonrpc: "2.0", id, error: { code: -32010, message: "Invalid app token" } }, 401, {
+              "www-authenticate": 'Bearer error="invalid_token"',
+            });
+          }
+          try {
+            await consumeIntegrationCall(deps.adapters.rateLimiter, app.appId);
+          } catch (error) {
+            if (error instanceof TooManyError) return tooMany(Number(error.params?.retryAfter ?? 60));
+            throw error;
+          }
+          const request = new Request(c.req.url, {
+            method: "POST",
+            headers: mcpRequestHeaders(c.req.raw.headers, parsed),
+            body: text,
+            signal: c.req.raw.signal,
+          });
+          const res = await serve(request, app);
+          const out = await res.arrayBuffer();
+          const headers = new Headers(res.headers);
+          headers.delete("transfer-encoding");
+          headers.set("content-length", String(out.byteLength));
+          return new Response(out, { status: res.status, headers });
+        }
         const row = await authenticateAppBearer(deps.db, c.req.header("authorization"));
         const unauthorized = () =>
           c.json(

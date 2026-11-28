@@ -1,0 +1,1 @@
+ALTER TABLE "machines" ADD COLUMN "spill_first" boolean DEFAULT false NOT NULL;

@@ -1,9 +1,19 @@
-import { type Memory, useMemoryAction, useOrgMemories } from "@agenteschat/client";
+import {
+  type Memory,
+  useForgetRightHandLearned,
+  useMemoryAction,
+  useOrgMemories,
+  useSetTeamWeekPrefs,
+  useSettings,
+  useTeamWeekPrefs,
+  useUpdateSettings,
+} from "@agenteschat/client";
 import { canTalk } from "@agenteschat/client/lib/audience";
+import { errorText } from "@agenteschat/client/lib/errors";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
 import { memoryLine } from "@agenteschat/client/lib/proposals";
-import { rightHandOf } from "@agenteschat/client/lib/right-hand";
+import { memoryAudienceGroups, rightHandOf } from "@agenteschat/client/lib/right-hand";
 import { canMakeTeamMemory } from "@agenteschat/client/lib/team-memory";
 import { useDeferredValue, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -16,6 +26,8 @@ import {
   Chip,
   EmptyState,
   Filters,
+  GroupedList,
+  GroupedRow,
   LIST_AVATAR,
   ListRow,
   SCREEN_X,
@@ -34,6 +46,7 @@ import { StarCard, StarStrip } from "../constellation/Constellation";
 import { aroundStar, memoryMap } from "../constellation/logic";
 import { useOpenDm } from "../new/useOpenDm";
 import { useFailed } from "../routines/hooks";
+import { confirmAction, Gap } from "../settings/parts";
 import { Face } from "../shared/Face";
 import { FirstUse, LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useMeId, useOrgId, usePullRefresh } from "../shared/hooks";
@@ -58,6 +71,7 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
   const openDm = useOpenDm();
   // Whoever answers this person: the right hand first (the server's `canTalk` holds the talk permission).
   const listener = [rightHandOf(dir.agents), ...dir.agents].find((a) => a && canTalk(a));
+  const lodi = rightHandOf(dir.agents);
   const [q, setQ] = useState("");
   const [agent, setAgent] = useState(initialAgent || "all");
   const [picked, setPicked] = useState<string | null>(null);
@@ -131,6 +145,7 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
           }
         />
       ) : null}
+      {lodi && agent === lodi.id ? <RightHandLearning agentId={lodi.id} /> : null}
       {(memories.data ?? []).length > 0 ? (
         <Filters
           items={agentFilters(memories.data ?? [], dir.agents, t("mobile.memory.all"))}
@@ -167,10 +182,30 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
             subtitle={subtitle}
             onOpen={() => (selected.kind === "agent" ? router.push(`/agent/${selected.id}`) : openMemory(selected.id))}
           />
-          <SectionHeader title={t("mobile.memory.recent")} />
-          {recent.map(row)}
-          <SectionHeader title={t("mobile.memory.mostUsed")} />
-          {used.map(row)}
+          {lodi && agent === lodi.id ? (
+            // The right hand's, as its Memory tab groups them: what is the viewer's alone, then each channel's.
+            memoryAudienceGroups(justLearned(shown, shown.length)).map((group) => (
+              <View key={group.key}>
+                <SectionHeader
+                  title={
+                    group.key === "you"
+                      ? t("agentPage.memory.learning.onlyYou")
+                      : group.channel
+                        ? t("agentPage.memory.learning.everyoneIn", { channel: group.channel })
+                        : t("agentPage.memory.learning.everyone")
+                  }
+                />
+                {group.items.map(row)}
+              </View>
+            ))
+          ) : (
+            <>
+              <SectionHeader title={t("mobile.memory.recent")} />
+              {recent.map(row)}
+              <SectionHeader title={t("mobile.memory.mostUsed")} />
+              {used.map(row)}
+            </>
+          )}
         </Animated.View>
       ) : (memories.data ?? []).length > 0 ? (
         <EmptyState
@@ -182,6 +217,72 @@ export function MemoryScreen({ agent: initialAgent }: { agent?: string } = {}) {
         />
       ) : null}
     </PushedLargeTitle>
+  );
+}
+
+/**
+ * The right hand's learning, above its memories (the web's Memory tab card): the person's own switch, Forget all (only
+ * their own), and for who configures the workspace, the workspace's switch.
+ */
+function RightHandLearning({ agentId }: { agentId: string }) {
+  const { t } = useTranslation();
+  const orgId = useOrgId();
+  const { org } = useOrg();
+  const toast = useToast();
+  const prefs = useTeamWeekPrefs(orgId).data;
+  const setPrefs = useSetTeamWeekPrefs(orgId);
+  const settings = useSettings(orgId).data;
+  const setSettings = useUpdateSettings(orgId);
+  const forget = useForgetRightHandLearned(orgId, agentId);
+  const failed = (e: unknown) => toast({ title: errorText(t, e), icon: "x" });
+  const workspaceOn = settings?.rightHandLearns !== false;
+  const fromYou = t("agentPage.memory.learning.fromYou");
+  const workspace = t("agentPage.memory.learning.workspace");
+  const forgetAll = t("agentPage.memory.learning.forgetAll");
+  return (
+    <>
+      <Gap />
+      <GroupedList>
+        <GroupedRow
+          label={fromYou}
+          labelLines={2}
+          hint={{ name: t("common.about", { label: fromYou }), text: t("agentPage.memory.learning.fromYouHint") }}
+          {...(!workspaceOn ? { sub: t("agentPage.memory.learning.workspaceOff") } : {})}
+          toggle={workspaceOn && !prefs?.learnOff}
+          disabled={!prefs || !workspaceOn}
+          onPress={() => setPrefs.mutate({ learnOff: !prefs?.learnOff }, { onError: failed })}
+        />
+        <GroupedRow
+          label={forgetAll}
+          danger
+          hint={{ name: t("common.about", { label: forgetAll }), text: t("agentPage.memory.learning.forgetAllHint") }}
+          disabled={forget.isPending}
+          onPress={() =>
+            confirmAction({
+              title: t("agentPage.memory.learning.forgetTitle"),
+              text: t("agentPage.memory.learning.forgetText"),
+              action: forgetAll,
+              cancel: t("common.cancel"),
+              onConfirm: () =>
+                forget.mutate(undefined, {
+                  onSuccess: () => toast({ title: t("agentPage.memory.learning.forgotten"), icon: "check" }),
+                  onError: failed,
+                }),
+            })
+          }
+        />
+        {can(org, "configure") && settings ? (
+          <GroupedRow
+            label={workspace}
+            labelLines={2}
+            hint={{ name: t("common.about", { label: workspace }), text: t("agentPage.memory.learning.workspaceHint") }}
+            toggle={workspaceOn}
+            disabled={setSettings.isPending}
+            onPress={() => setSettings.mutate({ rightHandLearns: !workspaceOn }, { onError: failed })}
+          />
+        ) : null}
+      </GroupedList>
+    </>
   );
 }
 
@@ -371,7 +472,8 @@ const styles = StyleSheet.create({
   shrink: { flexShrink: 1 },
   fill: { flex: 1 },
   lead: { paddingHorizontal: SCREEN_X, marginTop: -4 },
-  search: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 4 },
+  // 10 between the field and the agents' chips under it, as Drive and Routines: with 4 they touched the field.
+  search: { paddingHorizontal: SCREEN_X, paddingTop: 12, paddingBottom: 10 },
   body: { paddingHorizontal: SCREEN_X, paddingTop: 14, gap: 10 },
   who: { flexDirection: "row", alignItems: "center", gap: 6 },
   chips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },

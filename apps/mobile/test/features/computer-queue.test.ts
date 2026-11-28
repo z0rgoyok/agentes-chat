@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ComputerQueue, QueueWaiting } from "@agenteschat/client";
-import { queueWhereText, waitingFor } from "@agenteschat/client/lib/computer-queue";
+import { queueWaitText, queueWhereText, waitingFor } from "@agenteschat/client/lib/computer-queue";
 import { devicePlanName } from "@agenteschat/client/lib/no-ai";
 import { machineOfAgents, queuePlace } from "../../src/features/queue/logic";
 import { translator } from "./fixtures";
@@ -100,6 +100,16 @@ describe("a shared computer's line on the phone", () => {
     expect(waitingFor(queue, undefined, "rio", "dev")?.runId).toBe("q2");
     expect(waitingFor(queue, undefined, "rio", "dm1")).toBeNull();
     expect(waitingFor(null, undefined, "nova", "dm1")).toBeNull();
+  });
+
+  test("a turn in the conversation says who waits ahead of it, as on the web", async () => {
+    const [pt, en] = await Promise.all([translator("pt-BR"), translator("en")]);
+    const names: Record<string, string> = { nova: "Nova", rio: "Rio" };
+    const name = (id: string) => names[id];
+    expect(queueWaitText(pt, queue, waitingFor(queue, undefined, "rio", "dev"), name)).toBe("Na fila, depois da Nova");
+    expect(queueWaitText(en, queue, waitingFor(queue, undefined, "nova", "dm1"), name)).toBe("In line · starts soon");
+    const row = await Bun.file(new URL("../../src/features/queue/parts.tsx", import.meta.url)).text();
+    expect(row).toContain("{queueWaitText(t, queue, w, name)}");
   });
 
   test("a computer's plan in the line's spill-over list: its own sign-in, else an account of mine there", async () => {

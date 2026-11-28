@@ -254,6 +254,18 @@ a.dv-row__detail {
   padding: var(--action-clear) var(--action-clear) var(--action-clear) var(--space-3);
   border-radius: var(--radius-lg);
 }
+/* An OS permission it waits on: who asked it for what, on its own line under the next step. */
+.dv-permission {
+  overflow-wrap: anywhere;
+}
+.dv-permission__title {
+  display: block;
+}
+.dv-permission__asked {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--muted);
+}
 .dv-statusline__text {
   flex: 1;
   min-width: 0;
@@ -733,11 +745,8 @@ a.dv-row__detail {
 }
 /* What only a computer-sized screen offers (This Mac): a phone has no "this computer". */
 @media (width <= 640px) {
-  .dv-options > .dv-wide {
+  .dv-wide {
     display: none;
-  }
-  .dv-options > .dv-wide + .dv-option {
-    border-top: 0;
   }
   /* "Recommended" goes under its label, so a half-width segment never breaks "With a cable". */
   .ac-seg__item:has(> .dv-seg__note) {
@@ -814,130 +823,19 @@ a.dv-row__detail {
   background: var(--raised);
 }
 
-/* ---------- Connect options (the chooser) ---------------------------------------------
-   Grouped under .ac-grouphead. A whole row is the link (a.dv-option). A row with its own buttons is a
-   div.dv-option with .dv-option__acts, which drop under the words (no buttons inside a link). */
-.dv-options {
-  display: flex;
-  flex-direction: column;
-  border-radius: var(--radius-lg);
-  box-shadow: var(--e1), var(--top);
-  background: var(--surface-raised);
-  overflow: hidden;
+/* ---------- Connect options (the chooser): the kit's OptionLinks ------------------------
+   The one row with its own button (This Mac, inside the desktop app) has the rows' look and its button at the end. */
+.dv-wide {
+  cursor: default;
 }
-.dv-option {
-  display: grid;
-  grid-template-columns: 30px minmax(0, 1fr) auto;
-  align-items: center;
-  column-gap: var(--space-3);
-  min-height: 64px;
-  box-sizing: border-box;
-  padding: var(--space-3) var(--space-4);
-  color: var(--ink);
-  text-decoration: none;
+.dv-wide:hover {
+  box-shadow: inset 0 0 0 1px var(--line2);
 }
-.dv-option + .dv-option {
-  border-top: 1px solid var(--line);
-}
-/* A row that opens a flow in place is a button: the whole row, no button look of its own. */
-button.dv-option {
-  width: 100%;
-  border: 0;
-  border-radius: 0;
-  background: none;
-  font: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-:is(a, button).dv-option:hover {
-  background: var(--plate-soft);
-}
-html:not([data-pointer]) :is(a, button).dv-option:focus-visible {
-  outline: none;
-  box-shadow: var(--focus-ring-inset);
-}
-/* A row with a link in its line: the title's button covers the row, the link stays above it. */
-.dv-option--stretch {
-  position: relative;
-}
-.dv-option__hit {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  font-family: inherit;
-  text-align: start;
-  cursor: pointer;
-}
-.dv-option__hit::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-}
-.dv-option--stretch .ac-link {
-  position: relative;
-  z-index: 1;
-}
-.dv-option--stretch:has(.dv-option__hit:hover) {
-  background: var(--plate-soft);
-}
-.dv-option--stretch:has(.dv-option__hit:hover) .dv-option__arrow {
-  color: var(--ink);
-}
-html:not([data-pointer]) .dv-option__hit:focus-visible {
-  outline: none;
-}
-html:not([data-pointer]) .dv-option--stretch:has(.dv-option__hit:focus-visible) {
-  box-shadow: var(--focus-ring-inset);
-}
-.dv-option__text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-.dv-option__title {
-  font-size: 14.5px;
-  line-height: 20px;
-  font-weight: 600;
-}
-.dv-option__line {
-  display: inline-flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-1) var(--space-2);
-  font-size: var(--text-sm);
-  line-height: 18px;
-  color: var(--ink-muted);
-}
-.dv-option__arrow {
-  width: 16px;
-  height: 16px;
-  color: var(--faint);
-}
-:is(a, button).dv-option:hover .dv-option__arrow {
-  color: var(--ink);
-}
-.dv-option__acts {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-.dv-option > .ac-computer {
-  justify-self: center;
-}
-/* A one-action row (a found phone) keeps its button where the chevron sits. */
-.dv-option > .ac-btn {
-  grid-column: 3;
-}
-.dv-option__acts > .ac-link {
-  font-size: var(--text-sm);
-  margin-inline-start: var(--space-2);
+.dv-wide > .ac-btn {
+  flex: none;
 }
 .dv-option__logos {
+  vertical-align: middle;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
@@ -980,12 +878,6 @@ html:not([data-pointer]) .dv-option--stretch:has(.dv-option__hit:focus-visible) 
 }
 [data-theme="dark"] .dv-logo--ink {
   filter: invert(1);
-}
-/* Our own line icon in the same tile (Another computer): the tile fills svgs, our icons are strokes. */
-.ac-brand > svg.ac-icon {
-  fill: none;
-  width: 16px;
-  height: 16px;
 }
 /* A system's or tool's mark on a plain tile, in its own colour (the kit tints a coloured mark's tile). */
 .ac-brand.dv-tile {
@@ -1234,32 +1126,7 @@ a.dv-chiplink:hover {
 /* ---------- Narrow screens: no picture owns a column of three lines -------------------------
    The chooser's line, a connected device's facts and the page header's chips drop under the picture at the full
    width; what stays beside it (a title, a name) centres on it. */
-/* A chooser row's title rises to its tile's top (`.ac-captop`) only where its line drops under it. */
-@media (width > 480px) {
-  .dv-option__title.ac-captop {
-    margin-block-start: 0;
-  }
-}
 @media (width <= 480px) {
-  .dv-option {
-    row-gap: var(--space-1);
-  }
-  .dv-option > .dv-option__text {
-    display: contents;
-  }
-  .dv-option__title {
-    grid-column: 2;
-    grid-row: 1;
-    align-self: start;
-  }
-  .dv-option__line {
-    grid-column: 1 / -1;
-    grid-row: 2;
-  }
-  .dv-option > .dv-option__arrow {
-    grid-column: 3;
-    grid-row: 1;
-  }
   .ac-faceline:has(> .dv-connected__text) {
     flex-wrap: wrap;
   }

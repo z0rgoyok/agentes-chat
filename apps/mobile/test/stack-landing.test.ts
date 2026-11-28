@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { appLinkFromUrl, ownLinkHref } from "../src/features/links/app-links";
-import { isStill, landsOnRoot, STILL_PARAM, stillHref } from "../src/features/links/landing";
+import { isStill, landsOnRoot, STILL_PARAM, stillHref, withConversationUnder } from "../src/features/links/landing";
 import { MAIN, mainLayout, ownOptionsOf, pushedByDefault } from "./main-stack";
 
 const ROOT = join(import.meta.dir, "..");
@@ -65,7 +65,7 @@ describe("leaving for a tab never stacks a second copy of the tabs", () => {
       expect({ file, lands: read(file).includes("landOn(") }).toEqual({ file, lands: true });
     for (const file of [
       "app/(app)/(main)/conversations/[kind].tsx",
-      "app/(app)/(main)/channel-category.tsx",
+      "app/(app)/(main)/channel-sector.tsx",
       "app/signup.tsx",
     ])
       expect({ file, lands: read(file).includes("<LandOn href=") }).toEqual({ file, lands: true });
@@ -116,5 +116,41 @@ describe("a web link", () => {
     expect(link).toContain("const LINK_WAIT_MS = 10_000;");
     expect(link).toContain("failedRef.current(new NetworkError(");
     expect(ownOptionsOf("link")).toBe('{ ...solid, animation: "none" },');
+  });
+});
+
+describe("a thread opened from anywhere else has its conversation under it", () => {
+  const CHAT = "chat/[channelId]";
+  const tabs = { key: "tabs", name: "(tabs)" };
+  const thread = { key: "t", name: CHAT, params: { channelId: "c1", thread: "r1" } };
+
+  test("from the Threads tab or a notification: the conversation goes right under it, at the thread's root", () => {
+    expect(withConversationUnder([tabs, thread], "t", "c1", "r1")).toEqual([
+      tabs,
+      { name: CHAT, params: { channelId: "c1", m: "r1" } },
+      thread,
+    ]);
+    // From another conversation's thread: this one's conversation goes between them.
+    const other = { key: "o", name: CHAT, params: { channelId: "c2", thread: "r2" } };
+    expect(withConversationUnder([tabs, other, thread], "t", "c1", "r1")?.map((r) => r.params)).toEqual([
+      undefined,
+      { channelId: "c2", thread: "r2" },
+      { channelId: "c1", m: "r1" },
+      { channelId: "c1", thread: "r1" },
+    ]);
+  });
+
+  test("opened from its conversation, or a screen not in the stack: nothing changes", () => {
+    const channel = { key: "c", name: CHAT, params: { channelId: "c1", m: "x" } };
+    expect(withConversationUnder([tabs, channel, thread], "t", "c1", "r1")).toBeNull();
+    expect(withConversationUnder([tabs, thread], "gone", "c1", "r1")).toBeNull();
+  });
+
+  test("the conversation screen puts it there for a channel's or a DM's thread only", () => {
+    const route = read("app/(app)/(main)/chat/[channelId].tsx");
+    expect(route).toContain("useConversationUnder(channelId, listed ? threadId : null);");
+    expect(read("src/ui/navigation.tsx")).toContain(
+      'navigation.dispatch({ type: "RESET", payload: { index: state.index + 1, routes } });',
+    );
   });
 });

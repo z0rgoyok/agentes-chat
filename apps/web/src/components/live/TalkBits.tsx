@@ -146,7 +146,12 @@ export function useMadeFrom(artifact: Artifact | null | undefined): MadeFrom | n
     if (aud.kind === "channel") place = t("live.shell.meta.inChannel", { channel: aud.name });
     else if (aud.kind === "dm") {
       if (aud.between?.length) {
-        place = t("live.shell.meta.between", { names: joinNames(aud.between.map(dir.authorName), t) });
+        place = t("live.shell.meta.between", {
+          names: joinNames(
+            aud.between.map((a) => dir.authorName(a)),
+            t,
+          ),
+        });
       } else {
         // The DM's other side as its maker sees it: the agent made it in the DM with me, so it's my conversation.
         const other: ArtifactAuthor | null =

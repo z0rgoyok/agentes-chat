@@ -1,11 +1,10 @@
 import type { CalendarEvent, CalendarRange, SeriesScope } from "@agenteschat/client";
-import { useCalendar, useCalendarAction, useReminderAction, useRoutines } from "@agenteschat/client";
+import { useCalendar, useCalendarAction, useReminderAction } from "@agenteschat/client";
 import {
   addDays,
   addMinutes,
   type CalendarView,
   type CalItem,
-  collapseRoutines,
   type ItemSource,
   isBarItem,
   itemOwners,
@@ -24,7 +23,6 @@ import {
 import { errorText } from "@agenteschat/client/lib/errors";
 import { dateOnly, formatTime, joinNames, toYmd } from "@agenteschat/client/lib/format";
 import { can } from "@agenteschat/client/lib/permissions";
-import { runPixelStatus, runPixels } from "@agenteschat/client/lib/routine-view";
 import { browserTimezone } from "@agenteschat/client/lib/routines";
 import {
   ApprovalCard,
@@ -71,12 +69,11 @@ const WITH_OPEN = ["day"];
 const SOURCES: { source: ItemSource; icon: IconName }[] = [
   { source: "person", icon: "person" },
   { source: "agent", icon: "agent" },
-  { source: "routine", icon: "routines" },
   { source: "reminder", icon: "bell" },
   { source: "deadline", icon: "issues" },
 ];
 type Filters = Record<ItemSource, boolean>;
-const ALL_SOURCES: Filters = { person: true, agent: true, routine: true, reminder: true, deadline: true };
+const ALL_SOURCES: Filters = { person: true, agent: true, reminder: true, deadline: true };
 
 /** A pending edit or delete of a recurring event: which occurrences? */
 interface SeriesAsk {
@@ -142,32 +139,10 @@ export function CalendarPage({ today: todayProp, day }: { today?: Date; day?: st
     list.map((it) => (it.allDay ? it : { ...it, start: toView(it.start), end: toView(it.end) }));
   // biome-ignore lint/correctness/useExhaustiveDependencies: toView only depends on the zone
   const all = useMemo(() => shiftItems(toItems(range.data)), [range.data, viewZone]);
-  // A routine that runs often is one band, not a chip per run; its lane shows how the recent runs went.
-  const routines = useRoutines(org.id);
-  const routineById = useMemo(() => new Map((routines.data ?? []).map((r) => [r.id, r])), [routines.data]);
-  const sourced = collapseRoutines(
-    all.filter((it) => filters[it.source]),
-    days,
-  );
+  const sourced = all.filter((it) => filters[it.source]);
   // An item of several (a task due) shows while one of them does.
   const ownerShown = (it: CalItem) => !it.owner || itemOwners(it).some((o) => !hidden.has(actorKey(o)));
-  const items = sourced.filter(ownerShown).map((it) => {
-    const r = it.routineId ? routineById.get(it.routineId) : undefined;
-    if (!r) return it;
-    if (!it.runs) {
-      // A single run: how it went when it already ran (a run within 5 minutes of it), and the routine's last result.
-      const recent = runPixels(r.recentRuns);
-      const own = recent.find((x) => Math.abs(toView(new Date(x.at)).getTime() - it.start.getTime()) < 5 * 60_000);
-      const last = r.lastRun ? (runPixelStatus(r.lastRun.status) ?? undefined) : undefined;
-      return { ...it, result: own?.status, lastResult: recent[0]?.status ?? last };
-    }
-    const pastRuns = runPixels(r.recentRuns).map((x) => ({
-      at: toView(new Date(x.at)),
-      status: x.status,
-      weight: x.weight,
-    }));
-    return { ...it, pastRuns, running: r.state === "running" };
-  });
+  const items = sourced.filter(ownerShown);
   const counts = Object.fromEntries(
     SOURCES.map(({ source }) => [source, all.filter((it) => it.source === source).length]),
   );

@@ -86,7 +86,7 @@ export function browserUnavailableText(s: Extract<AgentBrowserStatus, { availabl
     case "machine_removed":
       return REMOVED_COMPUTER_MESSAGE;
     case "outdated":
-      return `The runner on ${on} is out of date and has no browser. Tell the person: its owner should update it.`;
+      return `The agentes.chat program on ${on} is out of date and has no browser. Tell the person: its owner should update it.`;
     case "switched_off":
       return `The browser is turned off on ${on}. Whoever connected it can turn it on from agentes.chat; tell the people.`;
     case "not_installed":

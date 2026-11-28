@@ -3,8 +3,9 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import { act, cleanup, fireEvent, within } from "@testing-library/react";
-import { clampCrop, cropRect, encode, VIEW_PX } from "@/components/ProfilePhoto";
+import { LOGO_PLATES } from "@agenteschat/ui/org-logo";
+import { act, cleanup, fireEvent, render, within } from "@testing-library/react";
+import { clampCrop, cropRect, encode, OrgMark, VIEW_PX } from "@/components/ProfilePhoto";
 import { createFakeApi, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
@@ -91,6 +92,29 @@ describe("profile photo", () => {
 });
 
 describe("workspace logo", () => {
+  test("a logo shows whole, on a plate only where the surface would hide its ink (a wordmark arrives uncropped)", async () => {
+    const css = await Bun.file(new URL("../src/layout.css", import.meta.url).pathname).text();
+    const rule = (selector: string) => {
+      const start = css.indexOf(`\n${selector} {`);
+      return start < 0 ? "" : css.slice(start, css.indexOf("}", start));
+    };
+    expect(rule(".org-mark")).toContain("object-fit: contain;");
+    expect(rule(".org-mark")).not.toContain("background");
+    expect(rule('.org-mark[data-ink="light"]')).toContain(`background: ${LOGO_PLATES.lightInk};`);
+    expect(rule('[data-theme="dark"] .org-mark')).toContain(`background: ${LOGO_PLATES.darkInk};`);
+    expect(rule('[data-theme="dark"] .org-mark[data-ink="light"]')).toContain("background: none;");
+    expect(css).not.toMatch(/\.org-mark[^{]*\{[^}]*object-fit: cover/);
+
+    const logo = "/api/app/org-logos/o1/0123456789abcdef.png";
+    const marks = render(
+      <>
+        <OrgMark logo={logo} />
+        <OrgMark logo={`${logo}#ink=light`} />
+      </>,
+    ).container.querySelectorAll("img.org-mark");
+    expect([...marks].map((m) => m.getAttribute("data-ink"))).toEqual([null, "light"]);
+  });
+
   test("Configurações → Geral → Enviar logo: crop, save; the sidebar shows the logo", async () => {
     const state = seedState();
     await renderApp(`/org/${ORG_ID}/settings`, { api: createFakeApi(state) });

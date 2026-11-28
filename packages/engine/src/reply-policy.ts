@@ -80,6 +80,38 @@ export const answersForEveryone = (
 export const WHY_ANSWER_FOR_EVERYONE =
   '# Why you were called\nA person mentioned everyone in this conversation (@everyone). One answer serves all of you, so you answer for all the agents here: the others read it and stay quiet. Answer once, for the team. A rule or anything to keep from it is the whole team\'s: save it once with `remember` and for: "team", and never ask the other agents to save copies.';
 
+/**
+ * The marker a routing decision's `reason` starts with when the channel's responsible agent took what a person said
+ * to the room (ADR 0095, addendum of 2026-11-23). Only code writes markers, before a step's own words.
+ */
+export const LEAD = "lead";
+
+/** A routing decision's `reason` gave the message to the channel's responsible agent (`LEAD` first). */
+export const routedToLead = (reason: string | null | undefined) =>
+  reason === LEAD || Boolean(reason?.startsWith(`${LEAD}; `));
+
+/** The prompt block of the responsible agent's run for what a person said to the room (`routedToLead`). */
+export const WHY_LEAD_CALLED =
+  "# Why you were called\nYou are responsible for this channel: a person said this to the room and it came to you alone, so the other agents here weren't called. Answer once, for the team. What another agent of this channel knows or did (its area, its status, its part of the work), ask it (ask_agent) and answer with what it says; work that is another agent's here, hand it over (tell_agent) and say who has it. Keep to the agents of this channel: don't bring in agents from outside it for this. Call pass only when the message asks nothing of the agents: a thanks, an ok, people talking among themselves.";
+
+/**
+ * The run was woken by its own notice that work came back already posted to the people: what it handed off
+ * (`consult_reply` with `refs.home`, `reportHandOffs`) or work that ended in a channel it is responsible for
+ * (`channel_work`, `tellChannelLead`). It may pass, but it was woken to go on, not to answer a message.
+ */
+export const wokenToGoOn = (
+  run: Pick<AgentRun, "agentId">,
+  trigger: (Pick<Message, "authorType" | "meta"> & { authorAgentId?: string | null }) | null | undefined,
+) => {
+  if (trigger?.authorType !== "agent" || trigger.authorAgentId !== run.agentId) return false;
+  const notice = trigger.meta?.notice as { kind?: unknown; refs?: { home?: unknown } } | undefined;
+  return notice?.kind === "channel_work" || (notice?.kind === "consult_reply" && Boolean(notice.refs?.home));
+};
+
+/** The prompt block of a run woken to go on (`wokenToGoOn`). */
+export const WHY_GOING_ON =
+  "# Why you were called\nWork came back (the current message), and the agent that did it already posted it to the people here. Nobody asked you anything new: do the step of your own it leaves, with your tools (check it, pass it on to the agent whose part needs it, the next stage you lead). Call pass when it leaves none.";
+
 export interface ReplyPolicy {
   /** Nobody called it by name: it may end without a message (`pass`, an empty or sentinel-only answer). */
   mayPass: boolean;
@@ -91,9 +123,11 @@ export interface ReplyPolicy {
  * Notices that only inform the agent (ADR 0053 §10): another agent's note, the late result of a wait it
  * stopped waiting on, its own fast reply, its own follow-up coming due, what happened on GitHub (it answers there),
  * a check that failed on its code session's branch (a push since may have fixed it, ADR 0215), the asks its ended
- * background work took on (the work may have done them). The run one of them wakes may stay quiet.
+ * background work took on (the work may have done them), a newcomer it may welcome (`member_joined`). The run one of
+ * them wakes may stay quiet.
  */
 const INFORMING_NOTICES: ReadonlySet<string> = new Set([
+  "channel_work",
   "agent_note",
   "wait_result",
   "talker_reply",
@@ -101,6 +135,7 @@ const INFORMING_NOTICES: ReadonlySet<string> = new Set([
   "github_event",
   "github_check",
   "work_follow_up",
+  "member_joined",
 ]);
 
 /**
@@ -125,9 +160,12 @@ export function replyPolicyFor(
   if (options.answerOwed) return { mayPass: false, background: false };
   // Catching up after a usage pause (`catch-up.ts`): someone else may have answered it meanwhile.
   if (options.catchUp || options.moot) return { mayPass: true, background: false };
-  const notice = trigger?.meta?.notice as { kind?: unknown; refs?: { report?: unknown } } | undefined;
+  const notice = trigger?.meta?.notice as { kind?: unknown; refs?: { report?: unknown; home?: unknown } } | undefined;
   if (typeof notice?.kind === "string" && INFORMING_NOTICES.has(notice.kind))
     return { mayPass: true, background: false };
+  // Work it handed off came back already posted to the people by who did it (`reportHandOffs`): it woke only in
+  // case a step of its own waits on it, and stays quiet when none does.
+  if (notice?.kind === "consult_reply" && notice.refs?.home) return { mayPass: true, background: false };
   // A routine that speaks only when there is news (ADR 0053 §7): the run its report woke may find nothing new
   // for the people (only what it already told them) and stay quiet. One that reports every time always posts.
   if (notice?.kind === "routine_handoff" && notice.refs?.report !== "always")

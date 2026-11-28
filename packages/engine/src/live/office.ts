@@ -57,7 +57,8 @@ import { lineLocale, personLocale } from "../requester";
 import { LIVE_ASSET_BYTES } from "./assets";
 import { createLiveFile } from "./create";
 import type { LiveDocs } from "./docs";
-import { documentExport, liveAssetBytes } from "./document-export";
+import { documentExport, liveAssetBytes, liveFontBytes } from "./document-export";
+import { fileFonts } from "./file-fonts";
 import { loadHeadDoc } from "./store";
 
 /**
@@ -340,8 +341,18 @@ export async function writeLiveExport(
   if (kind === "slides" && (format === null || format === "pptx" || format === "pdf")) {
     const deck = deckOfDoc(doc);
     const media = (asset: string) => liveAssetBytes(deps, file.orgId, file.id, asset);
-    if (format === "pdf") return out("pdf", await slidesPdf(deck, media, file.title));
-    return out("pptx", await writePptx(deck, media));
+    const own = await fileFonts(deps, file.orgId, file.id);
+    if (format === "pdf") {
+      // A file's own font goes into a PDF unless its license forbids embedding it (`fsType`, ADR 0220 §2).
+      const embeddable = own.list.filter((f) => f.embedding !== "restricted").map((f) => f.id);
+      const bytes = new Map<string, Uint8Array>();
+      for (const id of embeddable) {
+        const b = await liveFontBytes(deps, file.orgId, file.id, id);
+        if (b) bytes.set(id, b);
+      }
+      return out("pdf", await slidesPdf(deck, media, file.title, bytes));
+    }
+    return out("pptx", await writePptx(deck, media, new Map(own.list.map((f) => [f.id, f.family]))));
   }
   if (kind === "document") return documentExport(deps, file, doc, format);
   if (kind === "canvas" && (format === null || format === "json")) {

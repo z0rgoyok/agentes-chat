@@ -160,3 +160,29 @@ describe("data sockets", () => {
     expect(parseStreamControl("{")).toBeNull();
   });
 });
+
+test("a desktop's start: `stream.starting` names a stream; `desktop.started` its times or its error code", () => {
+  const streamId = randomBytes(32).toString("base64url");
+  expect(parseRunnerFrame(JSON.stringify({ type: "stream.starting", streamId }))).toEqual({
+    type: "stream.starting",
+    streamId,
+  });
+  expect(parseRunnerFrame(JSON.stringify({ type: "stream.starting", streamId: "short" }))).toBeNull();
+  const steps = { room: 3, prepared: 410.6, screen: 900, look: 1200, session: 25_000 };
+  expect(parseRunnerFrame(JSON.stringify({ type: "desktop.started", agentId: "a1", ms: 26_313.4, steps }))).toEqual({
+    type: "desktop.started",
+    agentId: "a1",
+    ms: 26_313,
+    steps: { ...steps, prepared: 411 },
+  });
+  // Steps only whole; an error only as a code.
+  expect(
+    parseRunnerFrame(
+      JSON.stringify({ type: "desktop.started", agentId: "a1", ms: 9, steps: { room: 1 }, error: "desktop_busy" }),
+    ),
+  ).toEqual({ type: "desktop.started", agentId: "a1", ms: 9, error: "desktop_busy" });
+  expect(
+    parseRunnerFrame(JSON.stringify({ type: "desktop.started", agentId: "a1", ms: 9, error: "Can't, see /tmp/x" })),
+  ).toEqual({ type: "desktop.started", agentId: "a1", ms: 9 });
+  expect(parseRunnerFrame(JSON.stringify({ type: "desktop.started", agentId: "a1", ms: -1 }))).toBeNull();
+});

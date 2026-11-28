@@ -12,7 +12,8 @@ export type MdBlock =
   | { type: "heading"; level: number; text: string }
   | { type: "paragraph"; text: string }
   | { type: "code"; lang: string; text: string }
-  | { type: "list"; ordered: boolean; items: string[] }
+  /** `start`: an ordered list's first number when it isn't 1 ("3. c" goes on as 3). */
+  | { type: "list"; ordered: boolean; start?: number; items: string[] }
   | { type: "quote"; text: string; lines: string[] }
   | { type: "embed"; target: string }
   | { type: "rule" }
@@ -202,9 +203,22 @@ export function parseMarkdown(source: string, options: ParseOptions & { ranges?:
           i++;
         } else if (items.length && /^\s{2,}\S/.test(lines[i] as string)) {
           items[items.length - 1] += `${join}${(lines[i++] as string).trim()}`;
+        } else if (!(lines[i] as string).trim()) {
+          // A loose list: blank lines between its items (or before an item's indented detail) keep it one list,
+          // so its numbers go on instead of each item starting a list of its own at 1. An indented code fence, quote or
+          // table there is a block of its own: the list ends, and the next item goes on with its number (`start`).
+          let next = i;
+          while (next < lines.length && !(lines[next] as string).trim()) next++;
+          const l = lines[next] ?? "";
+          const after = l.match(LIST);
+          const detail = /^\s{2,}\S/.test(l) && !/^\s*(```|>)/.test(l) && !tableAt(lines, next);
+          const goesOn = after ? /\d/.test(after[1] as string) === ordered : detail;
+          if (!goesOn) break;
+          i = next;
         } else break;
       }
-      push({ type: "list", ordered, items });
+      const first = ordered ? Number.parseInt(item[1] as string, 10) : 1;
+      push({ type: "list", ordered, ...(first !== 1 && { start: first }), items });
       continue;
     }
     const para: string[] = [];

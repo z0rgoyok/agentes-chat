@@ -505,6 +505,43 @@ describe("the pair row before the reply that asked (ConsultPairRow)", () => {
     expect(document.querySelector("aside.thread-panel")).toBeNull();
   });
 
+  test("the consulted agent's words passed on by the agent that asked: a quote at the top of its message", async () => {
+    const c = consultation({ status: "answered", answer: ANSWER, answeredAt: ago(15) });
+    const state = withTalk(withAsk([c]), c);
+    const said = (id: string, from: string, body: string, runId: string, at: string): Message => ({
+      id,
+      channelId: ENG_ID,
+      threadId: null,
+      author: { type: "agent", id: from },
+      body,
+      mentionedAgentIds: [],
+      agentRunId: runId,
+      meta: {},
+      createdAt: at,
+    });
+    state.messages.push(
+      said("msg-atlas-said", ATLAS_ID, "Ada, a curva de 2 anos subiu 6 pb desde ontem.", "atlas-run", ago(20)),
+      said(
+        "msg-ada-relays",
+        ADA_ID,
+        "A curva de 2 anos subiu 6 pb desde ontem, segundo o Atlas.",
+        "ada-run-2",
+        ago(10),
+      ),
+    );
+    await open(state);
+    const articles = screen().getAllByRole("article");
+    const ada = articles.find((a) => a.textContent?.includes("segundo o Atlas")) as HTMLElement;
+    // Atlas's words take no row of their own, only Ada's quote (what it posts for the person stays: `relayedAnswers`).
+    expect(articles.filter((a) => a.textContent?.includes("Ada, a curva"))).toEqual([ada]);
+    const quote = within(ada).getByRole("button", { name: /^Resposta de Atlas: Ada, a curva/ });
+    expect(quote.className).toBe("msg-quote");
+    expect(quote.textContent).toContain("@Atlas");
+    await act(async () => fireEvent.click(quote));
+    await settle(3);
+    expect(panelLabel()).toBe("Conversa entre Ada e Atlas");
+  });
+
   test("the answer far below its question: the same pair row where it arrived, opening the conversation", async () => {
     const c = consultation({ status: "answered", answer: ANSWER, answeredAt: ago(5) });
     await open(talkAfter(withTalk(withAsk([c], true), c), 3));
@@ -667,7 +704,7 @@ describe("the bar above the composer speaks for a hand-off (ADR 0095 addendum)",
     const { socket } = await open(withTalk(withAsk([c]), c));
     await push(socket, { ...asking, kind: "note" });
     await settle(2);
-    expect(bar()).toBe("Atlas está trabalhando…");
+    expect(bar()).toBe("Atlas ajudando a Ada…");
     expect(typingBar().getAttribute("data-consult")).toBe("work");
     // Its time is the lists' clock, never a question's "0:41".
     expect(typingBar().querySelector(".ac-typing__clock")).toBeNull();
@@ -711,7 +748,7 @@ describe("the bar above the composer speaks for a hand-off (ADR 0095 addendum)",
     await push(socket, { ...asking, kind: "note" });
     await settle(2);
     expect(document.querySelector(".handed-line")).not.toBeNull();
-    expect(bar()).toBe("Atlas está trabalhando…");
+    expect(bar()).toBe("Atlas ajudando a Ada…");
   });
 
   test("waiting on someone else's approval: quiet, with the wait's own clock", async () => {

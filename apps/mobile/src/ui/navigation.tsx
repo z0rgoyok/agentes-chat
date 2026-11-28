@@ -7,6 +7,8 @@ import {
   type Theme as NavigationTheme,
   Stack,
   useFocusEffect,
+  useNavigation,
+  useRoute,
 } from "expo-router";
 import {
   type ReactNode,
@@ -14,13 +16,14 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { isStill, landsOnRoot, STILL_PARAM } from "@/features/links/landing";
+import { isStill, landsOnRoot, STILL_PARAM, withConversationUnder } from "@/features/links/landing";
 import { needsHeaderBlur, pushOnce } from "@/lib/nav";
 import { IconButton } from "./IconButton";
 import { useTheme } from "./theme";
@@ -272,6 +275,27 @@ export function landOn(href: Href) {
 export function LandOn({ href }: { href: Href }) {
   useFocusEffect(useCallback(() => landOn(href), [href]));
   return null;
+}
+
+/**
+ * A thread's screen puts its conversation under it when it came from anywhere else (`withConversationUnder`), once:
+ * the stack is reset with the same routes and that one more, so nothing on screen moves or loads again. `threadId`
+ * null (not a thread, or not known yet to be one a conversation holds): nothing yet.
+ */
+export function useConversationUnder(channelId: string, threadId: string | null) {
+  const navigation = useNavigation();
+  const route = useRoute();
+  const done = useRef(false);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: once, as soon as it is a thread
+  useEffect(() => {
+    if (!threadId || done.current) return;
+    done.current = true;
+    const state = navigation.getState();
+    const routes = state && withConversationUnder(state.routes, route.key, channelId, threadId);
+    if (!routes) return;
+    // No `stale: false`: the navigator gives the new route its key and keeps the others as they are.
+    navigation.dispatch({ type: "RESET", payload: { index: state.index + 1, routes } });
+  }, [threadId]);
 }
 
 /**

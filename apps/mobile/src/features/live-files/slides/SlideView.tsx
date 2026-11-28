@@ -1,6 +1,7 @@
 import type { ChartSpec } from "@agenteschat/client/lib/chart";
-import type { RichDoc } from "@agenteschat/live/rich";
+import type { RichDoc, RichRun } from "@agenteschat/live/rich";
 import {
+  type DeckFonts,
   type ElementView,
   type SlideBackground,
   type SlideTheme,
@@ -11,13 +12,14 @@ import {
 } from "@agenteschat/live/slides";
 import type { HexColor } from "@agenteschat/ui/agent/engine";
 import { Image, type ImageSource } from "expo-image";
-import { memo, useMemo } from "react";
+import { createContext, memo, useContext, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { Text as RNText, StyleSheet, type TextStyle, View } from "react-native";
 import Svg, { Ellipse, G, Line, Polygon, Rect } from "react-native-svg";
 import { Icon, useTheme } from "@/ui";
 import { ThemeColorsOverride } from "@/ui/theme";
 import { ChartView } from "../../chat/ChartCard";
+import { faceStyle, useNativeFaces } from "../shared/fonts";
 import {
   type DeckSize,
   drawnParagraphs,
@@ -51,6 +53,9 @@ export type PictureOf = (ref: string) => ImageSource | null;
 
 export type SlideMode = "edit" | "thumb" | "show";
 
+/** The deck's own fonts over its theme's (ADR 0220 §3), for every slide drawn below. */
+export const SlideFontsContext = createContext<DeckFonts | undefined>(undefined);
+
 export interface SlideViewProps {
   theme: ThemeId | undefined;
   slide: DrawSlide | null;
@@ -72,6 +77,8 @@ export const SlideView = memo(function SlideView({
   radius = 6,
 }: SlideViewProps) {
   const theme = themeOf(themeId);
+  const shared = useContext(SlideFontsContext);
+  const fonts = (deck as { fonts?: DeckFonts } | undefined)?.fonts ?? shared;
   const k = slideScale(width, deck);
   const height = slideHeight(width, deck);
   const bg = slide?.bg;
@@ -90,7 +97,7 @@ export const SlideView = memo(function SlideView({
       ) : null}
       {(slide?.elements ?? []).map((el, i) => (
         // Elements of a deck read from a file have no ids: their place in the slide is theirs.
-        <Part key={el.id ?? `at${i}`} el={el} k={k} theme={theme} picture={picture} mode={mode} />
+        <Part key={el.id ?? `at${i}`} el={el} k={k} theme={theme} fonts={fonts} picture={picture} mode={mode} />
       ))}
     </View>
   );
@@ -100,12 +107,14 @@ function Part({
   el,
   k,
   theme,
+  fonts,
   picture,
   mode,
 }: {
   el: DrawElement;
   k: number;
   theme: SlideTheme;
+  fonts: DeckFonts | undefined;
   picture: PictureOf | undefined;
   mode: SlideMode;
 }) {
@@ -122,13 +131,13 @@ function Part({
     case "text":
       return (
         <View style={[styles.abs, box]}>
-          <TextBody el={el} k={k} theme={theme} mode={mode} />
+          <TextBody el={el} k={k} theme={theme} fonts={fonts} mode={mode} />
         </View>
       );
     case "shape":
       return (
         <View style={[styles.abs, box]}>
-          <ShapeBody el={el} k={k} theme={theme} />
+          <ShapeBody el={el} k={k} theme={theme} fonts={fonts} />
         </View>
       );
     case "image":
@@ -156,8 +165,6 @@ function Part({
 
 // ── Text ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-const weightOf = (w: number): TextStyle["fontWeight"] => (w >= 700 ? "700" : w >= 600 ? "600" : "400");
-
 /** Rich text in a box, in the theme's look for its role: paragraphs, lists, levels and marks as the web draws them. */
 export function RichBlock({
   rich,
@@ -173,13 +180,53 @@ export function RichBlock({
   placeholderColor?: string;
 }) {
   const size = Math.max(0.5, look.size * k);
+  // Each face the text draws with (ADR 0220 §8): the box's own, and any a run names.
+  const faces = useMemo(
+    () => [
+      { ref: look.fontRef, weight: look.weight, italic: false },
+      ...rich.flatMap((p) =>
+        p.runs
+          .filter((r) => r.font || r.weight || r.bold || r.italic)
+          .map((r) => ({
+            ref: r.font ?? look.fontRef,
+            weight: r.weight ?? (r.bold ? 700 : look.weight),
+            italic: r.italic === true,
+          })),
+      ),
+    ],
+    [rich, look.fontRef, look.weight],
+  );
+  useNativeFaces(faces);
   const base: TextStyle = {
     fontSize: size,
     lineHeight: Math.max(1, look.size * look.lineHeight * k),
     color: look.color,
-    fontWeight: weightOf(look.weight),
+    ...faceStyle({ ref: look.fontRef, weight: look.weight, italic: false }),
     textAlign: look.align,
-    ...(look.font === "heading" ? { letterSpacing: -0.01 * size } : {}),
+    ...(look.tracking
+      ? { letterSpacing: (look.tracking / 1000) * size }
+      : look.font === "heading"
+        ? { letterSpacing: -0.01 * size }
+        : {}),
+    ...(look.caps ? { textTransform: "uppercase" } : {}),
+  };
+  const runStyle = (run: RichRun): TextStyle => {
+    const own = run.size ? run.size * k : size;
+    const typed = run.font || run.weight || run.bold || run.italic;
+    return {
+      ...runLook(run),
+      ...(typed
+        ? faceStyle({
+            ref: run.font ?? look.fontRef,
+            weight: run.weight ?? (run.bold ? 700 : look.weight),
+            italic: run.italic === true,
+          })
+        : {}),
+      ...(run.size ? { fontSize: own } : {}),
+      ...(run.tracking ? { letterSpacing: (run.tracking / 1000) * own } : {}),
+      ...(run.caps ? { textTransform: "uppercase" } : {}),
+      ...(run.highlight ? { backgroundColor: run.highlight } : {}),
+    };
   };
   const paragraphs = useMemo(() => drawnParagraphs(rich), [rich]);
   const empty = !rich.some((p) => p.runs.some((r) => r.text));
@@ -204,7 +251,11 @@ export function RichBlock({
           <View
             // biome-ignore lint/suspicious/noArrayIndexKey: paragraphs of one text, in order
             key={i}
-            style={{ paddingLeft: p.indent * size, marginTop: i > 0 ? PARAGRAPH_GAP_EM * size : 0 }}
+            style={{
+              paddingLeft: p.indent * size,
+              marginTop: i > 0 ? PARAGRAPH_GAP_EM * size : 0,
+              ...(rich[i]?.spaceAfter ? { marginBottom: (rich[i]?.spaceAfter ?? 0) * k } : {}),
+            }}
           >
             {p.marker ? (
               <RNText
@@ -214,11 +265,18 @@ export function RichBlock({
                 {p.marker}
               </RNText>
             ) : null}
-            <RNText allowFontScaling={false} style={[base, p.align ? { textAlign: p.align } : null]}>
+            <RNText
+              allowFontScaling={false}
+              style={[
+                base,
+                p.align ? { textAlign: p.align } : null,
+                rich[i]?.lineHeight ? { lineHeight: Math.max(1, look.size * (rich[i]?.lineHeight ?? 1) * k) } : null,
+              ]}
+            >
               {p.runs.length
                 ? p.runs.map((run, j) => (
                     // biome-ignore lint/suspicious/noArrayIndexKey: runs of one paragraph, in order
-                    <RNText key={j} style={runLook(run)}>
+                    <RNText key={j} style={runStyle(run)}>
                       {run.text}
                     </RNText>
                   ))
@@ -231,9 +289,21 @@ export function RichBlock({
   );
 }
 
-function TextBody({ el, k, theme, mode }: { el: DrawElement; k: number; theme: SlideTheme; mode: SlideMode }) {
+function TextBody({
+  el,
+  k,
+  theme,
+  fonts,
+  mode,
+}: {
+  el: DrawElement;
+  k: number;
+  theme: SlideTheme;
+  fonts: DeckFonts | undefined;
+  mode: SlideMode;
+}) {
   const { t } = useTranslation();
-  const look = textLook(theme, el);
+  const look = textLook(theme, el, fonts);
   const hint = mode === "edit" ? placeholderOf(el) : null;
   return (
     <RichBlock
@@ -299,7 +369,17 @@ function ShapePath({
   }
 }
 
-function ShapeBody({ el, k, theme }: { el: DrawElement; k: number; theme: SlideTheme }) {
+function ShapeBody({
+  el,
+  k,
+  theme,
+  fonts,
+}: {
+  el: DrawElement;
+  k: number;
+  theme: SlideTheme;
+  fonts: DeckFonts | undefined;
+}) {
   const style = el.style ?? {};
   const fill = shapeFill(theme, style);
   const stroke = style.stroke && style.stroke !== "none" ? style.stroke : null;
@@ -320,7 +400,7 @@ function ShapeBody({ el, k, theme }: { el: DrawElement; k: number; theme: SlideT
           <ShapePath kind={style.shape ?? "rect"} w={w} h={h} inset={width / 2} radius={style.radius ?? 0} />
         </G>
       </Svg>
-      {hasText ? <RichBlock rich={el.text ?? []} look={textLook(theme, el)} k={k} /> : null}
+      {hasText ? <RichBlock rich={el.text ?? []} look={textLook(theme, el, fonts)} k={k} /> : null}
     </>
   );
 }

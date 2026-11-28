@@ -12,14 +12,18 @@ import {
   useSyncExternalStore,
 } from "react";
 import { type LayoutChangeEvent, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
+import Animated, { type SharedValue } from "react-native-reanimated";
 import { SafeAreaProvider, useSafeAreaFrame, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Button } from "./Button";
+import { useScrollFade } from "./cover";
 import { Glass } from "./Glass";
 import type { HeaderAction } from "./headerActions";
 import { IconButton, usePlateEdge } from "./IconButton";
 import type { IconName } from "./icons.data";
 import { HeaderSlot, type HeaderSlotStore, useHeaderSlot } from "./navigation";
+import { withAlpha } from "./palette";
 import { PANE_BAR_HEIGHT, PANE_BAR_SIDE, PANE_BUTTON, PANE_CAPSULE_PAD, paneTitleRoom } from "./pane-bar";
+import { readableSide } from "./readable";
 import { Text } from "./Text";
 import { useTheme } from "./theme";
 
@@ -67,6 +71,18 @@ export interface PaneHeaderSpec {
   over?: boolean;
   /** The color of a bar that stands above the screen (the grouped gray of settings-like screens); the page's by default. */
   tone?: string | undefined;
+  /**
+   * A clear bar's list (`over`): its material (a blur in the page's tone, a hairline at its foot) comes in as `y` goes
+   * `from` → `to`, as the system's bar takes its own once a list passes under it. Without it the bar stays clear.
+   */
+  scroll?: PaneScroll | undefined;
+}
+
+/** The scroll a clear pane bar follows for its material (`PaneHeaderSpec.scroll`). */
+export interface PaneScroll {
+  y: SharedValue<number>;
+  from: number;
+  to: number;
 }
 
 /** A button of the bar, as the pane draws it: its press always reaches the screen's latest handler. */
@@ -92,6 +108,7 @@ export interface PaneBarState {
   actions: BarButton[];
   leftActions: BarButton[];
   word: { label: string; disabled: boolean; onPress: () => void } | null;
+  scroll: PaneScroll | null;
 }
 
 /** The bar the screen in a pane set last; the pane draws it. */
@@ -154,6 +171,20 @@ export function useContentWidth(): number {
   const pane = usePane();
   const { width } = useWindowDimensions();
   return pane ? pane.width : width;
+}
+
+/** The margin each side of a screen's content gets on a large screen (`readableSide` of its width): 0 on a phone. */
+export function useReadableSide(): number {
+  return readableSide(useContentWidth());
+}
+
+/**
+ * A screen's content in the readable column: its own paddings inside, the margins of a large screen around it (none on
+ * a phone). Art that runs edge to edge (a cover's sky) stays outside it.
+ */
+export function ReadableColumn({ children }: { children?: ReactNode }) {
+  const side = useReadableSide();
+  return <View style={{ paddingHorizontal: side }}>{children}</View>;
 }
 
 /**
@@ -242,6 +273,10 @@ export function usePaneHeader(spec: PaneHeaderSpec) {
   useLayoutEffect(() => {
     latest.current = spec;
   });
+  // The scroll's value is a shared one: the same object every render, so the bar isn't set again as the list moves.
+  const scrollY = spec.scroll?.y ?? null;
+  const scrollFrom = spec.scroll?.from ?? 0;
+  const scrollTo = spec.scroll?.to ?? 0;
   const plain = JSON.stringify({
     over: spec.over ?? false,
     tone: spec.tone ?? null,
@@ -279,14 +314,35 @@ export function usePaneHeader(spec: PaneHeaderSpec) {
       actions: p.actions.map((a, i) => ({ ...a, onPress: () => latest.current.actions?.[i]?.onPress() })),
       leftActions: p.leftActions.map((a, i) => ({ ...a, onPress: () => latest.current.leftActions?.[i]?.onPress() })),
       word: p.word ? { ...p.word, onPress: () => latest.current.word?.onPress() } : null,
+      scroll: scrollY ? { y: scrollY, from: scrollFrom, to: scrollTo } : null,
     };
-  }, [plain, titleSlot, leftSlot, rightSlot, leadSlot]);
+  }, [plain, titleSlot, leftSlot, rightSlot, leadSlot, scrollY, scrollFrom, scrollTo]);
   useLayoutEffect(() => {
     if (!bar) return;
     bar.set(state);
     return () => bar.clear(state);
   }, [bar, state]);
 }
+
+/**
+ * A clear pane bar's material, coming in with its list's scroll: a blur, the page's tone over it and a hairline at its
+ * foot, so the list passing under the title and the buttons never reads through them (the system's bar does this by
+ * itself outside a pane).
+ */
+function PaneBackdrop({ scroll, tone }: { scroll: PaneScroll; tone: string }) {
+  const { colors } = useTheme();
+  const fade = useScrollFade(scroll.y, scroll.from, scroll.to, true);
+  return (
+    <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, fade]}>
+      <Glass intensity={80} style={StyleSheet.absoluteFill} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: withAlpha(tone, BACKDROP_TONE) }]} />
+      <View style={[styles.hairline, { backgroundColor: colors.line }]} />
+    </Animated.View>
+  );
+}
+
+/** How much of the page's tone lies over the blur: enough that text under it doesn't read through. */
+const BACKDROP_TONE = 0.6;
 
 /**
  * The pane's bar: its title (words, or the screen's view) and line centred on the pane, our icon buttons in a capsule
@@ -313,6 +369,7 @@ function PaneBar({ state, top, width }: { state: PaneBarState; top: number; widt
         state.over ? styles.over : { backgroundColor: state.tone ?? colors.bg },
       ]}
     >
+      {state.over && state.scroll ? <PaneBackdrop scroll={state.scroll} tone={state.tone ?? colors.bg} /> : null}
       <View pointerEvents="box-none" style={styles.row}>
         <View pointerEvents="box-none" style={styles.middle}>
           <View style={[styles.title, { maxWidth: room }]}>
@@ -390,6 +447,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   bar: { paddingHorizontal: PANE_BAR_SIDE },
   over: { position: "absolute", top: 0, left: 0, right: 0 },
+  hairline: { position: "absolute", left: 0, right: 0, bottom: 0, height: StyleSheet.hairlineWidth },
   row: { flex: 1, flexDirection: "row", alignItems: "center" },
   middle: {
     position: "absolute",

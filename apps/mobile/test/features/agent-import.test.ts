@@ -250,6 +250,7 @@ describe("todoHref", () => {
     expect(todoHref("connection")).toBe("/connectors");
     expect(todoHref("app")).toBe("/connectors");
     expect(todoHref("file")).toBe("/drive");
+    expect(todoHref("path")).toBe("/drive");
     expect(todoHref("secret")).toBeNull();
     expect(todoHref("model")).toBeNull();
   });

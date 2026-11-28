@@ -1,5 +1,6 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import {
   type BrowserTraffic,
@@ -28,8 +29,10 @@ import {
   closeIdleUnderPressure,
   LOCKED_TURN_MIN_FREE_BYTES,
   MAX_IN_FLIGHT,
+  PAST_FLOOR_NOTE,
   PERSON_TURN_MIN_FREE_BYTES,
   RequestRunner,
+  ROOM_WAIT_MAX_MS,
   TURN_BYTES,
   TURN_SETTLE_MS,
   TURNS_WITHOUT_MEMORY,
@@ -445,6 +448,27 @@ test("a browser command is logged when it ends, with how long it took and what i
   expect(lines[4]).toMatch(/^\[dev\] browser\.warm \(desktop\) \d+ms \(desktop 2\.3 s, launch 1\.4 s\)$/);
 });
 
+test("a refused brain turn is logged with its code and words, whatever the code; a canceled one and another op's expected refusal aren't", async () => {
+  const lines: string[] = [];
+  const ws = tempDir();
+  dirs.push(ws);
+  const runner = new RequestRunner(
+    { workspaceReal: ws, exec: true, token: "agm_x" },
+    () => {},
+    (l) => lines.push(l),
+    async (_ctx, req) => {
+      if (req.op === "brain.turn" && req.runId === "c") throw new RunnerError("internal", "Canceled");
+      throw new RunnerError("not_found", "No such file or folder");
+    },
+    { memAvailable: () => null },
+  );
+  const agent = { id: "01a142cb-489d-7000-87a3-efb5adb382ca", handle: "dev" };
+  await runner.start("t", { op: "brain.turn", runId: "t", agent } as unknown as MachineRequest);
+  await runner.start("c", { op: "brain.turn", runId: "c", agent } as unknown as MachineRequest);
+  await runner.start("l", { op: "list", path: "", depth: 1 });
+  expect(lines.filter((l) => l.includes("failed"))).toEqual(["brain.turn failed (not_found): No such file or folder"]);
+});
+
 test("requests run concurrently up to the ceiling; beyond it the runner answers busy (never to a person's view); cancel aborts", async () => {
   const ws = tempDir();
   dirs.push(ws);
@@ -514,11 +538,12 @@ test("a locked-down turn goes past the room check down to its own floor, and a l
   };
   const refused = () => sent.filter((f) => f.id && !f.ok).map((f) => f.id);
 
-  // Below the floor everyone else keeps: the agents' turn waits, the locked-down one runs.
+  // Below the floor everyone else keeps: past the one turn always let in, the agents' turn waits, the locked-down one runs.
+  turn("first", false);
   turn("work", false);
   turn("lodi", true);
   expect(refused()).toEqual(["work"]);
-  expect(runner.size).toBe(1);
+  expect(runner.size).toBe(2);
 
   // A computer about to run out turns it away too, and what it just admitted counts.
   free = LOCKED_TURN_MIN_FREE_BYTES + TURN_BYTES - 1;
@@ -527,7 +552,7 @@ test("a locked-down turn goes past the room check down to its own floor, and a l
 
   // Where memory isn't known room is a count of turns: it doesn't count against it.
   free = null;
-  for (let i = 0; i < TURNS_WITHOUT_MEMORY - 1; i++) turn(`c${i}`, false);
+  for (let i = 0; i < TURNS_WITHOUT_MEMORY - 2; i++) turn(`c${i}`, false);
   turn("over", false);
   turn("lodi3", true);
   expect(refused()).toEqual(["work", "lodi2", "over"]);
@@ -537,6 +562,44 @@ test("a locked-down turn goes past the room check down to its own floor, and a l
   expect(refused()).toEqual(["work", "lodi2", "over", "lodi5"]);
   runner.close();
   await Promise.allSettled(pending);
+});
+
+test("on Windows and macOS turns are admitted by the memory the computer reads, not 8 at once", async () => {
+  const ws = tempDir();
+  dirs.push(ws);
+  const sent: { id: string; ok: boolean; error?: { code: string } }[] = [];
+  const pending: Promise<void>[] = [];
+  const platform = Object.getOwnPropertyDescriptor(process, "platform") as PropertyDescriptor;
+  Object.defineProperty(process, "platform", { value: "win32" });
+  let free = 64e9;
+  const freemem = spyOn(os, "freemem").mockImplementation(() => free);
+  try {
+    const runner = new RequestRunner(
+      { workspaceReal: ws, exec: true, token: "agm_x" },
+      (f) => sent.push(f as unknown as (typeof sent)[number]),
+      () => {},
+      (_ctx, _req, scope) =>
+        new Promise((_, reject) => {
+          scope.signal.addEventListener("abort", () => reject(new RunnerError("internal", "Canceled")));
+        }),
+      { now: () => 1_000_000 },
+    );
+    const turn = (id: string) =>
+      pending.push(runner.start(id, { op: "brain.turn", runId: id } as unknown as MachineRequest));
+    // A 64 GB PC with most of it free runs more than the old count.
+    for (let i = 0; i < TURNS_WITHOUT_MEMORY + 4; i++) turn(`t${i}`);
+    expect(sent.filter((f) => !f.ok)).toEqual([]);
+    expect(runner.size).toBe(TURNS_WITHOUT_MEMORY + 4);
+    // Short of memory, the next one waits for room, as on Linux.
+    free = MIN_FREE_BYTES - 1;
+    turn("over");
+    expect(sent.filter((f) => !f.ok).map((f) => [f.id, f.error?.code])).toEqual([["over", "no_slot"]]);
+    runner.close();
+    await Promise.allSettled(pending);
+  } finally {
+    freemem.mockRestore();
+    Object.defineProperty(process, "platform", platform);
+  }
 });
 
 describe("the slot held for a person's turn", () => {
@@ -572,16 +635,74 @@ describe("the slot held for a person's turn", () => {
       await waitFor(() => sent.some((f) => f.id === id));
     };
     const started = (id: string) => release.has(id);
-    return { s, runner, turn, person, refused, freed, end, started };
+    const slowNotes = () =>
+      sent.flatMap((f) => {
+        const e = f as unknown as { type: string; runId: string; event?: { type: string; text: string } };
+        return e.type === "brain.event" && e.event?.type === "note" && e.event.text === PAST_FLOOR_NOTE
+          ? [e.runId]
+          : [];
+      });
+    return { s, runner, turn, person, refused, freed, end, started, slowNotes };
   };
 
+  test("a computer that always reads short still runs turns: one while none runs, whatever the reading, told it may be slow", async () => {
+    const r = room({ free: 0.1e9 });
+    void r.turn("agent");
+    expect(r.started("agent")).toBe(true);
+    expect(r.slowNotes()).toEqual(["agent"]);
+    // One at a time: the rest wait, a person's turn too.
+    await r.turn("agent2");
+    await r.person("ana");
+    expect(r.refused()).toEqual(["agent2", "ana"]);
+    await r.end("agent");
+    void r.person("ana");
+    expect(r.started("ana")).toBe(true);
+    expect(r.slowNotes()).toEqual(["agent", "ana"]);
+    r.runner.close();
+  });
+
+  test("a turn refused for room for ROOM_WAIT_MAX_MS runs under the floor, one such turn at a time", async () => {
+    const r = room({ free: MIN_FREE_BYTES + 1 });
+    void r.turn("ok");
+    expect(r.slowNotes()).toEqual([]);
+    r.s.free = 0.1e9;
+    await r.turn("late");
+    await r.turn("later");
+    r.s.now += ROOM_WAIT_MAX_MS - 1;
+    await r.turn("late");
+    expect(r.refused()).toEqual(["late", "later", "late"]);
+    r.s.now += 1;
+    void r.turn("late");
+    expect(r.started("late")).toBe(true);
+    expect(r.slowNotes()).toEqual(["late"]);
+    // "later" waited as long, but one turn already runs under the floor.
+    await r.turn("later");
+    expect(r.refused()).toEqual(["late", "later", "late", "later"]);
+    await r.end("late");
+    await waitFor(() => r.runner.size === 1);
+    void r.turn("later");
+    expect(r.started("later")).toBe(true);
+    // A run that stopped asking starts its wait over.
+    await r.turn("gone");
+    r.s.now += ROOM_WAIT_MAX_MS + 1;
+    await r.turn("fresh");
+    await r.end("later");
+    await waitFor(() => r.runner.size === 1);
+    await r.turn("gone");
+    expect(r.refused().slice(-3)).toEqual(["gone", "fresh", "gone"]);
+    r.runner.close();
+  });
+
   test("below the floor a person's turn goes ahead and an agent's waits; an old server's turn has no flag and waits", async () => {
-    const { runner, turn, person, refused } = room();
+    const { s, runner, turn, person, refused } = room();
+    // The one turn always let in.
+    void turn("first");
+    s.now += TURN_SETTLE_MS;
     await turn("agent");
     expect(refused()).toEqual(["agent"]);
     void person("ana");
     expect(refused()).toEqual(["agent"]);
-    expect(runner.size).toBe(1);
+    expect(runner.size).toBe(2);
     runner.close();
   });
 
@@ -619,7 +740,9 @@ describe("the slot held for a person's turn", () => {
   });
 
   test("its own hard floor: under it the turn waits as ever, and a turn still settling counts", async () => {
-    const { s, runner, person, refused } = room({ free: PERSON_TURN_MIN_FREE_BYTES - 1 });
+    const { s, runner, turn, person, refused } = room({ free: PERSON_TURN_MIN_FREE_BYTES - 1 });
+    void turn("first");
+    s.now += TURN_SETTLE_MS;
     await person("low");
     expect(refused()).toEqual(["low"]);
     s.free = PERSON_TURN_MIN_FREE_BYTES;
@@ -695,6 +818,8 @@ describe("the slot held for a person's turn", () => {
 
   test("room.freed: after a refusal, once a turn ends or the memory is back over the agents' floor, once each", async () => {
     const r = room();
+    void r.turn("first");
+    r.s.now += TURN_SETTLE_MS;
     void r.person("ana");
     await r.turn("agent");
     expect(r.refused()).toEqual(["agent"]);
@@ -854,7 +979,9 @@ test("no room for a turn: idle warm CLIs close first, one at a time, before no_s
   expect(outcome("t1")).toBe("ok");
   expect(closes).toBe(1);
   expect(spares[0]).toBe("a1:s1");
-  // Not enough left to close: refused once nothing more can close.
+  // Not enough left to close, with a turn running: refused once nothing more can close.
+  free = 10e9;
+  const busy = turn("hold-busy");
   free = MIN_FREE_BYTES - 1e9;
   await turn("t2");
   expect(outcome("t2")).toBe("no_slot");
@@ -881,12 +1008,12 @@ test("no room for a turn: idle warm CLIs close first, one at a time, before no_s
   // Memory not known: room is a count of turns, so at the count nothing is closed for one more.
   free = null;
   closes = 0;
-  const holding = Array.from({ length: TURNS_WITHOUT_MEMORY }, (_, i) => turn(`hold${i}`));
+  const holding = Array.from({ length: TURNS_WITHOUT_MEMORY - 1 }, (_, i) => turn(`hold${i}`));
   await turn("t4");
   expect(outcome("t4")).toBe("no_slot");
   expect(closes).toBe(0);
   release();
-  await Promise.all(holding);
+  await Promise.all([busy, ...holding]);
   runner.close();
 });
 
@@ -1057,4 +1184,183 @@ test("a warm start that started nothing gives its room back to the next turn", a
   await warm("w2", "s2");
   expect(ran).toEqual(["s1", "s2"]);
   runner.close();
+});
+
+describe("a brain turn outlives a dropped link (HELD_TURN_PROTOCOL)", () => {
+  const turnRequest = (id: string, runId: string, reattach: boolean | "stop" = false) =>
+    ({
+      type: "request",
+      id,
+      op: "brain.turn",
+      runId,
+      kind: "claude_code",
+      session: { id: "s1", resume: true },
+      cwd: "",
+      system: "",
+      prompt: "hi",
+      mcp: { token: "t" },
+      ...(reattach ? { reattach } : {}),
+    }) as unknown as ServerFrame;
+
+  /** A turn that says "a" at once, whatever it is handed to `say`, and ends on `end()`. */
+  function turnHandler() {
+    const t = { starts: 0, aborted: 0, say: (_text: string) => {}, end: () => {} };
+    const handler: ConnectionOptions["handler"] = (_ctx, req, scope) => {
+      if (req.op !== "brain.turn") return Promise.resolve({});
+      t.starts++;
+      const say = (text: string) =>
+        scope.emit?.({ type: "brain.event", runId: req.runId, event: { type: "text_delta", text } });
+      say("a");
+      t.say = say;
+      return new Promise((resolve, reject) => {
+        t.end = () => resolve({ runId: req.runId, final: { type: "done", text: "all of it" } });
+        scope.signal.addEventListener("abort", () => {
+          t.aborted++;
+          reject(new RunnerError("internal", "Canceled"));
+        });
+      });
+    };
+    return { t, handler };
+  }
+  const deltas = (s: FakeSocket) =>
+    s.sent.filter((f) => f.type === "brain.event").map((f) => (f.event as { text: string }).text);
+
+  test("before: the drop aborted the turn and the server's next ask started it again; now the next link takes it over", async () => {
+    const { t, handler } = turnHandler();
+    const { sockets, connection } = setup({ handler });
+    const done = connection.run();
+    await waitFor(() => sockets.length === 1);
+    const first = sock(sockets, 0);
+    first.handlers.onOpen();
+    first.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+    first.frame(turnRequest("t1", "run1"));
+    await waitFor(() => t.starts === 1);
+    expect(deltas(first)).toEqual(["a"]);
+
+    // The link drops (a network blip, our deploy, the replica the socket was on): the turn runs on.
+    first.handlers.onClose(1006, "");
+    t.say("while away");
+    expect(t.aborted).toBe(0);
+    expect(connection.turns).toBe(1);
+
+    await waitFor(() => sockets.length === 2, 4000);
+    const second = sock(sockets, 1);
+    second.handlers.onOpen();
+    second.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+    second.frame(turnRequest("t2", "run1", true));
+    await waitFor(() => deltas(second).length === 1);
+    expect(deltas(second)).toEqual(["while away"]);
+    t.say("after");
+    t.end();
+    await waitFor(() => second.sent.some((f) => f.type === "result"));
+    expect(second.sent.find((f) => f.type === "result")).toEqual({
+      type: "result",
+      id: "t2",
+      ok: true,
+      data: { runId: "run1", final: { type: "done", text: "all of it" } },
+    });
+    expect(deltas(second)).toEqual(["while away", "after"]);
+    expect(first.sent.some((f) => f.type === "result")).toBe(false);
+    // One CLI turn, never aborted, never run twice.
+    expect([t.starts, t.aborted, connection.turns]).toEqual([1, 0, 0]);
+
+    // Nothing of that run held here (the runner restarted): a reattach is answered, never started.
+    second.frame(turnRequest("t3", "run2", true));
+    await waitFor(() => second.sent.some((f) => f.id === "t3"));
+    expect(second.sent.find((f) => f.id === "t3")).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(t.starts).toBe(1);
+
+    connection.stop();
+    await done;
+  }, 15_000);
+
+  test("one no link takes ends after the hold; one that ended meanwhile gives its result to the next link", async () => {
+    const { t, handler } = turnHandler();
+    const { sockets, connection } = setup({ handler, heldTurnMs: 300 });
+    const done = connection.run();
+    await waitFor(() => sockets.length === 1);
+    const first = sock(sockets, 0);
+    first.handlers.onOpen();
+    first.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+    first.frame(turnRequest("t1", "run1"));
+    await waitFor(() => t.starts === 1);
+    first.handlers.onClose(1006, "");
+    t.end();
+    await waitFor(() => sockets.length === 2, 4000);
+    const second = sock(sockets, 1);
+    second.handlers.onOpen();
+    second.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+    second.frame(turnRequest("t2", "run1", true));
+    await waitFor(() => second.sent.some((f) => f.id === "t2"));
+    expect(second.sent.find((f) => f.id === "t2")).toMatchObject({ ok: true, data: { runId: "run1" } });
+
+    second.frame(turnRequest("t3", "run3"));
+    await waitFor(() => t.starts === 2);
+    second.handlers.onClose(1006, "");
+    await waitFor(() => t.aborted === 1, 2000);
+    expect(connection.turns).toBe(0);
+
+    connection.stop();
+    await done;
+  }, 15_000);
+
+  test("before: a held turn ran on after its run was canceled, beside the next run's on its CLI; now both end it", async () => {
+    const { t, handler } = turnHandler();
+    const { sockets, connection } = setup({ handler });
+    const done = connection.run();
+    await waitFor(() => sockets.length === 1);
+    const first = sock(sockets, 0);
+    first.handlers.onOpen();
+    first.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+    first.frame(turnRequest("t1", "run1"));
+    await waitFor(() => t.starts === 1);
+    first.handlers.onClose(1006, "");
+    await waitFor(() => sockets.length === 2, 4000);
+    const second = sock(sockets, 1);
+    second.handlers.onOpen();
+    second.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+
+    // Its run was canceled while the link was down: the server's stop ends it, and the ask gets how it ended.
+    second.frame(turnRequest("t2", "run1", "stop"));
+    await waitFor(() => second.sent.some((f) => f.id === "t2"));
+    expect(t.aborted).toBe(1);
+    expect(second.sent.find((f) => f.id === "t2")).toMatchObject({ ok: false });
+
+    // Held again, and the next run of that conversation comes (no stop reached it): the held one ends first.
+    second.frame(turnRequest("t3", "run2"));
+    await waitFor(() => t.starts === 2);
+    second.handlers.onClose(1006, "");
+    await waitFor(() => sockets.length === 3, 4000);
+    const third = sock(sockets, 2);
+    third.handlers.onOpen();
+    third.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+    third.frame(turnRequest("t4", "run3"));
+    await waitFor(() => t.starts === 3);
+    expect(t.aborted).toBe(2);
+    expect(connection.turns).toBe(1);
+
+    // A turn canceled on its live link and asked again before it unwound starts anew, never takes the canceled one.
+    third.frame({ type: "cancel", id: "t4" });
+    third.frame(turnRequest("t5", "run3"));
+    await waitFor(() => t.starts === 4);
+    expect(third.sent.find((f) => f.id === "t5")).toBeUndefined();
+
+    connection.stop();
+    await done;
+  }, 20_000);
+
+  test("stopping for good aborts a held turn at once", async () => {
+    const { t, handler } = turnHandler();
+    const { sockets, connection } = setup({ handler });
+    const done = connection.run();
+    await waitFor(() => sockets.length === 1);
+    const first = sock(sockets, 0);
+    first.handlers.onOpen();
+    first.frame({ type: "welcome", machineId: "m1", name: "box", heartbeatMs: 25_000 });
+    first.frame(turnRequest("t1", "run1"));
+    await waitFor(() => t.starts === 1);
+    connection.stop();
+    await done;
+    expect(t.aborted).toBe(1);
+  });
 });

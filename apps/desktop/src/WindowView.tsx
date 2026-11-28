@@ -4,13 +4,13 @@ import { useTranslation } from "react-i18next";
 import { useHost } from "./app";
 import { IPHONE_SETUP_PREF } from "./control/devices";
 import { PAIR_OFFER_PREF, type PairTarget, targetKey } from "./control/pair";
-import { PREPARE_PREF } from "./control/permissions";
+import { PERMISSION_ASK_PREF, PREPARE_PREF } from "./control/permissions";
 import { readPref, useOnShown, writePref } from "./hooks";
 import type { WindowName } from "./host/types";
 import { FirstRun } from "./windows/FirstRun";
 import { IphoneSetup } from "./windows/IphoneSetup";
 import { Notch } from "./windows/Notch";
-import { Framed, PairOffer, Prepare } from "./windows/Pair";
+import { Framed, PairOffer, PermissionAskSheet, Prepare } from "./windows/Pair";
 import { Popover } from "./windows/Popover";
 import { Prefs } from "./windows/Prefs";
 
@@ -29,7 +29,8 @@ type PrepareFor = { org: string; server: string; resumed?: boolean };
 
 /**
  * Preferences asked for the iPhone setup (`IPHONE_SETUP_PREF`), the popover offers this computer to a workspace
- * (`PAIR_OFFER_PREF`) or prepares this Mac after the site paired it (`PREPARE_PREF`), each cleared once it shows: there,
+ * (`PAIR_OFFER_PREF`), prepares this Mac after the site paired it (`PREPARE_PREF`) or asks for an OS permission an
+ * agent's work waits on (`PERMISSION_ASK_PREF`), each cleared once it shows: there,
  * else the first run. A Prepare step macOS quit the app in the middle of comes back first (`resumed`).
  */
 function Welcome() {
@@ -37,6 +38,7 @@ function Welcome() {
   const [iphone, setIphone] = useState(() => readPref(IPHONE_SETUP_PREF, false));
   const [offer, setOffer] = useState(() => readPref<PairTarget | null>(PAIR_OFFER_PREF, null));
   const [prepare, setPrepare] = useState(() => readPref<PrepareFor | null>(PREPARE_PREF, null));
+  const [permission, setPermission] = useState(() => readPref(PERMISSION_ASK_PREF, false));
   // Until the app says whether a setup waits: nothing, so the first run never flashes before it.
   const [resuming, setResuming] = useState(true);
   useEffect(() => {
@@ -61,12 +63,19 @@ function Welcome() {
   useEffect(() => {
     if (prepare) writePref(PREPARE_PREF, null);
   }, [prepare]);
+  useEffect(() => {
+    if (permission) writePref(PERMISSION_ASK_PREF, false);
+  }, [permission]);
   // Cleared here too: asked again while it already shows, the state doesn't change and the effect wouldn't run.
   useOnShown("welcome", () => {
     const asked = readPref<PairTarget | null>(PAIR_OFFER_PREF, null);
     if (asked) {
       writePref(PAIR_OFFER_PREF, null);
       setOffer(asked);
+    }
+    if (readPref(PERMISSION_ASK_PREF, false)) {
+      writePref(PERMISSION_ASK_PREF, false);
+      setPermission(true);
     }
     const ready = readPref<PrepareFor | null>(PREPARE_PREF, null);
     if (ready) {
@@ -79,6 +88,17 @@ function Welcome() {
   });
   const hide = () => void host.hideWindow("welcome").catch(() => {});
   if (iphone) return <IphoneSetup onClose={hide} />;
+  if (permission)
+    return (
+      <Framed>
+        <PermissionAskSheet
+          onClose={() => {
+            setPermission(false);
+            hide();
+          }}
+        />
+      </Framed>
+    );
   if (prepare)
     return (
       <Framed>

@@ -73,6 +73,23 @@ describe("Computador desconectado (phone)", () => {
     expect(noticeText(en, { ...air, name: "Acme's computer" }, true).sub).toBe(
       "We're on it · Ada and Theo are waiting for it · 3 tasks",
     );
+    // Moving to another server: said so, never that it isn't answering.
+    const moving = noticeText(t, { ...air, name: "Computador da Acme", moving: true }, true);
+    expect(moving.title).toBe("Mudando de servidor… volta em alguns minutos");
+    expect(moving.sub).toBe("Ada e Theo esperam por ele · 3 tarefas");
+    const card = waitCardText(
+      en,
+      {
+        kind: "waiting",
+        machineId: "air",
+        computer: "Acme's computer",
+        waiting: null,
+        maintenance: { kind: "restarting", since: "", eta: null, detail: "unresponsive", away: true },
+      },
+      "claude_code",
+      null,
+    );
+    expect(card?.title).toBe("Acme's computer: Restarting… back in a few minutes");
   });
 
   test("the sheet: who waits for what, the targets' lines, the line under the title (who, not the computer again)", async () => {
@@ -123,7 +140,7 @@ describe("Computador desconectado (phone)", () => {
     const t = await translator("pt-BR");
     const waiting = waitCardText(
       t,
-      { kind: "waiting", machineId: "air", computer: "MacBook Air", waiting: air.agents[0] ?? null },
+      { kind: "waiting", machineId: "air", computer: "MacBook Air", waiting: air.agents[0] ?? null, moving: false },
       "claude_code",
       null,
     );

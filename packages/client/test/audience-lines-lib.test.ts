@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TFunction } from "i18next";
+import { ApiError } from "../src/api/http";
 import type { Agent, AgentSetupResult, ForeignMailbox, OrgRole, OrgSummary } from "../src/api/types";
 import {
   agentsReach,
@@ -17,6 +18,7 @@ import {
   unavailableNotice,
   widenQuestion,
 } from "../src/lib/audience";
+import { knownErrorText } from "../src/lib/errors";
 import { agentWorkingIn, type StreamsState } from "../src/realtime/streams";
 
 const role = (id: string, position: number, kind: OrgRole["kind"] = "custom") =>
@@ -230,6 +232,17 @@ describe("unavailableNotice (an agent I named won't answer me)", () => {
     expect(
       unavailableNotice(t, { code: "audience.nobody", params: { agentName: "Theo", names: [] } }, undefined, nobody),
     ).toBe('audience.notice.nobody{"name":"Theo"}');
+  });
+
+  test("a refusal past its audience says that check, even for an agent the directory knows answers me", () => {
+    const theo = { name: "Theo", audience: { mode: "everyone", userIds: [], roleIds: [] } } as unknown as Agent;
+    expect(unavailableNotice(t, { code: "audience.no_talk" }, theo, nobody)).toBe("audience.notice.noTalk");
+    expect(unavailableNotice(t, { code: "audience.plan_owner_only" }, theo, nobody)).toBe(
+      'audience.notice.planOwnerOnly{"name":"Theo"}',
+    );
+    const refused = new ApiError(403, "audience.plan_owner_only", "Lia thinks with a plan…", { agentName: "Lia" });
+    expect(knownErrorText(t, refused)).toBe('audience.notice.planOwnerOnly{"name":"Lia","context":"female"}');
+    expect(knownErrorText(t, new ApiError(403, "audience.no_talk", "Your roles…", {}))).toBe("audience.notice.noTalk");
   });
 });
 

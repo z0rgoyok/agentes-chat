@@ -43,10 +43,13 @@ describe("calendar items the Google Calendar way", () => {
     ).toBe("hidden");
   });
 
-  test("a narrow column keeps a run's face and name, the time gives way; a wide one names the owner after it", async () => {
+  test("a narrow column keeps a reminder's face and name, the time gives way; a wide one names the owner after it", async () => {
     const css = await sheet("apps/web/src/pages/calendar.css");
     expect(
-      last(declarations(atRule(css, "@container (max-width: 119.5px)"), ".cal-chip--run .cal-chip__time"), "display"),
+      last(
+        declarations(atRule(css, "@container (max-width: 119.5px)"), ".cal-chip--moment .cal-chip__time"),
+        "display",
+      ),
     ).toBe("none");
     expect(last(declarations(topLevel(css), ".cal-chip__who"), "display")).toBe("none");
     expect(last(declarations(atRule(css, "@container (min-width: 220px)"), ".cal-chip__who"), "display")).toBe(
@@ -80,7 +83,7 @@ describe("calendar items the Google Calendar way", () => {
     expect(last(declarations(narrow, ".cal-chip__glyph"), "display")).toBe("inline-block");
     expect(last(declarations(topLevel(css), ".cal-chip__glyph"), "display")).toBe("none");
     // Every item is measured by its own column: a bar by its days, a month's row by its day.
-    for (const box of [".cal-chip--block", ".cal-week__runs", ".cal-chip--bar", ".cal-month__cell"])
+    for (const box of [".cal-chip--block", ".cal-week__moment", ".cal-chip--bar", ".cal-month__cell"])
       expect(last(declarations(css, box), "container-type")).toBe("inline-size");
     // A bar across days of such a week too: by its lane, a day's width times the days (67.5px a day).
     expect(last(declarations(css, ".cal-week__barlane"), "container")).toBe("lane / inline-size");
@@ -95,12 +98,11 @@ describe("calendar items the Google Calendar way", () => {
     }
   });
 
-  test("side by side, a column of runs alone gives the meeting beside it room for its name, never under a face's width or past an even share", async () => {
+  test("side by side, every column of a cluster is as wide as the others, 2px apart", async () => {
     const css = await sheet("apps/web/src/pages/calendar.css");
-    const items = declarations(css, ".cal-week__col > :is(.cal-chip--block, .cal-week__runs)");
-    expect(last(items, "--thin")).toBe("min(var(--even), max(32px, var(--even) - 60px))");
+    const items = declarations(css, ".cal-week__col > :is(.cal-chip--block, .cal-week__moment)");
+    expect(last(items, "--wide")).toBe("calc((100% - 2px * (var(--cols) + 1)) / var(--cols))");
     expect(last(items, "width")).toBe("var(--wide)");
-    expect(last(declarations(css, ".cal-week__col > .cal-week__runs[data-thin]"), "width")).toBe("var(--thin)");
   });
 
   test("six meetings at once: their side room gives way to keep the faces, and narrower than a face a block is its tint", async () => {

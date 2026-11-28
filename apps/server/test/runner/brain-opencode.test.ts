@@ -753,7 +753,7 @@ test.skipIf(!posix)(
 );
 
 test.skipIf(!posix)(
-  "a turn that hears nothing from OpenCode stops and says why; a CLI that isn't there is missing",
+  "a turn that hears nothing from OpenCode stops as its provider's limit; a CLI that isn't there is missing",
   async () => {
     const root = tempDir("brain-opencode-");
     dirs.push(root);
@@ -777,11 +777,11 @@ test.skipIf(!posix)(
       silenceMs: 400,
     };
     await runOpencodeTurn(input, opts);
-    expect(events.at(-1)).toMatchObject({
-      type: "error",
-      code: "opencode_failed",
-      message: expect.stringContaining("said nothing for"),
-    });
+    // As at a limit the provider refused out loud: the run moves to the next account of its order.
+    expect(events.slice(-2)).toMatchObject([
+      { type: "limit" },
+      { type: "error", code: "plan_limit", message: expect.stringContaining("said nothing for"), worked: false },
+    ]);
 
     events.length = 0;
     const nowhere = ((_file, args, options) => spawn(path.join(root, "no-such-opencode"), args, options)) as Spawn;

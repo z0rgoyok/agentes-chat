@@ -11,6 +11,7 @@ import Animated, {
   withDelay,
   withTiming,
 } from "react-native-reanimated";
+import { TAB_BADGE } from "@/lib/nav";
 import { readValueSync, STORED, writeValue } from "@/lib/storage";
 import {
   Count,
@@ -73,11 +74,14 @@ const LAND_MS = 240;
  */
 export function LandRow({
   land = false,
+  fresh = false,
   index = 0,
   moves = false,
   children,
 }: {
   land?: boolean;
+  /** New since the person was last here (a team just made): it fades in once where it stands. */
+  fresh?: boolean;
   index?: number;
   moves?: boolean;
   children: ReactNode;
@@ -87,14 +91,20 @@ export function LandRow({
   const [arrives] = useState(land && !reduced);
   const [delay] = useState(Math.min(index, LAND_ROWS) * LAND_GAP);
   const shown = useSharedValue(arrives ? 0 : 1);
+  const comes = fresh && !reduced;
   useEffect(() => {
     if (!arrives) return;
     shown.set(withDelay(delay, withTiming(1, { duration: LAND_MS, easing: motion.easeOut })));
   }, [arrives, delay, shown]);
+  useEffect(() => {
+    if (!comes) return;
+    shown.set(0);
+    shown.set(withDelay(delay, withTiming(1, { duration: LAND_MS, easing: motion.easeOut })));
+  }, [comes, delay, shown]);
   const look = useAnimatedStyle(() => ({ opacity: shown.get() }));
   return (
     // Only a row that arrives carries a style; the rest stay plain views.
-    <Animated.View layout={moves && !reduced ? LIST_MOVE : undefined} style={arrives ? look : undefined}>
+    <Animated.View layout={moves && !reduced ? LIST_MOVE : undefined} style={arrives || comes ? look : undefined}>
       {children}
     </Animated.View>
   );
@@ -112,10 +122,16 @@ export function CollapsibleSection({
   onToggle,
   menu,
   mark,
+  kept,
+  unread,
   children,
 }: {
   title: string;
   count?: number;
+  /** Closed, what still shows under the header (a sector's live agents and unread channels, ADR 0240). */
+  kept?: ReactNode;
+  /** Closed, the one unread count that takes the count's place; `hot` in red (a DM or a mention calls on me). */
+  unread?: { count: number; hot: boolean };
   /** Before the title: a sector's mark (`RoleMark`), in Conversas' Setores. */
   mark?: ReactNode;
   collapsed: boolean;
@@ -158,7 +174,16 @@ export function CollapsibleSection({
         <Text variant="small" tone="ink" style={styles.title} accessibilityRole="header" numberOfLines={1}>
           {title}
         </Text>
-        {count === undefined ? null : <Count value={count} size={15} weight={weights.medium} color={c.faint} />}
+        {collapsed && unread && unread.count > 0 ? (
+          <Count
+            value={unread.count}
+            max={99}
+            inverted
+            {...(unread.hot ? { fill: TAB_BADGE.background, color: TAB_BADGE.text } : {})}
+          />
+        ) : count === undefined ? null : (
+          <Count value={count} size={15} weight={weights.medium} color={c.faint} />
+        )}
         <View style={styles.grow} />
         {menu ? (
           <View style={styles.menu}>
@@ -172,7 +197,9 @@ export function CollapsibleSection({
       {/* Opened while the list shows, its rows fade in; open when the list mounts, they just show. Closed, they fade
           out where they were while what is under the section comes up. */}
       <LayoutAnimationConfig skipEntering>
-        {collapsed ? null : (
+        {collapsed ? (
+          (kept ?? null)
+        ) : (
           <Animated.View
             entering={reduced ? undefined : FadeIn.duration(160)}
             exiting={reduced ? undefined : FadeOut.duration(150)}
@@ -183,6 +210,12 @@ export function CollapsibleSection({
       </LayoutAnimationConfig>
     </Animated.View>
   );
+}
+
+/** The hairline between a sector's agents and its channels (ADR 0240), from one side of the screen's margins to the other. */
+export function SectorLine() {
+  const c = useColors();
+  return <View style={[styles.sectorLine, { backgroundColor: c.separator }]} />;
 }
 
 /**
@@ -225,4 +258,5 @@ const styles = StyleSheet.create({
     paddingRight: 16,
   },
   medium: { fontWeight: "500" },
+  sectorLine: { height: StyleSheet.hairlineWidth, marginHorizontal: SCREEN_X, marginVertical: 4 },
 });

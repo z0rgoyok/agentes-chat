@@ -5,7 +5,7 @@ import { Button, Icon, Locked } from "@agenteschat/ui";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { type ChipAddress, ChipNote, ChipRole, chipsFrom, EmailChips } from "@/components/invite/EmailChips";
-import { InviteLinkPanel } from "@/components/invite/InviteLinkPanel";
+import { InviteLinkPanel, LocalOnlyInvites } from "@/components/invite/InviteLinkPanel";
 import { useToast } from "@/lib/toast";
 import "@/components/invite/invite.css";
 
@@ -114,6 +114,7 @@ export function PeopleStep({
     return (
       <>
         <div className="onb__answer">
+          <LocalOnlyInvites />
           <InviteLinkPanel />
           <ol className="invite-how">
             {(["how1", "how2", "how3"] as const).map((k, i) => (
@@ -139,6 +140,7 @@ export function PeopleStep({
     <>
       <Locked when={busy}>
         <div className="onb__answer">
+          <LocalOnlyInvites />
           <label className="ac-visually-hidden" htmlFor="onb-people-emails">
             {t("members.dialog.emails")}
           </label>

@@ -1,4 +1,7 @@
 import type { Box } from "../canvas/geometry";
+import type { Dash, Gradient, Shadow } from "../effects";
+import type { FileFonts, FontRef, FontWeight } from "../fonts";
+import type { LiveGroup } from "../groups";
 import type { RichDoc } from "../rich/types";
 
 /**
@@ -67,21 +70,41 @@ export interface ElementStyle {
   size?: number;
   /** "#rgb", "#rrggbb" or "#rrggbbaa". */
   color?: string;
-  font?: "heading" | "body";
-  weight?: 400 | 600 | 700;
+  /** The text's font (ADR 0220): a theme role (`heading`, `body`), a catalog id or one of the file's fonts. */
+  font?: FontRef;
+  weight?: FontWeight;
   align?: "left" | "center" | "right";
   valign?: "top" | "middle" | "bottom";
+  /** Line height as a multiple of the size (0.8 to 3). */
+  lineHeight?: number;
+  /** Letter spacing in thousandths of the size. */
+  tracking?: number;
+  /** Text drawn in capitals. */
+  caps?: boolean;
+  /** Room between the box's edge and its text, in slide units. */
+  padding?: number;
   /** A hex color or "none". */
   fill?: string;
+  /** A gradient over the fill. */
+  gradient?: Gradient;
   stroke?: string;
   strokeWidth?: number;
+  /** How the border (or a line) is drawn. */
+  dash?: Dash;
   /** Corner radius in slide units. */
   radius?: number;
+  shadow?: Shadow;
   shape?: ShapeKind;
   /** 0..1. */
   opacity?: number;
   lineEnd?: "none" | "arrow";
 }
+
+/** Elements that hold together (ADR 0220 §3): `LiveGroup` on a slide. */
+export type SlideGroup = LiveGroup;
+
+/** A deck's own fonts over its theme's (ADR 0220 §3). */
+export type DeckFonts = FileFonts;
 
 /** A chart on a slide: the same shape as the chat's chart blocks (`ChartSpec` in the client). */
 export interface SlideChart {
@@ -127,6 +150,8 @@ export interface ElementView {
   alt?: string;
   chart?: SlideChart;
   table?: SlideTable;
+  /** The group it belongs to. */
+  group?: string;
 }
 
 export interface SlideView {
@@ -139,10 +164,14 @@ export interface SlideView {
   notes: string;
   /** Bottom to top. */
   elements: ElementView[];
+  /** The slide's groups (none when it has none). */
+  groups?: SlideGroup[];
 }
 
 export interface DeckView {
   theme: ThemeId;
+  /** The deck's own fonts over the theme's. */
+  fonts?: DeckFonts;
   w: number;
   h: number;
   slides: SlideView[];
@@ -161,6 +190,7 @@ export interface NewElement {
   alt?: string;
   chart?: SlideChart;
   table?: SlideTable;
+  group?: string;
 }
 
 /** A change to an element: given keys change, `null` removes an optional one; `style` merges key by key. */
@@ -179,6 +209,7 @@ export interface ElementPatch {
   alt?: string | null;
   chart?: SlideChart | null;
   table?: SlideTable | null;
+  group?: string | null;
 }
 
 export interface AddSlideOptions {
@@ -195,6 +226,7 @@ export interface AddSlideOptions {
 
 export interface SlidesPreview {
   theme: ThemeId;
+  fonts?: DeckFonts;
   count: number;
   first: SlideView | null;
 }

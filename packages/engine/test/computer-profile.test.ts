@@ -73,7 +73,7 @@ function link(protocol: number): ComputerBrainLink & { sent: BrainTurnRequest[] 
   return {
     sent,
     async status() {
-      return { online: true, execAllowed: true, protocol, executors: { codex: { version: "codex-cli 0.163.0" } } };
+      return { online: true, execAllowed: true, protocol, executors: { codex: { version: "codex-cli 0.170.0" } } };
     },
     async turn(_machineId, request, { onEvent }) {
       sent.push(request);

@@ -21,6 +21,7 @@ import {
   itemName,
   personalAllowed,
   personalOfText,
+  personalServesAgents,
 } from "@agenteschat/client/lib/connected";
 import { settingsFrozen } from "@agenteschat/client/lib/deletion";
 import { choiceOf, MAIL_BRANDS, mailboxName } from "@agenteschat/client/lib/mail";
@@ -37,6 +38,7 @@ import {
   CodeWords,
   Disclosure,
   EmptyState,
+  GroupedFooter,
   GroupedHeader,
   GroupedList,
   GroupedRow,
@@ -52,7 +54,6 @@ import {
   useToast,
 } from "@/ui";
 import { router } from "@/ui/navigation";
-import { Note } from "../ai/parts";
 import { chooseAction, confirmAction } from "../settings/parts";
 import { FirstUse, LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useErrorToast, useMeId, useOrgId, usePullRefresh } from "../shared/hooks";
@@ -268,7 +269,7 @@ function Gallery() {
   useEffect(() => {
     if (offeredOnce.current || (connect === undefined && mcp === undefined) || !catalog.data || frozen) return;
     // Who may not add the team's connects it as their own, on Pessoal; GitHub stays with who manages connectors.
-    if (!manages && !personalAllowed(connect)) return;
+    if (!manages && !personalServesAgents(connect)) return;
     offeredOnce.current = true;
     const def = connect ? catalog.data.connectors.find((d) => d.id === connect) : undefined;
     const theirs = !manages || personal;
@@ -377,19 +378,13 @@ function Gallery() {
           <Locked when={frozen} readable keepKeyboard>
             <FeaturedCards defs={featured} name={name} text={(d) => connectorDescription(t, d)} onOpen={open} />
           </Locked>
-          {/* On Pessoal a person's mailboxes are a group of their own: they keep their own rule (ADR 0038). */}
+          {/* On Personal a person's mailboxes are a group of their own: they keep their own rule (ADR 0038), said
+              under them as the group's footer, in the header's column. */}
           {personal && mailboxes.length > 0 ? (
             <View style={styles.group}>
               <GroupedHeader>{`${t("connectors.personal.mailTitle")} · ${mailboxes.length}`}</GroupedHeader>
-              <View style={styles.groupNote}>
-                <Note icon="mail">{t("connectors.personal.mailNote")}</Note>
-              </View>
               <GroupedList>{mailboxes.map(mailRow)}</GroupedList>
-            </View>
-          ) : null}
-          {personal && items.length > 0 ? (
-            <View style={styles.personalNote}>
-              <Note icon="lock">{t("connectors.personal.note")}</Note>
+              <GroupedFooter>{t("connectors.personal.mailNote")}</GroupedFooter>
             </View>
           ) : null}
           {connectedCount > 0 ? (
@@ -409,11 +404,22 @@ function Gallery() {
                   />
                 ))}
               </GroupedList>
+              {/* Personal's rule under its connections, as the mailboxes' is under theirs. */}
+              {personal ? <GroupedFooter>{t("connectors.personal.note")}</GroupedFooter> : null}
             </View>
           ) : (
-            // Nothing connected yet: what connecting gives, as every empty place says it. No button: the catalog
-            // right under it is the next step (who can't connect is told who does).
-            <FirstUse place="connectors" acts={mayAdd} size="inline" {...(personal ? { copy: PERSONAL_EMPTY } : {})} />
+            // Nothing connected yet: what connecting gives, as every empty place says it, its words starting where the
+            // groups' headers and footers do. No button: the catalog right under it is the next step (who can't
+            // connect is told who does).
+            <View style={styles.group}>
+              <FirstUse
+                place="connectors"
+                acts={mayAdd}
+                size="inline"
+                align="start"
+                {...(personal ? { copy: PERSONAL_EMPTY } : {})}
+              />
+            </View>
           )}
           {tabs.others.length + tabs.othersMail.length > 0 ? (
             <OthersPersonal items={tabs.others} mailboxes={tabs.othersMail} />
@@ -842,9 +848,7 @@ function Lockup({
 const styles = StyleSheet.create({
   search: { paddingHorizontal: 16, paddingBottom: 6 },
   tabs: { paddingHorizontal: 16, paddingBottom: 12 },
-  personalNote: { paddingHorizontal: 16, paddingTop: 8 },
   group: { paddingHorizontal: 16, paddingTop: 8 },
-  groupNote: { paddingBottom: 8 },
   others: { paddingHorizontal: 16 },
   note: { paddingHorizontal: 16, paddingTop: 16 },
   usage: { paddingHorizontal: 16, paddingBottom: 8 },

@@ -846,11 +846,17 @@ html:not([data-pointer]) .rq__choice:focus-visible {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-/* Desfazer, Cancelar: a 32 button on the 16 line, the strip still 48. */
-.rq__answer > .ac-btn {
+/* Desfazer, Cancelar: a 32 button on the 16 line, the strip still 48. Two of them (Desfazer and Pular) stand in one
+   `.rq__answer-acts`, 8 apart. */
+.rq__answer > .ac-btn,
+.rq__answer > .rq__answer-acts {
   flex: none;
   height: 32px;
   margin-block: calc(-1 * var(--space-2));
+}
+.rq__answer-acts {
+  display: flex;
+  gap: var(--space-2);
 }
 /* On a narrow card the words and when keep the first line (one line of words is still the 48 strip): what can be done
    goes under the words, from their edge. */
@@ -860,7 +866,8 @@ html:not([data-pointer]) .rq__choice:focus-visible {
     grid-template-columns: auto minmax(0, 1fr) auto;
     row-gap: var(--space-1);
   }
-  .rq__answer > .ac-btn {
+  .rq__answer > .ac-btn,
+  .rq__answer > .rq__answer-acts {
     grid-area: 2 / 2;
     justify-self: start;
     margin-block: 0;

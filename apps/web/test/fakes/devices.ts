@@ -1,7 +1,8 @@
 /**
  * Test fake — bring your own devices. Mirrors the server's `/organizations/{orgId}/devices` routes:
  * - `GET …/devices` → `{ devices, requests }` (what `set()` gave; nothing by default)
- * - `PATCH`/`DELETE …/devices/computers/{id}`, `PATCH`/`DELETE …/devices/phones/{id}`, `POST …/phones/{id}/stop`
+ * - `PATCH`/`DELETE …/devices/computers/{id}`, `PATCH`/`DELETE …/devices/phones/{id}`, `POST …/phones/{id}/stop`,
+ *   `POST …/phones/{id}/power` `{ on }` (a simulator starting, or offline)
  * - `POST …/devices/connect-links` `{ kind }` → a link with its two one-line commands
  * - `GET …/devices/connect-links/{id}` → where it stands (`setLink()` moves it on: a computer asking, joined…)
  * - `POST …/devices/requests/{id}/approve` `{ name?, audience? }` → `{ machineId }`, `…/deny`
@@ -53,7 +54,7 @@ const deviceOf = (m: Machine): ComputerDevice => ({
   memoryGb: null,
   ownerUserId: m.pairedBy?.id ?? null,
   belongsToWorkspace: m.kind === "managed" || m.kind === "host",
-  spill: { own: true, others: false },
+  spill: { own: true },
   systemMode: m.mode === "system",
   audience: { mode: "owner", userIds: [], roleIds: [] },
   status: m.online ? { kind: "ready" } : { kind: "offline", lastSeenAt: m.lastSeenAt },
@@ -77,6 +78,8 @@ export function createFakeDevices(
 ): FakeDevices {
   let own: DevicesList | null = null;
   const current = (): DevicesList => own ?? { devices: machines().map(deviceOf), requests: [] };
+  /** The workspace's switch over every computer's help (`devicesHelp`). */
+  let help = true;
   let link: ConnectLinkState = { status: "waiting" };
   let links = 0;
   let pairing: WifiPairing | null = null;
@@ -100,14 +103,26 @@ export function createFakeDevices(
   const client: ApiClient["devices"] = {
     list: async (orgId) => {
       record("devices.list", orgId);
-      return clone(current());
+      return clone({ ...current(), devicesHelp: help });
     },
     updateComputer: async (orgId, id, input) => {
       record("devices.updateComputer", orgId, id, input);
-      const { spill, ...rest } = input;
+      const { spill, shareInternet, internetOnly, ...rest } = input;
       const c = computer(id);
       Object.assign(c, rest, spill ? { spill: { ...c.spill, ...spill } } : {});
+      // As the server: on again picks this one, so it is the one in use while the workspace's computer goes out.
+      if (shareInternet !== undefined && c.shareInternet) {
+        if (shareInternet) for (const d of current().devices) if (d.shareInternet) d.shareInternet.inUse = false;
+        c.shareInternet = { ...c.shareInternet, on: shareInternet, inUse: shareInternet };
+        if (!shareInternet && c.shareInternet.only !== undefined) c.shareInternet.only = false;
+      }
+      if (internetOnly !== undefined && c.shareInternet) c.shareInternet.only = internetOnly;
       return clone(c);
+    },
+    setHelp: async (orgId, on) => {
+      record("devices.setHelp", orgId, on);
+      help = on;
+      return { on };
     },
     removeComputer: async (orgId, id) => {
       record("devices.removeComputer", orgId, id);
@@ -128,6 +143,12 @@ export function createFakeDevices(
     stopPhone: async (orgId, id) => {
       record("devices.stopPhone", orgId, id);
       phone(id).status = { kind: "ready" };
+    },
+    powerPhone: async (orgId, id, on) => {
+      record("devices.powerPhone", orgId, id, on);
+      phone(id).status = on
+        ? { kind: "preparing", reason: "booting" }
+        : { kind: "offline", lastSeenAt: now().toISOString() };
     },
     createLink: async (orgId, kind) => {
       record("devices.createLink", orgId, kind);
@@ -151,7 +172,26 @@ export function createFakeDevices(
     approveRequest: async (orgId, id, input) => {
       record("devices.approveRequest", orgId, id, input);
       const list = current();
-      own = { ...list, requests: list.requests.filter((r) => r.id !== id) };
+      const request = list.requests.find((r) => r.id === id);
+      // The computer joins as the server adds it: the maker's, with the name and rule they let it in with.
+      const joined: ComputerDevice[] = request
+        ? [
+            {
+              ...deviceOf({
+                id: `m-${id}`,
+                name: input.name ?? request.name,
+                os: request.os,
+                arch: request.arch,
+                hostname: request.hostname,
+                online: true,
+                lastSeenAt: now().toISOString(),
+                canManage: true,
+              } as Machine),
+              ...(input.audience ? { audience: input.audience } : {}),
+            },
+          ]
+        : [];
+      own = { ...list, devices: [...list.devices, ...joined], requests: list.requests.filter((r) => r.id !== id) };
       link = { ...link, status: "joined", machineId: `m-${id}` };
       return { machineId: `m-${id}` };
     },

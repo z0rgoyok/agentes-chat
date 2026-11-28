@@ -1,0 +1,1 @@
+ALTER TABLE "machine_device_codes" ADD COLUMN "model" text DEFAULT '' NOT NULL;

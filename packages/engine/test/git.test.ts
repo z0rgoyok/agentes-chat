@@ -87,23 +87,62 @@ function blobObject(text: string) {
   return { type: 3, data, oid: sha1("blob", data) };
 }
 
-function packOf(objects: { type: number; data: Uint8Array }[]) {
+/** A git delta turning `base` into `target`: one copy of their common prefix, then the rest inserted. */
+function deltaOf(base: Uint8Array, target: Uint8Array) {
+  const varint = (n: number) => {
+    const out: number[] = [];
+    do {
+      out.push((n & 0x7f) | (n >= 0x80 ? 0x80 : 0));
+      n = Math.floor(n / 128);
+    } while (n > 0);
+    return out;
+  };
+  let same = 0;
+  while (same < base.length && same < target.length && base[same] === target[same]) same++;
+  const ops = [...varint(base.length), ...varint(target.length)];
+  if (same > 0) ops.push(0x80 | 0x10 | 0x20, same & 0xff, (same >> 8) & 0xff);
+  for (let at = same; at < target.length; at += 127) {
+    const chunk = target.subarray(at, Math.min(at + 127, target.length));
+    ops.push(chunk.length, ...chunk);
+  }
+  return new Uint8Array(ops);
+}
+
+/** `ofs`: an OFS_DELTA on the object at that index; `ref`: a REF_DELTA on that id. `data` is then the delta. */
+type PackEntry = { type: number; data: Uint8Array; ofs?: number; ref?: string };
+
+function packOf(objects: PackEntry[]) {
   const parts: Uint8Array[] = [];
   const header = new Uint8Array(12);
   header.set(enc("PACK"));
   new DataView(header.buffer).setUint32(4, 2);
   new DataView(header.buffer).setUint32(8, objects.length);
   parts.push(header);
+  const starts: number[] = [];
+  let offset = 12;
   for (const o of objects) {
+    starts.push(offset);
+    const type = o.ofs !== undefined ? 6 : o.ref ? 7 : o.type;
     let size = o.data.length;
-    const bytes = [(o.type << 4) | (size & 15)];
+    const bytes = [(type << 4) | (size & 15)];
     size = Math.floor(size / 16);
     while (size > 0) {
       bytes[bytes.length - 1] = (bytes[bytes.length - 1] as number) | 0x80;
       bytes.push(size & 0x7f);
       size = Math.floor(size / 128);
     }
-    parts.push(new Uint8Array(bytes), new Uint8Array(deflateSync(o.data)));
+    if (o.ofs !== undefined) {
+      let back = offset - (starts[o.ofs] as number);
+      const encoded = [back & 0x7f];
+      while (back >= 0x80) {
+        back = Math.floor(back / 128) - 1;
+        encoded.unshift(0x80 | (back & 0x7f));
+      }
+      bytes.push(...encoded);
+    } else if (o.ref) bytes.push(...Buffer.from(o.ref, "hex"));
+    const deflated = new Uint8Array(deflateSync(o.data));
+    parts.push(new Uint8Array(bytes), deflated);
+    offset += bytes.length + deflated.length;
   }
   const body = Buffer.concat(parts);
   return new Uint8Array(Buffer.concat([body, createHash("sha1").update(body).digest()]));
@@ -162,6 +201,38 @@ describe("pack reading", () => {
     expect(parsed.commands).toEqual([{ oldOid: ZERO_OID, newOid: b.oid, ref: "refs/heads/agentes/dev/x" }]);
     expect(parsed.capabilities).toEqual(["report-status", "side-band-64k"]);
     expect(readPack(body, parsed.packStart).commits).toHaveLength(2);
+  });
+
+  test("deltified commits are read: a chain of OFS deltas and a REF delta, as git pack-objects writes them", () => {
+    const a = commitObject([], "base");
+    const chain = [a];
+    for (let i = 0; i < 5; i++)
+      chain.push(commitObject([(chain[i] as { oid: string }).oid], `work ${i} ${"x".repeat(80)}`));
+    const [, b, c, d, e, g] = chain as [typeof a, typeof a, typeof a, typeof a, typeof a, typeof a];
+    const blob = blobObject("console.log(1)\n".repeat(50));
+    const pack = packOf([
+      g,
+      blob,
+      { ...e, data: deltaOf(g.data, e.data), ofs: 0 },
+      { ...d, data: deltaOf(e.data, d.data), ofs: 2 },
+      { ...c, data: deltaOf(g.data, c.data), ref: g.oid },
+      { ...b, data: deltaOf(c.data, b.data), ofs: 4 },
+    ]);
+    const read = readPack(pack);
+    expect(read.objects).toBe(6);
+    expect(read.commits.map((x) => x.oid).sort()).toEqual([b.oid, c.oid, d.oid, e.oid, g.oid].sort());
+    expect(read.commits.find((x) => x.oid === b.oid)?.parents).toEqual([a.oid]);
+    // A delta on a base the push didn't carry (a thin pack) is counted, not read.
+    const thin = packOf([{ ...b, data: deltaOf(a.data, b.data), ref: a.oid }]);
+    expect(readPack(thin)).toEqual({ objects: 1, commits: [] });
+    // What a delta expands to is held to the commit size limit.
+    const long = commitObject([a.oid], "x".repeat(500));
+    const grown = packOf([a, { ...long, data: deltaOf(a.data, long.data), ofs: 0 }]);
+    expect(readPack(grown).commits).toHaveLength(2);
+    expect(() => readPack(grown, 0, { maxCommitBytes: a.data.length + 100 })).toThrow("commit exceeds size limit");
+    // A delta on a commit that is itself bigger than a commit may be is refused before it is inflated and kept.
+    const huge = packOf([a, { ...long, data: new Uint8Array(a.data.length + 200).fill(7), ofs: 0 }]);
+    expect(() => readPack(huge, 0, { maxCommitBytes: a.data.length + 100 })).toThrow("commit exceeds size limit");
   });
 
   test("ref rules: agentes/{handle}/… goes, another existing branch needs a grant; no tags, deletes or new branches", () => {
@@ -441,6 +512,38 @@ describe("git proxy", () => {
     });
     expect(await force.text()).toContain("not a fast-forward");
     expect(w.github.calls.filter((x) => x.url.endsWith("git-receive-pack"))).toHaveLength(2);
+
+    // A fast-forward whose commits are deltas of each other (git's usual pack): the host doesn't know the new commits
+    // yet (compare says diverged), so only reading the deltas shows it lands on the old tip.
+    const d1 = commitObject([c.oid], `next ${"y".repeat(80)}`);
+    const d2 = commitObject([d1.oid], `next ${"y".repeat(80)} again`);
+    const deltified = await w.call("acme/app.git/git-receive-pack", {
+      method: "POST",
+      body: pushBody(
+        [{ old: c.oid, new: d2.oid, ref: "refs/heads/agentes/dev/fix" }],
+        packOf([d2, { ...d1, data: deltaOf(d2.data, d1.data), ofs: 0 }]),
+      ),
+    });
+    expect(await deltified.text()).toContain("unpack ok");
+    expect(w.github.calls.filter((x) => x.url.endsWith("git-receive-pack"))).toHaveLength(3);
+  });
+
+  test("the host refusing the workspace's credential is a 403 that says why, never an outage", async () => {
+    const refusing = fakeGitHub();
+    const answer = refusing.fetch;
+    refusing.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes("service=git-receive-pack")) return new Response("Permission denied", { status: 403 });
+      if (url.includes("service=git-upload-pack")) return new Response("Bad credentials", { status: 401 });
+      return answer(input, init);
+    }) as typeof fetch;
+    const w = await world(undefined, refusing);
+    const push = await w.call("acme/app.git/info/refs", { query: "?service=git-receive-pack" });
+    expect(push.status).toBe(403);
+    expect(await push.text()).toContain("can't write there. Push the branch to a fork");
+    const read = await w.call("acme/app.git/info/refs", { query: "?service=git-upload-pack" });
+    expect(read.status).toBe(403);
+    expect(await read.text()).toContain("an admin reconnects GitHub");
   });
 
   test("policy: scope, repository list, revoked or foreign credentials, size limit", async () => {
@@ -967,6 +1070,9 @@ describe("the computer", () => {
     };
     const tools = await source.tools(ctx);
     expect(tools.map((t) => [t.name, t.scope, t.connectionId, t.sensitive === true])).toEqual([
+      // One list for every git host, and one wait for the checkouts' update, with no connection of their own.
+      ["list_repositories", "", undefined, false],
+      ["wait_for_code", "", undefined, false],
       ["git_clone", "github:git.read", connection.id, false],
       ["open_pull_request", "github:pr.write", connection.id, false],
       ["delete_branches", "github:git.write", connection.id, true],

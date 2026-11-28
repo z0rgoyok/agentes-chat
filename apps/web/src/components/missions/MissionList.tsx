@@ -3,7 +3,7 @@ import { useChannels, useMissionList } from "@agenteschat/client";
 import { formatShortDate, relativeTime } from "@agenteschat/client/lib/format";
 import { isOpenMission, missionCells, missionCellTitles, waitingText } from "@agenteschat/client/lib/missions";
 import { can } from "@agenteschat/client/lib/permissions";
-import { Button, EmptyState, GroupHeading, Icon, Menu } from "@agenteschat/ui";
+import { Button, EmptyState, GroupHeading, Icon, Menu, Refreshing } from "@agenteschat/ui";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -50,16 +50,19 @@ export function MissionsTab({
   const counts = open.data?.counts ?? closed.data?.counts;
   if (open.isPending || (active.length === 0 && closed.isPending)) return <LoadingList count={3} />;
   if (open.isError && !open.data) return <ErrorState error={open.error} onRetry={() => void open.refetch()} />;
+  const busy = open.isPlaceholderData || closed.isPlaceholderData;
   if (active.length === 0 && ended.length === 0) {
     if (q || filters.agentId || filters.channelId)
       return (
-        <EmptyState
-          size="panel"
-          title={t("threads.empty.noResults")}
-          actions={<Button onClick={onClear}>{t("threads.empty.clear")}</Button>}
-        >
-          {t("threads.empty.noResultsText")}
-        </EmptyState>
+        <Refreshing busy={busy} label={t("common.loading")}>
+          <EmptyState
+            size="panel"
+            title={t("threads.empty.noResults")}
+            actions={<Button onClick={onClear}>{t("threads.empty.clear")}</Button>}
+          >
+            {t("threads.empty.noResultsText")}
+          </EmptyState>
+        </Refreshing>
       );
     const opens = can(org, "post") && can(org, "assign_work");
     return (
@@ -80,34 +83,36 @@ export function MissionsTab({
     );
   }
   return (
-    <div className="ac-groups">
-      {active.length > 0 && (
-        <section>
-          <GroupHeading
-            title={t("missions.list.active")}
-            count={counts?.active ?? active.length}
-            note={
-              (counts?.waitingYou ?? 0) > 0 && t("missions.list.waitingYouCount", { count: counts?.waitingYou ?? 0 })
-            }
-          />
-          <div className="mi-mcs">
-            {active.map((m) => (
-              <MissionCard key={m.id} mission={m} />
-            ))}
-          </div>
-        </section>
-      )}
-      {ended.length > 0 && (
-        <section>
-          <GroupHeading title={t("missions.list.ended")} count={counts?.closed ?? ended.length} />
-          <div className="mi-mcs">
-            {ended.map((m) => (
-              <MissionCard key={m.id} mission={m} />
-            ))}
-          </div>
-        </section>
-      )}
-    </div>
+    <Refreshing busy={busy} label={t("common.loading")}>
+      <div className="ac-groups">
+        {active.length > 0 && (
+          <section>
+            <GroupHeading
+              title={t("missions.list.active")}
+              count={counts?.active ?? active.length}
+              note={
+                (counts?.waitingYou ?? 0) > 0 && t("missions.list.waitingYouCount", { count: counts?.waitingYou ?? 0 })
+              }
+            />
+            <div className="mi-mcs">
+              {active.map((m) => (
+                <MissionCard key={m.id} mission={m} />
+              ))}
+            </div>
+          </section>
+        )}
+        {ended.length > 0 && (
+          <section>
+            <GroupHeading title={t("missions.list.ended")} count={counts?.closed ?? ended.length} />
+            <div className="mi-mcs">
+              {ended.map((m) => (
+                <MissionCard key={m.id} mission={m} />
+              ))}
+            </div>
+          </section>
+        )}
+      </div>
+    </Refreshing>
   );
 }
 

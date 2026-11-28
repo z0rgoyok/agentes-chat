@@ -18,7 +18,7 @@ describe("isolated pages", () => {
 
   test("the policy comes first, whatever the page holds", () => {
     const start =
-      '<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><meta http-equiv="Content-Security-Policy"';
+      '<!doctype html><html translate="no"><head><meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><meta http-equiv="Content-Security-Policy"';
     for (const page of [
       "<h1>a</h1>",
       "<!doctype html><html lang=pt><head><title>x</title></head><body></body></html>",

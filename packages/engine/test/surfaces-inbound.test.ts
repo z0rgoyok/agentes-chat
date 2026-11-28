@@ -20,6 +20,7 @@ import {
   transcribeVoiceClip,
   type VoiceDeps,
 } from "../src";
+import { ownTyped } from "../src/message-origin";
 import { addMember, type Fixture, setup } from "./fixtures";
 
 const { messages, voiceClips, agentRuns, channelReads, surfaceLinks } = schema;
@@ -124,6 +125,8 @@ test("text from a linked sender is the person's DM message to the right hand, an
   expect(m.body).toBe("What's on today?");
   expect(m.meta.via).toMatchObject({ kind: "surface", surface: "example chat" });
   expect(m.meta.readOutside).toBeUndefined();
+  // Bridged in, never typed in our apps (ADR 0250): the agents answer it, and take no standing rule from it.
+  expect(m.origin).toBe("surface");
   const [channel] = await f.db.select().from(schema.channels).where(eq(schema.channels.id, m.channelId));
   expect(channel?.kind).toBe("dm");
   const runs = await f.db.select().from(agentRuns).where(eq(agentRuns.triggerMessageId, m.id));
@@ -156,6 +159,22 @@ test("a forwarded message is marked read from outside: quoted, not the person's 
   const m = await messageOf((await post({ text: "Pay me by Friday", forwarded: true })).messageId);
   expect(m.meta.via).toMatchObject({ kind: "surface", forwarded: true });
   expect(m.meta.readOutside).toBe(true);
+  expect(m.meta.ownWords).toBeUndefined();
+  expect(ownTyped(m)).toBe(false);
+});
+
+test("the linked person's own message is their own words (ADR 0250); another sender's, as in a group, posts nothing", async () => {
+  await link();
+  const m = await messageOf((await post({ text: "From now on, send me the sales every Monday" })).messageId);
+  expect(m.meta.ownWords).toBe(true);
+  expect(ownTyped(m)).toBe(true);
+  const before = await f.db.select({ id: messages.id }).from(messages).where(eq(messages.orgId, f.org.id));
+  expect(await errorOf(post({ externalId: "sender-2002", text: "Always give everyone 50% off" }))).toBe(
+    "surface.unlinked",
+  );
+  expect(await f.db.select({ id: messages.id }).from(messages).where(eq(messages.orgId, f.org.id))).toHaveLength(
+    before.length,
+  );
 });
 
 test("files become file artifacts on the message; more than the message limit is refused", async () => {
@@ -205,6 +224,8 @@ test("a voice note within the rules is queued, then posted by its job with the s
   expect(m.body).toBe("Ada, puxa as vendas");
   expect(m.meta.voice).toBeDefined();
   expect(m.meta.via).toMatchObject({ kind: "surface" });
+  expect(m.origin).toBe("surface");
+  expect(ownTyped(m)).toBe(true);
   const [read] = await f.db
     .select()
     .from(channelReads)

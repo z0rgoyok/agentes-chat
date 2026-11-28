@@ -125,7 +125,9 @@ export function auditPhrase(t: TFunction, row: AuditRow, locale?: string): strin
   // read as "<verb> <area>".
   if (area === "vault") {
     const what = VAULT_ACTIONS.find((s) => s === rest);
-    if (what) return t(`audit.change.vault.${what}`);
+    // A change to many items at once says how many.
+    const count = typeof row.details.count === "number" ? { count: row.details.count } : {};
+    if (what) return t(`audit.change.vault.${what}`, count);
   }
   const last = (rest.split("_").at(-1) ?? "").replace("cancelled", "canceled");
   const verb = VERBS.find((v) => v === last) ?? "other";
@@ -217,6 +219,8 @@ const VAULT_ACTIONS = [
   "item_created",
   "item_changed",
   "item_deleted",
+  "items_changed",
+  "items_deleted",
   "item_moved",
   "item_used",
   "imported",

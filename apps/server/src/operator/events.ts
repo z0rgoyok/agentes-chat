@@ -17,7 +17,7 @@ const Event = z
     at: z.string(),
     type: z.string().openapi({
       description:
-        "`user.signed_up`, `session.created`, `user.deletion_requested`, `user.deletion_canceled`, `user.deleted`, `organization.created`, `organization.deletion_requested`, `organization.deletion_canceled`, `organization.plan_move_requested`, `organization.deleted`, `invitation.created`, `agent.created`, `agent.deleted`, `mail.sent`, `run.finished`, `run.hop_limit`, `task.finished`, `desktop_control.ended`, `content.viewed`, `support.requested`, `support.replied`, `platform_ai.threshold`, `account.failure`, `surface.cap_reached`, `outside_access.granted`, `outside_access.denied` or `outside_access.ended` (ADR 0056 §5 lists each one's `data`; ADR 0191 the last three's). Ignore types you don't know: new ones keep v1.",
+        "`user.signed_up`, `session.created`, `user.deletion_requested`, `user.deletion_canceled`, `user.deleted`, `organization.created`, `organization.deletion_requested`, `organization.deletion_canceled`, `organization.plan_move_requested`, `organization.deleted`, `invitation.created`, `agent.created`, `agent.deleted`, `mail.sent`, `run.finished`, `run.hop_limit`, `task.finished`, `desktop_control.ended`, `content.viewed`, `support.requested`, `support.replied`, `platform_ai.threshold`, `account.failure`, `desktop.started`, `surface.cap_reached`, `outside_access.granted`, `outside_access.denied` or `outside_access.ended` (ADR 0056 §5 lists each one's `data`; ADR 0191 the last three's). Ignore types you don't know: new ones keep v1.",
     }),
     orgId: z.uuid().nullable(),
     userId: z.string().nullable().openapi({ description: "The person the event is about or who acted." }),

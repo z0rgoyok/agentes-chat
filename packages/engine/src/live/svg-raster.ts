@@ -13,10 +13,12 @@ export async function enableSvgRasterizer(): Promise<boolean> {
     const resvg = await import("@resvg/resvg-wasm");
     const require = createRequire(import.meta.url);
     await resvg.initWasm(readFileSync(require.resolve("@resvg/resvg-wasm/index_bg.wasm")));
-    const fontBuffers = brandFontFiles();
-    setSvgRasterizer(async (svg) => {
+    const brand = brandFontFiles();
+    setSvgRasterizer(async (svg, opts) => {
+      const fontBuffers = opts?.fonts?.length ? [...brand, ...opts.fonts] : brand;
       const drawing = new resvg.Resvg(new TextDecoder().decode(svg), {
         font: { fontBuffers, loadSystemFonts: false, defaultFontFamily: "Onest" },
+        ...(opts?.width ? { fitTo: { mode: "width" as const, value: opts.width } } : {}),
       });
       try {
         return drawing.render().asPng();

@@ -69,6 +69,8 @@ services:
       FILES_DIR: /data/files
     volumes:
       - files:/data/files
+      # The speech model its owner may download in Settings › Voice (beside the files folder, `speech-local.ts`).
+      - speech-local:/data/speech
     ports:
       # Loopback by default: Docker publishes ports through iptables, past any host firewall.
       - "${BIND_ADDRESS:-127.0.0.1}:${HOST_PORT:-3000}:3000"
@@ -300,9 +302,10 @@ configs:
   unavailable-page:
     content: |
       <!doctype html>
-      <html lang="en">
+      <html lang="en" translate="no">
       <head>
       <meta charset="utf-8">
+      <meta name="google" content="notranslate">
       <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
       <meta name="robots" content="noindex">
       <title>agentes.chat will be right back</title>
@@ -474,6 +477,7 @@ networks:
 volumes:
   pgdata:
   files:
+  speech-local:
   embeddings-models:
   caddy-data:
   tailscale-state:

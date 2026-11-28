@@ -13,6 +13,7 @@ import {
   getMessage,
   insertMessage,
   keepCodeSuggestionHere,
+  moveToBackground,
   openCodeSuggestion,
   SUGGEST_CODE_SESSION_TOOL,
   type ToolContext,
@@ -46,7 +47,10 @@ async function programmer() {
 }
 
 /** A person's request in `channelId` (or an agent's, with `byAgent`), and Dev's run over it, at work. */
-async function runOver(channelId: string, options: { byAgent?: boolean; background?: boolean; body?: string } = {}) {
+async function runOver(
+  channelId: string,
+  options: { byAgent?: boolean; background?: boolean; body?: string; relayed?: boolean } = {},
+) {
   const trigger = await insertMessage(f.db, {
     orgId: f.org.id,
     channelId,
@@ -54,6 +58,8 @@ async function runOver(channelId: string, options: { byAgent?: boolean; backgrou
       ? { type: "agent", agentId: f.agent.id, runId: null, hop: 1, stretchId: null }
       : { type: "person", userId: f.owner.id },
     body: options.body ?? ASK,
+    // Posted with the person's own token by a script relaying someone else's message (ADR 0250).
+    ...(options.relayed ? { origin: "mcp" as const, meta: { readOutside: true } } : {}),
   });
   const [run] = await f.db
     .insert(schema.agentRuns)
@@ -170,6 +176,15 @@ describe("suggest_code_session", () => {
     }
   });
 
+  test("refused for a request posted with a token: only words the person typed here open a session", async () => {
+    f = await setup();
+    await programmer();
+    const relayed = await runOver(f.general.id, { relayed: true });
+    const out = await suggest(ctxOf(relayed.run), { project: "tarefas", title: "X" });
+    expect(out.isError).toBe(true);
+    expect(out.data?.codeSuggestion).toBeUndefined();
+  });
+
   test("never in a task's conversation or a mission's thread: the change is made there, as before", async () => {
     f = await setup();
     await programmer();
@@ -206,6 +221,24 @@ describe("suggest_code_session", () => {
     expect((await suggest(ctxOf(inMission.run), { project: "tarefas", title: "X" })).isError).toBe(true);
     // The same request in the channel, outside the mission: suggested.
     expect(await codeSuggestionApplies(f.db, (await runOver(f.general.id)).run)).toBe(true);
+  });
+
+  test("still suggested after the run moved itself to the background: the person's request is what it answers", async () => {
+    f = await setup();
+    await programmer();
+    const { run, trigger } = await runOver(f.general.id);
+    const moved = await moveToBackground({ db: f.db, pubsub: f.pubsub }, run.id, {
+      how: "agent",
+      title: "Concluir com o filtro",
+      say: "Vou cuidar disso em segundo plano.",
+    });
+    if (!moved) throw new Error("not moved");
+    const out = await suggest(ctxOf(run), { project: "tarefas", title: "Concluir com o filtro" });
+    expect(out.isError).toBeFalsy();
+    expect(codeSuggestionOf({ codeSuggestion: out.data?.codeSuggestion })).toMatchObject({
+      requestMessageId: trigger.id,
+      askerId: f.owner.id,
+    });
   });
 });
 

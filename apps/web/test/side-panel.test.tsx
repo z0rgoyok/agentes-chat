@@ -80,8 +80,8 @@ test("a thread floats over a scrim: everything behind it is out of reach, the to
   expect(side.closest("[inert]")).toBeNull();
   await act(async () => services.toasts.show("Salvo"));
   expect((document.querySelector(".ac-toasts") as HTMLElement).closest("[inert]")).toBeNull();
-  // Its own page is one click away.
-  expect(within(side).getByRole("button", { name: "Abrir em tela cheia" })).toBeTruthy();
+  // No page of its own: wherever its link is followed, it opens right here.
+  expect(within(side).queryByRole("button", { name: "Abrir em tela cheia" })).toBeNull();
 
   await click(within(side).getByRole("button", { name: "Fechar a thread" }));
   await settle(3);

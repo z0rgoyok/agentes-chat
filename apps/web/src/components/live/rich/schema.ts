@@ -1,3 +1,4 @@
+import { isFontRef, isFontWeight } from "@agenteschat/live";
 import {
   isRichColor,
   isRichHref,
@@ -7,6 +8,7 @@ import {
   type RichList,
 } from "@agenteschat/live/rich";
 import { type DOMOutputSpec, type Mark, type Node as PMNode, Schema } from "prosemirror-model";
+import { fontFamilyCss } from "../fonts";
 
 /**
  * The rich text schema as ProseMirror's (ADR 0196 §2): node and mark names and attributes come from
@@ -23,12 +25,22 @@ export function paragraphDomAttrs(attrs: {
   align?: unknown;
   level?: unknown;
   list?: unknown;
+  lineHeight?: unknown;
+  spaceAfter?: unknown;
   n?: number;
 }): Record<string, string> {
   const out: Record<string, string> = { class: "rt-p" };
-  if (attrs.align === "left" || attrs.align === "center" || attrs.align === "right") {
-    out.style = `text-align: ${attrs.align}`;
+  const css: string[] = [];
+  if (attrs.align === "left" || attrs.align === "center" || attrs.align === "right")
+    css.push(`text-align: ${attrs.align}`);
+  // A paragraph's own spacing (ADR 0220 §3), in the text's units.
+  if (typeof attrs.lineHeight === "number" && attrs.lineHeight >= 0.8 && attrs.lineHeight <= 3) {
+    css.push(`line-height: ${attrs.lineHeight}`);
   }
+  if (typeof attrs.spaceAfter === "number" && attrs.spaceAfter > 0 && attrs.spaceAfter <= 1000) {
+    css.push(`margin-bottom: ${attrs.spaceAfter}px`);
+  }
+  if (css.length) out.style = css.join("; ");
   const level = typeof attrs.level === "number" ? Math.min(RICH_MAX_LEVEL, Math.max(0, Math.floor(attrs.level))) : 0;
   if (level > 0) out["data-level"] = String(level);
   if (attrs.list === "bullet" || attrs.list === "ordered") out["data-list"] = attrs.list;
@@ -162,8 +174,58 @@ export const richSchema = new Schema({
           ? ["a", { href: mark.attrs.href, rel: "noopener noreferrer nofollow", target: "_blank" }, 0]
           : ["span", 0],
     },
+    // The type marks (ADR 0220 §3): drawn the way `RichView` draws them, each value checked on the way to the page.
+    font: {
+      ...spec.marks.font,
+      toDOM: (mark: Mark): DOMOutputSpec => ["span", typeMarkDom("font", mark.attrs.font), 0],
+    },
+    size: {
+      ...spec.marks.size,
+      toDOM: (mark: Mark): DOMOutputSpec => ["span", typeMarkDom("size", mark.attrs.size), 0],
+    },
+    weight: {
+      ...spec.marks.weight,
+      toDOM: (mark: Mark): DOMOutputSpec => ["span", typeMarkDom("weight", mark.attrs.weight), 0],
+    },
+    highlight: {
+      ...spec.marks.highlight,
+      toDOM: (mark: Mark): DOMOutputSpec => ["span", typeMarkDom("highlight", mark.attrs.color), 0],
+    },
+    tracking: {
+      ...spec.marks.tracking,
+      toDOM: (mark: Mark): DOMOutputSpec => ["span", typeMarkDom("tracking", mark.attrs.tracking), 0],
+    },
+    caps: { ...spec.marks.caps, toDOM: (): DOMOutputSpec => ["span", typeMarkDom("caps", true), 0] },
   },
 });
+
+/** The CSS of one type mark (ADR 0220 §3) as one declaration, or none when its value isn't one it may hold. */
+export function typeMarkCss(
+  name: "font" | "size" | "weight" | "highlight" | "tracking" | "caps",
+  value: unknown,
+): string {
+  switch (name) {
+    case "font": {
+      const family = isFontRef(value) ? fontFamilyCss(value) : undefined;
+      return family ? `font-family: ${family}` : "";
+    }
+    case "size":
+      return typeof value === "number" && value >= 4 && value <= 1000 ? `font-size: ${value}px` : "";
+    case "weight":
+      return isFontWeight(value) ? `font-weight: ${value}` : "";
+    case "highlight":
+      return isRichColor(value) ? `background-color: ${value}; box-decoration-break: clone` : "";
+    case "tracking":
+      return typeof value === "number" && value >= -200 && value <= 1000 ? `letter-spacing: ${value / 1000}em` : "";
+    case "caps":
+      return "text-transform: uppercase";
+  }
+}
+
+function typeMarkDom(name: Parameters<typeof typeMarkCss>[0], value: unknown): Record<string, string> {
+  const css = typeMarkCss(name, value);
+  return css ? { style: css } : {};
+}
 
 /**
  * The number each ordered item shows, by paragraph (null for others): items of one list count up at their level,

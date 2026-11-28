@@ -44,6 +44,8 @@ A recording is part of its message, so it lives in `voice_clips` on the workspac
 
 On agentes.chat's servers only: a person and a workspace have a number of minutes in a rolling 24 hours (`VOICE_LIMIT_*`, 60 per person; 20 per member, at least 300, per workspace; 0 turns one off). It is checked before a recording starts and when it arrives, never cutting one short. Nobody sees a counter or a price. It is counted from `voice_clips`, not `usage_records`, so nothing reaches the Usage screens. A self-hosted server has no limit.
 
+A workspace on a billing hold (ADR 0079: no plan yet, a failed payment, an ended plan) gets no words at all: `GET …/voice/allowed` answers `{ allowed: false, reason: "plan" }` and a recording is refused with 409 `voice.plan` before anything is stored, so the server's engines only ever work for a plan in force. The apps say voice comes with a plan and give the way to one. Only a billing service sets such a hold, so a server without one never meets it.
+
 ### 8. Recordings expire
 
 `VOICE_RETENTION_DAYS` (default 90; 0 keeps them forever) applies on every server, so storage doesn't fill up. A daily sweep deletes the audio in pages and sets `voice_clips.audio_deleted_at`. The row stays, as fair use counts it, and so does the message with its words. A recording waiting for its words never expires. The audio route answers 410 `voice.expired` for a swept recording or one past its date; swept recordings leave `storedBytes` and aren't copied by a storage migration. `meta.voice.expiresAt` is written when the message is posted, so a later change of the setting applies on the server but doesn't rewrite that date.
@@ -128,8 +130,8 @@ each verb is a group with its own mark and faces ("Marina está digitando · Rui
 the second takes a line of its own when the line is short: names give way, verbs never. Copy:
 `chat.activity.recordingVoice`.
 
-**Agents wait for it.** The quiet window counts a voice frame like typing (ADR 0112): a run started on a person's
-message waits its whole window while they record a follow-up.
+**Agents wait for it.** A voice frame counts like typing (ADR 0112): a run started on a person's message holds its
+first model call while they record a follow-up.
 
 ## Addendum (2026-11-15): typed text and files in the same message
 

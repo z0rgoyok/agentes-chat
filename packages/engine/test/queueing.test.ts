@@ -1,8 +1,20 @@
 import { afterEach, describe, expect, spyOn, test } from "bun:test";
-import { eq, schema, sql } from "@agenteschat/db";
+import { eq, schema } from "@agenteschat/db";
 import type { ModelRequest } from "@agenteschat/providers";
-import { drainOutbox, executeRun, getMessage, listMessages, openDm, postPersonMessage, type ToolSource } from "../src";
-import { waitForBurst } from "../src/burst";
+import {
+  createAgent,
+  createAgentRuns,
+  drainOutbox,
+  executeRun,
+  getMessage,
+  insertMessage,
+  listMessages,
+  openDm,
+  postPersonMessage,
+  publishTyping,
+  type ToolSource,
+} from "../src";
+import * as burst from "../src/burst";
 import { type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -140,21 +152,39 @@ describe("mid-round queueing (ADR 0029 section 1)", () => {
 describe("messages in a row (ADR 0112)", () => {
   const postIn = (channelId: string, body: string, threadId?: string) =>
     postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, channelId, { body, threadId });
-  // A loaded CI machine can take more than 20 s to start a run on PGlite (its shard runs four files at once): wait up
-  // to 50 s, under the test's own limit below.
-  const waitRunning = async () => {
-    const start = Date.now();
-    while (!(await runs()).some((r) => r.status === "running")) {
-      if (Date.now() - start > 50_000) throw new Error("the run never started");
-      await Bun.sleep(5);
-    }
+  /** Typing here, as the apps send it ("digitando…"). */
+  const typing = (channelId = f.general.id, threadId: string | null = null) =>
+    publishTyping(f.pubsub, { channelId, threadId, userId: f.owner.id });
+  /** Resolves once the run's first model call starts; rejects when it hasn't within `ms`: it waited. */
+  const startsWithin = (started: Promise<unknown>, ms: number) =>
+    Promise.race([started, Bun.sleep(ms).then(() => Promise.reject(new Error("the first model call waited")))]);
+  /**
+   * Holds a run just before its first model call until `open()`: `started` resolves once it is there, running. On a
+   * loaded machine the rest of the burst could otherwise land after a first call already over.
+   */
+  const holdBeforeFirstCall = () => {
+    let open = () => {};
+    const opened = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    let reached = () => {};
+    const started = new Promise<void>((resolve) => {
+      reached = resolve;
+    });
+    const real = burst.waitWhileTyping;
+    const spy = spyOn(burst, "waitWhileTyping").mockImplementation(async (...args) => {
+      reached();
+      await opened;
+      return real(...args);
+    });
+    return { started, open, restore: () => spy.mockRestore() };
   };
 
   test.each([
     ["a DM", "dm"],
     ["a thread", "thread"],
   ] as const)(
-    "in %s: a burst sent as the run starts gets one run and one answer that read all of it",
+    "in %s: a burst sent before the first model call gets one run and one answer that read all of it",
     async (_l, where) => {
       const requests: string[] = [];
       f = await setup({
@@ -168,11 +198,18 @@ describe("messages in a row (ADR 0112)", () => {
       const root = where === "thread" ? await post("o relatório de ontem") : null;
       const channelId = dm ?? f.general.id;
       await postIn(channelId, dm ? "oi" : "@dev oi", root?.id);
-      const drained = drainOutbox(f.db, f.handlers);
-      await waitRunning();
-      await postIn(channelId, "preciso de uma coisa", root?.id);
-      await postIn(channelId, "olha o relatório de ontem e me diz se bate com o quadro", root?.id);
-      await drained;
+      const hold = holdBeforeFirstCall();
+      try {
+        const drained = drainOutbox(f.db, f.handlers);
+        await hold.started;
+        expect((await runs()).map((r) => r.status)).toEqual(["running"]);
+        await postIn(channelId, "preciso de uma coisa", root?.id);
+        await postIn(channelId, "olha o relatório de ontem e me diz se bate com o quadro", root?.id);
+        hold.open();
+        await drained;
+      } finally {
+        hold.restore();
+      }
       await drainOutbox(f.db, f.handlers);
       expect(await runs()).toHaveLength(1);
       expect(f.provider.calls).toHaveLength(1);
@@ -268,9 +305,10 @@ describe("messages in a row (ADR 0112)", () => {
     expect(run?.pendingMessageIds).toHaveLength(1);
   });
 
-  test("a database error during the wait, on the last try: the run fails and stops listening for live messages", async () => {
+  test("a database error during the typing hold, on the last try: the run fails and stops listening for live messages", async () => {
     f = await setup({ quietMs: 400 });
     await post("@dev oi");
+    await typing();
     const [queued] = await runs();
     const open = new Set<object>();
     const subscribe = f.pubsub.subscribe.bind(f.pubsub);
@@ -300,52 +338,219 @@ describe("messages in a row (ADR 0112)", () => {
     expect(open.size).toBe(0);
   });
 
-  test("a lone message waits only what is left of the quiet window, measured from when it was sent", async () => {
+  test("nobody typing: the first model call starts at once, on a mention, a DM or a router's pick", async () => {
+    f = await setup({ quietMs: 5000 });
+    const dm = (await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id })).id;
+    const sends = [() => post("@dev oi"), () => postIn(dm, "oi"), () => post("@dev o build quebrou")];
+    for (const [i, send] of sends.entries()) {
+      await send();
+      const run = (await runs()).at(-1);
+      // The last as the router starts it.
+      if (i === 2)
+        await f.db
+          .update(schema.agentRuns)
+          .set({ trigger: "router" })
+          .where(eq(schema.agentRuns.id, run?.id ?? ""));
+      const start = Date.now();
+      await executeRun(f.jobDeps, run?.id ?? "", { finalAttempt: true });
+      expect(Date.now() - start).toBeLessThan(1500);
+    }
+    expect((await runs()).map((r) => r.status)).toEqual(["done", "done", "done"]);
+  });
+
+  test("typing seen: the hold lasts until they send it, at most four windows; none for a connected AI app", async () => {
     f = await setup();
-    const row = async (body: string) => {
+    const log = burst.typingLogFor(f.pubsub);
+    const row = async (body: string, meta?: Record<string, unknown>) => {
       const posted = await post(body);
+      if (meta) await f.db.update(schema.messages).set({ meta }).where(eq(schema.messages.id, posted.id));
       const m = await getMessage(f.db, f.org.id, posted.id);
       if (!m) throw new Error("not posted");
       return m;
     };
+    // No frame heard: no wait, and not a statement.
+    const alone = await row("@dev oi");
+    const select = spyOn(f.db, "select");
+    let start = Date.now();
+    await burst.waitWhileTyping(f.db, alone, 2500, log);
+    expect(Date.now() - start).toBeLessThan(100);
+    expect(select).not.toHaveBeenCalled();
+    select.mockRestore();
+    // Typing for the message itself, before it was sent, is over with it.
+    await typing();
+    await Bun.sleep(5);
     const sent = await row("@dev oi");
-    const [old] = await f.db
-      .update(schema.messages)
-      .set({ createdAt: sql`now() - interval '10 seconds'` })
-      .where(eq(schema.messages.id, sent.id))
-      .returning();
-    if (!old) throw new Error("not moved");
-    const start = Date.now();
-    await waitForBurst(f.db, old, 2500);
-    expect(Date.now() - start).toBeLessThan(200);
-    const fresh = await row("@dev oi de novo");
-    await waitForBurst(f.db, fresh, 600);
-    // Quiet from when it was sent, not from when the run got to it.
-    expect(Date.now() - fresh.createdAt.getTime()).toBeGreaterThanOrEqual(590);
-    expect(Date.now() - fresh.createdAt.getTime()).toBeLessThan(1500);
-  });
+    start = Date.now();
+    await burst.waitWhileTyping(f.db, sent, 2500, log);
+    expect(Date.now() - start).toBeLessThan(300);
+    // Typing after it holds until their next message lands.
+    const more = await row("@dev oi");
+    await typing();
+    setTimeout(() => void post("preciso de uma coisa"), 600);
+    start = Date.now();
+    await burst.waitWhileTyping(f.db, more, 2500, log);
+    expect(Date.now() - start).toBeGreaterThanOrEqual(550);
+    expect(Date.now() - start).toBeLessThan(1200);
+    // Still typing, never sent: at most four windows from the message.
+    const long = await row("@dev oi");
+    await typing();
+    const keepTyping = setInterval(() => void typing(), 200);
+    await burst.waitWhileTyping(f.db, long, 300, log);
+    clearInterval(keepTyping);
+    expect(Date.now() - long.createdAt.getTime()).toBeGreaterThanOrEqual(1150);
+    expect(Date.now() - long.createdAt.getTime()).toBeLessThan(2000);
+    // Sent through a connected AI app (ADR 0119): never held, whatever the frames say.
+    const viaApp = await row("@dev oi", { via: { kind: "app", name: "Claude" } });
+    await typing();
+    start = Date.now();
+    await burst.waitWhileTyping(f.db, viaApp, 2500, log);
+    expect(Date.now() - start).toBeLessThan(100);
+    // Recording a voice message ("gravando áudio…") holds as typing does.
+    const voice = await row("@dev oi");
+    await publishTyping(f.pubsub, { channelId: f.general.id, threadId: null, userId: f.owner.id, kind: "voice" });
+    await burst.waitWhileTyping(f.db, voice, 300, log);
+    expect(Date.now() - voice.createdAt.getTime()).toBeGreaterThanOrEqual(1150);
+  }, 20_000);
 
-  test("Parar or a shutdown during the quiet window ends the wait at once", async () => {
+  test("Parar or a shutdown during the typing hold ends it at once", async () => {
     f = await setup();
+    const log = burst.typingLogFor(f.pubsub);
     const posted = await post("@dev oi");
     const sent = await getMessage(f.db, f.org.id, posted.id);
     if (!sent) throw new Error("not posted");
+    await typing();
     const stop = new AbortController();
     setTimeout(() => stop.abort(), 100);
     const start = Date.now();
-    await waitForBurst(f.db, sent, 5000, stop.signal);
+    await burst.waitWhileTyping(f.db, sent, 5000, log, stop.signal);
     expect(Date.now() - start).toBeLessThan(1000);
   });
 
-  test("a routed run never waits again: the router already waited for the burst", async () => {
-    f = await setup({ quietMs: 5000 });
-    await post("@dev oi");
-    const [queued] = await runs();
-    await f.db.update(schema.agentRuns).set({ trigger: "router" });
-    const start = Date.now();
-    await executeRun(f.jobDeps, queued?.id ?? "", { finalAttempt: true });
-    expect(Date.now() - start).toBeLessThan(2500);
-    expect((await runs())[0]?.status).toBe("done");
+  test("typing seen when the run starts: its first model call waits for what they send, then reads it at once", async () => {
+    const requests: string[] = [];
+    let called = () => {};
+    const firstCall = new Promise<void>((resolve) => {
+      called = resolve;
+    });
+    f = await setup({
+      quietMs: 3000,
+      reply: (req: ModelRequest) => {
+        called();
+        requests.push(JSON.stringify(req.messages));
+        return { chunks: ["Bate sim: 42 tarefas nos dois."] };
+      },
+    });
+    const dm = (await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id })).id;
+    await postIn(dm, "oi");
+    await typing(dm);
+    const drained = drainOutbox(f.db, f.handlers);
+    await Bun.sleep(700);
+    expect(f.provider.calls).toHaveLength(0);
+    const sentAt = Date.now();
+    await postIn(dm, "olha o relatório de ontem e me diz se bate com o quadro");
+    await startsWithin(firstCall, 700);
+    expect(Date.now() - sentAt).toBeLessThan(700);
+    await drained;
+    expect(f.provider.calls).toHaveLength(1);
+    expect(requests[0]).toContain("se bate com o quadro");
+  });
+
+  test("'oi' then 'preciso de X' within a second: one run, one reply that answers X, both read", async () => {
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let called = () => {};
+    const firstCall = new Promise<void>((resolve) => {
+      called = resolve;
+    });
+    const requests: string[] = [];
+    f = await setup({
+      quietMs: 2500,
+      reply: (req: ModelRequest, call: number) => {
+        requests.push(JSON.stringify(req.messages));
+        if (call > 1) return { chunks: ["Claro: para quantas noites em Recife?"] };
+        called();
+        return { chunks: ["Oi! Em que posso ajudar?"], hold: released };
+      },
+    });
+    const dm = (await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id })).id;
+    const events = f.listen(dm);
+    const sentAt = Date.now();
+    const hi = await postIn(dm, "oi");
+    const drained = drainOutbox(f.db, f.handlers);
+    // Nobody typing: it thinks at once on "oi".
+    await startsWithin(firstCall, 1000);
+    const need = await postIn(dm, "preciso de hotéis em Recife para março");
+    expect(Date.now() - sentAt).toBeLessThan(1000);
+    release();
+    await drained;
+    await drainOutbox(f.db, f.handlers);
+    expect(await runs()).toHaveLength(1);
+    const said = (await listMessages(f.db, f.owner.id, f.org.id, dm)).filter((m) => m.author.type === "agent");
+    expect(said.map((m) => m.body)).toEqual(["Claro: para quantas noites em Recife?"]);
+    expect(requests.at(-1)).toContain("hotéis em Recife");
+    const [run] = await runs();
+    expect(run?.triggerMessageId).toBe(hi.id);
+    expect(run?.pendingMessageIds).toEqual([]);
+    const read = events.filter((e) => e.type === "agent.run.read") as unknown as { messageIds: string[] }[];
+    expect(read.flatMap((e) => e.messageIds)).toContain(need.id);
+  });
+
+  test("a follow-up after the first model call started is steered into the turn under way", async () => {
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let called = () => {};
+    const firstCall = new Promise<void>((resolve) => {
+      called = resolve;
+    });
+    const requests: string[] = [];
+    f = await setup({
+      quietMs: 2500,
+      toolSources: [slowTool(async () => {})],
+      reply: (req: ModelRequest, call: number) => {
+        requests.push(JSON.stringify(req.messages));
+        if (call > 1) return { chunks: ["Relatório da semana pronto, com a anterior também."] };
+        called();
+        return { chunks: ["Vou montar."], toolUses: [{ name: "build", input: {} }], hold: released };
+      },
+    });
+    const dm = (await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id })).id;
+    await postIn(dm, "monta o relatório desta semana");
+    const drained = drainOutbox(f.db, f.handlers);
+    await startsWithin(firstCall, 1000);
+    await postIn(dm, "ah, e inclui a semana passada também");
+    release();
+    await drained;
+    expect(await runs()).toHaveLength(1);
+    expect(f.provider.calls).toHaveLength(2);
+    expect(requests[0]).not.toContain("inclui a semana passada");
+    expect(requests[1]).toContain("while you were working]: ah, e inclui a semana passada");
+  });
+
+  test("a short first reply waits for what the person is still typing, and is rewritten with it", async () => {
+    let dm = "";
+    f = await setup({
+      quietMs: 2500,
+      reply: (_req: ModelRequest, call: number) =>
+        call === 1
+          ? {
+              chunks: ["Oi! Em que posso ajudar?"],
+              // They start the next message while it writes, and send it a moment after its answer.
+              hold: typing(dm).then(() => {
+                setTimeout(() => void postIn(dm, "preciso de hotéis em Recife para março"), 400);
+              }),
+            }
+          : { chunks: ["Claro: para quantas noites?"] },
+    });
+    dm = (await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id })).id;
+    await postIn(dm, "oi");
+    await drainOutbox(f.db, f.handlers);
+    const said = (await listMessages(f.db, f.owner.id, f.org.id, dm)).filter((m) => m.author.type === "agent");
+    expect(said.map((m) => m.body)).toEqual(["Claro: para quantas noites?"]);
+    expect(await runs()).toHaveLength(1);
   });
 
   test("an update sent while it works joins the run and becomes part of the request the judges hold the reply to", async () => {
@@ -395,5 +600,119 @@ describe("messages in a row (ADR 0112)", () => {
       "e manda pro canal também",
       "Feito, e mandei no canal.",
     ]);
+  });
+});
+
+describe("a follow-up for another agent re-routes (ADR 0112)", () => {
+  /** Ada next to Dev in #general, and Dev's run the router started on the person's "oi". */
+  async function routedToDev(reply?: NonNullable<Parameters<typeof setup>[0]>["reply"]) {
+    f = await setup({ quietMs: 2500, ...(reply ? { reply } : {}) });
+    const ada = await createAgent(
+      f.db,
+      f.owner.id,
+      f.org.id,
+      { name: "Ada", handle: "ada", role: "Marketing", credentialId: f.credential.id },
+      { model: "claude-sonnet-5-5" },
+    );
+    await f.db.insert(schema.channelMembers).values({ orgId: f.org.id, channelId: f.general.id, agentId: ada.id });
+    const hi = await post("oi");
+    const message = await getMessage(f.db, f.org.id, hi.id);
+    if (!message) throw new Error("not posted");
+    const [dev] = await createAgentRuns(f.db, message, [f.agent.id], "router");
+    if (!dev) throw new Error("no run");
+    return { ada, dev };
+  }
+  const runOf = async (id: string) => (await runs()).find((r) => r.id === id);
+  const saidBy = async (agentId: string) =>
+    (await listMessages(f.db, f.owner.id, f.org.id, f.general.id)).filter(
+      (m) => m.author.type === "agent" && m.author.id === agentId,
+    );
+
+  test("'oi' the router gave Dev, then '@ada preciso de X': Dev's run stops quietly and Ada answers", async () => {
+    const { ada, dev } = await routedToDev();
+    await post("@ada preciso do relatório da campanha");
+    const toAda = (await runs()).find((r) => r.agentId === ada.id);
+    await executeRun(f.jobDeps, toAda?.id ?? "", { finalAttempt: true });
+    expect(await runOf(dev.id)).toMatchObject({ status: "canceled", error: "rerouted" });
+    expect(await saidBy(f.agent.id)).toEqual([]);
+    expect((await saidBy(ada.id)).length).toBe(1);
+  });
+
+  test("the router gives the follow-up to Ada (the triage found it isn't Dev's): the same", async () => {
+    const { ada, dev } = await routedToDev();
+    const posted = await post("a Ada tem o relatório da campanha?");
+    const followUp = await getMessage(f.db, f.org.id, posted.id);
+    if (!followUp) throw new Error("not posted");
+    // Out of Dev's inbox as the triage leaves it (`releaseFromRun`), and routed to Ada.
+    await f.db.update(schema.agentRuns).set({ pendingMessageIds: [] }).where(eq(schema.agentRuns.id, dev.id));
+    const [toAda] = await createAgentRuns(f.db, followUp, [ada.id], "router");
+    await executeRun(f.jobDeps, toAda?.id ?? "", { finalAttempt: true });
+    expect(await runOf(dev.id)).toMatchObject({ status: "canceled", error: "rerouted" });
+    expect(await saidBy(f.agent.id)).toEqual([]);
+  });
+
+  test("Dev already thinking on 'oi': its call is cut and nothing of it is posted", async () => {
+    let release = () => {};
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let called = () => {};
+    const firstCall = new Promise<void>((resolve) => {
+      called = resolve;
+    });
+    const { ada, dev } = await routedToDev((_req, call) => {
+      if (call > 1) return { chunks: ["O relatório da campanha está no Drive."] };
+      called();
+      return { chunks: ["Oi! Em que posso ajudar?"], hold: released };
+    });
+    const devRun = executeRun(f.jobDeps, dev.id, { finalAttempt: true });
+    await firstCall;
+    await post("@ada preciso do relatório da campanha");
+    const toAda = (await runs()).find((r) => r.agentId === ada.id);
+    await executeRun(f.jobDeps, toAda?.id ?? "", { finalAttempt: true });
+    release();
+    await devRun;
+    expect(await runOf(dev.id)).toMatchObject({ status: "canceled", error: "rerouted" });
+    expect(await saidBy(f.agent.id)).toEqual([]);
+    expect((await saidBy(ada.id)).map((m) => m.body)).toEqual(["O relatório da campanha está no Drive."]);
+  });
+
+  test("left alone: a run the person named, one that already spoke, one that reads the follow-up too, and a follow-up long after", async () => {
+    const { ada, dev } = await routedToDev();
+    const followUp = async (oiSecondsAgo: number, devReadsIt = false) => {
+      await f.db
+        .update(schema.messages)
+        .set({ createdAt: new Date(Date.now() - oiSecondsAgo * 1000) })
+        .where(eq(schema.messages.id, dev.triggerMessageId));
+      const asked = await post("@ada preciso do relatório da campanha");
+      if (devReadsIt)
+        await f.db
+          .update(schema.agentRuns)
+          .set({ pendingMessageIds: [asked.id] })
+          .where(eq(schema.agentRuns.id, dev.id));
+      const toAda = (await runs()).filter((r) => r.agentId === ada.id).at(-1);
+      await executeRun(f.jobDeps, toAda?.id ?? "", { finalAttempt: true });
+      return (await runOf(dev.id))?.status;
+    };
+    // Dev named by the person ("@dev oi"): theirs to keep.
+    await f.db.update(schema.agentRuns).set({ trigger: "mention" }).where(eq(schema.agentRuns.id, dev.id));
+    expect(await followUp(0)).toBe("queued");
+    await f.db.update(schema.agentRuns).set({ trigger: "router" }).where(eq(schema.agentRuns.id, dev.id));
+    // Dev already said something on it.
+    const said = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: f.general.id,
+      author: { type: "agent", agentId: f.agent.id, runId: dev.id, hop: 1 },
+      body: "Oi!",
+    });
+    expect(await followUp(0)).toBe("queued");
+    await f.db.delete(schema.messages).where(eq(schema.messages.id, said.id));
+    // The follow-up joined Dev's inbox too: Dev reads it, so it stays Dev's.
+    expect(await followUp(0, true)).toBe("queued");
+    await f.db.update(schema.agentRuns).set({ pendingMessageIds: [] }).where(eq(schema.agentRuns.id, dev.id));
+    // Ada asked well after "oi": a new request, not a follow-up.
+    expect(await followUp(10)).toBe("queued");
+    // And the same follow-up right after it: re-routed.
+    expect(await followUp(0)).toBe("canceled");
   });
 });

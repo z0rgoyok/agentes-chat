@@ -70,12 +70,21 @@ export interface ImageSearchResult {
  */
 export type BrowserPageReader = (ctx: ToolContext, url: string) => Promise<{ text: string; url: string | null } | null>;
 
+type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
+
 export interface WebToolDeps {
   braveKey?: string | null;
   searxngUrl?: string | null;
   browser?: BrowserPageReader | null;
-  fetch?: (url: string, init?: RequestInit) => Promise<Response>;
+  fetch?: Fetch;
   resolveHost?: ResolveHost;
+  /**
+   * ADR 0237 on a self-hosted server: a `fetch` through the computer that lends the organization its internet now, or
+   * null (`EgressFetch.lentFetch`). Web pages and the DuckDuckGo page try it first and go their usual way when it
+   * fails, but where the workspace uses only that computer's internet (`only`, on the Cloud too): then a failure is
+   * the tool's. A search service (Brave, SearXNG) never uses it.
+   */
+  lent?: (orgId: string) => Promise<{ fetch: Fetch; only: boolean } | null>;
   /** Where `show_image` saves its pictures; absent: the tool isn't offered. */
   artifacts?: ArtifactDeps | null;
   usage?: {
@@ -193,6 +202,12 @@ type Provider = { id: string; search(query: string, limit: number, ctx: ToolCont
 
 export function createWebToolSource(deps: WebToolDeps = {}): ToolSource {
   const http = deps.fetch ?? ((url: string, init?: RequestInit) => fetch(url, init));
+  /** `open`, through the organization's lending computer first when one lends now. */
+  const lentFirst = async (orgId: string, open: Fetch): Promise<Fetch> => {
+    const lent = await deps.lent?.(orgId).catch(() => null);
+    if (!lent) return open;
+    return lent.only ? lent.fetch : (url, init) => lent.fetch(url, init).catch(() => open(url, init));
+  };
 
   const getJson = async (url: string, headers: Record<string, string>, signal?: AbortSignal) => {
     const res = await http(url, { headers: { accept: "application/json", ...headers }, signal: timeout(signal) });
@@ -248,7 +263,8 @@ export function createWebToolSource(deps: WebToolDeps = {}): ToolSource {
   providers.push({
     id: "duckduckgo",
     async search(query, _limit, ctx) {
-      const res = await http(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
+      const open = await lentFirst(ctx.orgId, http);
+      const res = await open(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, {
         headers: { "user-agent": USER_AGENT, accept: "text/html" },
         signal: timeout(ctx.signal),
       });
@@ -357,12 +373,13 @@ export function createWebToolSource(deps: WebToolDeps = {}): ToolSource {
    */
   async function getPage(
     raw: string,
-    ctx: Pick<ToolContext, "signal">,
+    ctx: Pick<ToolContext, "signal" | "orgId">,
   ): Promise<{ ok: true; text: string; url: string; status: number } | { ok: false; text: string }> {
     let next = raw;
     const wait = timeout(ctx.signal);
     // Not `http`: that one also reaches the search service the operator set, which may be on this server's network.
-    const openPage = deps.fetch ?? outboundFetch({ resolveHost: deps.resolveHost });
+    // A lent connection needs no pin here: the lending computer resolves the name and reaches public addresses only.
+    const openPage = await lentFirst(ctx.orgId, deps.fetch ?? outboundFetch({ resolveHost: deps.resolveHost }));
     for (let hop = 0; ; hop++) {
       let at: URL;
       try {

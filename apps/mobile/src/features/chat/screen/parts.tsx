@@ -97,6 +97,7 @@ export const ChatComposer = memo(function ChatComposer({
   onVoiceSent,
   prepareVoice,
   voiceTakeBack,
+  voiceAsk,
   onRecording,
   ...composer
 }: Omit<ComposerProps, "voice"> & {
@@ -113,6 +114,8 @@ export const ChatComposer = memo(function ChatComposer({
   /** What goes with a take: the words typed beside it and the files, uploaded (`VoiceTarget.prepare`). */
   prepareVoice: NonNullable<VoiceTarget["prepare"]>;
   voiceTakeBack: NonNullable<VoiceTarget["takeBack"]>;
+  /** The first hold where voice doesn't become text yet (`VoiceTarget.ask`). */
+  voiceAsk: NonNullable<VoiceTarget["ask"]>;
   /** While a take records: the others see "recording audio…" (throttled by the caller). */
   onRecording: () => void;
 }) {
@@ -126,6 +129,7 @@ export const ChatComposer = memo(function ChatComposer({
     enabled: voiceOn,
     prepare: prepareVoice,
     takeBack: voiceTakeBack,
+    ask: voiceAsk,
     afterSend: onVoiceSent,
     onRecording,
   });

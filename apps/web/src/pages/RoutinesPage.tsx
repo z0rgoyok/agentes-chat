@@ -21,6 +21,7 @@ import {
   useRoutineAction,
   useRoutineHook,
   useRoutineHookAction,
+  useRoutineRunCalls,
   useRoutineRuns,
   useRoutines,
   useRuleDescribe,
@@ -28,7 +29,6 @@ import {
 } from "@agenteschat/client";
 import { approvalTitle, ownActionName, routineVaultKey, splitOwnActions } from "@agenteschat/client/lib/approval-words";
 import { createsRoutinesFor, managesAgent } from "@agenteschat/client/lib/audience";
-import type { RunStatus } from "@agenteschat/client/lib/calendar";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
 import { formatBytes } from "@agenteschat/client/lib/files";
@@ -53,6 +53,7 @@ import {
   templateRule,
 } from "@agenteschat/client/lib/routine-templates";
 import {
+  atWorkWords,
   busyOnComputer,
   eventWebhook,
   healthWords,
@@ -60,6 +61,7 @@ import {
   isStoppable,
   pausedFix,
   type RoutineFix,
+  type RunStatus,
   routineChannelOf,
   routineStateTime,
   routineStateWords,
@@ -75,6 +77,7 @@ import {
   type Words,
   whereItRuns,
 } from "@agenteschat/client/lib/routine-view";
+import { runCallText } from "@agenteschat/client/lib/routine-webhooks";
 import {
   browserTimezone,
   GROUP_BY_EXAMPLE,
@@ -104,6 +107,7 @@ import {
   Icon,
   type IconName,
   InfoHint,
+  InlineName,
   Input,
   LimitLine,
   Locked,
@@ -588,10 +592,11 @@ function everyMinutes(t: TFunction, cron: string) {
 /** The runs as words, for the strip's label and the horizon's tooltips. */
 function useRunWords() {
   const { t, i18n } = useTranslation();
+  const say = useSay();
   return {
     status: (s: RunStatus) => t(`routines.statusWord.${s}`),
     caption: (r: Routine, now: Date) => {
-      if (isRunning(r)) return t("routines.runningNow");
+      if (isRunning(r)) return say(atWorkWords(r));
       // The finished runs (one at work is the strip's own "running").
       const runs = runPixels(r.recentRuns.length > 0 ? r.recentRuns : r.lastRun ? [r.lastRun] : []);
       const last = runs[0];
@@ -620,8 +625,9 @@ function useRunWords() {
 /** "Próxima em 10 min" (within a day), else "Próxima sex 16 out, 10:00". */
 function useNextText() {
   const { t, i18n } = useTranslation();
+  const say = useSay();
   return (r: Routine, now: Date) => {
-    if (isRunning(r)) return t("routines.runningNow");
+    if (isRunning(r)) return say(atWorkWords(r));
     if (hasFired(r))
       return r.lastRun
         ? t("routines.firedAt", { when: whenAt(t, i18n.language, r.lastRun.at) })
@@ -810,7 +816,7 @@ function RowRuns({ routine: r, running, onOpenRuns }: { routine: Routine; runnin
     const took = x?.finishedAt ? formatDuration(t, Date.parse(x.finishedAt) - Date.parse(x.at)) : null;
     const head = [x && capitalize(whenAt(t, i18n.language, x.at), i18n.language), took].filter(Boolean).join(" · ");
     const how =
-      i < 0 || !x ? t("routines.runningNow") : say(runOutcome(x, (id) => actors.dir.memberById.get(id)?.name ?? null));
+      i < 0 || !x ? say(atWorkWords(r)) : say(runOutcome(x, (id) => actors.dir.memberById.get(id)?.name ?? null));
     return {
       label: head ? `${head}: ${how}` : how,
       tip: (
@@ -1639,49 +1645,36 @@ function RoutineName({ routine: r, onSaved }: { routine: Routine; onSaved: () =>
   const { org } = useOrg();
   const toast = useToast();
   const action = useRoutineAction(org.id);
-  const [draft, setDraft] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const sent = useSent<string>(r.name);
   const name = sent.pending ?? r.name;
-  const ref = useFocusAtEnd<HTMLInputElement>(draft !== null);
   const shown = (isWidgetRoutine(r) && r.widget?.title) || routineTitle({ name, prompt: r.prompt });
   if (!r.canManage || isWidgetRoutine(r)) return <h1 className="issue-details__title">{shown}</h1>;
-  const save = () => {
-    if (draft === null) return;
-    const next = draft.trim();
-    setDraft(null);
-    if (!next || next === name) return;
-    sent.send(next);
-    action.mutate(
-      { type: "update", id: r.id, patch: { name: next } },
-      {
-        onSuccess: onSaved,
-        onError: (error) => {
-          sent.clear();
-          toast.show(errorText(t, error), "error");
-        },
-      },
-    );
-  };
-  if (draft !== null)
+  if (editing)
     return (
-      <input
-        ref={ref}
+      <InlineName
         className="issue-inplace__title"
-        value={draft}
+        value={name}
         maxLength={120}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter" && e.key !== "Escape") return;
-          e.preventDefault();
-          e.currentTarget.blur();
-        }}
         aria-label={t("routines.panel.nameLabel")}
-        data-inplace=""
+        onSave={(next) => {
+          sent.send(next);
+          action.mutate(
+            { type: "update", id: r.id, patch: { name: next } },
+            {
+              onSuccess: onSaved,
+              onError: (error) => {
+                sent.clear();
+                toast.show(errorText(t, error), "error");
+              },
+            },
+          );
+        }}
+        onDone={() => setEditing(false)}
       />
     );
   return (
-    <EditInPlace label={t("routines.panel.editName")} onEdit={() => setDraft(name)}>
+    <EditInPlace label={t("routines.panel.editName")} onEdit={() => setEditing(true)}>
       <h1 className="issue-details__title">{shown}</h1>
     </EditInPlace>
   );
@@ -2121,9 +2114,56 @@ function RunItem({ run: x, routine: r }: { run: RoutineRun; routine: Routine }) 
           </div>
         )}
         <RunChatLink run={x} />
+        {r.canManage && x.calls ? <RunCalls routine={r} run={x} count={x.calls} /> : null}
       </div>
       <time dateTime={x.at}>{whenAt(t, i18n.language, x.at)}</time>
     </li>
+  );
+}
+
+/** A webhook run's calls as they were kept, for who manages the routine: read when opened. */
+function RunCalls({ routine: r, run: x, count }: { routine: Routine; run: RoutineRun; count: number }) {
+  const { t, i18n } = useTranslation();
+  const { org } = useOrg();
+  const [open, setOpen] = useState(false);
+  const calls = useRoutineRunCalls(org.id, r.id, open ? x.id : null);
+  return (
+    <div className="routine-run-calls">
+      <button
+        type="button"
+        className="ac-link ac-link--muted routine-run-calls__toggle"
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+      >
+        {t(open ? "routines.runCalls.hide" : "routines.runCalls.show", { n: count })}
+      </button>
+      {open &&
+        (calls.isError ? (
+          <ErrorState error={calls.error} onRetry={() => void calls.refetch()} />
+        ) : !calls.data ? (
+          <LoadingList count={1} avatar={false} />
+        ) : (
+          <ol className="routine-run-calls__list">
+            {calls.data.map((c) => {
+              const text = runCallText(c);
+              return (
+                <li key={c.n} className="routine-run-calls__item">
+                  <span className="small muted">
+                    {[
+                      `${c.method} ${whenAt(t, i18n.language, c.at)}`,
+                      formatBytes(i18n.language, c.bytes),
+                      ...(c.test ? [t("routines.webhook.callTest")] : []),
+                      ...(c.cut ? [t("routines.runCalls.cut")] : []),
+                      ...(c.binary ? [t("routines.runCalls.binary")] : []),
+                    ].join(" · ")}
+                  </span>
+                  {text && <CommandBlock command={text} copied={t("routines.runCalls.copied")} />}
+                </li>
+              );
+            })}
+          </ol>
+        ))}
+    </div>
   );
 }
 
@@ -2166,6 +2206,7 @@ function WebhookPanel({ routine: r, runs }: { routine: Routine; runs: RoutineRun
   const action = useRoutineHookAction(org.id, r.id);
   const [secret, setSecret] = useState<string | null>(null);
   const [asking, setAsking] = useState<"address" | "secret" | "unsign" | null>(null);
+  const [pasting, setPasting] = useState(false);
   const data = hook.data;
   if (!data) {
     return hook.isError ? (
@@ -2247,12 +2288,24 @@ function WebhookPanel({ routine: r, runs }: { routine: Routine; runs: RoutineRun
             >
               {t(data.signed ? "routines.webhook.newSecret" : "routines.webhook.addSecret")}
             </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setPasting(!pasting)}>
+              {t("routines.webhook.pasteSecret")}
+            </Button>
             {data.signed && (
               <Button type="button" size="sm" variant="ghost" onClick={() => setAsking("unsign")}>
                 {t("routines.webhook.removeSecret")}
               </Button>
             )}
           </div>
+        )}
+        {pasting && (
+          <HookPasteSecret
+            routine={r}
+            onDone={() => {
+              setPasting(false);
+              setSecret(null);
+            }}
+          />
         )}
       </div>
       <HookMethods routine={r} methods={data.methods} />
@@ -2394,6 +2447,58 @@ function HookGroupBy({ routine: r, groupBy }: { routine: Routine; groupBy: strin
         {groupBy ? t("routines.webhook.groupByOn", { path: groupBy }) : t("routines.webhook.groupByOff")}
       </p>
     </div>
+  );
+}
+
+/**
+ * The service's own signing secret (Linear makes its own), pasted in place of ours: from then on its signed calls
+ * get through. Never shown back.
+ */
+function HookPasteSecret({ routine: r, onDone }: { routine: Routine; onDone: () => void }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const toast = useToast();
+  const action = useRoutineHookAction(org.id, r.id);
+  const [value, setValue] = useState("");
+  const id = `hook-paste-${r.id}`;
+  return (
+    <form
+      className="routine-hook__part"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (!value.trim() || action.isPending) return;
+        action.mutate(
+          { paste: value.trim() },
+          {
+            onSuccess: () => {
+              toast.show(t("routines.webhook.secretPasted"));
+              onDone();
+            },
+            onError: (error) => toast.show(errorText(t, error), "error"),
+          },
+        );
+      }}
+    >
+      <label className="ac-field__label" htmlFor={id}>
+        {t("routines.webhook.pasteLabel")}
+      </label>
+      <div className="routine-hook__group">
+        <Input
+          id={id}
+          type="password"
+          value={value}
+          maxLength={512}
+          spellCheck={false}
+          autoCapitalize="off"
+          autoComplete="off"
+          disabled={action.isPending}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <Button type="submit" loading={action.isPending} disabled={!value.trim()}>
+          {t("common.save")}
+        </Button>
+      </div>
+    </form>
   );
 }
 

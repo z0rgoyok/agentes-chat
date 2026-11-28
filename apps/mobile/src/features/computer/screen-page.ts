@@ -1,4 +1,4 @@
-import type { DesktopMode, DesktopViewState } from "@agenteschat/client";
+import type { DesktopMode, DesktopOpenWhy, DesktopViewState } from "@agenteschat/client";
 import type { Seat } from "@agenteschat/client/lib/seat";
 import { originOf } from "@agenteschat/client/lib/server";
 
@@ -15,7 +15,11 @@ export type ScreenEvent =
   | { type: "changed" }
   /** The stream's session took its mode (a page from before it never says). */
   | { type: "session"; mode: DesktopMode }
-  | { type: "refused"; why: "tooLong" };
+  | { type: "refused"; why: "tooLong" }
+  /** A try to open it failed: why, and whether the page stopped trying by itself (a page from before never says). */
+  | { type: "why"; why: DesktopOpenWhy; gaveUp: boolean };
+
+const OPEN_WHYS: ReadonlySet<string> = new Set<DesktopOpenWhy>(["slow", "late", "dropped", "offline", "refused"]);
 
 const VIEW_STATES: ReadonlySet<string> = new Set<DesktopViewState>([
   "connecting",
@@ -82,6 +86,9 @@ export function screenEvent(server: string, from: { url: string; data: string })
   }
   if (m.type === "session" && (m.mode === "watch" || m.mode === "control")) return { type: "session", mode: m.mode };
   if (m.type === "refused" && m.why === "tooLong") return { type: "refused", why: "tooLong" };
+  if (m.type === "why" && typeof m.why === "string" && OPEN_WHYS.has(m.why)) {
+    return { type: "why", why: m.why as DesktopOpenWhy, gaveUp: m.gaveUp === true };
+  }
   return null;
 }
 

@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } fro
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_AGENT_UID_RANGE, pairedConfig, runnerHome, updateConfig } from "./config";
+import { consoleText } from "./console-text";
 import { thisRunner } from "./launch";
 import type { ScopeKind } from "./scope-gate";
 import { xmlEscape } from "./xml";
@@ -49,7 +50,7 @@ export function agentLimits(memoryBytes: number, host: boolean): { each: string;
   const swapMiB = Math.floor((memoryBytes * share) / 100 / 3 / 2 ** 20);
   return {
     each: "[Slice]\nCPUWeight=100\nTasksMax=4096\n",
-    all: `[Slice]\nMemoryMax=${share}%\nMemorySwapMax=${swapMiB}M\nTasksMax=50%\n`,
+    all: `[Slice]\nMemoryMax=${share}%\nMemorySwapMax=${swapMiB}M\nTasksMax=50%\nCPUWeight=50\nIOWeight=50\n`,
   };
 }
 /**
@@ -64,15 +65,39 @@ export const agentSliceLimitsPath = (unitPath = SYSTEM_UNIT_PATH) =>
   path.join(path.dirname(unitPath), `${AGENT_SLICE_PREFIX}.slice.d`, "limits.conf");
 export const allAgentsLimitsPath = (unitPath = SYSTEM_UNIT_PATH) =>
   path.join(path.dirname(unitPath), "agents.slice.d", "limits.conf");
+/**
+ * The runner ahead of the agents when they saturate the computer, so its heartbeats, admissions and cancels keep
+ * their pace. Weights compare siblings only: `agents.slice` at 50 against `system.slice`'s default 100, the runner at
+ * 1000 within `system.slice`, for CPU and IO; and memory the kernel doesn't take back from it. No
+ * `Nice`, `IOSchedulingClass` or `OOMScoreAdjust`: the agents' scopes start from the runner's process context
+ * (`systemd-run --scope`) and would inherit them, and a negative OOM score would make their Chrome unkillable.
+ * `IOWeight` counts only where the disk's scheduler weighs (BFQ, io.cost).
+ */
+const RUNNER_RESOURCES = ["CPUWeight=1000", "IOWeight=1000", "MemoryMin=256M"];
+/** A unit's memory protection is bounded by its parent's: `system.slice` holds the runner's too. */
+export const SYSTEM_SLICE_MEMORY = "[Slice]\nMemoryMin=256M\n";
+export const systemSliceMemoryPath = (unitPath = SYSTEM_UNIT_PATH) =>
+  path.join(path.dirname(unitPath), "system.slice.d", `${SERVICE_NAME}.conf`);
 /** `agents.slice` in the cgroup tree (cgroup v2), where its counters are (`memory.events`). */
 export const AGENTS_CGROUP = "/sys/fs/cgroup/agents.slice";
 export const agentCgroup = (uid: number) => path.join(AGENTS_CGROUP, agentSlice(uid));
 /**
  * Each agent's own /dev/shm and /run/lock (`<uid>/shm`, `lock`): in memory as the computer's are, on a tmpfs of the
- * agent's own at `<uid>`, in a folder only root can reach. Its /tmp is `<uid>/tmp` there too, in that tmpfs or
- * (`agentTmpOnDisk`) bound from `AGENT_DISK_TMP_ROOT`.
+ * agent's own at `<uid>`, in a folder only root can reach. Its /tmp is `<uid>/tmp` there, bound from its folder in
+ * `AGENT_TMP_POOL` or (`agentTmpOnDisk`) in `AGENT_DISK_TMP_ROOT`.
  */
 export const AGENT_RAM_ROOT = "/run/agentes-runner-tmp";
+/**
+ * The agents' /tmp in memory (ADR 0243): one tmpfs for all of them, `<uid>` each, at most `AGENT_TMP_POOL_SHARE`% of
+ * the RAM together. Its root is root's and 0700.
+ */
+export const AGENT_TMP_POOL = "/run/agentes-runner-tmp-pool";
+/**
+ * 20%: the agents together may use 75% of the RAM (`AGENTS_SHARE`), and the kernel can't drop a tmpfs's pages, only
+ * swap them, so this keeps at least 55% for their programs whatever /tmp holds. It is also the kernel's own default
+ * for unwritten file data (`vm.dirty_ratio`), which is the budget /tmp on disk gets.
+ */
+export const AGENT_TMP_POOL_SHARE = 20;
 /** Each agent's own /var/tmp (`<uid>/var-tmp`): on disk as the computer's is, in a folder only root can reach. */
 export const AGENT_TMP_ROOT = "/var/lib/agentes-runner-tmp";
 /**
@@ -148,6 +173,8 @@ export interface ServiceDefinition {
   keepChildren?: boolean;
   /** launchd: the file its output goes to (none: discarded). */
   log?: string;
+  /** systemd: `[Service]` lines for its share of the computer. */
+  resources?: string[];
 }
 
 /** The systemd unit of a service. `KillMode=process` keeps its children, which are in the unit's cgroup. */
@@ -167,6 +194,7 @@ export function systemdUnitText(d: ServiceDefinition, wantedBy: string): string 
     "RestartSec=5",
     `RestartPreventExitStatus=${d.finalExits.join(" ")}`,
     ...(d.keepChildren ? ["KillMode=process"] : []),
+    ...(d.resources ?? []),
     "",
     "[Install]",
     `WantedBy=${wantedBy}`,
@@ -213,7 +241,13 @@ ${[...(d.keepChildren ? ["  <key>AbandonProcessGroup</key>\n  <true/>"] : []), "
  */
 function runnerService(
   launch: Launch,
-  o: { description: string; path: string; args?: readonly string[]; manager: "systemd" | "launchd" },
+  o: {
+    description: string;
+    path: string;
+    args?: readonly string[];
+    manager: "systemd" | "launchd";
+    resources?: string[];
+  },
 ): ServiceDefinition {
   return {
     unit: SERVICE_NAME,
@@ -229,6 +263,7 @@ function runnerService(
     finalExits: [0, 2, 3],
     keepChildren: true,
     log: path.join(launch.home, "runner.log"),
+    ...(o.resources ? { resources: o.resources } : {}),
   };
 }
 
@@ -253,6 +288,7 @@ export function systemdSystemUnit(launch: Launch, args?: readonly string[]): str
       description: "agentes.chat runner (each agent as its own user)",
       path: SYSTEM_PATH,
       manager: "systemd",
+      resources: RUNNER_RESOURCES,
       ...(args ? { args } : {}),
     }),
     "multi-user.target",
@@ -289,9 +325,9 @@ interface RunResult {
 export type RunCommand = (file: string, args: string[]) => RunResult;
 
 export const runSync: RunCommand = (file, args) => {
-  const r = spawnSync(file, args, { encoding: "utf8" });
+  const r = spawnSync(file, args);
   if (r.error) return { code: 127, output: r.error.message };
-  return { code: r.status ?? 1, output: `${r.stdout ?? ""}${r.stderr ?? ""}`.trim() };
+  return { code: r.status ?? 1, output: `${consoleText(r.stdout ?? "")}${consoleText(r.stderr ?? "")}`.trim() };
 };
 
 export function systemdUserAvailable(run: RunCommand = runSync) {
@@ -559,6 +595,7 @@ export function installSystemService(io: SystemServiceIo): number {
   const limits: [file: string, text: string][] = [
     [agentSliceLimitsPath(file), each],
     [allAgentsLimitsPath(file), all],
+    [systemSliceMemoryPath(file), SYSTEM_SLICE_MEMORY],
     [agentTmpCleanupPath(file), AGENT_TMP_CLEANUP],
   ];
   for (const [dropIn, text] of limits) {
@@ -614,6 +651,7 @@ export function uninstallService(io: ServiceIo & { system?: boolean }): number {
     if (existsSync(SYSTEM_UNIT_PATH)) rmSync(SYSTEM_UNIT_PATH);
     rmSync(agentSliceLimitsPath(), { force: true });
     rmSync(allAgentsLimitsPath(), { force: true });
+    rmSync(systemSliceMemoryPath(), { force: true });
     rmSync(agentTmpCleanupPath(), { force: true });
     run("systemctl", ["daemon-reload"]);
     print(`Removed ${SYSTEM_UNIT_PATH}.`);

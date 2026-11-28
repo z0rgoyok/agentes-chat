@@ -489,7 +489,8 @@ export function AuthPage({
   const fix = step === "email" || step === "forgot" ? emailTypoFix(email) : null;
   const help = passwordHelp(t, password);
   const mail = webmailOf(email);
-  const who = step !== "email" && step !== "forgot" && step !== "sent" && (
+  // Only with an address typed: a provider's sign-in has none, and its account is the one picked at the provider.
+  const who = email.trim() !== "" && step !== "email" && step !== "forgot" && step !== "sent" && step !== "browser" && (
     <span className="auth__who">
       <Icon name="mail" size={14} />
       <span className="auth__who-email">{email.trim()}</span>

@@ -10,6 +10,8 @@ export interface RailStep {
   optional?: boolean;
   /** What was answered, under a done step's name (e.g. the workspace name). */
   value?: string;
+  /** Passed but left for later ("Later" under its name): a neutral dash, never the done check. */
+  later?: boolean;
   /** Under the name whatever the step's state: how far something it waits for is. */
   note?: string;
 }
@@ -18,8 +20,8 @@ export interface RailStep {
  * The numbered steps of a stepped flow on the rail (onboarding, "Criar
  * agente"): a line joins the markers and fills up to where you are, the
  * current one raised, done ones with a check and what was answered under the
- * name, the ones not reached yet disabled. On narrow screens the rail turns
- * into a step bar.
+ * name (one left for later with a dash), the ones not reached yet disabled. On
+ * narrow screens the rail turns into a step bar.
  */
 export function StepRail({
   label,
@@ -61,10 +63,11 @@ export function StepRail({
       <ol className="onb__steps" ref={strip}>
         {steps.map((s, i) => {
           const done = s.done && i !== current;
+          const later = done && s.later;
           const sub =
             s.note ?? (done && s.value ? s.value : s.optional && !s.done && optionalLabel ? optionalLabel : null);
           return (
-            <li key={s.id} data-done={done || undefined}>
+            <li key={s.id} data-done={done || undefined} data-later={later || undefined}>
               <button
                 type="button"
                 className="onb__step"
@@ -73,12 +76,12 @@ export function StepRail({
                 onClick={() => onGo(i)}
               >
                 <span className="onb__n" aria-hidden="true">
-                  {done ? <Icon name="check" size={14} /> : i + 1}
+                  {done ? <Icon name={later ? "dash" : "check"} size={14} /> : i + 1}
                 </span>
                 <span className="onb__step-text">
                   <span className="onb__step-name">
                     {s.name}
-                    {done && <span className="ac-visually-hidden"> {doneLabel}</span>}
+                    {done && !later && <span className="ac-visually-hidden"> {doneLabel}</span>}
                   </span>
                   {sub && <span className="onb__step-sub">{sub}</span>}
                 </span>

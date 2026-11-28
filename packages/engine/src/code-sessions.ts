@@ -1,6 +1,5 @@
 import {
   type AgentScope,
-  gitCheckoutDir,
   MISSION_WORKTREE_PROTOCOL,
   type PubSub,
   parseMissionWorktreeEnsured,
@@ -23,12 +22,14 @@ import { audienceError, audienceSql, canTalkTo, REACH_COLUMNS, type Speaker, spe
 import { isComputerBrain } from "./brains/types";
 import { caches } from "./cache";
 import { requireChannelAccess } from "./channels";
+import { activeConnections } from "./connectors/connections";
 import { createAgentRuns } from "./dispatch";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishChannelEvent, publishUserEvent } from "./events";
 import { cutTextEnd, trimEdges } from "./format";
+import { checkoutDirOf, isHostedRepo, refInList, repoRefFrom, repoRefName } from "./git/hosts";
 import { cloneOnMachine, type MachineGitDeps } from "./git/machine";
-import { agentRepositoryList, parseRepo, repoInList } from "./git/repos";
+import { agentRepositoryList } from "./git/repos";
 import { type MachineCaller, MachineRequestError } from "./machine-hub";
 import { MachineOfflineError, MachinePausedError } from "./machines";
 import { getMessage } from "./messages";
@@ -163,7 +164,7 @@ export const localProjectName = (input: string) => {
   const name = withoutTrailingSlashes(input.trim());
   return LOCAL_NAME.test(name) ? name : null;
 };
-export const isLocalSession = (row: Pick<CodeSessionRow, "repo">) => !row.repo.includes("/");
+export const isLocalSession = (row: Pick<CodeSessionRow, "repo">) => !isHostedRepo(row.repo);
 
 /** The clone failed for want of GitHub access: stored as this code, said in the person's language by the apps. */
 export const GITHUB_ACCESS_ERROR = "github_access";
@@ -637,26 +638,27 @@ export async function createCodeSession(
   const text = input.text.trim();
   if (!text) throw new ValidationError("Say what to do", "code_session.empty");
   if (text.length > REQUEST_MAX_CHARS) throw new ValidationError("The request is too long", "code_session.too_long");
-  // A GitHub repository (`owner/name`, or its URL), else a local project's name on the agent's computer.
-  const parsed = parseRepo(input.repo);
+  // A repository on a git host (`owner/name` on GitHub, `gitlab:group/project`, or its address), else a local
+  // project's name on the agent's computer.
+  const parsed = repoRefFrom(input.repo, await activeConnections(deps.db, orgId));
   const local = parsed ? null : localProjectName(input.repo);
   if (!parsed && !local)
     throw new ValidationError(
-      "Give a GitHub repository (owner/name) or a name for a project on the computer",
+      "Give a repository (owner/name, or its address) or a name for a project on the computer",
       "code_session.bad_repo",
     );
-  const repo = parsed ? `${parsed.owner}/${parsed.repo}` : (local as string);
+  const repo = parsed ? repoRefName(parsed) : (local as string);
   const agent = await getAgentCached(deps.db, orgId, input.agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
   // A session is the agent's work for whoever opens it: only someone it answers opens one (`canTalkTo`).
-  if (!canTalkTo(agent, userId, speakerOf(membership))) throw await audienceError(deps.db, agent);
+  if (!canTalkTo(agent, userId, speakerOf(membership))) throw await audienceError(deps.db, agent, userId);
   if (!agent.machineId)
     throw new ValidationError("This agent has no computer", "code_session.no_computer", { agent: agent.name });
   if (!(await worksInSessions(deps.db, agent)))
     throw new ValidationError("This agent can't code on its computer", "code_session.cannot_code", {
       agent: agent.name,
     });
-  if (parsed && !repoInList(await agentRepositoryList(deps.db, orgId, agent.id), parsed.owner, parsed.repo))
+  if (parsed && !refInList(await agentRepositoryList(deps.db, orgId, agent.id), repo))
     throw new ValidationError("This agent can't work in that repository", "code_session.repo_not_allowed", {
       agent: agent.name,
       repo,
@@ -711,7 +713,7 @@ export async function createCodeSession(
         agentId: agent.id,
         machineId: agent.machineId,
         repo,
-        repoDir: parsed ? gitCheckoutDir(repo) : `${LOCAL_PROJECTS_DIR}/${repo}`,
+        repoDir: parsed ? checkoutDirOf(parsed) : `${LOCAL_PROJECTS_DIR}/${repo}`,
         title,
         branch: codeBranchName(agent.handle, title, id),
         worktreePath: codeWorktreePath(id),
@@ -789,12 +791,9 @@ async function prepare(deps: CodeSessionDeps, sessionId: string): Promise<CodeSe
       } catch (error) {
         if (error instanceof MachineOfflineError || error instanceof MachinePausedError) return row;
         const message = error instanceof Error ? error.message : String(error);
-        // No GitHub here (not connected, or no git scope): said in the person's words, with the way out (a local project).
-        return failSession(
-          deps,
-          row,
-          /git access to GitHub|GitHub isn't connected/i.test(message) ? GITHUB_ACCESS_ERROR : message,
-        );
+        // No git host here (not connected, or no git scope): said in the person's words, with the way out (a local
+        // project).
+        return failSession(deps, row, /no git access to .+ here/i.test(message) ? GITHUB_ACCESS_ERROR : message);
       }
       if (attempt >= CLONE_RETRIES) return failSession(deps, row, "The repository took too long to clone.");
       await sleep(CLONE_RETRY_MS);
@@ -1722,7 +1721,7 @@ export async function saveCodeSessionFile(
   // A save is a change the person could ask the agent for: someone it doesn't answer reads the session, no more.
   const writer = await getAgentCached(deps.db, row.orgId, row.agentId);
   if (writer && !canTalkTo(writer, userId, speakerOf(await getMembership(deps.db, userId, orgId))))
-    throw await audienceError(deps.db, writer);
+    throw await audienceError(deps.db, writer, userId);
   const { path, content } = input;
   if (!codeFilePathOk(path))
     throw new ValidationError("A path inside the worktree is needed", "code_session.file_path");

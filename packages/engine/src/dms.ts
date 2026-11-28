@@ -11,7 +11,7 @@ import { followsThreadSql, threadReadAtSql } from "./follows";
 import { landedAfterSql } from "./message-place";
 import { type PreviewMeta, previewMediaKind, previewMeta, readableBody } from "./message-preview";
 import { quietNoticeSql } from "./notices";
-import { resolveNotifications, unaskedGroup } from "./notifications";
+import { readConversationNotifications, resolveNotifications, unaskedGroup } from "./notifications";
 import { getMembership, requirePermission } from "./organizations";
 import { accountInUse, closedRefusal } from "./standing";
 
@@ -145,7 +145,7 @@ export async function openDm(
     return found;
   }
   // A new DM with an agent this person can't talk to isn't started (unless they manage agents); an old one stays readable.
-  if (!found && blockedAgent) throw await audienceError(db, blockedAgent);
+  if (!found && blockedAgent) throw await audienceError(db, blockedAgent, actorId);
   if (found) await reopenDm(db, orgId, found);
   const created = found
     ? null
@@ -462,7 +462,7 @@ export async function listDms(db: Database, actorId: string, orgId: string, only
  * Marks a channel (or DM) read up to now for me. In a DM between people the other one hears it
  * (`channel.read`): their app says "Visto" under the last message I read. An agent's answers there
  * (`agent_reply`) and what the right hand wrote there by itself are seen, so they leave the inbox and never push
- * (ADR 0071).
+ * (ADR 0071); what else was said to me there is read (`readConversationNotifications`).
  */
 export async function markChannelRead(
   db: Database,
@@ -484,12 +484,10 @@ export async function markChannelRead(
     .insert(channelReads)
     .values({ orgId, channelId, userId: actorId, lastReadAt: at })
     .onConflictDoUpdate({ target: [channelReads.channelId, channelReads.userId], set: { lastReadAt: at } });
-  await resolveNotifications({ db, pubsub }, orgId, {
-    groupKeyPrefix: `agent_reply:${channelId}:`,
-    userIds: [actorId],
-    kind: "agent_reply",
-  });
+  // By place, not group key: a long work's end files its reply under `work_end:<id>`.
+  await resolveNotifications({ db, pubsub }, orgId, { place: { channelId }, userIds: [actorId], kind: "agent_reply" });
   await resolveNotifications({ db, pubsub }, orgId, { groupKeyPrefix: unaskedGroup(channelId), userIds: [actorId] });
+  await readConversationNotifications({ db, pubsub }, orgId, actorId, { channelId }, at);
   const read = { type: "channel.read" as const, channelId, userId: actorId, lastReadAt: at.toISOString() };
   if (member.kind === "dm") await publishChannelEvent(pubsub, read);
   // My other devices: the conversation stops looking unread there too.

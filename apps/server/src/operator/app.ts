@@ -5,6 +5,7 @@ import { type MachineHub, type SessionScreening, SURFACE_PREFIX, safeEqual } fro
 import { OpenAPIHono } from "@hono/zod-openapi";
 import type { Context } from "hono";
 import type { EventLoopLag } from "../event-loop-lag";
+import { trustPeer } from "../http/client-ip";
 import { apiError, domainErrorResponse, routeOf, validationHook } from "../http/errors";
 import type { Logger } from "../logger";
 import type { AppDeps } from "../routes/app/context";
@@ -173,5 +174,13 @@ export function serveOperatorApi(deps: OperatorDeps, port = deps.config.OPERATOR
   const fetch = operatorFetch(deps);
   if (!fetch) return null;
   // The bridge takes a message with its files and a voice note: up to 100 MiB, and room for the multipart framing.
-  return Bun.serve({ hostname: deps.config.HOST, port, fetch, maxRequestBodySize: 101 * 1024 * 1024 });
+  return Bun.serve({
+    hostname: deps.config.HOST,
+    port,
+    fetch: (req, srv) => {
+      trustPeer(req.headers, srv.requestIP(req)?.address, deps.config.TRUSTED_PROXIES);
+      return fetch(req);
+    },
+    maxRequestBodySize: 101 * 1024 * 1024,
+  });
 }

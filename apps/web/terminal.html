@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <meta name="robots" content="noindex" />
+    <title>agentes.chat</title>
+    <style>
+      html,
+      body {
+        position: absolute;
+        inset: 0;
+        margin: 0;
+        overflow: hidden;
+        background: transparent;
+      }
+      #term {
+        position: absolute;
+        inset: 0;
+        /* The room around the text is xterm's own padding: its fit counts it. */
+        font-size-adjust: none;
+        font-feature-settings: normal;
+      }
+      #term .xterm {
+        padding: 8px 4px 8px 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="term"></div>
+    <script type="module" src="/src/terminal/main.ts"></script>
+  </body>
+</html>

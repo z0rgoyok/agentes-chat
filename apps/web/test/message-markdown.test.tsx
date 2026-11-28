@@ -21,6 +21,16 @@ const body = (text: string, resolve?: (h: string) => string | null) =>
   render(<MessageBody body={text} resolveMention={resolve} />).container;
 
 describe("message Markdown", () => {
+  test("a numbered list with blank lines between its items counts on, and one starting past 1 keeps its number", () => {
+    const loose = body("1. um\n\n2. dois\n\n3. três");
+    expect(loose.querySelectorAll("ol")).toHaveLength(1);
+    expect(loose.querySelectorAll("ol li")).toHaveLength(3);
+    const later = body("Depois:\n4. quatro").querySelector<HTMLElement>("ol");
+    expect(later?.getAttribute("start")).toBe("4");
+    // A message draws its own numbers: their counter starts there too.
+    expect(later?.style.getPropertyValue("counter-reset")).toBe("md-ol 3");
+  });
+
   test("bold, italic, inline code, code blocks, lists, links and line breaks", () => {
     const el = body(
       [
@@ -126,10 +136,11 @@ describe("message Markdown", () => {
     expect(stored.map(links)).toEqual(stored.map(() => 0));
   });
 
-  test("a table scrolls inside its box, which says which side has more columns (that side fades)", () => {
+  test("a table scrolls inside its card's box, which says which side has more columns (that side fades)", () => {
     const el = body(["| Destino | Hoje | 7 dias |", "| --- | ---: | ---: |", "| Paris | 14 | 129 |"].join("\n"));
-    const box = el.querySelector(".md--message > .md__table") as HTMLElement;
-    const scroller = box.querySelector(":scope > .md__table-scroll") as HTMLElement;
+    const card = el.querySelector(".md--message > .md__table.table-card") as HTMLElement;
+    const box = card.querySelector(":scope > .table-card__body") as HTMLElement;
+    const scroller = box.querySelector(":scope > .table-card__scroll") as HTMLElement;
     expect(scroller.querySelector(":scope > table th")?.textContent).toBe("Destino");
     // Fits: no side fades.
     expect(box.dataset.more).toBeUndefined();
@@ -161,6 +172,18 @@ describe("message Markdown", () => {
     expect(el.querySelector(".ac-mention")).toBeTruthy();
     const css = readFileSync(join(import.meta.dir, "../src/layout.css"), "utf8");
     expect(css).toMatch(/\.md-run \{\s*word-break: break-all;/);
+  });
+
+  test("a message's blocks keep their rhythm; its numbers stay faint and a quote is a plate with no bar", () => {
+    const css = readFileSync(join(import.meta.dir, "../src/layout.css"), "utf8");
+    const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
+    expect(rule(".md--message > * + *")).toContain("margin-top: 12px;");
+    expect(rule(".md--message li + li")).toContain("margin-top: 6px;");
+    expect(rule(".md--message > .md__h")).toContain("margin: 20px 0 4px;");
+    expect(rule(".md--message ol > li:not(.md__task)::before")).toContain("color: var(--faint);");
+    const quote = rule(".md--message blockquote");
+    expect(quote).toContain("background: var(--plate);");
+    expect(quote).toContain("border: 0;");
   });
 });
 
@@ -251,6 +274,79 @@ describe("```json fences", () => {
     expect((pretty.querySelector(".code-card__code") as HTMLElement).dataset.wrap).toBe("true");
     expect(broken.querySelector("button[aria-pressed]")).toBeNull();
     expect(broken.querySelector(".code-card__code")?.textContent).toBe("{nope");
+  });
+});
+
+describe("Markdown tables", () => {
+  beforeAll(() => createI18n("pt-BR"));
+  /** A table of `n` rows: a name, then a number in bold. */
+  const rowsOf = (n: number) => {
+    const rows = Array.from({ length: n }, (_, i) => `| Item ${i + 1} | **${i * 10}** |`);
+    return ["| Nome | Total |", "| --- | ---: |", ...rows].join("\n");
+  };
+
+  test("a card in the code's frame; each column by what it holds; the count and the next column stand still", () => {
+    const el = body(
+      [
+        "| # | Fornecedor | Site | Prazo |",
+        "| --- | --- | --- | --- |",
+        "| 1 | Tecelagem de fios reciclados do interior | https://www.tecelagem.example/contato | 21 dias |",
+        "| 2 | Malharia Dois | [loja da malharia](https://malharia.example/loja) | 30 dias |",
+      ].join("\n"),
+    );
+    const card = el.querySelector(".md--message > .md__table.table-card") as HTMLElement;
+    expect(card.querySelector(".table-card__label")?.textContent).toBe("Tabela · 2 linhas");
+    expect(within(card).getByRole("button", { name: "Tela cheia" })).toBeTruthy();
+    const head = Array.from(card.querySelectorAll<HTMLElement>("th"));
+    expect(head.map((th) => th.dataset.kind)).toEqual(["index", "text", "link", "number"]);
+    expect(head.map((th) => th.classList.contains("table-card__stick"))).toEqual([true, true, false, false]);
+    expect(head.map((th) => th.classList.contains("table-card__edge"))).toEqual([false, true, false, false]);
+    // The rows' count reads by its digits, on the right.
+    expect(head[0]?.style.textAlign).toBe("right");
+    // An address shows as its site's name, a link with words of its own as those words; both open the whole address.
+    const links = Array.from(card.querySelectorAll<HTMLAnchorElement>("a.table-card__link"));
+    expect(links.map((a) => a.textContent)).toEqual(["tecelagem.example", "loja da malharia"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "https://www.tecelagem.example/contato",
+      "https://malharia.example/loja",
+    ]);
+    expect(links.map((a) => a.getAttribute("target"))).toEqual(["_blank", "_blank"]);
+  });
+
+  test("a long one in a message shows its first rows, then opens whole; Copy takes cells split by tabs", async () => {
+    const copied: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    const el = body(rowsOf(12));
+    const card = el.querySelector(".table-card") as HTMLElement;
+    expect(card.querySelector(".table-card__label")?.textContent).toBe("Tabela · 12 linhas");
+    expect(card.querySelectorAll("tbody tr")).toHaveLength(8);
+    await act(async () => fireEvent.click(card.querySelector(".code-card__copy") as HTMLElement));
+    const tsv = ["Nome\tTotal", ...Array.from({ length: 12 }, (_, i) => `Item ${i + 1}\t${i * 10}`)];
+    expect(copied).toEqual([tsv.join("\n")]);
+    await act(async () => fireEvent.click(within(card).getByRole("button", { name: /Ver as 12 linhas/ })));
+    const dialog = screen().getByRole("dialog", { name: /Tabela/ });
+    expect(dialog.querySelectorAll("tbody tr")).toHaveLength(12);
+  });
+
+  test("a document shows every row; two rows past the preview aren't worth a tap", () => {
+    const doc = render(<Markdown source={rowsOf(12)} />).container;
+    expect(doc.querySelectorAll(".table-card tbody tr")).toHaveLength(12);
+    expect(doc.querySelector(".table-card__more")).toBeNull();
+    const short = body(rowsOf(10));
+    expect(short.querySelectorAll(".table-card tbody tr")).toHaveLength(10);
+    expect(short.querySelector(".table-card__more")).toBeNull();
+  });
+
+  test("the fade is drawn over the table, so the standing column never fades with it", () => {
+    const css = readFileSync(join(import.meta.dir, "../src/layout.css"), "utf8");
+    const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
+    expect(rule(".table-card__fade")).toContain("linear-gradient(to right, transparent, var(--table-card-bg))");
+    expect(rule(".table-card__fade")).not.toContain("mask");
+    expect(rule(".table-card__body .table-card__stick")).toContain("position: sticky;");
+    expect(rule(".table-card__body .table-card__stick")).toContain("background: var(--table-card-bg);");
   });
 });
 

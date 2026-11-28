@@ -5,6 +5,7 @@ import {
   choiceLetter,
   choiceOfKey,
   choiceReplyLine,
+  choiceReplyRows,
   choiceSummary,
   emptyDraft,
   moveStep,
@@ -64,6 +65,19 @@ test("the answered card and the compact reply", () => {
   ]);
   expect(choiceReplyLine("@dev Amanhã")).toBe("Amanhã");
   expect(choiceReplyLine("Amanhã")).toBe("Amanhã");
+});
+
+test("the reply's questions and answers apart, while its words still say them", () => {
+  const answers = [
+    { question: "Quando?", answer: "Amanhã" },
+    { question: "Quem revisa?", answer: "Ana" },
+  ];
+  const meta = { choiceReply: { id: "c1", title: "Deploy", answers } };
+  expect(choiceReplyRows("@dev Quando? Amanhã\nQuem revisa? Ana", meta)).toEqual(answers);
+  // An older reply, words that no longer match, or a malformed pair: one line, as before.
+  expect(choiceReplyRows("@dev Quando? Amanhã", { choiceReply: { id: "c1", title: "Deploy" } })).toBeNull();
+  expect(choiceReplyRows("@dev Quando? Depois", meta)).toBeNull();
+  expect(choiceReplyRows("Quando? 1", { choiceReply: { answers: [{ question: "Quando?", answer: 1 }] } })).toBeNull();
 });
 
 test("someone answering first is told apart from a failed pick", () => {

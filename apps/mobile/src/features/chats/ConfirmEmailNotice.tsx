@@ -22,7 +22,9 @@ export function ConfirmEmailNotice() {
   const [sending, setSending] = useState(false);
   if (user?.emailConfirmation !== "reminder") return null;
   const title = t("auth.confirm.banner");
-  const sub = t("auth.confirm.bannerSub", { email: user.email });
+  const sub = user.emailUndelivered
+    ? t(`auth.confirm.undelivered.${user.emailUndelivered}`, { email: user.email })
+    : t("auth.confirm.bannerSub", { email: user.email });
   const resend = async () => {
     setSending(true);
     const sent = await sendConfirmationLink(user.email);

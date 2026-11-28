@@ -2,13 +2,14 @@ import type { ComputerDevice } from "@agenteschat/client";
 import { useComputerSetup, useMachines } from "@agenteschat/client";
 import { computerName, setupPending, setupView } from "@agenteschat/client/lib/computer";
 import { settingsFrozen } from "@agenteschat/client/lib/deletion";
+import { errorText } from "@agenteschat/client/lib/errors";
 import { can } from "@agenteschat/client/lib/permissions";
 import { helpUrl } from "@agenteschat/client/lib/server";
 import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { useTranslation } from "react-i18next";
 import { Platform, StyleSheet, View } from "react-native";
 import { useOrg } from "@/providers/org";
-import { EmptyState, GroupedHeader, GroupedList, GroupedRow, Locked } from "@/ui";
+import { EmptyState, GroupedHeader, GroupedList, GroupedRow, Locked, useToast } from "@/ui";
 import { router } from "@/ui/navigation";
 import { openPage } from "../ai/parts";
 import { SetupWait } from "../computer/SetupWait";
@@ -19,7 +20,7 @@ import { LoadFailed } from "../shared/FirstUse";
 import { firstUseCopy } from "../shared/first-use";
 import { Loaded } from "../shared/parts";
 import { DevicePortrait, JoinRequestCard, StatusLine } from "./parts";
-import { useDevices } from "./queries";
+import { useDeviceMutation, useDevices } from "./queries";
 
 export const openComputer = (id: string) => router.push(`/settings/devices/${id}`);
 export const openPhone = (id: string) => router.push(`/settings/devices/phone/${id}`);
@@ -46,6 +47,11 @@ export function DevicesScreen() {
   const view = setupView(setup.data, setup.dataUpdatedAt);
   const managed = useMachines(orgId).data?.find((m) => m.kind === "managed");
   const requests = list.data?.requests ?? [];
+  const admin = can(org, "configure");
+  const toast = useToast();
+  const help = useDeviceMutation((api, id, on: boolean) => api.devices.setHelp(id, on));
+  // A switch moves as it is tapped, and holds until the list is read again.
+  const helpOn = (help.isPending ? help.variables : undefined) ?? list.data?.devicesHelp !== false;
   return (
     <SettingsPage
       title={t("mobile.devices.title")}
@@ -105,6 +111,26 @@ export function DevicesScreen() {
         </GroupedList>
         <HostComputerOff />
         <AgentComputers />
+        {admin && list.data ? (
+          <>
+            <Gap />
+            <GroupedList>
+              <GroupedRow
+                icon="bolt"
+                label={t("devices.helpWorkspace")}
+                labelLines={2}
+                hint={{
+                  name: t("common.about", { label: t("devices.helpWorkspace") }),
+                  text: t("devices.helpWorkspaceHint"),
+                }}
+                toggle={helpOn}
+                onPress={() =>
+                  help.mutate(!helpOn, { onError: (err) => toast({ title: errorText(t, err), icon: "x" }) })
+                }
+              />
+            </GroupedList>
+          </>
+        ) : null}
       </Locked>
       <Gap />
       <GroupedList>

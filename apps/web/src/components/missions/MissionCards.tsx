@@ -14,6 +14,7 @@ import type {
 import {
   keys,
   useAgentRepos,
+  useAskMachineFolder,
   useMachines,
   useMission,
   useMissionAct,
@@ -75,7 +76,7 @@ import { FoldedBody } from "@/chat/FoldedBody";
 import { ActorAvatar, AgentAvatar, AgentSpinner } from "@/components/AgentAvatar";
 import { ArtifactCard } from "@/components/artifacts/ArtifactCard";
 import { useChannelActions } from "@/components/channel-actions";
-import { CommandBlock, MachineIcon } from "@/components/machine-bits";
+import { MachineIcon, TerminalFallback } from "@/components/machine-bits";
 import { useOrg } from "@/components/org-context";
 import { ShowRequestsButton, useIsThisMac } from "@/components/ThisMac";
 import { useNamesComputers } from "@/components/WorkspaceComputer";
@@ -1187,10 +1188,16 @@ export function TaskNoticeLine({ message }: { message: Message }) {
   const dir = useDirectory(org.id);
   const notice = taskNoticeOf(message.meta);
   // A folder request to this very Mac (agentes for Mac): answered in the menu bar, one click away (ADR 0036).
-  const asked = (message.meta as { machineAccess?: { machineId?: unknown } } | null)?.machineAccess?.machineId;
+  const access = (message.meta as { machineAccess?: { machineId?: unknown; requestId?: unknown } } | null)
+    ?.machineAccess;
+  const asked = access?.machineId;
   const here = useIsThisMac(org.id, typeof asked === "string" ? asked : "");
+  const computer = useMachines(org.id).data?.find((m) => m.id === asked);
   // A note from before the workspace's own computer stopped taking requests: nobody can run its command there.
-  const managed = useMachines(org.id).data?.some((m) => m.id === asked && m.kind === "managed");
+  const managed = computer?.kind === "managed";
+  // Where the agentes.chat app runs it: the request opens there for whoever manages it, and no command at all.
+  const requestId = typeof access?.requestId === "string" ? access.requestId : null;
+  const onComputer = computer?.folderPick && computer.canManage && requestId ? computer : null;
   if (!notice) return null;
   // A folder request (ADR 0036 §8): the server sends `path` and `computer`; the agent is the note's author.
   const author =
@@ -1219,10 +1226,14 @@ export function TaskNoticeLine({ message }: { message: Message }) {
               <ShowRequestsButton />
             </span>
           )}
-          {notice.code === "machine_access_requested" && p.command && !here && !managed && (
+          {notice.code === "machine_access_requested" && !here && onComputer && requestId && (
+            <span className="mi-evt__act">
+              <ShowOnComputerButton machineId={onComputer.id} machine={onComputer.name} requestId={requestId} />
+            </span>
+          )}
+          {notice.code === "machine_access_requested" && p.command && !here && !managed && !computer?.folderPick && (
             <span className="mi-evt__command">
-              <span className="small muted">{t("missions.notice.access_command")}</span>
-              <CommandBlock command={p.command} />
+              <TerminalFallback command={p.command} label={t("machines.access.grantTerminalMore")} />
             </span>
           )}
         </>
@@ -1236,6 +1247,40 @@ export function TaskNoticeLine({ message }: { message: Message }) {
         defaultValue: message.body,
       })}
     </EventPill>
+  );
+}
+
+/** "Liberar no computador" under an agent's folder request: it opens there, in the agentes.chat app, to be answered. */
+function ShowOnComputerButton({
+  machineId,
+  machine,
+  requestId,
+}: {
+  machineId: string;
+  machine: string;
+  requestId: string;
+}) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const toast = useToast();
+  const show = useAskMachineFolder(org.id);
+  return (
+    <Button
+      size="sm"
+      icon="computer"
+      loading={show.isPending}
+      onClick={() =>
+        show.mutate(
+          { machineId, requestId },
+          {
+            onSuccess: () => toast.show(t("devices.notice.folderShown", { deviceName: machine })),
+            onError: (err) => toast.show(errorText(t, err), "error"),
+          },
+        )
+      }
+    >
+      {t("devices.notice.folderOnComputer")}
+    </Button>
   );
 }
 

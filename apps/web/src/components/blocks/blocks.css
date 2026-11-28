@@ -396,15 +396,27 @@
   font-size: 13px;
   color: var(--faint);
 }
-/* The person's pick, sent from a choice card: one compact line, not a bubble of its own words. */
+/*
+ * The person's picks, sent from a choice card: compact lines, not a bubble of their own words. The check sits on the
+ * first line (`.ac-iconline`); each question is a line of its own, the question quiet and the answer standing out.
+ */
 .choice-reply {
   display: flex;
   width: fit-content;
-  align-items: center;
   gap: 6px;
   font-size: 13.5px;
+  line-height: 20px;
   color: var(--muted);
   white-space: pre-line;
+}
+.choice-reply__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.choice-reply__row {
+  overflow-wrap: anywhere;
 }
 .choice-reply b {
   font-weight: 600;

@@ -9,6 +9,7 @@ import {
   ForbiddenError,
   getAgent,
   listMembers,
+  logoInk,
   NotFoundError,
   removeAvatar,
   setAgentAppearance,
@@ -65,6 +66,19 @@ const PNG = bytes(
   chunk("IEND", ""),
 );
 const b64 = (b: Uint8Array) => Buffer.from(b).toString("base64");
+/** 8×2 RGBA wordmarks: a 4×2 block of ink in the middle, see-through around it; and one opaque white. */
+const WHITE_INK_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAACCAYAAABllJ3tAAAAE0lEQVR42mNggIL/aIABHeBSAAAcXh/hYZBkvQAAAABJRU5ErkJggg==",
+  "base64",
+);
+const DARK_INK_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAACCAYAAABllJ3tAAAAFklEQVR42mNggAIRCYX/yJgBHeBSAABKhQpZ+rscoQAAAABJRU5ErkJggg==",
+  "base64",
+);
+const OPAQUE_WHITE_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAACCAYAAABllJ3tAAAAD0lEQVR42mP4TwAwEFIAADh6P8EL+PKBAAAAAElFTkSuQmCC",
+  "base64",
+);
 const has = (b: Uint8Array, text: string) => Buffer.from(b).includes(Buffer.from(text, "latin1"));
 
 describe("photo bytes", () => {
@@ -107,6 +121,14 @@ describe("photo bytes", () => {
     expect(has(webp, "VP8 ")).toBe(true);
     expect(webp[20]).toBe(0); // EXIF/XMP flags cleared
     expect(new DataView(webp.buffer).getUint32(4, true)).toBe(webp.length - 8);
+  });
+
+  test("a logo's ink: light only for a PNG whose see-through background carries light ink", () => {
+    expect(logoInk(WHITE_INK_PNG, "image/png")).toBe("#ink=light");
+    expect(logoInk(DARK_INK_PNG, "image/png")).toBe("");
+    expect(logoInk(OPAQUE_WHITE_PNG, "image/png")).toBe("");
+    expect(logoInk(PNG, "image/png")).toBe(""); // unreadable pixels
+    expect(logoInk(JPEG, "image/jpeg")).toBe("");
   });
 });
 

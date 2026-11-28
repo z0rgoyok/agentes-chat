@@ -335,6 +335,7 @@ export function machineAccountRoutes(deps: AppDeps) {
                       opencode: z.boolean(),
                       grok: z.boolean(),
                       antigravity: z.boolean(),
+                      devin: z.boolean(),
                       key: z.boolean(),
                     })
                     .openapi({
@@ -352,10 +353,11 @@ export function machineAccountRoutes(deps: AppDeps) {
                       opencode: z.boolean(),
                       grok: z.boolean(),
                       antigravity: z.boolean(),
+                      devin: z.boolean(),
                     })
                     .openapi({
                       description:
-                        "What it can think with now: Claude Code (Claude, the coding plans), Codex (ChatGPT), Cursor, OpenCode, Grok Build and the Antigravity CLI (Gemini).",
+                        "What it can think with now: Claude Code (Claude, the coding plans), Codex (ChatGPT), Cursor, OpenCode, Grok Build, the Antigravity CLI (Gemini) and the Devin CLI (Devin).",
                     }),
                   own: z
                     .object({

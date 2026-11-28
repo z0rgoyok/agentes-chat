@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { foldText, normalizeUrl, outboundUrlProblem, TextPrints, urlsIn } from "../src/outbound-url";
+import {
+  foldText,
+  KEY_SHAPES,
+  maskKeyShapes,
+  normalizeUrl,
+  outboundUrlProblem,
+  replaceShapes,
+  SIGNED_SHAPES,
+  TextPrints,
+  urlsIn,
+} from "../src/outbound-url";
 
 const prints = (...texts: string[]) => {
   const p = new TextPrints(1 << 20);
@@ -96,9 +106,51 @@ describe("outboundUrlProblem", () => {
     ]);
   });
 
+  // Each took seconds when every `eyJ` after a `-` in a long run read the run to its end.
+  test("a long run of JWT starts is read in time, and a key or a JWT in it is still masked", () => {
+    const run = "eyJ-".repeat(40_000);
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+    const privateText = prints("anything");
+    const started = performance.now();
+    expect(maskKeyShapes(run)).toBe(run);
+    expect(maskKeyShapes(`${run}AKIAIOSFODNN7EXAMPLE-${run}`)).toBe(`${run}[REDACTED]-${run}`);
+    expect(maskKeyShapes(`${run} ${jwt}`)).toBe(`${run} [REDACTED]`);
+    // A JWT the run runs into is masked from the run's first start, as before.
+    expect(maskKeyShapes(`${run}${jwt}`)).toBe("[REDACTED]");
+    expect(code(`https://collect.example.net/v?d=${run}`, { privateText })).toBe("outbound.long");
+    expect(code(`https://collect.example.net/v?d=${run}AKIAIOSFODNN7EXAMPLE`, { privateText })).toBe(
+      "outbound.credential",
+    );
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
+  test("replaceShapes replaces what String.replace does, on random texts", () => {
+    const both = new RegExp(`${KEY_SHAPES.source}|${SIGNED_SHAPES.source}`, "g");
+    const by = (found: string) => `<${found}>`;
+    // A Slack key that holds `-eyJ` and ends at `_` inside a run doesn't hide a JWT later in that run.
+    const slack = "xoxb-1234567890-eyJab_c-eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+    expect(replaceShapes(slack, both, by)).toBe(slack.replace(both, by));
+    const words = ["eyJ", "-eyJ", "-", "_", ".", "a", "aaaaaaaaaa", "AKIA", "ABCDEFGHIJKLMNOP", "xoxb-", "sk-", " "];
+    for (let round = 0; round < 2000; round++) {
+      const n = Math.floor(Math.random() * 40);
+      const text = Array.from({ length: n }, () => words[Math.floor(Math.random() * words.length)]).join("");
+      for (const shapes of [SIGNED_SHAPES, both])
+        expect(replaceShapes(text, shapes, by)).toBe(text.replace(shapes, by));
+    }
+  });
+
   test("normalizeUrl: https, lowercase host, no fragment, no trailing slash", () => {
     expect(normalizeUrl("http://Example.COM/a/?b=1#frag")).toBe("https://example.com/a/?b=1");
     expect(normalizeUrl("https://example.com/")).toBe("https://example.com");
     expect(normalizeUrl("ftp://example.com")).toBeNull();
+  });
+
+  test("normalizeUrl drops the trailing slashes in time, however long a run of them inside the address", () => {
+    // Each took seconds when every `/` of the run inside read it to its end.
+    const run = "/".repeat(100_000);
+    const started = performance.now();
+    expect(normalizeUrl(`https://example.com/a${run}b${run}`)).toBe(`https://example.com/a${run}b`);
+    expect(urlsIn(`see https://example.com/a${run}b/ and`)).toEqual([`https://example.com/a${run}b`]);
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });

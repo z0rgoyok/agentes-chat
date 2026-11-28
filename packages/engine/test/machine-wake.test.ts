@@ -5,20 +5,29 @@ import {
   awakeForPerson,
   callWhenBack,
   computerBackSoon,
+  computerQueue,
   createMachineHub,
   enableOperatorEvents,
   issueManagedMachine,
   listDevices,
   listMachines,
+  MAINTENANCE_LONGEST_MS,
+  MAINTENANCE_OVERRUN_MS,
   type MachineHub,
   MachineOfflineError,
   type MachineStatus,
+  MOVING_SHOWN_MS,
   machineActivity,
+  maintenancePhrase,
   operatorMachines,
   pollDeviceToken,
   revokeManagedMachine,
   setMachineEgressWaiting,
+  setMachineMaintenance,
+  setMachineMoving,
   setMachineStandby,
+  shownMaintenance,
+  shownMoving,
   shownOnline,
   TASK_OFFLINE_GRACE_MS,
   WAKE_OVERDUE_JOB,
@@ -190,6 +199,152 @@ describe("agents waiting for their way out", () => {
     await setMachineEgressWaiting(deps(), f.org.id, machineId, true);
     await revokeManagedMachine(deps(), f.org.id, machineId);
     expect((await machineRow(machineId)).egressWaitingAt).toBeNull();
+  });
+});
+
+describe("moving to another server", () => {
+  test("away while the operator says it moves: moving everywhere people look, never offline, for a while at most", async () => {
+    f = await setup();
+    const { machineId, token } = await managedComputer();
+    const heard: unknown[] = [];
+    f.pubsub.subscribe(orgTopic(f.org.id), (e) => {
+      const event = (e as { event?: { type?: string } }).event;
+      if (e.type === "org.broadcast" && event?.type === "machine.updated") heard.push(event);
+    });
+    const shown = async () => (await listMachines(f.db, f.owner.id, f.org.id)).find((m) => m.id === machineId);
+    const device = async (now?: Date) =>
+      (await listDevices(f.db, f.org.id, f.owner.id, now)).devices.find((d) => d.id === machineId)?.status;
+    expect((await device())?.kind).toBe("offline");
+
+    expect(await setMachineMoving(deps(), f.org.id, machineId, true)).toEqual({ moving: true });
+    // Said again at a later step of the move: its while counts from then.
+    await f.db
+      .update(schema.machines)
+      .set({ movingAt: new Date(Date.now() - MOVING_SHOWN_MS) })
+      .where(eq(schema.machines.id, machineId));
+    expect(await setMachineMoving(deps(), f.org.id, machineId, true)).toEqual({ moving: true });
+    const first = (await machineRow(machineId)).movingAt;
+    expect(Date.now() - (first?.getTime() ?? 0)).toBeLessThan(60_000);
+    const said = { kind: "moving" as const, since: expect.any(String), eta: null, detail: null };
+    expect(heard).toEqual([
+      { type: "machine.updated", machineId, moving: true, maintenance: said },
+      { type: "machine.updated", machineId, moving: true, maintenance: said },
+    ]);
+    expect((await shown())?.moving).toBe(true);
+    expect(await device()).toEqual({
+      kind: "moving",
+      since: expect.any(String),
+      maintenance: { ...said, away: true },
+    });
+    expect((await computerQueue(f.db, f.owner.id, f.org.id, machineId)).moving).toBe(true);
+    // A move nobody said ended shows the computer's real state after a while.
+    const later = new Date(Date.now() + MOVING_SHOWN_MS + 1_000);
+    expect((await device(later))?.kind).toBe("offline");
+
+    // Back on the new server: online, nothing more to say.
+    await hello(token);
+    expect((await shown())?.moving).toBe(false);
+    expect((await device())?.kind).toBe("ready");
+
+    // A computer someone connected, another workspace's id, or no such computer: nothing.
+    const paired = await pairMachine(deps(), f.owner.id, f.org.id, { name: "Laptop" });
+    expect(await setMachineMoving(deps(), f.org.id, paired.machineId, true)).toBeNull();
+    expect(await setMachineMoving(deps(), crypto.randomUUID(), machineId, false)).toBeNull();
+
+    expect(await setMachineMoving(deps(), f.org.id, machineId, false)).toEqual({ moving: false });
+    expect((await machineRow(machineId)).movingAt).toBeNull();
+    // Removed: issued again, it isn't moving.
+    await setMachineMoving(deps(), f.org.id, machineId, true);
+    await revokeManagedMachine(deps(), f.org.id, machineId);
+    expect((await machineRow(machineId)).movingAt).toBeNull();
+  });
+});
+
+describe("what we do to it (ADR 0257)", () => {
+  test("a restart, a move's copy, an update: each said with its time, online only what slows it, never past its time", async () => {
+    f = await setup();
+    const { machineId, token } = await managedComputer();
+    const device = async (now?: Date) =>
+      (await listDevices(f.db, f.org.id, f.owner.id, now)).devices.find((d) => d.id === machineId);
+    const shown = async () => (await listMachines(f.db, f.owner.id, f.org.id)).find((m) => m.id === machineId);
+
+    // Restarted because it stopped answering: away, said so with about when it is back.
+    const eta = new Date(Date.now() + 2 * 60_000);
+    await setMachineMaintenance(deps(), f.org.id, machineId, { kind: "restarting", eta, detail: "unresponsive" });
+    const restart = {
+      kind: "restarting" as const,
+      since: expect.any(String),
+      eta: eta.toISOString(),
+      detail: "unresponsive" as const,
+    };
+    expect((await device())?.status).toEqual({
+      kind: "moving",
+      since: expect.any(String),
+      maintenance: { ...restart, away: true },
+    });
+    expect((await shown())?.maintenance).toEqual({ ...restart, away: true });
+    const row = await machineRow(machineId);
+    const restarting = shownMaintenance(row);
+    if (!restarting) throw new Error("not shown");
+    expect(new MachineOfflineError("Acme", "managed", restarting).message).toBe(
+      "The computer Acme is restarting: it stopped answering, so it was restarted automatically, back in about 2 minutes.",
+    );
+    // Past its time by more than the overrun: its real state.
+    expect((await device(new Date(eta.getTime() + MAINTENANCE_OVERRUN_MS + 1_000)))?.status.kind).toBe("offline");
+    expect(maintenancePhrase(restarting, new Date(eta.getTime() + 60_000))).toEndWith("taking longer than expected");
+
+    // Back: a restart is over.
+    await hello(token);
+    expect((await device())?.status.kind).toBe("ready");
+    expect((await device())?.maintenance).toBeNull();
+    expect((await machineRow(machineId)).maintenance).toBeNull();
+
+    // A move's copy runs beside its work: said online (maybe slower), never as away.
+    const done = new Date(Date.now() + 45 * 60_000);
+    await setMachineMaintenance(deps(), f.org.id, machineId, { kind: "moving", eta: done, detail: "copying" });
+    expect((await device())?.status.kind).toBe("ready");
+    expect((await device())?.maintenance).toMatchObject({ kind: "moving", detail: "copying", away: false });
+    expect(maintenancePhrase(shownMaintenance(await machineRow(machineId)) ?? restarting)).toBe(
+      "moving to a new server: its files are being copied, so it may be slower, done in about 45 minutes",
+    );
+    // An update while online: nothing to say until it takes the computer away.
+    await setMachineMaintenance(deps(), f.org.id, machineId, { kind: "updating" });
+    expect((await device())?.maintenance).toBeNull();
+    expect(shownMoving(await machineRow(machineId))).toBe(false);
+
+    await setMachineMaintenance(deps(), f.org.id, machineId, null);
+    expect((await machineRow(machineId)).maintenance).toBeNull();
+  });
+
+  test("a far eta never sticks; a move's end leaves a restart said meanwhile; away mid-copy, no 'slower'", async () => {
+    f = await setup();
+    const { machineId } = await managedComputer();
+    const device = async (now?: Date) =>
+      (await listDevices(f.db, f.org.id, f.owner.id, now)).devices.find((d) => d.id === machineId);
+
+    // An eta a year out: shown no longer than a day after the latest word.
+    const year = new Date(Date.now() + 365 * 24 * 60 * 60_000);
+    await setMachineMaintenance(deps(), f.org.id, machineId, { kind: "converting", eta: year });
+    expect((await device(new Date(Date.now() + 60 * 60_000)))?.status.kind).toBe("moving");
+    expect((await device(new Date(Date.now() + MAINTENANCE_LONGEST_MS + 1_000)))?.status.kind).toBe("offline");
+
+    // Away mid-copy: a move, back soon, not "it may be slower".
+    await setMachineMaintenance(deps(), f.org.id, machineId, { kind: "moving", detail: "copying" });
+    const copying = shownMaintenance(await machineRow(machineId));
+    expect(copying).toMatchObject({ away: true, detail: "copying" });
+    if (!copying) throw new Error("not shown");
+    expect(maintenancePhrase(copying)).toBe("moving to a new server, back in a few minutes");
+
+    // Restarted during the move, then the move ends: the restart still shows.
+    const eta = new Date(Date.now() + 3 * 60_000);
+    await setMachineMaintenance(deps(), f.org.id, machineId, { kind: "restarting", eta, detail: "unresponsive" });
+    expect(await setMachineMoving(deps(), f.org.id, machineId, false)).toEqual({ moving: false });
+    expect((await machineRow(machineId)).maintenance?.kind).toBe("restarting");
+    expect((await device())?.status.kind).toBe("moving");
+    // A move's own end clears it.
+    await setMachineMaintenance(deps(), f.org.id, machineId, { kind: "moving" });
+    await setMachineMoving(deps(), f.org.id, machineId, false);
+    expect((await machineRow(machineId)).movingAt).toBeNull();
   });
 });
 

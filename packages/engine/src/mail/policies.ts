@@ -189,7 +189,7 @@ async function mayChangeMail(
     // Its rules can loosen at any level, for an agent that answers them; otherwise they may only lower it.
     if (canTalkTo(agent, actorId, await speakerFor(db, orgId, actorId))) return true;
     if (lowering) return false;
-    throw await audienceError(db, agent);
+    throw await audienceError(db, agent, actorId);
   }
   if (!lowering) throw await mailOwnerOnlyError(db, account);
   // Its owner (or who holds its owner role, ADR 0085, addendum of 2026-11-21), or who manages the agent

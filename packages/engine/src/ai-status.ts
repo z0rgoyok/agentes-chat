@@ -32,7 +32,7 @@ export type AiState = "ready" | "no_ai" | "waiting";
 /**
  * Why an agent has no AI, as its card and the Connect dialog put it (`cli_missing`: its computer has no such CLI). The
  * team's right hand on a plan also says its computer is away or had a problem, its plan is at its limit (or its model's own limit, or
- * the region that model needs), the plan answers only its owner, the computer's runner needs an update, commands or
+ * the region that model needs), the plan answers only its owner, agentes.chat on the computer needs an update, commands or
  * the CLI are off there, or the plan's CLI there offers tools of its own (`rightHandNoAiReason`).
  */
 export const NO_AI_REASONS = [
@@ -64,7 +64,7 @@ export interface AgentAi {
    * With `not_signed_in`: the CLI whose own sign-in isn't there on the computer, the agent having no account of its
    * own (ADR 0041 §1).
    */
-  own?: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+  own?: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
   /**
    * Ready on an API key with Automático: the maker of the key it thinks with, which the apps name it by ("Claude"), as
    * the right hand's panel names its key. Asked with no run only (the apps' question).

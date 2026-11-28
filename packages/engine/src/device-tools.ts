@@ -12,6 +12,7 @@ import { serverText } from "@agenteschat/i18n";
 import { getAgentCached } from "./agents";
 import { type ArtifactDeps, cleanFileName, getArtifact, storedFileOfArtifact } from "./artifacts";
 import { MODEL_IMAGE_BYTES, sniffModelImage } from "./avatars";
+import { PHONE_POWER_LIMIT, sendPhonePower } from "./device-power";
 import {
   checkDeviceUse,
   type DeviceComputer,
@@ -460,6 +461,61 @@ export function createDeviceToolSource(deps: DeviceToolDeps): ToolSource {
         };
       }),
     },
+    ...([true, false] as const).map(
+      (on): ToolDefinition => ({
+        name: on ? "simulator_start" : "simulator_stop",
+        description: on
+          ? "Start an iOS simulator or an Android emulator that computer_status lists as offline on a computer you may use: its computer boots it (and shows it in Simulator on a Mac). It is ready to use in a minute or so: computer_status says when."
+          : "Shut down an iOS simulator or an Android emulator you no longer need, so it stops using its computer's memory. Not while something uses it.",
+        scope: SANDBOX_SCOPE,
+        inputSchema: {
+          type: "object",
+          properties: { phone: phoneProp, label: labelProp },
+          required: ["phone"],
+          additionalProperties: false,
+        },
+        describe: (input) => ({ title: `${on ? "Start" : "Shut down"} ${str(input.phone)}` }),
+        execute: phoneTool(on ? "Starting a simulator" : "Shutting down a simulator", async (ctx, r) => {
+          const limit = await deps.rateLimiter?.consume(`phone-power:agent:${ctx.agentId}`, PHONE_POWER_LIMIT);
+          if (limit && !limit.allowed)
+            return refusal(
+              `You started or shut down simulators ${PHONE_POWER_LIMIT.limit} times in the last minutes. Use the ones running now.`,
+              "device.rate_limited",
+            );
+          const hub = hubOf() as MachineCaller;
+          const status = await hub.status(r.host.id);
+          try {
+            await sendPhonePower(
+              { db: deps.db, hub, ...(deps.pubsub ? { pubsub: deps.pubsub } : {}) },
+              ctx.orgId,
+              { phone: r.phone, host: { id: r.host.id, name: r.host.name, protocol: status?.protocol ?? 0 } },
+              on,
+              {
+                actor: { type: "agent", id: ctx.agentId },
+                runId: ctx.runId,
+                channelId: ctx.channelId,
+                onBehalfOfUserId: r.requester,
+              },
+            );
+          } catch (error) {
+            if (error instanceof MachineOfflineError) return phoneFailure(ctx.db, r, error);
+            const code = (error as { code?: unknown }).code;
+            if (code === "machine.outdated" && status)
+              return refusal(
+                `The agentes app on ${r.host.name} is too old to start or shut down simulators. ${runnerUpdateWay(status)}`,
+                "device.runner_outdated",
+              );
+            return refusal(error instanceof Error ? error.message : String(error), String(code ?? "device.failed"));
+          }
+          return {
+            content: on
+              ? `${r.host.name} is starting ${r.phone.name}. ${waitHint(r.phone.name)}`
+              : `${r.host.name} shut down ${r.phone.name}.`,
+            data: { phoneId: r.phone.id, on },
+          };
+        }),
+      }),
+    ),
     {
       name: "phone_logs",
       description: "The phone's recent log lines (Android logcat, iPhone console), only one app's with app.",

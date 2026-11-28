@@ -1,5 +1,5 @@
 import type { AccountLoginStart, MachineAccount, MachineAccountKind } from "@agenteschat/client";
-import { keys, useAccountLogin, useAiAccounts, useApi } from "@agenteschat/client";
+import { keys, useAccountLogin, useAiAccounts, useApi, useMachines } from "@agenteschat/client";
 import { accountInLine, reusableAccount, signInOf } from "@agenteschat/client/lib/ai-accounts";
 import { knownErrorText } from "@agenteschat/client/lib/errors";
 import {
@@ -165,6 +165,9 @@ function AddAccountFlow({
   // Gemini: a personal Google account, or (chosen under it, or the account's own) Gemini Enterprise.
   const [enterprise, setEnterprise] = useState(planId === GEMINI_ENTERPRISE_PROVIDER);
   const provider = keyProvider ?? (kind === "antigravity" && enterprise ? GEMINI_ENTERPRISE_PROVIDER : undefined);
+  // On Windows the Antigravity CLI keeps its sign-in in the user's one Credential Manager (ADR 0143).
+  const machines = useMachines(orgId, kind === "antigravity");
+  const windows = kind === "antigravity" && machines.data?.find((m) => m.id === machineId)?.os === "windows";
   const [login, setLogin] = useState<AccountLoginStart | null>(null);
   const [starting, setStarting] = useState(false);
   // Why the sign-in didn't start, in the person's language.
@@ -499,6 +502,7 @@ function AddAccountFlow({
     steps = (
       <>
         {!enterprise ? <Note icon="info">{t("connectAi.plan.gemini.warning")}</Note> : null}
+        {windows ? <Note icon="info">{t("connectAi.plan.gemini.windowsOne")}</Note> : null}
         <Step
           n={1}
           state={login && opened ? "done" : "now"}
@@ -543,6 +547,39 @@ function AddAccountFlow({
             {!busy && isUrlWithoutCode(key) ? (
               <Note icon="x">{t("agentPage.work.brain.add.notCodeGoogle")}</Note>
             ) : null}
+          </Step>
+        ) : null}
+      </>
+    );
+  } else if (kind === "devin") {
+    // ADR 0253: Devin's page shows a code, pasted back here, as Gemini's.
+    steps = (
+      <>
+        <Step
+          n={1}
+          state={login && opened ? "done" : "now"}
+          title={t("agentPage.work.brain.add.stepOne.devin")}
+          hint={signInHint}
+          side={login ? openAgain(login.url) : startButton(t("agentPage.work.brain.add.open.devin"), !ready)}
+        >
+          {starting ? <StepText>{t("agentPage.work.brain.add.starting", { computer })}</StepText> : null}
+        </Step>
+        {login && opened ? (
+          <Step
+            n={2}
+            divider
+            title={t("agentPage.work.brain.add.stepTwoDevin")}
+            hint={t("agentPage.work.brain.add.codeHintDevin")}
+            side={read === "reconnecting" ? waiting : undefined}
+          >
+            {busy
+              ? busyLine
+              : pasteRow(
+                  t("agentPage.work.brain.add.codeLabelDevin"),
+                  t("agentPage.work.brain.add.codeLabelDevin"),
+                  false,
+                  key.length > 0 && !/^https?:\/\//i.test(key.trim()),
+                )}
           </Step>
         ) : null}
       </>

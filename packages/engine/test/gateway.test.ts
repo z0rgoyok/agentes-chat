@@ -7,14 +7,18 @@ import {
   agentSpendThisMonth,
   BudgetExceededError,
   createCredential,
+  createLocalKeyWrapper,
   createModelGateway,
   drainOutbox,
   executeRun,
+  LEARNED_LIMIT_TTL_MS,
   listCredentials,
   MissingCredentialError,
   postPersonMessage,
   revokeCredential,
   rotateCredential,
+  runErrorDetail,
+  UNREADABLE_KEY,
   updateAgent,
   usageSummary,
 } from "../src";
@@ -57,6 +61,135 @@ test("no effort set: high only where the model's output limit is known, else the
   expect(turnEffort("claude-opus-5-5", undefined)).toBe("high");
   expect(turnEffort("gpt-6.2-sol", undefined)).toBeUndefined();
   expect(turnEffort("gpt-6.2-sol", "low")).toBe("low");
+});
+
+test("a model whose limit no row knows: its provider's refusal names it, the call goes again within it, the key keeps it", async () => {
+  const said =
+    "max_tokens is too large: 64000. This model supports at most 16384 completion tokens, whereas you provided 64000.";
+  f = await setup({
+    reply: (request) =>
+      request.maxTokens > 16_384
+        ? new ProviderError(
+            `provider rejected the request (400 invalid_request_error): ${said}`,
+            false,
+            400,
+            undefined,
+            said,
+          )
+        : { chunks: ["ok"] },
+  });
+  await createCredential(f.db, f.keyWrapper, f.owner.id, f.org.id, {
+    provider: "openai",
+    label: "OpenAI",
+    apiKey: "sk-proj-test-key-12345678",
+  });
+  await f.db
+    .update(schema.agents)
+    .set({ model: "gpt-6.2-sol", credentialId: null })
+    .where(eq(schema.agents.id, f.agent.id));
+  const first = await call(f, [], 64_000);
+  expect(first.maxTokens).toBe(16_384);
+  await call(f, [], 64_000);
+  expect(f.openaiProvider.calls.map((c) => c.request.maxTokens)).toEqual([64_000, 16_384, 16_384]);
+  // The refused call billed nothing: one usage row per answer.
+  expect(await f.db.select().from(schema.usageRecords)).toHaveLength(2);
+});
+
+test("a model whose limit no row knows: the cap its provider's list tells, asked once per key and model", async () => {
+  f = await setup({ reply: () => ({ chunks: ["ok"] }) });
+  await createCredential(f.db, f.keyWrapper, f.owner.id, f.org.id, {
+    provider: "openai",
+    label: "OpenAI",
+    apiKey: "sk-proj-test-key-12345678",
+  });
+  await f.db
+    .update(schema.agents)
+    .set({ model: "gpt-6.2-sol", credentialId: null })
+    .where(eq(schema.agents.id, f.agent.id));
+  let asked = 0;
+  const gateway = createModelGateway({
+    db: f.db,
+    keyWrappers: [f.keyWrapper],
+    providers: {
+      openai: {
+        ...f.openaiProvider,
+        outputLimit: async () => {
+          asked++;
+          return 8192;
+        },
+      },
+    },
+    platformCredentials: noPlatformCredentials,
+  });
+  const agentCall = () =>
+    gateway.stream({
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      system: "s",
+      messages: [{ role: "user", content: "hi" }],
+      maxTokens: 64_000,
+      onDelta: () => {},
+    });
+  await agentCall();
+  await agentCall();
+  expect(f.openaiProvider.calls.map((c) => c.request.maxTokens)).toEqual([8192, 8192]);
+  expect(asked).toBe(1);
+});
+
+test("a key's learned output limit outlives the process: the next one sends within it at once, a month at most", async () => {
+  const said = "This model supports at most 16384 completion tokens, whereas you provided 64000.";
+  f = await setup({
+    reply: (request) =>
+      request.maxTokens > 16_384
+        ? new ProviderError(`provider rejected the request (400): ${said}`, false, 400, undefined, said)
+        : { chunks: ["ok"] },
+  });
+  await createCredential(f.db, f.keyWrapper, f.owner.id, f.org.id, {
+    provider: "openai",
+    label: "OpenAI",
+    apiKey: "sk-proj-test-key-12345678",
+  });
+  await f.db
+    .update(schema.agents)
+    .set({ model: "gpt-6.2-sol", credentialId: null })
+    .where(eq(schema.agents.id, f.agent.id));
+  await call(f, [], 64_000);
+  const [kept] = await f.db.select().from(schema.modelOutputLimits);
+  expect(kept).toMatchObject({ orgId: f.org.id, model: "gpt-6.2-sol", maxOutputTokens: 16_384 });
+  const restarted = () =>
+    createModelGateway({
+      db: f.db,
+      keyWrappers: [f.keyWrapper],
+      providers: { openai: f.openaiProvider },
+      platformCredentials: noPlatformCredentials,
+    });
+  const sent = () => f.openaiProvider.calls.map((c) => c.request.maxTokens);
+  await call({ ...f, gateway: restarted() }, [], 64_000);
+  expect(sent()).toEqual([64_000, 16_384, 16_384]);
+  // Learned longer ago than a month: asked again, in case the provider raised it.
+  await f.db.update(schema.modelOutputLimits).set({ learnedAt: new Date(Date.now() - LEARNED_LIMIT_TTL_MS - 60_000) });
+  await call({ ...f, gateway: restarted() }, [], 64_000);
+  expect(sent()).toEqual([64_000, 16_384, 16_384, 64_000, 16_384]);
+});
+
+test("a limit a refusal learned below its model's row outlives the process too", async () => {
+  const said = "max_tokens: 100000 > 32000, which is the maximum allowed number of output tokens";
+  f = await setup({
+    reply: (request) =>
+      request.maxTokens > 32_000
+        ? new ProviderError(`provider rejected the request (400): ${said}`, false, 400, undefined, said)
+        : { chunks: ["ok"] },
+  });
+  await f.db.update(schema.agents).set({ model: "claude-fable-5-2" }).where(eq(schema.agents.id, f.agent.id));
+  await call(f, [], 100_000);
+  const restarted = createModelGateway({
+    db: f.db,
+    keyWrappers: [f.keyWrapper],
+    providers: { anthropic: f.provider },
+    platformCredentials: noPlatformCredentials,
+  });
+  await call({ ...f, gateway: restarted }, [], 100_000);
+  expect(f.provider.calls.map((c) => c.request.maxTokens)).toEqual([100_000, 32_000, 32_000]);
 });
 
 test("decrypts the org credential, streams, and records tokens and cost with org and agent", async () => {
@@ -413,6 +546,32 @@ test("no credential: core has no platform key; a module can provide one", async 
   await call(f);
   expect(f.provider.calls[1]?.apiKey).toBe("platform-key");
   expect((await f.db.select().from(schema.usageRecords))[1]?.credentialId).toBeNull();
+});
+
+test("a key saved under another AGENTES_SECRET fails the run at once, saying to paste it again", async () => {
+  f = await setup();
+  await rotateCredential(f.db, createLocalKeyWrapper("another-install-secret"), f.owner.id, f.org.id, f.credential.id, {
+    apiKey: "sk-ant-test-key-1234",
+  });
+  await expect(call(f)).rejects.toThrow(new MissingCredentialError(UNREADABLE_KEY));
+  // The workspace's default key, when the agent has none of its own: the same words, not a crash.
+  await f.db.insert(schema.organizationSettings).values({ orgId: f.org.id, defaultCredentialId: f.credential.id });
+  await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { credentialId: null });
+  await expect(call(f)).rejects.toThrow(new MissingCredentialError(UNREADABLE_KEY));
+
+  await updateAgent(f.db, f.owner.id, f.org.id, f.agent.id, { credentialId: f.credential.id });
+  const asked = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+    body: "@dev oi",
+  });
+  const [run] = await f.db.select().from(schema.agentRuns).where(eq(schema.agentRuns.triggerMessageId, asked.id));
+  // Not the last attempt: a retryable error would throw for the outbox to try again.
+  await executeRun(f.jobDeps, run?.id as string, { finalAttempt: false });
+  const [after] = await f.db
+    .select()
+    .from(schema.agentRuns)
+    .where(eq(schema.agentRuns.id, run?.id as string));
+  expect(after).toMatchObject({ status: "failed", error: UNREADABLE_KEY });
+  expect(runErrorDetail(after?.error)).toEqual({ errorCode: "run.credential_unreadable" });
 });
 
 test("provider errors propagate and record no usage", async () => {

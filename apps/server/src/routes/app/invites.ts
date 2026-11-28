@@ -12,6 +12,8 @@ import {
   INVITE_CHOICES_MAX,
   INVITE_LINK_MAX_USES,
   INVITE_LINK_TTL_KEYS,
+  invitationMailProof,
+  invitationToken,
   inviteLink,
   inviteLinkToken,
   JOIN_NAME_MAX,
@@ -703,8 +705,10 @@ export function inviteRoutes(deps: AppDeps) {
       description:
         "Public: the `key` the ask answered is the proof. `in` once, with `signIn` for " +
         "`POST /api/auth/sign-in/one-time-token`, when the approval made the account; after that the key is spent " +
-        "and reads `closed`. `closed` also for an approval of an address that already had an account (it signs in " +
-        "as it always did), and for a request run out, turned off or closed by joining another way. 404 for a key " +
+        "and reads `closed`. `invited` once, when the approval invited an address that already had an account: " +
+        "the invitation's `token` and the `mail` proof its email's link carries (`/invite/{token}?mail=`), where that account " +
+        "signs in as it always does and joins. `closed` for a request run out, turned off or closed by joining " +
+        "another way, and for an approval that let in an account already there. 404 for a key " +
         "that matches nothing, and once the daily cleanup forgets a key, a day after the answer.",
       request: { params: Token, body: body(z.object({ key: z.string().min(10).max(200) })) },
       responses: {
@@ -712,6 +716,7 @@ export function inviteRoutes(deps: AppDeps) {
           z.discriminatedUnion("status", [
             z.object({ status: z.literal("pending") }),
             z.object({ status: z.literal("in"), orgId: z.uuid(), signIn: z.string() }),
+            z.object({ status: z.literal("invited"), token: z.string(), mail: z.string() }),
             z.object({ status: z.literal("denied"), reason: z.string().nullable() }),
             z.object({ status: z.literal("closed") }),
           ]),
@@ -725,6 +730,11 @@ export function inviteRoutes(deps: AppDeps) {
       const limit = await adapters.rateLimiter.consume(`join-claim:${ip}`, CLAIMS_PER_IP);
       if (!limit.allowed) return apiError(c, 429, "rate_limited", TOO_MANY);
       const found = await claimJoinRequest(db, c.req.valid("param").token, c.req.valid("json").key);
+      if (found.status === "invited") {
+        const id = found.invitationId;
+        const token = invitationToken(config.AGENTES_SECRET, id);
+        return c.json({ status: "invited" as const, token, mail: invitationMailProof(config.AGENTES_SECRET, id) }, 200);
+      }
       if (found.status !== "in") return c.json(found, 200);
       const { token } = await mintUserSignIn(deps.auth, found.userId);
       return c.json({ status: "in" as const, orgId: found.orgId, signIn: token }, 200);

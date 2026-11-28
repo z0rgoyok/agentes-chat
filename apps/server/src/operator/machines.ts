@@ -1,3 +1,4 @@
+import { schema } from "@agenteschat/db";
 import {
   issueManagedMachine,
   listMachineRequests,
@@ -9,6 +10,8 @@ import {
   PROVISIONING_STEPS,
   revokeManagedMachine,
   setMachineEgressWaiting,
+  setMachineMaintenance,
+  setMachineMoving,
   setMachineStandby,
   setProvisioning,
 } from "@agenteschat/engine";
@@ -306,6 +309,83 @@ export function registerOperatorMachines(api: OpenAPIHono, { db, config, pubsub,
     async (c) => {
       const { orgId, machineId } = c.req.valid("param");
       const set = await setMachineEgressWaiting({ db, pubsub }, orgId, machineId, c.req.valid("json").waiting);
+      if (!set) return apiError(c, 404, "not_found", "This workspace has no managed computer with this id");
+      return c.json(set, 200);
+    },
+  );
+
+  const Maintenance = z
+    .object({
+      kind: z.enum(schema.MAINTENANCE_KINDS).nullable().openapi({
+        description:
+          "What is done to it: `moving` to another server, `restarting`, `updating` its software, `converting` its disk, `host_maintenance` of the server it runs on. Null: done.",
+      }),
+      eta: z.string().datetime({ offset: true }).nullable().optional().openapi({
+        description:
+          "When it should be back (away) or done (a move's copy, a conversion). Its people read it as about how long; null or absent: unknown.",
+      }),
+      detail: z.enum(schema.MAINTENANCE_DETAILS).nullable().optional().openapi({
+        description:
+          "Which step, or why: a move's `copying` (it works, maybe slower) or `handover` (away a minute or two), a restart's `unresponsive` (it stopped answering).",
+      }),
+    })
+    .openapi("OperatorMaintenanceInput");
+
+  api.openapi(
+    createRoute({
+      method: "put",
+      path: "/orgs/{orgId}/machines/{machineId}/maintenance",
+      tags,
+      summary: "Say what is done to the workspace's computer, or that it is done",
+      description:
+        "Say it when a move, a restart, an update, a disk conversion or its host's maintenance begins, again at each step (the same kind keeps its start), and `kind: null` once it is done or called off. While the computer is away its people see what is done, why and about when it is back, never that it is offline, and agents waiting for it say the same; online, only a move's copy and a conversion show (it may be slower). Shown until 30 minutes past `eta` (at most a day after the latest word), or two hours after the latest word with no `eta`. Removing the computer ends it. A change comes as `machine.updated`. 404 when the workspace has no such managed computer.",
+      request: { params: MachineParams, body: body(Maintenance) },
+      responses: {
+        200: json(
+          z
+            .object({
+              maintenance: z
+                .object({
+                  kind: z.enum(schema.MAINTENANCE_KINDS),
+                  since: z.string(),
+                  eta: z.string().nullable(),
+                  detail: z.enum(schema.MAINTENANCE_DETAILS).nullable(),
+                })
+                .nullable(),
+            })
+            .openapi("OperatorMaintenance"),
+        ),
+        ...errors,
+      },
+    }),
+    async (c) => {
+      const { orgId, machineId } = c.req.valid("param");
+      const { kind, eta, detail } = c.req.valid("json");
+      const set = await setMachineMaintenance(
+        { db, pubsub },
+        orgId,
+        machineId,
+        kind ? { kind, eta: eta ? new Date(eta) : null, detail: detail ?? null } : null,
+      );
+      if (!set) return apiError(c, 404, "not_found", "This workspace has no managed computer with this id");
+      return c.json(set, 200);
+    },
+  );
+
+  api.openapi(
+    createRoute({
+      method: "put",
+      path: "/orgs/{orgId}/machines/{machineId}/moving",
+      tags,
+      summary: "Say the workspace's computer is moving to another server, or no longer",
+      description:
+        "From before `PUT …/maintenance`, which says it with a time and a step: `true` is `kind: moving`, `false` ends a move (another kind said meanwhile, such as a restart, stays). Say it (`true`) when its move starts, and `false` once its runner paired on the new server, or the move was cancelled or failed. While it is away its people see that it is moving and comes back in a few minutes, never that it is offline or not answering, for at most two hours after the latest `true` (say it again at each step of a long move). Removing the computer ends it. A change comes as `machine.updated`. 404 when the workspace has no such managed computer.",
+      request: { params: MachineParams, body: body(z.object({ moving: z.boolean() })) },
+      responses: { 200: json(z.object({ moving: z.boolean() }).openapi("OperatorMoving")), ...errors },
+    }),
+    async (c) => {
+      const { orgId, machineId } = c.req.valid("param");
+      const set = await setMachineMoving({ db, pubsub }, orgId, machineId, c.req.valid("json").moving);
       if (!set) return apiError(c, 404, "not_found", "This workspace has no managed computer with this id");
       return c.json(set, 200);
     },

@@ -1,0 +1,1 @@
+ALTER TABLE "machines" ADD COLUMN "moving_at" timestamp with time zone;

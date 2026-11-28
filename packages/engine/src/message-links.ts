@@ -14,6 +14,9 @@ export function setMessageLinkBase(publicUrl: string) {
   base = publicUrl.replace(/\/+$/, "");
 }
 
+/** A page of the web app outside any workspace (`/surface-page?token=`). */
+export const publicPageLink = (path: string) => `${base}${path}`;
+
 /** A page of this workspace in the web app (`/team`, `/settings/members`), as an agent links a person to it. */
 export const appPageLink = (orgId: string, path: string) => `${base}/org/${orgId}${path}`;
 

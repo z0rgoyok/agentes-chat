@@ -9,6 +9,7 @@ import {
   useLeaveChannel,
   useMuteChannel,
   useRoster,
+  useUpdateChannel,
 } from "@agenteschat/client";
 import { WORK_TICK_MS, workLine, workLineText } from "@agenteschat/client/lib/agent-work";
 import { managesAgent, opensDetails } from "@agenteschat/client/lib/audience";
@@ -77,19 +78,27 @@ function useRefresh(channelId: string) {
   };
 }
 
-/** An agent's line says how it answers my messages: on its own only while something reads the ones that mention nobody. */
+/**
+ * An agent's line says how it answers my messages: on its own only while something reads the ones that mention nobody.
+ * The responsible agent's line says that first, alone when it answers on its own and something picks for me.
+ */
 const lineOf = (
   t: TFunction,
   w: Pick<Who, "kind" | "autoReply" | "handle" | "name" | "email">,
   routing: AiRouting | undefined,
-) =>
-  w.kind === "agent"
-    ? !w.autoReply
-      ? t("channelMembers.mentionLine", { handle: w.handle })
-      : !picksForMe(routing)
-        ? t(replyAloneKey(routing), agentGrammar(w.name))
-        : t("channelMembers.aloneLine", agentGrammar(w.name))
-    : w.email;
+  /** It is the agent responsible for the channel. */
+  lead = false,
+) => {
+  if (w.kind !== "agent") return w.email;
+  const line = !w.autoReply
+    ? t("channelMembers.mentionLine", { handle: w.handle })
+    : !picksForMe(routing)
+      ? t(replyAloneKey(routing), agentGrammar(w.name))
+      : t("channelMembers.aloneLine", agentGrammar(w.name));
+  if (!lead) return line;
+  const responsible = t("channelMembers.lead");
+  return w.autoReply && picksForMe(routing) ? responsible : [responsible, line].join(" · ");
+};
 
 /**
  * "Tirar do canal", asked first in the system's confirmation (what it changes for them), then done: a toast says it and
@@ -202,7 +211,8 @@ export function ChannelMembersScreen({ channelId }: { channelId: string }) {
     if (w.kind === "person") return lineOf(t, w, routing);
     const a = presence.agent(w.id);
     const why = a ? agentWhyKey(a.presence, a.noAi) : null;
-    if (!a || !why) return [workText(w.id), lineOf(t, w, routing)].filter(Boolean).join("\n");
+    if (!a || !why)
+      return [workText(w.id), lineOf(t, w, routing, w.id === channel?.leadAgentId)].filter(Boolean).join("\n");
     const own = liveLine(a.noAi ? null : a.status?.status, now);
     const under = agentMemberLine(workText(w.id), own && agentStatusShort(t, own, i18n.language), why);
     return under?.work ?? (under?.line ? lineText(under.line) : t(`presence.agentWhy.${why}`));
@@ -473,6 +483,15 @@ export function ChannelAgentScreen({ channelId, agentId }: { channelId: string; 
       toast({ title: t("mobile.app.failed"), icon: "x" });
     },
   });
+  // The channel's responsible agent: one at a time, set here for this one or taken back.
+  const update = useUpdateChannel(orgId, channelId);
+  const isLead = channel?.leadAgentId === agentId;
+  const setLead = (on: boolean) => {
+    update.mutate(
+      { leadAgentId: on ? agentId : null },
+      { onError: (e) => toast({ title: errorText(t, e), icon: "x" }) },
+    );
+  };
   // Taken out (here, from elsewhere meanwhile, or opened by an old link): nothing to set here any more. Once: the
   // removal's own success and the roster read again after it both lead here.
   const left = useRef(false);
@@ -515,7 +534,7 @@ export function ChannelAgentScreen({ channelId, agentId }: { channelId: string; 
             </GroupedList>
           ) : null}
           {/* How it answers here: the choice for whoever may set it, else said in a line. */}
-          {setsReply ? null : <GroupedFooter>{lineOf(t, who, routing)}</GroupedFooter>}
+          {setsReply ? null : <GroupedFooter>{lineOf(t, who, routing, isLead)}</GroupedFooter>}
           {setsReply ? (
             <>
               <GroupedHeader>{t("channelMembers.replyHeading", g)}</GroupedHeader>
@@ -541,6 +560,18 @@ export function ChannelAgentScreen({ channelId, agentId }: { channelId: string; 
           ) : null}
           {editable ? (
             <>
+              <Gap />
+              <GroupedList>
+                <GroupedRow
+                  label={t("channelMembers.lead")}
+                  labelLines={2}
+                  sub={t("channelMembers.leadHelp")}
+                  subLines={0}
+                  toggle={isLead}
+                  disabled={update.isPending}
+                  onPress={() => setLead(!isLead)}
+                />
+              </GroupedList>
               <Gap />
               <GroupedList>
                 <GroupedRow

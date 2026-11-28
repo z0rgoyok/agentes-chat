@@ -883,6 +883,25 @@ describe("RealtimeConnection", () => {
     expect(live).toEqual(["c1", "c1"]);
   });
 
+  test("a DM or thread opened says so once its channel is confirmed: the server warms only a channel it confirmed", () => {
+    const { factory, last } = fakeSockets();
+    const conn = new RealtimeConnection({ url: "ws://x", createSocket: factory, pingMs: 0 });
+    const off = conn.subscribe("c1", () => {});
+    conn.start();
+    const socket = last();
+    socket.open();
+    conn.sendOpen("c1", "t1");
+    expect(socket.sent).toEqual([{ type: "subscribe", channelId: "c1" }]);
+    socket.push({ type: "subscribed", channelId: "c1" });
+    expect(socket.sent.slice(1)).toEqual([{ type: "open", channelId: "c1", threadId: "t1" }]);
+    // Confirmed already: at once. Only once per opening.
+    conn.sendOpen("c1");
+    socket.push({ type: "subscribed", channelId: "c1" });
+    expect(socket.sent.slice(2)).toEqual([{ type: "open", channelId: "c1" }]);
+    off();
+    conn.stop();
+  });
+
   test("a socket that stops answering (asleep, a network change) is replaced, re-subscribes and catches up", () => {
     const { factory, sockets } = fakeSockets();
     const clock = manualTimers();

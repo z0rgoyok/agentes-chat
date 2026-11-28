@@ -216,8 +216,10 @@ export async function launch(bin: string, profile: string) {
   });
   let id = 0;
   const waiting = new Map<number, { ok: (v: never) => void; fail: (e: Error) => void }>();
+  const listeners = new Map<string, ((params: Record<string, unknown>) => void)[]>();
   ws.onmessage = (e) => {
     const m = JSON.parse(String(e.data));
+    if (m.method) for (const fn of listeners.get(m.method) ?? []) fn(m.params);
     const call = waiting.get(m.id);
     if (!call) return;
     waiting.delete(m.id);
@@ -230,7 +232,10 @@ export async function launch(bin: string, profile: string) {
       waiting.set(id, { ok: ok as (v: never) => void, fail });
       ws.send(JSON.stringify({ id, method, params, sessionId }));
     });
-  return { send, close: () => chrome.kill() };
+  /** A DevTools event, from any tab (`shifts.ts` counts the requests in flight). */
+  const on = (method: string, fn: (params: Record<string, unknown>) => void) =>
+    listeners.set(method, [...(listeners.get(method) ?? []), fn]);
+  return { send, on, close: () => chrome.kill() };
 }
 
 type Send = Awaited<ReturnType<typeof launch>>["send"];

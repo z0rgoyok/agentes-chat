@@ -8,12 +8,13 @@ import {
   type ServerFrame,
 } from "@agenteschat/adapters/machine-protocol";
 import { CONTROL_PROTOCOL_VERSION, type ControlEvent, type ControlOut } from "@agenteschat/adapters/runner-control";
+import { windowsCodexSandbox } from "../../runner/codex-windows";
 import { configPath, readStoredConfig, type StoredConfig, writeConfig } from "../../runner/config";
 import type { Dial, Socket, SocketHandlers } from "../../runner/connection";
 import { EXIT_LOCKED, type RunControlOptions, runControl } from "../../runner/control";
-import { DEFAULT_LIMITS, RunnerDaemon, sizedTaskLimit } from "../../runner/daemon";
+import { brainLimitsFor, DEFAULT_LIMITS, RunnerDaemon, sizedTaskLimit } from "../../runner/daemon";
 import { RUNNER_VERSION } from "../../runner/errors";
-import { ORG_LOGO_MAX_BYTES, orgLogoPath } from "../../runner/org-logo";
+import { logoDataUrl, ORG_LOGO_MAX_BYTES, orgLogoPath } from "../../runner/org-logo";
 import type { FetchFn } from "../../runner/pairing";
 import { askStandby, standbyAcked } from "../../runner/standby";
 import { removeDirs, tempDir, waitFor } from "./helpers";
@@ -160,6 +161,14 @@ const sharedGrant = () => ({ path: expect.stringMatching(/[\\/]shared$/), agents
 
 const stored = (home: string) => JSON.parse(readFileSync(configPath(home), "utf8")) as Record<string, unknown>;
 
+test("the name the server gives this computer is the one its app shows, and kept", async () => {
+  const { home } = pairedHome({ name: "Rui-MacBook-Pro.local" });
+  const c = control(home);
+  await c.connect();
+  await waitFor(() => stored(home).name === "box");
+  expect(await c.data({ type: "status" })).toMatchObject({ machine: { id: "m1", name: "box" } });
+});
+
 test("checking again publishes the upgraded Codex version on the same connection", async () => {
   const { home } = pairedHome();
   let version = "0.149.0";
@@ -271,6 +280,8 @@ test("paired: status and hello carry pause and access; pause/resume persist, go 
       memoryGb: expect.any(Number),
       diskGb: expect.any(Number),
       maxTasks: DEFAULT_LIMITS.maxConcurrentTasks,
+      // The system and its version ("macOS 26.1"), for the computer's page.
+      system: expect.any(String),
     },
   });
   await waitFor(() => c.events("status").some((e) => e.kind === "status" && e.status.connection === "online"));
@@ -359,6 +370,41 @@ test("hello never waits on the CLIs' looks; what a look finds later reaches the 
   expect(JSON.parse(readFileSync(path.join(home, "executors.json"), "utf8"))).toMatchObject({
     claude: { version: "2.1.300 (Claude Code)" },
   });
+});
+
+test("a Windows computer: hello says its build, and the server hears what holds Codex there where Codex may run", async () => {
+  const windowsRunner = async (codex: boolean, version: string) => {
+    const { home } = pairedHome({ access: { folders: [], tools: { claude: false, codex, commands: false } } });
+    const asked: string[] = [];
+    const c = control(home, {
+      executors: () => ({ codex: { version } }),
+      windows: {
+        build: "10.0.19045",
+        // No MXC there; Codex's own sandbox runs a command.
+        chooseCodexSandbox: (v) => {
+          asked.push(v);
+          const check = async (sandbox: string) => sandbox === "unelevated";
+          return windowsCodexSandbox({ runnerHome: home, version: v, check, wait: true });
+        },
+      },
+    });
+    const s = await c.connect();
+    // Codex as the server last heard it: `hello`, then each `executors.changed`.
+    const told = () =>
+      ([...s.of("hello"), ...s.of("executors.changed")].at(-1)?.executors as Record<string, unknown> | undefined)
+        ?.codex;
+    return { s, asked, told };
+  };
+  const on = await windowsRunner(true, "codex-cli 0.172.0-on");
+  expect(on.s.of("hello")[0]).toMatchObject({ windowsBuild: "10.0.19045" });
+  await waitFor(() => JSON.stringify(on.told()).includes("unelevated"));
+  expect(on.told()).toEqual({ version: "codex-cli 0.172.0-on", sandbox: "unelevated" });
+  expect(on.asked).toEqual(["codex-cli 0.172.0-on"]);
+  // Codex switched off there: its sandbox isn't checked, and nothing is said of it.
+  const off = await windowsRunner(false, "codex-cli 0.172.0-off");
+  expect(off.s.of("hello")[0]).toMatchObject({ windowsBuild: "10.0.19045" });
+  expect(off.told()).toEqual({ version: "codex-cli 0.172.0-off" });
+  expect(off.asked).toEqual([]);
 });
 
 test("Grok Build's models are the ones a signed-in account listed, not the computer's own signed-out list", async () => {
@@ -587,6 +633,53 @@ test("jobs and the activity log: each request is a job while it runs and a line 
   await waitFor(() => c.events("activity").some((e) => e.kind === "activity" && e.entry.result === "refused"));
 });
 
+test("a command macOS refused: the reply names the permission, the app and the server hear the wait until it's allowed", async () => {
+  const { home } = pairedHome({
+    exec: true,
+    access: { folders: [], tools: { claude: false, codex: false, commands: true } },
+  });
+  const c = control(home, { platform: "darwin" });
+  const s = await c.connect();
+  expect(s.of("hello")[0]).toMatchObject({ permissions: [] });
+  const command = "echo 'rm: /Applications/X.app: Operation not permitted' >&2; exit 1";
+  s.frame({ type: "request", id: "x1", op: "exec", command, timeoutSeconds: 10, stream: false, agent: AGENT });
+  await waitFor(() => s.of("permissions.changed").length === 1);
+  expect(s.sent.find((f) => f.id === "x1")).toMatchObject({
+    ok: true,
+    data: { exitCode: 1, permission: "app_management" },
+  });
+  const wait = { permission: "app_management", trigger: command, agentId: AGENT.id, since: expect.any(String) };
+  expect(s.of("permissions.changed")[0]).toEqual({ type: "permissions.changed", permissions: [wait] });
+  expect((await c.data<{ permissions: unknown[] }>({ type: "status" })).permissions).toEqual([wait]);
+  // Asked again while it waits: still one wait, nothing told again.
+  s.frame({ type: "request", id: "x2", op: "exec", command, timeoutSeconds: 10, stream: false, agent: AGENT });
+  // Its wait is looked at after the reply, with its activity line: done once that line is there.
+  await waitFor(() => c.events("activity").length >= 2);
+  expect(s.of("permissions.changed")).toHaveLength(1);
+  // The person allowed it in the app's dialog.
+  expect(await c.data({ type: "permission.clear", permission: "app_management" })).toEqual({ cleared: true });
+  await waitFor(() => s.of("permissions.changed").length === 2);
+  expect(s.of("permissions.changed")[1]).toEqual({ type: "permissions.changed", permissions: [] });
+  expect((await c.request({ type: "permission.clear", permission: "bogus" })).ok).toBe(false);
+});
+
+test("a command macOS refused under a runner from the terminal: no app there to ask, so no wait", async () => {
+  const { home } = pairedHome({
+    exec: true,
+    managedBy: undefined,
+    access: { folders: [], tools: { claude: false, codex: false, commands: true } },
+  });
+  const c = control(home, { platform: "darwin" });
+  const s = await c.connect();
+  const command = "echo 'rm: /Applications/X.app: Operation not permitted' >&2; exit 1";
+  s.frame({ type: "request", id: "x1", op: "exec", command, timeoutSeconds: 10, stream: false, agent: AGENT });
+  await waitFor(() => s.sent.some((f) => f.id === "x1"));
+  const reply = s.sent.find((f) => f.id === "x1") as { data: Record<string, unknown> };
+  expect(reply.data.exitCode).toBe(1);
+  expect(reply.data.permission).toBeUndefined();
+  expect(s.of("permissions.changed")).toHaveLength(0);
+});
+
 test("access requests: pending until the person answers on the machine; the answer reaches the server", async () => {
   const { home } = pairedHome();
   const folder = tempDir("proj-");
@@ -681,6 +774,33 @@ test("access requests: pending until the person answers on the machine; the answ
   expect(lines.some((l) => l.includes(`agentes-runner folders allow ${other} --agent dev`))).toBe(true);
 });
 
+test("a folder past the cap can't be allowed from a request: it says why and the request stays pending", async () => {
+  const full = Array.from({ length: 100 }, (_, i) => ({ path: `/allowed/f-${i}`, agents: [AGENT.id] }));
+  const { home } = pairedHome({ access: { folders: full, tools: { claude: false, codex: false, commands: false } } });
+  const folder = tempDir("proj-");
+  dirs.push(folder);
+  const c = control(home);
+  const s = await c.connect();
+  s.frame({ type: "agents", agents: [AGENT] });
+  s.frame({
+    type: "request",
+    id: "a1",
+    op: "access.request",
+    requestId: "req-00000001",
+    path: folder,
+    reason: "run the tests",
+    agent: AGENT,
+  });
+  await waitFor(() => c.events("access.requested").length === 1);
+
+  expect(
+    await c.request({ type: "access.answer", requestId: "req-00000001", decision: "granted", scope: "all" }),
+  ).toMatchObject({ ok: false, error: { code: "bad_request", message: expect.stringContaining("100 folders") } });
+  const pending = await c.data<{ requests: { requestId: string }[] }>({ type: "access.pending" });
+  expect(pending.requests.map((r) => r.requestId)).toEqual(["req-00000001"]);
+  expect(s.of("access.decided")).toEqual([]);
+});
+
 test("a tool turned on from the apps: the switch is written, the server and the app are told, and Undo turns it off", async () => {
   const { home } = pairedHome();
   const lines: string[] = [];
@@ -715,6 +835,75 @@ test("a tool turned on from the apps: the switch is written, the server and the 
   });
   await waitFor(() => s.sent.some((f) => f.id === "w3"));
   expect(s.sent.find((f) => f.id === "w3")).toMatchObject({ ok: false, error: { code: "bad_request" } });
+});
+
+test("a folder asked for from the apps: the app here is told who asks and for whom, nothing is allowed by it, and an agent's request is shown again", async () => {
+  const { home } = pairedHome();
+  const c = control(home);
+  const s = await c.connect();
+  s.frame({ type: "agents", agents: [AGENT] });
+  s.frame({
+    type: "request",
+    id: "p1",
+    op: "access.pick",
+    by: "u-bia",
+    byName: "Bia Rocha",
+    agentId: AGENT.id,
+    agentName: "Dev",
+  });
+  await waitFor(() => s.sent.some((f) => f.id === "p1"));
+  expect(s.sent.find((f) => f.id === "p1")).toMatchObject({ ok: true, data: { asked: true } });
+  expect(c.events("access.pick")).toEqual([
+    { kind: "access.pick", pick: { byName: "Bia Rocha", agentId: AGENT.id, agentName: "Dev", at: expect.any(String) } },
+  ]);
+  expect((stored(home).access as { folders: unknown[] }).folders).toEqual([]);
+
+  // A request that is gone says so; a pending one is shown again.
+  s.frame({
+    type: "request",
+    id: "p2",
+    op: "access.pick",
+    by: "u-bia",
+    byName: "Bia Rocha",
+    requestId: "req-00000009",
+  });
+  await waitFor(() => s.sent.some((f) => f.id === "p2"));
+  expect(s.sent.find((f) => f.id === "p2")).toMatchObject({ ok: false, error: { code: "not_found" } });
+  const folder = tempDir("proj-");
+  dirs.push(folder);
+  s.frame({
+    type: "request",
+    id: "a1",
+    op: "access.request",
+    requestId: "req-00000001",
+    path: folder,
+    reason: "tests",
+    agent: AGENT,
+  });
+  await waitFor(() => c.events("access.requested").length === 1);
+  s.frame({
+    type: "request",
+    id: "p3",
+    op: "access.pick",
+    by: "u-bia",
+    byName: "Bia Rocha",
+    requestId: "req-00000001",
+  });
+  await waitFor(() => s.sent.some((f) => f.id === "p3"));
+  expect(c.events("access.pick").at(-1)).toMatchObject({ pick: { requestId: "req-00000001" } });
+});
+
+test("a folder asked for from the apps on a runner the app doesn't run: refused with no_app, so the apps show the command", async () => {
+  const { home } = pairedHome({ managedBy: undefined });
+  const c = control(home);
+  const s = await c.connect();
+  s.frame({ type: "request", id: "p1", op: "access.pick", by: "u-bia", byName: "Bia Rocha" });
+  await waitFor(() => s.sent.some((f) => f.id === "p1"));
+  expect(s.sent.find((f) => f.id === "p1")).toMatchObject({
+    ok: false,
+    error: { code: "bad_request", message: expect.stringContaining("no_app") },
+  });
+  expect(c.events("access.pick")).toEqual([]);
 });
 
 test("folders, tools and settings from the app: system folders refused, everything lands in config.json", async () => {
@@ -792,6 +981,12 @@ test("the task limit is sized to the memory: one per 1.5 GiB past 4, at least 3,
   // A container's limit, not the host's.
   expect(sizedTaskLimit({ memoryGb: 256, limit: { cpus: 4, memoryGb: 8 } })).toBe(3);
   expect(DEFAULT_LIMITS.maxConcurrentTasks).toBeGreaterThanOrEqual(3);
+});
+
+test("an idle Claude Code stays warm half an hour off Linux, an hour on it (memory pressure closes it sooner)", () => {
+  expect(brainLimitsFor("darwin")).toEqual({ brainIdleMinutes: 30, brainMaxProcesses: 1 });
+  expect(brainLimitsFor("win32")).toEqual({ brainIdleMinutes: 30, brainMaxProcesses: 1 });
+  expect(brainLimitsFor("linux")).toEqual({ brainIdleMinutes: 60, brainMaxProcesses: 8 });
 });
 
 test("report: facts and the end of the log, with no paths, names, addresses or token", async () => {
@@ -1060,6 +1255,12 @@ test("an edit of config.json from a terminal reaches the app and the server", as
   expect((await c.data<{ access: { tools: { claude: boolean } } }>({ type: "status" })).access.tools.claude).toBe(true);
 }, 10_000);
 
+test("the org logo's data URL carries the server's light-ink mark from its ETag, as a logo's address does", () => {
+  const logo = { etag: '"a1.png"', contentType: "image/png", base64: "AA==" };
+  expect(logoDataUrl(logo)).toBe("data:image/png;base64,AA==");
+  expect(logoDataUrl({ ...logo, etag: '"a1.png#ink=light"' })).toBe("data:image/png;base64,AA==#ink=light");
+});
+
 test("the org logo: fetched after welcome, cached by ETag, a data URL for the app, gone on 404", async () => {
   const { home } = pairedHome();
   const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3]);
@@ -1228,3 +1429,16 @@ test.if(process.platform !== "win32")(
   },
   20_000,
 );
+
+test("hello says the agentes.chat app runs this runner, and nothing when the terminal installed it", async () => {
+  for (const [over, app] of [
+    [{}, true],
+    [{ managedBy: undefined }, undefined],
+  ] as const) {
+    const c = control(pairedHome(over).home);
+    const s = await c.connect();
+    expect(s.of("hello")[0]?.app).toBe(app);
+    c.input.end();
+    expect(await c.done).toBe(0);
+  }
+});

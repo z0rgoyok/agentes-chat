@@ -4,7 +4,7 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { messagePath } from "@agenteschat/client/lib/message-links";
-import { act, cleanup, fireEvent } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor } from "@testing-library/react";
 import { messageLink } from "@/components/MessageMore";
 import { ADA_ID, createFakeApi, ENG_ID, GENERAL_ID, ORG_ID, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
@@ -166,7 +166,10 @@ describe("a link to a message far back", () => {
     await renderApp(`/org/${ORG_ID}/c/${GENERAL_ID}?m=far-2`, { api: createFakeApi(state) });
     await settle(10);
     expect(row("far-2")?.classList.contains("ac-msg--focus")).toBe(true);
-    expect(state.calls.find((c) => c.method === "chat.messages")?.args[1]).toEqual({ around: "far-2", limit: 200 });
+    expect(state.calls.find((c) => c.method === "chat.messages")?.args[1]).toMatchObject({
+      around: "far-2",
+      limit: 200,
+    });
     // Only the page around it: the latest messages wait below the gap.
     expect(row("far-5999")).toBeNull();
     expect(document.body.textContent).not.toContain("Essa mensagem não está disponível.");
@@ -218,5 +221,55 @@ describe("a link to a message far back", () => {
     );
     expect(document.body.textContent).not.toContain("para trás");
     expect(row("far-299")).not.toBeNull();
+  });
+});
+
+describe("a message of the conversation asked for inside one of its threads", () => {
+  const OUTSIDE = "00000000-0000-4000-8000-0000000000e5";
+  const GONE = "00000000-0000-4000-8000-0000000000ef";
+  const missing = "Essa mensagem não está disponível. Ela pode ter sido apagada ou não estar visível para você.";
+  /** #eng's thread, and a long work's report at #eng's top level, outside it. */
+  function withReport() {
+    const state = withLinks("oi");
+    state.messages.push({
+      id: OUTSIDE,
+      channelId: ENG_ID,
+      threadId: null,
+      author: { type: "person" as const, id: "u-joao" },
+      body: "o relatório da migração",
+      mentionedAgentIds: [],
+      agentRunId: null,
+      createdAt: new Date().toISOString(),
+    });
+    return state;
+  }
+
+  // A thread's link opens its conversation with the thread in the panel beside it (`?tm=` the panel's message).
+  test("it opens in the conversation, at it, never a toast saying it's gone", async () => {
+    const { router } = await renderApp(`/org/${ORG_ID}/threads/${TARGET}?m=${OUTSIDE}`, {
+      api: createFakeApi(withReport()),
+    });
+    await waitFor(() => expect(router.state.location.search).toEqual({ m: OUTSIDE }));
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
+    await waitFor(() =>
+      expect(document.querySelector(`[data-message-id="${OUTSIDE}"]`)?.classList.contains("ac-msg--focus")).toBe(true),
+    );
+    await settle(6);
+    // The root the conversation opened at is lit no more: one plate, on the report.
+    expect([...document.querySelectorAll(".ac-msg--focus")].map((e) => e.getAttribute("data-message-id"))).toEqual([
+      OUTSIDE,
+    ]);
+    expect(screen().queryByRole("complementary", { name: "Thread" })).toBeNull();
+    expect(document.body.textContent).not.toContain(missing);
+  });
+
+  test("one that is nowhere still says so, and the thread stays open", async () => {
+    const { router } = await renderApp(`/org/${ORG_ID}/threads/${TARGET}?m=${GONE}`, {
+      api: createFakeApi(withReport()),
+    });
+    await waitFor(() => expect(document.body.textContent).toContain(missing));
+    expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${ENG_ID}`);
+    expect(router.state.location.search).toMatchObject({ thread: TARGET });
+    screen().getByRole("complementary", { name: "Thread" });
   });
 });

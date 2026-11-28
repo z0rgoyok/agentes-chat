@@ -112,7 +112,7 @@ function useVoiceAllowed(orgId: string, enabled: boolean) {
     queryKey: [...keys.org(orgId), "voice", "allowed"],
     enabled,
     staleTime: 60_000,
-    queryFn: async () => (await api.voice.allowed(orgId)).allowed,
+    queryFn: () => api.voice.allowed(orgId),
   });
   return data ?? null;
 }
@@ -143,7 +143,7 @@ function follow(t: number, limit: number): number {
  * finger's own speed. Everything that moves per frame lives on the UI thread; React hears only of the phases.
  */
 export function useVoiceComposer(
-  input: Omit<VoiceTarget, "allowed"> & {
+  input: Omit<VoiceTarget, "allowed" | "needsPlan"> & {
     enabled: boolean;
     /** The agent this conversation is with, if one: its face listens in the field and its tones color the wave. */
     agentId?: string | null;
@@ -156,7 +156,7 @@ export function useVoiceComposer(
   const toast = useToast();
   const dir = useDirectory();
   const allowed = useVoiceAllowed(rest.orgId, enabled);
-  const take = useVoiceTake({ ...rest, allowed });
+  const take = useVoiceTake({ ...rest, allowed: allowed?.allowed ?? null, needsPlan: allowed?.reason === "plan" });
   const x = useSharedValue(0);
   const y = useSharedValue(0);
   const scale = useSharedValue(1);

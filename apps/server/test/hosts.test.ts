@@ -566,6 +566,9 @@ test("the app's page says it is on a registered host, so its boot hides the prod
     expect(await page(path, HOST)).toStartWith('<!doctype html>\n<html data-host lang="en"');
     expect(await page(path, "localhost:3000")).toBe(index);
   }
+  // The manifest would install the product's name and icon (ADR 0249): only on the server's own names.
+  expect(index).toContain('<link rel="manifest"');
+  expect(await page("/", HOST)).not.toContain('rel="manifest"');
 });
 
 const UNKNOWN = "app.unregistered.example";

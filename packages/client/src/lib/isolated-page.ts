@@ -31,5 +31,5 @@ export const PAGE_CSP = [
 export function isolatedPage(html: string, head = ""): string {
   const page = html.replace(/^\s*<!doctype[^>]*>/i, "");
   // No DNS prefetch either: a lookup of a name the page made up is a way out the policy doesn't cover everywhere.
-  return `<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><meta http-equiv="Content-Security-Policy" content="${PAGE_CSP}">${head}${page}`;
+  return `<!doctype html><html translate="no"><head><meta charset="utf-8"><meta http-equiv="x-dns-prefetch-control" content="off"><meta http-equiv="Content-Security-Policy" content="${PAGE_CSP}"><meta name="google" content="notranslate">${head}${page}`;
 }

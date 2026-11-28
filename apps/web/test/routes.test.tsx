@@ -133,9 +133,11 @@ describe("route guards", () => {
     cleanup();
   });
 
-  test("unknown paths show the not-found page", async () => {
+  test("unknown paths show the not-found page, in the sign-in's look with its way back", async () => {
     await renderApp("/nada/aqui", { api: createFakeApi() });
     expect(screen().getByRole("heading", { name: "Página não encontrada" })).toBeTruthy();
+    expect(screen().getByRole("link", { name: "Voltar ao início" }).getAttribute("href")).toBe("/");
+    expect(document.querySelector('.auth .auth__face [data-mood="thinking"]')).not.toBeNull();
   });
 
   test("the sidebar's workspace line says where it lives: one's own server, not the Cloud", async () => {
@@ -158,11 +160,11 @@ describe("route guards", () => {
     expect(nav.textContent).toContain("2 membros · 2 agentes");
     // Where the workspace lives, before its counts.
     expect(nav.querySelector(".sidebar__org-where")?.textContent).toBe("Cloud");
-    // The inbox's row counts what waits on me (ADR 0218). Proposals wait on nobody (ADR 0219): the workspace's two open
-    // ones are the review's, and nothing else waits here, so it shows no count.
-    const inbox = nav.querySelector('a.sidebar__item[href$="/notifications"]') as HTMLElement;
-    expect(inbox.textContent).toContain("Caixa de entrada");
-    expect(inbox.querySelector(".ac-count")).toBeNull();
+    // Não lidas counts what waits on me (ADR 0218, ADR 0260). Proposals wait on nobody (ADR 0219): the workspace's two
+    // open ones are the review's, and nothing else waits here, so it shows no count.
+    const unreads = nav.querySelector('a.sidebar__item[href$="/unreads"]') as HTMLElement;
+    expect(unreads.textContent).toContain("Não lidas");
+    expect(unreads.querySelector(".ac-count")).toBeNull();
     for (const name of ["Canais", "eng", "general", "Mensagens diretas", "Ada", "Atlas", "João"]) {
       expect(nav.textContent).toContain(name);
     }

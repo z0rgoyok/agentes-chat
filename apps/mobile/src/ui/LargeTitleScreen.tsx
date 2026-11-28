@@ -10,7 +10,7 @@ import { type HeaderAction, useHeaderActionOptions } from "./headerActions";
 import { LargeTitleHead, useLargeTitleScroll } from "./LargeTitleHead";
 import { useScrollUnderPushedOptions } from "./navigation";
 import { PULL_TINT, PullOrbit } from "./PullOrbit";
-import { usePane, usePaneHeader } from "./pane";
+import { ReadableColumn, usePane, usePaneHeader } from "./pane";
 import { SCREEN_X } from "./rhythm";
 import { Text } from "./Text";
 import { useTheme } from "./theme";
@@ -183,7 +183,8 @@ function SystemTitleScreen({
             </Text>
           ) : null}
           {below}
-          {children}
+          {/* On a large screen the content keeps to the readable column (ADR 0212). */}
+          <ReadableColumn>{children}</ReadableColumn>
         </ScrollView>
       </LivePause>
       {foot?.node}
@@ -253,7 +254,15 @@ function DrawnTitleScreen({
     () => (collapsed ? title : <FadingHeaderTitle y={y} from={BAR_TITLE_FROM} to={BAR_TITLE_TO} text={title} />),
     [collapsed, title, y],
   );
-  usePaneHeader({ title: paneTitle, left, leftActions, actions, over: true });
+  usePaneHeader({
+    title: paneTitle,
+    left,
+    leftActions,
+    actions,
+    over: true,
+    // Its material comes in as its title does, as the system's bar outside a pane.
+    scroll: { y, from: BAR_TITLE_FROM, to: BAR_TITLE_TO },
+  });
   return (
     <View style={[styles.screen, { backgroundColor: grouped ? colors.grouped : colors.bg }]}>
       {pane ? null : <Stack.Screen options={options} />}
@@ -298,7 +307,7 @@ function DrawnTitleScreen({
             <LargeTitleHead y={y} title={title} subtitle={subtitle} collapsed={collapsed} tight={Boolean(below)} />
             {below}
           </View>
-          {children}
+          <ReadableColumn>{children}</ReadableColumn>
           {pull ? (
             // On iOS the content starts under the bar's inset: the gap opens above that.
             <View pointerEvents="none" style={[styles.pullMark, { top: -PULL_MARK - (IOS ? headerHeight : 0) }]}>

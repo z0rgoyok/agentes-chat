@@ -1,11 +1,13 @@
 import type { Artifact, LiveSelection } from "@agenteschat/client";
-import { useApi } from "@agenteschat/client";
+import { useApi, useFileFonts, useLiveSelector } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { type FileFonts, type FontRef, isFontRole, LOCAL } from "@agenteschat/live";
 import { type PeerUser, readPeerState } from "@agenteschat/live/awareness";
-import { DOC_BODY } from "@agenteschat/live/document";
+import { DOC_BODY, documentFonts, setDocumentFonts } from "@agenteschat/live/document";
 import { Button } from "@agenteschat/ui";
 import { deleteSelection } from "prosemirror-commands";
+import type { Node as PMNode } from "prosemirror-model";
 import { type Command, EditorState, NodeSelection, Selection, TextSelection } from "prosemirror-state";
 import { EditorView } from "prosemirror-view";
 import { type CSSProperties, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -16,11 +18,15 @@ import type * as Y from "yjs";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useToast } from "@/lib/toast";
 import type { LiveEditorProps } from "../editor";
+import { FontAssetUrl, fontFamilyCss, loadFontRef } from "../fonts";
 import { LiveMeta } from "../LiveHeader";
 import { PeerFace, usePeerLooks } from "../peers";
 import { redoWith, richUndo, undoWith } from "../rich/undo";
 import { DrivePicker } from "../slides/DrivePicker";
 import { useFileAgentHere } from "../talk";
+import { FileFontsDialog, useFontFromDrive } from "../type/FileFonts";
+import { type FontChoices, fontWeights } from "../type/FontPicker";
+import { TYPE_WEIGHTS, type TypePatch } from "../type/TypeMenus";
 import {
   addDocColumn,
   addDocRow,
@@ -34,8 +40,10 @@ import {
   insertDocTable,
   NO_DOC_FORMAT,
   sameDocFormat,
+  setDocCaps,
   setDocLink,
   setDocStyle,
+  setDocType,
   setImageWidth,
   tableHasHeader,
   toggleDocHeaderRow,
@@ -48,7 +56,7 @@ import { docInputRules, pastedText } from "./input";
 import { docKeymap } from "./keys";
 import { blockIds, emptyHint, findBlock, findText, listNumbering, revealKey, revealLight } from "./plugins";
 import { type DocCaretLook, docPresence } from "./presence";
-import { docSchema, N } from "./schema";
+import { docSchema, M, N } from "./schema";
 import { DocToolbar, type TableAction } from "./Toolbar";
 import "@/pages/wiki.css";
 import "./document.css";
@@ -74,6 +82,14 @@ const REVEAL_MS = 2400;
 
 const keep = (e: { preventDefault(): void }) => e.preventDefault();
 const noop = () => {};
+
+/** The app's own text font: what a document draws its headings and text with until it has fonts of its own. */
+const APP_FONT: FontRef = "onest";
+/** The document's own fonts as one string, so the page redraws only when they change. */
+const docFontsKey = (doc: Y.Doc) => {
+  const fonts = documentFonts(doc);
+  return `${fonts?.heading ?? ""}|${fonts?.body ?? ""}`;
+};
 /** The caret to the text's start (Enter in the title). */
 const toStart: Command = (state, dispatch) => {
   dispatch?.(state.tr.setSelection(Selection.atStart(state.doc)).scrollIntoView());
@@ -221,8 +237,12 @@ export function DocumentEditor(props: LiveEditorProps) {
     canAsk,
     selectionKey: "",
     openLink: () => setLinkOpen(true),
+    assetUrl: null as ((assetId: string) => string) | null,
+    /** The body whose fonts were last loaded. */
+    scanned: null as PMNode | null,
   });
   useLayoutEffect(() => {
+    latest.current.assetUrl = assetUrl;
     latest.current.t = t;
     latest.current.looks = looks;
     latest.current.readOnly = readOnly;
@@ -233,6 +253,16 @@ export function DocumentEditor(props: LiveEditorProps) {
   /** After every change: the toolbar's state, the selection for the conversation, "Ask Atlas" over it. */
   const tell = useCallback((view: EditorView) => {
     const state = view.state;
+    // The fonts the words name load as they come in (ADR 0220 §8).
+    if (state.doc !== latest.current.scanned) {
+      latest.current.scanned = state.doc;
+      const fontMark = M.font;
+      state.doc.descendants((node) => {
+        for (const mark of node.marks) {
+          if (mark.type === fontMark) loadFontRef(mark.attrs.font as string, latest.current.assetUrl);
+        }
+      });
+    }
     const next = docFormat(state);
     setFormat((was) => (sameDocFormat(was, next) ? was : next));
     setHeader(next.table && tableHasHeader(state));
@@ -513,6 +543,58 @@ export function DocumentEditor(props: LiveEditorProps) {
     return () => clearTimeout(id);
   }, [reveal?.key]);
 
+  // ── Fonts (ADR 0220 §3, §8) ───────────────────────────────────────────────────────────────────────────────────
+
+  const fontsKey = useLiveSelector(room, docFontsKey) ?? "|";
+  const docFonts = useMemo<FileFonts | undefined>(() => {
+    const [heading, body] = fontsKey.split("|");
+    const fonts: FileFonts = {};
+    if (heading) fonts.heading = heading;
+    if (body) fonts.body = body;
+    return fonts.heading || fonts.body ? fonts : undefined;
+  }, [fontsKey]);
+  const roles = useMemo(
+    () => ({ heading: docFonts?.heading ?? APP_FONT, body: docFonts?.body ?? APP_FONT }),
+    [docFonts],
+  );
+  useEffect(() => {
+    loadFontRef(roles.heading, assetUrl);
+    loadFontRef(roles.body, assetUrl);
+  }, [roles, assetUrl]);
+  const ownFonts = useFileFonts(orgId, fileId);
+  const fontChoices = useMemo<FontChoices>(
+    () => ({ kind: "document", roles, own: ownFonts.data ?? [] }),
+    [roles, ownFonts.data],
+  );
+  const [fileFontsOpen, setFileFontsOpen] = useState(false);
+  const fontFromDrive = useFontFromDrive(orgId, fileId);
+  const inHeading = format.style === "h1" || format.style === "h2" || format.style === "h3";
+  const blockRole = inHeading ? "heading" : "body";
+  const shownFont: FontRef = format.font ?? blockRole;
+
+  /** A font on the words; the block's own (its role's) takes their marks away, another role is that font itself. */
+  const setFont = (ref: FontRef) =>
+    run(setDocType("font", ref === blockRole ? null : isFontRole(ref) ? roles[ref] : ref));
+  const typeStyle = (patch: TypePatch) => {
+    if (patch.weight !== undefined) run(setDocType("weight", patch.weight));
+    if (patch.tracking !== undefined) run(setDocType("tracking", patch.tracking));
+    if (patch.caps !== undefined) run(setDocCaps(patch.caps));
+    if (patch.highlight !== undefined) run(setDocType("highlight", patch.highlight));
+  };
+  /** The document's own heading or text font; the app's own isn't kept. */
+  const fileFont = (role: "heading" | "body", ref: FontRef) => {
+    const next: FileFonts = { ...docFonts };
+    next[role] = ref;
+    for (const r of ["heading", "body"] as const) if (next[r] === APP_FONT) delete next[r];
+    room.doc.transact(() => setDocumentFonts(room.doc, next.heading || next.body ? next : null, LOCAL), LOCAL);
+  };
+  const proseFonts = docFonts
+    ? ({
+        "--lf-doc-heading": fontFamilyCss(roles.heading),
+        "--lf-doc-body": fontFamilyCss(roles.body),
+      } as CSSProperties)
+    : undefined;
+
   // ── The toolbar's actions ──────────────────────────────────────────────────────────────────────────────────────
 
   const focusText = () => viewRef.current?.focus();
@@ -531,84 +613,121 @@ export function DocumentEditor(props: LiveEditorProps) {
   };
 
   return (
-    <div className="lf-doc" data-readonly={readOnly || undefined}>
-      {!readOnly && (
-        <DocToolbar
-          format={format}
-          canUndo={history.undo}
-          canRedo={history.redo}
-          uploading={uploading}
-          header={header}
-          onUndo={() => {
-            room.undo.undo();
-            focusText();
-          }}
-          onRedo={() => {
-            room.undo.redo();
-            focusText();
-          }}
-          onStyle={(style: DocStyle) => run(setDocStyle(style))}
-          onMark={(mark) => run(toggleDocMark(mark))}
-          onList={(kind) => run(toggleDocList(kind))}
-          onLink={(href) => run(setDocLink(href))}
-          linkOpen={linkOpen}
-          onLinkOpenChange={setLinkOpen}
-          onUpload={() => fileInput.current?.click()}
-          onDrive={() => setDriveOpen(true)}
-          onImageWidth={(width) => run(setImageWidth(width))}
-          onRemoveImage={() => run(deleteSelection)}
-          onInsertTable={() => run(insertDocTable())}
-          onTable={table}
-          onDone={focusText}
-        />
-      )}
-      <div ref={scroller} className="lf-doc__scroll">
-        <article ref={page} className="wiki-doc__main lf-doc__page">
-          <DocTitle
-            key={artifact.id}
-            orgId={orgId}
-            fileId={artifact.id}
-            value={artifact.title}
-            canRename={!readOnly}
-            onEnter={() => run(toStart)}
+    <FontAssetUrl.Provider value={assetUrl}>
+      <div className="lf-doc" data-readonly={readOnly || undefined}>
+        {!readOnly && (
+          <DocToolbar
+            format={format}
+            canUndo={history.undo}
+            canRedo={history.redo}
+            uploading={uploading}
+            header={header}
+            onUndo={() => {
+              room.undo.undo();
+              focusText();
+            }}
+            onRedo={() => {
+              room.undo.redo();
+              focusText();
+            }}
+            onStyle={(style: DocStyle) => run(setDocStyle(style))}
+            onMark={(mark) => run(toggleDocMark(mark))}
+            onList={(kind) => run(toggleDocList(kind))}
+            onLink={(href) => run(setDocLink(href))}
+            linkOpen={linkOpen}
+            onLinkOpenChange={setLinkOpen}
+            onUpload={() => fileInput.current?.click()}
+            onDrive={() => setDriveOpen(true)}
+            onImageWidth={(width) => run(setImageWidth(width))}
+            onRemoveImage={() => run(deleteSelection)}
+            onInsertTable={() => run(insertDocTable())}
+            onTable={table}
+            onDone={focusText}
+            fonts={fontChoices}
+            font={shownFont}
+            look={{
+              weight: format.weight ?? (format.style === "h2" || format.style === "h3" ? 600 : 400),
+              tracking: format.tracking ?? 0,
+              lineHeight: null,
+              caps: format.caps,
+              highlight: format.highlight,
+            }}
+            weights={fontWeights(isFontRole(shownFont) ? roles[shownFont] : shownFont, TYPE_WEIGHTS)}
+            onFont={setFont}
+            onType={typeStyle}
+            onFileFonts={() => setFileFontsOpen(true)}
+            onBringFont={() => fontFromDrive.open(setFont)}
           />
-          <LiveMeta artifact={artifact} onVersions={props.onVersions ?? noop} />
-          <div className="wiki-page__body wiki-prose lf-doc__prose">
-            <div ref={host} className="lf-doc__host" />
-          </div>
-          {bubble && fileAgent && onAsk && (
-            <div className="lf-doc__ask ac-glass" style={{ left: bubble.x, top: bubble.y } as CSSProperties}>
-              <Button size="sm" variant="ghost" className="lf-doc__ask-btn" onMouseDown={keep} onClick={() => onAsk()}>
-                <AgentAvatar agentId={fileAgent.id} name={fileAgent.name} size="xs" />
-                <span className="ac-btn__label">{t("live.conversation.ask", agentGrammar(fileAgent.name))}</span>
-              </Button>
+        )}
+        <div ref={scroller} className="lf-doc__scroll">
+          <article ref={page} className="wiki-doc__main lf-doc__page">
+            <DocTitle
+              key={artifact.id}
+              orgId={orgId}
+              fileId={artifact.id}
+              value={artifact.title}
+              canRename={!readOnly}
+              onEnter={() => run(toStart)}
+            />
+            <LiveMeta artifact={artifact} onVersions={props.onVersions ?? noop} />
+            <div
+              className="wiki-page__body wiki-prose lf-doc__prose"
+              data-fonts={docFonts ? "" : undefined}
+              style={proseFonts}
+            >
+              <div ref={host} className="lf-doc__host" />
             </div>
-          )}
-        </article>
+            {bubble && fileAgent && onAsk && (
+              <div className="lf-doc__ask ac-glass" style={{ left: bubble.x, top: bubble.y } as CSSProperties}>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="lf-doc__ask-btn"
+                  onMouseDown={keep}
+                  onClick={() => onAsk()}
+                >
+                  <AgentAvatar agentId={fileAgent.id} name={fileAgent.name} size="xs" />
+                  <span className="ac-btn__label">{t("live.conversation.ask", agentGrammar(fileAgent.name))}</span>
+                </Button>
+              </div>
+            )}
+          </article>
+        </div>
+        {agents.map((agent) => {
+          const el = agentCaret(agent.clientId);
+          return createPortal(<AgentCaretTag agent={agent} host={el} />, el, String(agent.clientId));
+        })}
+        <input
+          ref={fileInput}
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          hidden
+          onChange={(e) => {
+            const files = [...(e.target.files ?? [])];
+            e.target.value = "";
+            if (files.length) void upload(files);
+          }}
+        />
+        <DrivePicker
+          orgId={orgId}
+          open={driveOpen}
+          onClose={() => setDriveOpen(false)}
+          onPick={(a) => void fromDrive(a)}
+        />
+        {fontFromDrive.picker}
+        {fileFontsOpen && (
+          <FileFontsDialog
+            open
+            onOpenChange={setFileFontsOpen}
+            choices={{ kind: "document", own: fontChoices.own }}
+            value={roles}
+            onChange={fileFont}
+            onBring={() => fontFromDrive.open()}
+          />
+        )}
       </div>
-      {agents.map((agent) => {
-        const el = agentCaret(agent.clientId);
-        return createPortal(<AgentCaretTag agent={agent} host={el} />, el, String(agent.clientId));
-      })}
-      <input
-        ref={fileInput}
-        type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
-        multiple
-        hidden
-        onChange={(e) => {
-          const files = [...(e.target.files ?? [])];
-          e.target.value = "";
-          if (files.length) void upload(files);
-        }}
-      />
-      <DrivePicker
-        orgId={orgId}
-        open={driveOpen}
-        onClose={() => setDriveOpen(false)}
-        onPick={(a) => void fromDrive(a)}
-      />
-    </div>
+    </FontAssetUrl.Provider>
   );
 }
 

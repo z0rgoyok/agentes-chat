@@ -385,8 +385,16 @@ describe("the right hand approves for a person (ADR 0139 §2)", () => {
       .update(schema.agents)
       .set({ monthlyBudgetNanoUsd: 10 * USD })
       .where(eq(schema.agents.id, f.agent.id));
-    // Outside content keeps the card open (ADR 0092 §5): the review weighs it (ADR 0219).
-    await call(await runFor({ userId: f.owner.id }, ops.id, { readOutside: true }), PROPOSE_SETTINGS_TOOL, {
+    // Outside content keeps the card open (ADR 0092 §5): the review weighs it (ADR 0219). Here the channel relays a
+    // page an agent read.
+    await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: f.general.id,
+      author: { type: "agent", agentId: ops.id, runId: null, hop: 1, stretchId: null },
+      body: "The status page says the queue doubled.",
+      meta: { readOutside: true },
+    });
+    await call(await runFor({ userId: f.owner.id }, ops.id), PROPOSE_SETTINGS_TOOL, {
       changes: [{ agent: "@dev", budget_usd: 25 }],
       reason: "mais folga",
     });

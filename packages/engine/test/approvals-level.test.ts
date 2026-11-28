@@ -697,6 +697,32 @@ describe("always", () => {
     ) as { behavior: string; message?: string; code?: string };
     expect(edit).toMatchObject({ behavior: "deny", code: "asks" });
     expect(edit.message).toContain("with write_file");
+    // Claude Code's PowerShell tool runs commands: judged as a `powershell -Command` body, asked the same way.
+    const ps = (command: string, asksFirst: boolean) =>
+      JSON.parse(
+        runPermissionPrompt({ tool_name: "PowerShell", input: { command }, scope }, { canRun: true, asksFirst }),
+      ) as { behavior: string; message?: string; code?: string };
+    expect(ps("New-Item notes.txt", false).behavior).toBe("allow");
+    expect(ps("Set-MpPreference -DisableRealtimeMonitoring 1", false)).toMatchObject({
+      behavior: "deny",
+      code: "system",
+    });
+    expect(ps("New-Item notes.txt", true).message).toContain("run the same command with run_code");
+  });
+
+  test("a Windows computer's folders reach the rules: its own folder's files are its work, the rest is judged", () => {
+    const scope = { cwd: "C:\\Users\\ada\\work", folders: ["C:\\Users\\ada\\work"], home: "C:\\Users\\ada" };
+    const prompt = (command: string) =>
+      JSON.parse(runPermissionPrompt({ tool_name: "Bash", input: { command }, scope }, { canRun: true })) as {
+        behavior: string;
+        code?: string;
+      };
+    expect(prompt("icacls 'C:\\Users\\ada\\work\\build' //grant Everyone:F").behavior).toBe("allow");
+    expect(prompt("icacls 'C:\\Users\\ada\\notes' //grant Everyone:F")).toMatchObject({
+      behavior: "deny",
+      code: "system",
+    });
+    expect(prompt("echo x > 'C:\\Users\\bob\\notes.txt'")).toMatchObject({ behavior: "deny", code: "otherUser" });
   });
 
   test("a search and a card that is itself the question open no approval in front of them", async () => {

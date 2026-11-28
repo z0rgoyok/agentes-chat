@@ -31,3 +31,30 @@ export const stillHref = (href: string) => `${href}${href.includes("?") ? "&" : 
 /** Whether a route's params say it was opened in place. */
 export const isStill = (params: unknown): boolean =>
   typeof params === "object" && params !== null && (params as Record<string, unknown>)[STILL_PARAM] === "1";
+
+/** A route of a stack, as its navigator holds it. */
+export interface StackRoute {
+  key: string;
+  name: string;
+  params?: object;
+}
+
+/**
+ * A thread's screen opened from anywhere but its conversation (the Threads tab, a notification, a link, another
+ * conversation): the stack with its conversation put right under it, at the thread's root (`m`), so Back goes there as
+ * from a thread opened in it. Null when it is there already. The new route has no key: the navigator gives it one.
+ */
+export function withConversationUnder(
+  routes: readonly StackRoute[],
+  key: string,
+  channelId: string,
+  threadId: string,
+): (StackRoute | Omit<StackRoute, "key">)[] | null {
+  const at = routes.findIndex((r) => r.key === key);
+  const here = routes[at];
+  if (!here) return null;
+  const below = routes[at - 1];
+  const params = below?.params as Record<string, unknown> | undefined;
+  if (below?.name === here.name && params?.channelId === channelId && !params.thread) return null;
+  return [...routes.slice(0, at), { name: here.name, params: { channelId, m: threadId } }, ...routes.slice(at)];
+}

@@ -421,7 +421,9 @@ export function publicHttpsFetch(
       pinned = addresses.find((a) => a.family === 4) ?? (addresses[0] as { address: string; family: number });
     }
     const body = bodyBytes(init.body);
-    const headers: Record<string, string> = {};
+    // node:https sends no User-Agent where `fetch` does, and some hosts redirect a request without one to an
+    // "unsupported browser" page (Meta's OAuth metadata at www.facebook.com).
+    const headers: Record<string, string> = { "user-agent": "agentes.chat" };
     new Headers(init.headers).forEach((value, name) => {
       headers[name] = value;
     });

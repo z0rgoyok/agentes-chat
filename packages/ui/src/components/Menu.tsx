@@ -357,6 +357,11 @@ export function MenuAt({
           {...(label ? { "aria-labelledby": undefined } : {})}
           // The page keeps its focus (the composer, the selection), as with the system's menus.
           onCloseAutoFocus={(e) => e.preventDefault()}
+          // Opened over another open menu (a right click on its row): that menu's rows take focus as the pointer
+          // crosses them, which isn't leaving this one. A press outside still closes it.
+          onFocusOutside={(e) => {
+            if (e.target instanceof Element && e.target.closest(".ac-menu")) e.preventDefault();
+          }}
         >
           {children}
         </DropdownMenu.Content>

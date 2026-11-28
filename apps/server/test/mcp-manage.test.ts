@@ -487,9 +487,10 @@ describe("add_memory and create_channel", () => {
       .where(eq(schema.contextItems.id, made.id as string));
     expect(row?.evidence.map((e) => e.type)).toEqual(["app", "human"]);
     expect(row?.agentId).toBe(agentId);
-    expect(isPromotable({ ...(row as NonNullable<typeof row>), recurrence: 5, confidence: 1, relevance: 1 })).toBe(
-      true,
-    );
+    const strong = { ...(row as NonNullable<typeof row>), recurrence: 5, confidence: 1, relevance: 1 };
+    // Confirmed, it may be proposed as a rule; as an agent's fact it stays memory.
+    expect(isPromotable({ ...strong, kind: "preference" })).toBe(true);
+    expect(isPromotable(strong)).toBe(false);
   });
 
   test("a member can't write the memory of an agent they don't own", async () => {

@@ -7,14 +7,18 @@ import {
   type AccountLoginState,
   ANTIGRAVITY_MAC_PROTOCOL,
   ANTIGRAVITY_PROTOCOL,
+  ANTIGRAVITY_WINDOWS_PROTOCOL,
   type AuthMethod,
   accountCodeAad,
   CLAUDE_AUTH_PROTOCOL,
+  CLI_COPIES_PROTOCOL,
   type ClaudeLoginMethod,
   CURSOR_KEY_PROVIDER,
   CURSOR_PROTOCOL,
   claudeLoginMethodsOf,
+  DEVIN_PROTOCOL,
   GROK_PROTOCOL,
+  GROK_WINDOWS_PROTOCOL,
   isAccountId,
   isAccountKind,
   isAccountLoginFailure,
@@ -57,6 +61,7 @@ import {
   sql,
 } from "@agenteschat/db";
 import {
+  ACCOUNT_ONLY_BRAINS,
   GEMINI_ENTERPRISE_PROVIDER,
   isPlanId,
   loginPerAgent,
@@ -80,7 +85,7 @@ import {
 import { accountPersonOf, loginPermissions, managesAccount } from "./ai-accounts/serves";
 import { recordAudit } from "./audit";
 import { liveModelLimits } from "./brains/select";
-import { BRAIN_PLAN_NAMES } from "./brains/types";
+import { BRAIN_NAMES, BRAIN_PLAN_NAMES, brainRunsOn } from "./brains/types";
 import { caches } from "./cache";
 import { claudeAuthMethodFor, claudeAuthPolicy } from "./claude-auth-policy";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
@@ -97,7 +102,7 @@ import { can, requirePermission } from "./organizations";
 import { runState } from "./run-state";
 import { runnerUpdateWay } from "./runner-update";
 import { scrubSignIns } from "./tool-detail";
-import { agentsMovedOnto, usageWaitKey, wakeAgentsBrainWaits, wakeOnRoom } from "./usage-pause";
+import { agentsWaitingOn, usageWaitKey, wakeAgentsBrainWaits, wakeOnRoom } from "./usage-pause";
 
 const { machineAccounts, agents, machines, rightHandBrains, users } = schema;
 
@@ -525,7 +530,7 @@ async function accountViewOf(db: Database, orgId: string, row: MachineAccountRow
 
 /**
  * Agents that used these accounts lose them: back to the computer's own
- * sign-in when that is their owner's, else to the API (a plan thinks only for
+ * sign-in when that is their owner's and can think for them, else to the API (a plan thinks only for
  * its owner's agents, ADR 0059 §3). Their cache goes with `forgetAgents`.
  */
 export async function releaseAgents(
@@ -544,8 +549,13 @@ export async function releaseAgents(
       .delete(rightHandBrains)
       .where(and(eq(rightHandBrains.orgId, orgId), inArray(rightHandBrains.brainAccountId, accountIds)));
   }
-  const ownSignIn = sql`exists (select 1 from ${machines} m where m.id = "agents"."machine_id"
-    and m.paired_by_user_id = "agents"."owner_user_id")`;
+  // Gemini, Grok and Devin never think with the computer's own sign-in (`accountOnlyBrain`): without an account, the API.
+  const ownSignIn = sql`(exists (select 1 from ${machines} m where m.id = "agents"."machine_id"
+    and m.paired_by_user_id = "agents"."owner_user_id")
+    and "agents"."brain" not in (${sql.join(
+      ACCOUNT_ONLY_BRAINS.map((k) => sql`${k}`),
+      sql`, `,
+    )}))`;
   const lent = sql`"agents"."brain_account_lent_by" is not null`;
   const rows = await db
     .update(agents)
@@ -838,8 +848,15 @@ async function settleAccount(
     const released = await releaseAgents(db, orgId, [row.id], now);
     return { row: gone ?? row, duplicate, released, changed: !signingIn };
   }
-  // The runner says it when it knows it; one that just started doesn't yet (the last stays).
-  const usage = info.usage ? { usage: accountReading(row.provider, row.usage, info.usage) } : {};
+  // The runner says it when it knows it; one that just started doesn't yet (the last stays). A reading belongs to the
+  // plan and key it was read on: another plan or key with no reading of its own starts with none, so long work never
+  // pauses on, nor a card quotes, a percentage the plan in force doesn't have.
+  const replaced = Boolean(row.usage) && !info.usage && (plan !== row.plan || keyHint !== row.keyHint);
+  const usage = info.usage
+    ? { usage: accountReading(row.provider, row.usage, info.usage) }
+    : replaced
+      ? { usage: null }
+      : {};
   if (signingIn) {
     // A login of an account its owner already has here (one per agent) takes that account's name and permissions.
     const sibling = await sameAccount(db, row, identity);
@@ -892,7 +909,9 @@ async function settleAccount(
     .returning();
   const released = await unshare(db, orgId, row, shared, now);
   const moved = usageMoved(row.usage, usage.usage);
-  if (moved && usage.usage) await wakeOnRoom(db, orgId, machine.id, kindOf(row), row.id, usage.usage, now.getTime());
+  // No reading is room: what paused on the old plan's reading goes on.
+  const room = usage.usage ?? (replaced ? { windows: [], source: "turn" as const, at: now.toISOString() } : null);
+  if (moved && room) await wakeOnRoom(db, orgId, machine.id, kindOf(row), row.id, room, now.getTime());
   return { row: fresh ?? row, released, changed: !same || moved };
 }
 
@@ -962,7 +981,7 @@ export async function syncMachineAccounts(
       );
       if (gone.length > 0) {
         const ids = gone.map((r) => r.id);
-        released.push(...(await releaseAgents(tx, orgId, ids, now)));
+        released.push(...(await releaseAgents(tx, orgId, ids, now)), ...(await agentsWaitingOn(tx, orgId, ids)));
         await tx
           .delete(machineAccounts)
           .where(
@@ -1301,11 +1320,12 @@ const sharedSignInProtocol = (kind: string) =>
  */
 export function sharesSignIns(
   machine: Pick<MachineRow, "protocol" | "executors">,
-  which: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "key",
+  which: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin" | "key",
 ): boolean {
   if (machine.protocol < SHARED_ACCOUNTS_PROTOCOL) return false;
   if (machine.executors?.mode !== "system") return true;
-  if (which === "cursor" || which === "opencode") return false;
+  // Devin's (ADR 0253): one login per agent there, as Cursor's and OpenCode's.
+  if (which === "cursor" || which === "opencode" || which === "devin") return false;
   return machine.protocol >= sharedSignInProtocol(which) && SHARED_SIGN_INS[which];
 }
 
@@ -1414,7 +1434,7 @@ async function memberMachine(db: Database, userId: string, orgId: string, machin
 /** The workspace's own computer updates by itself (`machine.updates_itself`): nobody is told to update it. */
 const runnerOld = (machine: Pick<MachineRow, "name" | "kind" | "executors">) =>
   new ConflictError(
-    `The runner on ${machine.name} is too old for accounts. ${runnerUpdateWay(machine)}`,
+    `The agentes.chat program on ${machine.name} is too old for accounts. ${runnerUpdateWay(machine)}`,
     machine.kind === "managed" ? "machine.updates_itself" : "account.runner_old",
     { name: machine.name },
   );
@@ -1528,7 +1548,7 @@ export async function beginAccountLogin(
 ): Promise<AccountLoginView> {
   if (!isAccountKind(kind)) {
     throw new ValidationError(
-      "Choose claude_code, codex, cursor, opencode, grok or antigravity",
+      "Choose claude_code, codex, cursor, opencode, grok, antigravity or devin",
       "account.invalid_kind",
     );
   }
@@ -1549,6 +1569,13 @@ export async function beginAccountLogin(
   }
   const plan = planOf(provider);
   const { machine } = await memberMachine(deps.db, userId, orgId, machineId);
+  // A CLI its runner won't run on this system would sign in and fail every turn.
+  if (!brainRunsOn(kind, machine.os)) {
+    throw new ConflictError(`${BRAIN_NAMES[kind]} doesn't run on ${machine.name}'s system yet.`, "account.system", {
+      program: BRAIN_NAMES[kind],
+      computer: machine.name,
+    });
+  }
   let existing: MachineAccountRow | null = null;
   if (accountId !== undefined) {
     existing = await getListedAccount(deps.db, orgId, machine.id, accountId);
@@ -1565,19 +1592,50 @@ export async function beginAccountLogin(
     deps,
     machine,
     kind === "cursor"
-      ? CURSOR_PROTOCOL
+      ? machine.os === "windows"
+        ? CLI_COPIES_PROTOCOL
+        : CURSOR_PROTOCOL
       : kind === "antigravity"
         ? machine.os === "darwin"
           ? ANTIGRAVITY_MAC_PROTOCOL
-          : ANTIGRAVITY_PROTOCOL
+          : machine.os === "windows"
+            ? ANTIGRAVITY_WINDOWS_PROTOCOL
+            : ANTIGRAVITY_PROTOCOL
         : kind === "grok"
-          ? GROK_PROTOCOL
-          : kind === "opencode"
-            ? OPENCODE_PROTOCOL
-            : plan
-              ? PLAN_KEYS_PROTOCOL
-              : ACCOUNTS_PROTOCOL,
+          ? machine.os === "windows"
+            ? GROK_WINDOWS_PROTOCOL
+            : GROK_PROTOCOL
+          : kind === "devin"
+            ? DEVIN_PROTOCOL
+            : kind === "opencode"
+              ? OPENCODE_PROTOCOL
+              : plan
+                ? PLAN_KEYS_PROTOCOL
+                : ACCOUNTS_PROTOCOL,
   );
+  // On Windows the Antigravity CLI keeps its sign-in in the user's one Credential Manager (ADR 0143): a second
+  // account would take the first one's place.
+  if (kind === "antigravity" && machine.os === "windows" && accountId === undefined) {
+    const [other] = await deps.db
+      .select({ id: machineAccounts.id })
+      .from(machineAccounts)
+      .where(
+        and(
+          eq(machineAccounts.orgId, orgId),
+          eq(machineAccounts.machineId, machine.id),
+          eq(machineAccounts.kind, "antigravity"),
+          inArray(machineAccounts.status, LISTED_ACCOUNT_STATUSES),
+        ),
+      )
+      .limit(1);
+    if (other) {
+      throw new ConflictError(
+        "On Windows a computer uses one Gemini account at a time. Remove the other Gemini account from this computer first.",
+        "account.windows_one_gemini",
+        { name: machine.name },
+      );
+    }
+  }
   // Once for every agent of its owner there, where the runner can (protocol 29; ChatGPT's 38, Gemini's 58).
   const shared = protocol >= sharedSignInProtocol(kind) && sharedSignIn(kind, provider);
   const again = accountId !== undefined;
@@ -1599,12 +1657,25 @@ export async function beginAccountLogin(
         ? kept
         : undefined
       : claudeAuthMethodFor(await claudeAuthPolicy(deps.db), orgId, system);
-    if (!again && method === "cli_login" && !claudeLoginMethodsOf(said, system).includes("cli_login")) {
-      throw new ConflictError(
-        "This computer can't connect Claude this way yet. Update the agentes.chat program on it, or use an API key.",
-        "account.method_unsupported",
-        { name: machine.name },
-      );
+    const offered = claudeLoginMethodsOf(said, system);
+    if (!again && method === "cli_login" && !offered.includes("cli_login")) {
+      if (!offered.includes("setup_token")) {
+        throw new ConflictError(
+          "This computer can't connect Claude this way yet. Update the agentes.chat program on it, or use an API key.",
+          "account.method_unsupported",
+          { name: machine.name },
+        );
+      }
+      // Not ready for it here yet (a self-check pending or failing, a runner from before): this one sign-in takes the
+      // token its runner makes, kept on its row, rather than stopping the person. Reported, so a computer that stays
+      // that way is seen.
+      method = "setup_token";
+      deps.log?.error("Claude sign-in used a setup token: the computer doesn't offer Claude's own login yet", {
+        orgId,
+        machineId: machine.id,
+        protocol,
+        reason: machine.executors?.claudeLoginBlocked ?? "pending",
+      });
     }
   }
   // How it signs in, where nothing else can happen: a key, or a CLI's own sign-in.
@@ -1927,7 +1998,7 @@ export async function removeMachineAccount(
   }
   const released = await deps.db.transaction((tx) => tombstone(tx, orgId, [account.id]));
   forgetAgents(orgId, released);
-  await wakeAgentsBrainWaits(deps, orgId, [...released, ...(await agentsMovedOnto(deps.db, orgId, [account.id]))]);
+  await wakeAgentsBrainWaits(deps, orgId, [...released, ...(await agentsWaitingOn(deps.db, orgId, [account.id]))]);
   await recordAudit(deps.db, {
     orgId,
     actor: { type: "person", id: userId },
@@ -1974,15 +2045,10 @@ export async function releaseMemberAccounts(
   const out: ReleasedAccounts = { machines: [], agents: [] };
   for (const org of new Set(rows.map((r) => r.orgId))) {
     const mine = rows.filter((r) => r.orgId === org);
-    out.agents.push({
-      orgId: org,
-      agentIds: await releaseAgents(
-        db,
-        org,
-        mine.map((r) => r.id),
-        now,
-      ),
-    });
+    const ids = mine.map((r) => r.id);
+    // What waited on their plans goes on too (`agentsWaitingOn`), not only the agents that pointed at them.
+    const released = await releaseAgents(db, org, ids, now);
+    out.agents.push({ orgId: org, agentIds: [...new Set([...released, ...(await agentsWaitingOn(db, org, ids))])] });
     for (const machineId of new Set(mine.map((r) => r.machineId))) out.machines.push({ orgId: org, machineId });
   }
   return out;

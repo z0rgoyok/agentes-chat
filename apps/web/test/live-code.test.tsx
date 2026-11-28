@@ -65,7 +65,7 @@ describe("code the agent runs", () => {
     expect(runsInChannel(s, "c")[0]?.output).toEqual([]);
   });
 
-  test("the activity bar: 'Ver código da Ada' opens the code and the live output (stderr in the danger tone)", async () => {
+  test("the working row: See code opens the code and the live output (stderr in the danger tone)", async () => {
     const r = await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(seedState()) });
     await settle(5);
     const socket = r.sockets.last();
@@ -79,13 +79,52 @@ describe("code the agent runs", () => {
     await ev({ type: "agent.tool.output", ...run, stream: "stderr", text: "aviso: coluna vazia" });
     await settle(3);
     expect(document.querySelector(".ac-typing__text")?.textContent).toStartWith("Ada ");
-    await click(screen().getByRole("button", { name: "Ver código da Ada" }));
-    const panel = document.querySelector(".live-code") as HTMLElement;
+    await click(screen().getByRole("button", { name: "Ver código" }));
+    const panel = document.querySelector(".working-tail .live-code") as HTMLElement;
     expect(within(panel).getByLabelText("Código (python)").textContent).toBe("import csv");
     const out = within(panel).getByLabelText("Saída");
     expect(out.querySelector(".live-code__stdout")?.textContent).toBe("lendo 48 linhas\n");
     expect(out.querySelector(".live-code__stderr")?.textContent).toBe("aviso: coluna vazia");
     expect(within(panel).getByRole("button", { name: "Copiar" })).toBeTruthy();
+    // Nothing of it over the composer.
+    expect(document.querySelector(".channel__composer .live-code")).toBeNull();
+  });
+
+  test("between two commands See code stays, open, with the last command; the next one shows its own", async () => {
+    const r = await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(seedState()) });
+    await settle(5);
+    const socket = r.sockets.last();
+    await act(async () => socket.open());
+    const ev = (event: Record<string, unknown>) =>
+      act(async () => socket.push({ type: "event", channelId: ENG_ID, event: { channelId: ENG_ID, ...event } }));
+    const run = { threadId: null, runId: "r-code", agentId: ADA_ID };
+    await ev({ type: "agent.run", ...run, status: "running" });
+    await ev({ type: "agent.tool", ...run, tool: "run_code", code: { language: "bash", source: "ls dados" } });
+    await ev({ type: "agent.tool.output", ...run, stream: "stdout", text: "vendas.csv\n" });
+    await settle(3);
+    await click(screen().getByRole("button", { name: "Ver código" }));
+    // The command ends and it thinks: the same button, still open, with that command and its output.
+    await ev({ type: "agent.tool", ...run, tool: null });
+    await settle(3);
+    const hide = screen().getByRole("button", { name: "Esconder código" });
+    expect(hide.getAttribute("aria-expanded")).toBe("true");
+    const panel = () => document.querySelector(".working-tail .live-code") as HTMLElement;
+    expect(within(panel()).getByLabelText("Código (bash)").textContent).toBe("ls dados");
+    expect(panel().querySelector(".live-code__stdout")?.textContent).toBe("vendas.csv\n");
+    // The next command: its own code, waiting for its output.
+    await ev({
+      type: "agent.tool",
+      ...run,
+      tool: "run_code",
+      code: { language: "bash", source: "wc -l dados/vendas.csv" },
+    });
+    await settle(3);
+    expect(within(panel()).getByLabelText("Código (bash)").textContent).toBe("wc -l dados/vendas.csv");
+    expect(panel().querySelector(".live-code__empty")?.textContent).toBe("Esperando a saída…");
+    // Hidden again, it stays hidden.
+    await click(screen().getByRole("button", { name: "Esconder código" }));
+    expect(panel()).toBeNull();
+    expect(screen().getByRole("button", { name: "Ver código" }).getAttribute("aria-expanded")).toBe("false");
   });
 
   test("the work summary shows the code and output after the fact", () => {

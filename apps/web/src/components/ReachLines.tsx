@@ -77,7 +77,6 @@ function ReachRow({
   const { t } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
-  const toast = useToast();
   const add = useAddChannelMember(org.id);
   const agent = dir.agentById.get(e.agentId);
   const g = agentGrammar(agent?.name ?? `@${e.handle}`);
@@ -100,10 +99,8 @@ function ReachRow({
         className="ag-rc__btn"
         disabled={add.isPending || add.isSuccess}
         onClick={() =>
-          add.mutate(
-            { channelId, member: { agentId: e.agentId } },
-            { onSuccess: () => toast.show(t("reach.added", { name: g.name })) },
-          )
+          // No toast: the conversation's own line says who joined, for everyone.
+          add.mutate({ channelId, member: { agentId: e.agentId } })
         }
       >
         {t("reach.add")}

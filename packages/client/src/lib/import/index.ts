@@ -24,6 +24,8 @@ import {
   normalizePath,
   PASTED,
   type ParseOptions,
+  pathImported,
+  pathsMentioned,
   scrubSecrets,
   slug,
   splitNote,
@@ -128,6 +130,8 @@ const DETECTION: ImportSource[] = [
 
 /** What one import may carry (IMPORT_LIMITS in packages/engine/src/imports.ts); the rest is listed. */
 const LIMITS = { agents: 200, skills: 300, channels: 300, routines: 1000, notes: 5000 };
+/** The most paths an agent's instructions mention but the import lacks, listed to do. */
+const PATHS_LISTED = 20;
 /** The longest to-do or left-out label the server takes (`Bundle` in apps/server/src/routes/app/agent-imports.ts). */
 const LABEL_MAX = 500;
 /** Files about a package rather than in it: never listed as left behind. */
@@ -324,6 +328,14 @@ function finish(d: Draft, app: ImportSource, files: ImportFile[]): ParsedPackage
     label: shortLabel(t.label),
     agents: t.agents.filter((k) => agentKeys.has(k)),
   }));
+  // A file or folder an agent's instructions point at that the import didn't bring: the agent can't open it here.
+  const names = files.map((f) => f.name);
+  const unreachable = new Map<string, string[]>();
+  for (const a of agents)
+    for (const path of pathsMentioned(a.instructions))
+      if (!pathImported(path, names)) unreachable.set(path, [...(unreachable.get(path) ?? []), a.key]);
+  for (const [path, keys] of [...unreachable].slice(0, PATHS_LISTED))
+    todo.push({ kind: "path", label: shortLabel(path), agents: keys });
 
   // The agents' own files go beside the bundle, for their folders in the Drive. Keys and sign-ins among them are
   // named with what never comes, before Importar.

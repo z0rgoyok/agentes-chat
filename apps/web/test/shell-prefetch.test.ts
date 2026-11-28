@@ -19,7 +19,7 @@ test("opening a workspace asks for the shell's lists with the page's own reads, 
   for (const key of [
     keys.channels(ORG_ID),
     keys.dms(ORG_ID),
-    keys.channelCategories(ORG_ID),
+    keys.agentGroups(ORG_ID),
     keys.sidebarItems(ORG_ID),
     keys.members(ORG_ID),
     keys.agents(ORG_ID),

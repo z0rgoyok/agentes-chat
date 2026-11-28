@@ -148,7 +148,7 @@ test("the computer's own sign-in on a computer nobody connected (the workspace's
   await revokeKeys();
   const executors = {
     claude: { version: "2.1.300", loggedIn: true },
-    codex: { version: "codex-cli 0.163.0" },
+    codex: { version: "codex-cli 0.170.0" },
     detectedAt: new Date().toISOString(),
   };
   let status = statusOf({ kind: "managed", pairedByUserId: null, executors });

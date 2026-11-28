@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
+import { resources } from "@agenteschat/i18n";
+import i18next from "i18next";
 import {
   APPROVALS_LEVELS,
+  approvalsLevelLine,
   approvalsLevelOf,
   auditUnasked,
   changesWhenAsks,
@@ -9,6 +12,27 @@ import {
   ownApprovalsCount,
   shownApprovalsLevel,
 } from "../src/lib/approvals-level";
+import { workspaceBudgetText } from "../src/lib/new-agent";
+
+const i18n = i18next.createInstance();
+void i18n.init({ lng: "pt-BR", resources, initAsync: false, interpolation: { escapeValue: false } });
+
+test("an agent that follows the workspace says which level holds; the workspace's budget says how much", () => {
+  const idle = { isPending: false };
+  expect(approvalsLevelLine(i18n.t, { approvalsLevel: "risky", approvalsLevelOwn: false }, idle)).toBe(
+    "Só o arriscado · do workspace",
+  );
+  expect(approvalsLevelLine(i18n.t, { approvalsLevel: "never", approvalsLevelOwn: true }, idle)).toBe(
+    "Nunca perguntar",
+  );
+  // A change on its way shows the level asked for, its own.
+  const saving = { isPending: true, variables: { approvalsLevel: "always" as const } };
+  expect(approvalsLevelLine(i18n.t, { approvalsLevel: "risky", approvalsLevelOwn: false }, saving)).toBe(
+    "Sempre perguntar",
+  );
+  expect(workspaceBudgetText(i18n.t, "pt-BR", 20)).toMatch(/^Padrão \(US\$\s20\)$/);
+  expect(workspaceBudgetText(i18n.t, "pt-BR", undefined)).toBe("Padrão do workspace");
+});
 
 test("an agent's level: its own, and risky from a server that doesn't say", () => {
   expect(APPROVALS_LEVELS).toEqual(["always", "risky", "never"]);

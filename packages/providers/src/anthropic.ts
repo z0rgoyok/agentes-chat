@@ -12,6 +12,7 @@ import {
   deniedError,
   hasToolImages,
   laidOut,
+  lostWithoutImages,
   type ModelMessage,
   type ModelProvider,
   type ModelRequest,
@@ -31,6 +32,9 @@ const STRUCTURED_OUTPUT = "structured_output";
 
 /** Lets a request say what happens to thinking the API can no longer read back (`block_binding`). */
 const THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01";
+const THINKING_UPDATES_BETA = "thinking-display-updates-2026-08-18";
+/** What a progress block says in place of work a stop cut short: no note of the model's. */
+const INTERRUPTED_NOTE = "This part of the response was interrupted before it finished.";
 
 /**
  * Anthropic Messages API, streaming. A client is created per call with the
@@ -71,7 +75,7 @@ const THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01";
  * `structured_output` tool, forced where `tool_choice: any` is honored, and
  * its input comes back as the reply's JSON text. Medium effort is sent as
  * `high`: Kimi and GLM take only low, high and max. Tool results' images are left out too, unless `compat.images`
- * says the model reads them (Claude served by Amazon Bedrock).
+ * says the model reads them (Claude served by Amazon Bedrock), or pictures alone where the model's row says `images`.
  */
 export function createAnthropicProvider(
   options: {
@@ -80,6 +84,11 @@ export function createAnthropicProvider(
     baseURL?: string;
     compat?: { toolChoiceAny: boolean; images?: boolean };
     maxRetries?: number;
+    /**
+     * Ask models that hide their notes between tool calls for them (`thinking.display: "updates"`), sent to `onNote`.
+     * Default on. Thinking stays hidden either way, and every block goes back unchanged.
+     */
+    progressNotes?: boolean;
     /** Tests only: scripted transport. */
     fetch?: typeof fetch;
   } = {},
@@ -98,7 +107,7 @@ export function createAnthropicProvider(
 
   return {
     id,
-    async stream(input, { apiKey, workspaceId, onDelta }): Promise<ModelResult> {
+    async stream(input, { apiKey, workspaceId, onDelta, onNote }): Promise<ModelResult> {
       const request = laidOut(input);
       const info = MODEL_CATALOG[request.model];
       const fallback = !compat && info?.serverSideFallback === true;
@@ -133,21 +142,25 @@ export function createAnthropicProvider(
         outputChars: 0,
       };
       const textOnly = Boolean(compat && !compat.images);
-      const leftOut = textOnly && hasToolImages(request.messages);
+      const pictures = textOnly && info?.images === true;
+      const leftOut = textOnly && hasToolImages(request.messages, lostWithoutImages(pictures));
+      const updates = !compat && !thinkingOff && options.progressNotes !== false && info?.thinkingUpdates === true;
       const params = (withThinking: boolean) => {
         // `block_binding` is taken only with thinking on; the call made without thinking goes plain.
         const bind = withThinking && !compat && !thinkingOff;
         const betas = [
           ...(fallback ? ["server-side-fallback-2026-07-01"] : []),
           ...(bind ? [THINKING_BINDING_BETA] : []),
+          ...(updates ? [THINKING_UPDATES_BETA] : []),
         ];
         return {
           model: request.model,
           max_tokens: request.maxTokens,
           system: toSystem(request, compat ? undefined : room(request)),
-          // Another company's endpoint (DeepSeek, Kimi, Z.ai, MiniMax) isn't trusted to take images, unless it says it does.
+          // Another company's endpoint (DeepSeek, Kimi, Z.ai, MiniMax) isn't trusted to take images, unless it or the
+          // model's row (`images`) says it does.
           messages: toMessageParams(
-            textOnly ? withoutImages(request.messages, request.model) : request.messages,
+            textOnly ? withoutImages(request.messages, request.model, pictures) : request.messages,
             id,
             withThinking,
             // Anthropic behind a compatible endpoint refuses a 1-hour breakpoint after the system's 5-minute ones.
@@ -158,11 +171,12 @@ export function createAnthropicProvider(
           ...(forced && thinkingOff ? { tool_choice: { type: "any" as const } } : {}),
           ...(thinkingOff
             ? { thinking: { type: "disabled" as const } }
-            : bind
+            : bind || updates
               ? {
                   thinking: {
                     type: "adaptive" as const,
-                    block_binding: { prefix_mismatch_behavior: "drop_block" as const },
+                    ...(updates ? { display: "updates" as const } : {}),
+                    ...(bind ? { block_binding: { prefix_mismatch_behavior: "drop_block" as const } } : {}),
                   },
                 }
               : {}),
@@ -208,7 +222,19 @@ export function createAnthropicProvider(
         const stream = client(apiKey, workspaceId).beta.messages.stream(params(withThinking), {
           signal: request.signal,
         });
+        // A progress note streams as one thinking block's deltas: told whole once its block ends. Only asked for: a
+        // model that summarizes its reasoning by default (Claude Opus 4.6) would tell that instead.
+        let note: string | null = null;
         stream.on("streamEvent", (event) => {
+          if (event.type === "content_block_start")
+            note = updates && event.content_block.type === "thinking" ? "" : null;
+          else if (event.type === "content_block_delta" && event.delta.type === "thinking_delta" && note !== null)
+            note += event.delta.thinking;
+          else if (event.type === "content_block_stop" && note !== null) {
+            const said = note.trim();
+            note = null;
+            if (said && said !== INTERRUPTED_NOTE) onNote?.(said);
+          }
           if (event.type === "message_start") {
             partial.inputTokens = event.message.usage.input_tokens;
             partial.cacheReadTokens = event.message.usage.cache_read_input_tokens ?? 0;

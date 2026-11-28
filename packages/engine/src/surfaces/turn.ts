@@ -31,6 +31,7 @@ const CARD_TOOLS = new Set([
   "offer_approvals",
   "propose_member_changes",
   "offer_open_page",
+  "offer_voice_setup",
   "offer_answers",
   "offer_feedback",
   "offer_install_skill",
@@ -133,20 +134,32 @@ async function surfaceTurnBehind(db: Executor, orgId: string, runId: string) {
   return null;
 }
 
-/** The line the model reads instead of the result when a surface turn calls a tool of a refused class; else null. */
-export async function surfaceRefusal(
+/** Classes a person may confirm from the surface with their PIN (ADR 0226); cards and routines that post elsewhere stay refused. */
+const CONFIRMED: ReadonlySet<SurfaceRefusalClass> = new Set(["approval", "sends_deletes_pays", "roles_budgets_money"]);
+
+/**
+ * What a surface turn does with a call of a refused class: `refuse` with the line the model reads instead of the
+ * result, or `confirm` it as an approval the person decides with their PIN on a page linked from the surface. Only the
+ * right hand's own surface turn confirms: an agent it asked or told is still refused. Null when nothing applies.
+ */
+export async function surfaceGate(
   ctx: ToolContext,
   tool: Pick<ToolDefinition, "name" | "scope" | "sensitive" | "actions">,
   input: Record<string, unknown>,
-): Promise<string | null> {
+): Promise<{ refuse: string } | { confirm: { userId: string; name: string } } | null> {
   const surface = surfaceOn();
-  if (!surface || !surfaceRefusalClass(tool, input)) return null;
-  const turn = await surfaceTurnBehind(ctx.db, ctx.orgId, ctx.runId);
+  const kind = surface ? surfaceRefusalClass(tool, input) : null;
+  if (!surface || !kind) return null;
+  const own = await surfaceOfRun(ctx.db, ctx.orgId, ctx.runId);
+  const turn = own ?? (await surfaceTurnBehind(ctx.db, ctx.orgId, ctx.runId));
   if (!turn) return null;
   const [person] = await ctx.db
     .select({ name: schema.users.name })
     .from(schema.users)
     .where(eq(schema.users.id, turn.userId));
   const who = person?.name ?? "the person";
-  return `This can't be done from ${surface.name}: tell ${who} in one line to do it in the agentes.chat app. Don't try another way.`;
+  if (own && CONFIRMED.has(kind)) return { confirm: { userId: turn.userId, name: who } };
+  return {
+    refuse: `This can't be done from ${surface.name}: tell ${who} in one line to do it in the agentes.chat app. Don't try another way.`,
+  };
 }

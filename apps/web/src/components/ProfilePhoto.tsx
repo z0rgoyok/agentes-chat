@@ -12,6 +12,7 @@ import {
   transferFiles,
   workspaceSky,
 } from "@agenteschat/ui";
+import { hasLightInk } from "@agenteschat/ui/org-logo";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type PointerEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -420,7 +421,18 @@ export function OrgMark({
   size?: number;
   className?: string;
 }) {
-  if (logo) return <img className={cx("org-mark", className)} src={logo} alt="" width={size} height={size} />;
+  if (logo) {
+    return (
+      <img
+        className={cx("org-mark", className)}
+        src={logo}
+        alt=""
+        width={size}
+        height={size}
+        data-ink={hasLightInk(logo) ? "light" : undefined}
+      />
+    );
+  }
   return (
     <LogoMark className={className} size={size} {...(accent !== undefined ? { sky: workspaceSky(accent) } : {})} />
   );

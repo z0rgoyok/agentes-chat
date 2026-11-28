@@ -5,6 +5,7 @@ import { actionTextValues } from "../src/lib/actions";
 import { approvalOriginWords, approvalWhy, approvalWords } from "../src/lib/approval-origin";
 import { openTarget } from "../src/lib/notifications";
 import {
+  atWorkWords,
   busyOnComputer,
   cronRule,
   healthWords,
@@ -99,8 +100,10 @@ describe("a routine's runs", () => {
     expect(say(run({ status: "canceled", code: "creator_left" })).key).toBe("routines.code.creator_left");
     for (const code of [
       "empty_reply",
+      "empty_reply_limit",
       "model_refused",
       "credential_wrong_provider",
+      "credential_unreadable",
       "model_unlisted",
       "gave_up",
       "cli_failed",
@@ -195,6 +198,16 @@ describe("a routine's state and its one-tap fix", () => {
     // Its run in the timeline: waiting on the plan, not "working now".
     expect(runOutcome(run({ status: "waiting", code: "waiting_plan" })).key).toBe("routines.outcome.waitingPlan");
     expect(runOutcome(run({ status: "waiting", code: "waiting_budget" })).key).toBe("routines.outcome.waitingBudget");
+  });
+
+  test("a run in line behind another routine of its agent says which; any other at work is running now", () => {
+    const behind = run({ status: "queued", code: "waiting_routine", codeParams: { routine: "Vendas" } });
+    expect(runOutcome(behind)).toEqual({ key: "routines.outcome.queuedBehind", values: { name: "Vendas" } });
+    expect(atWorkWords({ recentRuns: [behind] })).toEqual({
+      key: "routines.outcome.queuedBehind",
+      values: { name: "Vendas" },
+    });
+    expect(atWorkWords({ recentRuns: [run({ status: "running" })] }).key).toBe("routines.runningNow");
   });
 
   test("a run paused near its limit is stopped with Parar, and the list is read again at its reset", () => {

@@ -126,3 +126,12 @@ A person asked an agent for cover images in a thread; that agent asked a second 
 - **Every chain counts.** A second request for the same person joins a consulted run still at work (`startOrJoinRun`), so one run may answer agents in several conversations. `consultationOrigin` names the latest alone, which is where the run's cards go; the refusal looks at all of them.
 - **Not a heads-up.** Nobody carries the reply to a `tell_agent` with `heads_up`, so a run woken by one may still post there.
 - **Unchanged.** Any other channel the person can post in, `send_dm` to the person behind the run (the agents' DM offers it), a run that answers agents only (refused everywhere, ADR 0085 addendum), and where a consulted run's approval, question, secret and file cards go.
+
+## Addendum (2026-11-25): the asker quotes what it passes on
+
+A consulted agent's words can still land where the person asked, and the agent that asked usually passes them on in its next message there. The channel then showed two bubbles with the same content, the first one addressed to the other agent ("you, Theo") and marked only by "helping Theo" beside its author's name, so it read as a message for the channel.
+
+- **Quoted by the asker.** When the asking agent posts within `CONSULT_NEAR_ROWS` rows below the consulted agent's words, its message opens with them as a quote (face, @name, the start of the words), the same quote a reply shows for the message it answers. The consulted agent's bubble takes no row of its own. A tap on the quote opens the two agents' conversation, which already lists what the consulted run posted where the person asked, whole.
+- **Only words.** Approvals, questions, secret requests, files, artifacts, media and action cards the consulted run posts are for the person: they keep their row and their "helping Theo · See conversation" line.
+- **Nothing hides early.** Until the asker's message comes, or when it lands farther away, the consulted agent's words keep their row as before. Two messages in a row before the same reply both fold; the quote shows the later one.
+- **One rule, both apps.** `relayedAnswers` in `packages/client/src/lib/consult-group.ts`, read by the web (`useConsultGroups`, `RelayQuote` in `ConsultGroup.tsx`) and the phone (`useChatRows`, `RelayQuote` in its `ConsultGroup.tsx`). The question it answers isn't repeated in the asker's pair quote.

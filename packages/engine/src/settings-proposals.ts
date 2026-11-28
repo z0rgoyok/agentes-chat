@@ -18,13 +18,14 @@ import { isBrainEffortSetting, normalizeBrainModel, setAgentBrain } from "./brai
 import { isComputerBrain } from "./brains/types";
 import { invalidateOrg } from "./cache";
 import { addChannelMember, removeChannelMember, setChannelAgentAutoReply } from "./channels";
+import { moveLearnedSections, splitLearned } from "./context/learned-sections";
 import { sha256 } from "./crypto";
 import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
-import { publishAgentsChanged } from "./events";
+import { publishAgentsChanged, publishListChanged } from "./events";
 import { setAgentComputerTarget } from "./machines";
 import { can, getMembership, requirePermission } from "./organizations";
 import { reportsToRefusal, setReportsTo } from "./reporting";
-import { isRightHand } from "./right-hand";
+import { isRightHand, personalBrain } from "./right-hand";
 import { setAgentSkills } from "./skills";
 import { canonicalJson } from "./tools/json-schema";
 import { agentBudgetState, orgDefaultAgentBudget } from "./usage";
@@ -38,6 +39,7 @@ const {
   channels,
   contextProposals,
   machineAccounts,
+  providerCredentials,
   skills,
 } = schema;
 
@@ -102,6 +104,10 @@ const ORDER: SettingField[] = [
 
 const same = (a: unknown, b: unknown) => canonicalJson(a ?? null) === canonicalJson(b ?? null);
 
+/** Instructions as Undo compares them: without a "## Learned" section, which every write moves to memory. */
+const held = (field: ReceiptLine["field"], value: unknown) =>
+  field === "instructions" ? splitLearned(String(value ?? "")).instructions : value;
+
 /** What `from` and `to` hold for an AI account: the brain it thinks with and the account (null: the API). */
 interface AccountValue {
   brain: string;
@@ -112,13 +118,27 @@ interface AccountValue {
 export const agentApps = async (db: Executor, orgId: string, agentId: string) =>
   (await replaceableGrants(db, orgId, agentId)).sort((a, b) => canonicalJson(a).localeCompare(canonicalJson(b)));
 
+/** Which AI a right hand's model or effort line reads and writes: its person's own (`person`), else the agent's. */
+async function thinkingAgent(db: Executor, agent: Agent, line: Pick<ReceiptLine, "field" | "person">) {
+  if (!line.person || (line.field !== "model" && line.field !== "effort")) return agent;
+  const own = await personalBrain(db, agent.orgId, line.person);
+  return own && { ...agent, brain: own.brain, brainModel: own.brainModel, brainEffort: own.brainEffort };
+}
+
 /**
  * A setting's value now. A channel line's value is the agent's seat there: null when it isn't in it, else whether it
  * answers without a mention (`autoReply`), so adding, removing and the reply mode read and write the same thing. The
  * model of an agent that thinks on a computer is its brain's ("Quem pensa"), null for its CLI's default. A skill's is
  * whether the agent has it on, null once the skill is gone.
  */
-async function valueNow(db: Executor, agent: Agent, line: Pick<ReceiptLine, "field" | "channelId" | "skillId">) {
+async function valueNow(
+  db: Executor,
+  of: Agent,
+  line: Pick<ReceiptLine, "field" | "channelId" | "skillId" | "person">,
+) {
+  const agent = await thinkingAgent(db, of, line);
+  // Their own AI is gone (their conversation went back to the workspace's): no value a card or Undo holds.
+  if (!agent) return { workspace: true };
   switch (line.field) {
     case "instructions":
       return agent.instructions;
@@ -202,10 +222,16 @@ async function setValue(
   actorId: string,
   orgId: string,
   agentId: string,
-  line: Pick<ReceiptLine, "field" | "channelId" | "skillId">,
+  line: Pick<ReceiptLine, "field" | "channelId" | "skillId" | "person">,
   value: unknown,
 ) {
   const { db, pubsub } = deps;
+  if (line.person && (line.field === "model" || line.field === "effort")) {
+    // Their own AI is theirs alone (ADR 0137 §11): `mine` is the caller's, so anyone else would change their own.
+    if (line.person !== actorId)
+      throw new ForbiddenError("Only that person changes the AI their own conversation thinks with", "agent.not_owner");
+    return void (await setAgentBrain(deps, actorId, orgId, agentId, { scope: "mine", [line.field]: value }));
+  }
   switch (line.field) {
     // Whoever decides instructions (`review_memory`), who needn't edit the agent, or who edits it (`editsAgent`, ADR
     // 0085 addendum of 2026-11-17): written straight, as `updateAgent` would refuse the first.
@@ -220,7 +246,11 @@ async function setValue(
         .update(agents)
         .set({ instructions: String(value), updatedAt: new Date() })
         .where(eq(agents.id, agentId));
-      return invalidateOrg(orgId);
+      invalidateOrg(orgId);
+      // Text put back with a "## Learned" section moves it to memory again, as a save does.
+      if ((await moveLearnedSections(db, orgId, { agentId, actorId })) > 0)
+        await publishListChanged(pubsub, orgId, "memory");
+      return;
     }
     case "role":
       return void (await updateAgent(db, actorId, orgId, agentId, { role: String(value) }, { pubsub }));
@@ -326,6 +356,9 @@ export const deletes = (p: Pick<Proposal, "settings">) => (p.settings ?? []).som
 /** The row's group (all its lines share one). */
 export const settingsGroup = (p: Pick<Proposal, "settings">) => SETTING_GROUP[p.settings?.[0]?.field ?? "model"];
 
+/** The person whose own right-hand AI the row changes (`SettingLine.person`): they alone decide it. */
+export const settingsPerson = (p: Pick<Proposal, "settings">) => p.settings?.find((l) => l.person)?.person ?? null;
+
 const accountOwner = async (db: Executor, orgId: string, lines: SettingLine[]) => {
   const id = (lines.find((l) => l.field === "ai_account")?.to as AccountValue | undefined)?.accountId;
   if (!id) return null;
@@ -356,6 +389,8 @@ export async function maySettle(db: Database, actorId: string, p: Proposal) {
   const group = settingsGroup(p);
   const agent = p.agentId ? await getAgent(db, p.orgId, p.agentId) : null;
   if (!agent) return false;
+  const person = settingsPerson(p);
+  if (person) return person === actorId;
   const admin = managesAgent(agent, actorId, membership);
   if (group === "admin") {
     const under = admin ? supervisorOf(p) : null;
@@ -376,6 +411,8 @@ export async function maySettle(db: Database, actorId: string, p: Proposal) {
  * that puts the agent under another goes only to who manages both (`supervisorOf`).
  */
 export async function settingsDeciders(db: Database, p: Proposal): Promise<string[]> {
+  const person = settingsPerson(p);
+  if (person) return [person];
   const group = settingsGroup(p);
   if (group === "account") {
     const owner = await accountOwner(db, p.orgId, p.settings ?? []);
@@ -424,7 +461,7 @@ export async function settingLines(
   const lines: SettingLine[] = [];
   const skipped: string[] = [];
   const seen = new Set<string>();
-  for (const w of wanted) {
+  for (let w of wanted) {
     const key = `${w.field}:${w.channelId ?? w.skillId ?? ""}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -432,7 +469,15 @@ export async function settingLines(
       skipped.push(`You can't change your own ${w.field.replace("_", " ")}: it is part of the workspace.`);
       continue;
     }
-    const why = await refusal(db, orgId, requesterId, agent, w);
+    // Their conversation thinks with their own AI when they chose one (ADR 0137 §11): that is the one they mean.
+    if (
+      isRightHand(agent) &&
+      (w.field === "model" || w.field === "effort") &&
+      (await personalBrain(db, orgId, requesterId))
+    )
+      w = { ...w, person: requesterId };
+    const thinking = (await thinkingAgent(db, agent, w)) ?? agent;
+    const why = await refusal(db, orgId, requesterId, thinking, w);
     if (why) {
       skipped.push(`${who}: ${why}`);
       continue;
@@ -442,8 +487,8 @@ export async function settingLines(
     const to =
       w.field === "look"
         ? validateAppearance(w.to as Parameters<typeof validateAppearance>[0])
-        : w.field === "model" && isComputerBrain(agent.brain)
-          ? normalizeBrainModel(agent.brain, w.to, agent.brainModel)
+        : w.field === "model" && isComputerBrain(thinking.brain)
+          ? normalizeBrainModel(thinking.brain, w.to, thinking.brainModel)
           : w.to;
     if (same(from, to)) {
       skipped.push(
@@ -486,7 +531,26 @@ async function refusal(db: Database, orgId: string, requesterId: string, agent: 
         if (isComputerBrain(agent.brain)) normalizeBrainModel(agent.brain, w.to, agent.brainModel);
         else await validateAgentFields(db, orgId, { model: String(w.to) });
       } catch (error) {
-        return error instanceof Error ? error.message : "unknown model";
+        if (!(error instanceof Error)) return "unknown model";
+        const maker = error instanceof ValidationError ? error.params?.maker : null;
+        // This card moves no agent off its plan onto an API key: its page does.
+        const [key] =
+          typeof maker === "string"
+            ? await db
+                .select({ id: providerCredentials.id })
+                .from(providerCredentials)
+                .where(
+                  and(
+                    eq(providerCredentials.orgId, orgId),
+                    eq(providerCredentials.provider, maker),
+                    isNull(providerCredentials.revokedAt),
+                  ),
+                )
+                .limit(1)
+            : [];
+        return key
+          ? `${error.message}, or the workspace's ${maker} API key, which only its page moves it to (Quem pensa); this card can't.`
+          : error.message;
       }
       return null;
     case "effort":
@@ -593,8 +657,10 @@ export async function settingsHold(db: Executor, agent: Agent, lines: SettingLin
 /** The rows for one agent's lines: one per decider group, each with the hash of what it was made against. */
 export function settingsRows(lines: SettingLine[]) {
   const groups = new Map<string, SettingLine[]>();
-  for (const l of [...lines].sort((a, b) => ORDER.indexOf(a.field) - ORDER.indexOf(b.field)))
-    groups.set(SETTING_GROUP[l.field], [...(groups.get(SETTING_GROUP[l.field]) ?? []), l]);
+  for (const l of [...lines].sort((a, b) => ORDER.indexOf(a.field) - ORDER.indexOf(b.field))) {
+    const group = l.person ? "person" : SETTING_GROUP[l.field];
+    groups.set(group, [...(groups.get(group) ?? []), l]);
+  }
   return [...groups.values()].map((settings) => ({
     settings,
     baseHash: sha256(canonicalJson(settings.map((l) => [l.field, l.channelId ?? l.skillId ?? null, l.from]))),
@@ -669,7 +735,8 @@ export async function revertSettings(
   const agent = await getAgent(deps.db, a.orgId, a.targetId);
   if (!agent) throw new NotFoundError("The agent is gone", "action.target_gone");
   for (const l of steps)
-    if (!same(await valueNow(deps.db, agent, l), direction === "undo" ? l.to : l.from)) throw changedSince();
+    if (!same(held(l.field, await valueNow(deps.db, agent, l)), held(l.field, direction === "undo" ? l.to : l.from)))
+      throw changedSince();
   for (const l of steps) await setValue(deps, userId, a.orgId, agent.id, l, direction === "undo" ? l.from : l.to);
   // Who it answers and its AI have no event of their own.
   await publishAgentsChanged(deps.pubsub, a.orgId);

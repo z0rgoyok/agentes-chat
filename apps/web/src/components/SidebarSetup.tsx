@@ -40,6 +40,7 @@ import {
   useState,
 } from "react";
 import { useTranslation } from "react-i18next";
+import { moveStep } from "@/lib/keys";
 import { useOrg } from "./org-context";
 import { sectionName, useSectionOrder } from "./SidebarOrder";
 
@@ -55,6 +56,7 @@ export const SIDEBAR_TOOLS = {
   routines: { to: "/org/$orgId/routines", icon: "routines" },
   calendar: { to: "/org/$orgId/calendar", icon: "calendar" },
   team: { to: "/org/$orgId/team", icon: "agent" },
+  skills: { to: "/org/$orgId/skills", icon: "bolt" },
   dashboards: { to: "/org/$orgId/dashboards", icon: "chart" },
   taskManager: { to: "/org/$orgId/task-manager", icon: "stageProgress" },
   code: { to: "/org/$orgId/code", icon: "code" },
@@ -128,9 +130,10 @@ export function ToolList({ items, row }: { items: SidebarItem[]; row: (id: Sideb
       "aria-keyshortcuts": MOVE_KEYS,
       "data-drop": mark?.id === id ? mark.where : undefined,
       onKeyDown: (e: KeyboardEvent) => {
-        if (!e.altKey || !e.shiftKey || (e.key !== "ArrowUp" && e.key !== "ArrowDown")) return;
+        const step = moveStep(e);
+        if (!step) return;
         e.preventDefault();
-        put(moveShownTool(order, shown, id, e.key === "ArrowUp" ? -1 : 1), e.currentTarget);
+        put(moveShownTool(order, shown, id, step), e.currentTarget);
       },
       onDragStart: (e: DragEvent) => {
         dragging.current = id;
@@ -174,7 +177,10 @@ export function SidebarSetupDialog({ open, onClose }: { open: boolean; onClose: 
   const sections = useSectionOrder(org.id, personal);
   const tools = useToolOrder(org.id, personal);
   // Code only where it has anything for me (ADR 0215 §12); the arrows move a tool past its shown neighbour.
-  const shown = offeredTools(tools.order, useOverview(org.id).data?.code, items);
+  // A team's list has Não lidas and Threads as its first rows (ADR 0260): only the column's tools are placed here.
+  const shown = offeredTools(tools.order, useOverview(org.id).data?.code, items).filter(
+    (id) => personal || (id !== "waiting" && id !== "threads"),
+  );
   // What another device changed since this one loaded shows as the dialog opens.
   useEffect(() => {
     if (open) void refetch();
@@ -236,48 +242,53 @@ export function SidebarSetupDialog({ open, onClose }: { open: boolean; onClose: 
             </li>
           ))}
         </ul>
-        <div className="ac-field__label-row">
-          <h3 className="sidebar-setup__heading">{t("shell.sidebarSetup.order")}</h3>
-          <button
-            type="button"
-            className="ac-link ac-link--muted small"
-            disabled={sameOrder(sections.order, sidebarSections(personal))}
-            onClick={() => sections.put([...sidebarSections(personal)])}
-          >
-            {t("contextMenu.restoreOrder")}
-          </button>
-        </div>
-        <p className="small muted sidebar-setup__hint">{t("shell.sidebarSetup.orderHint")}</p>
-        <ol className="sidebar-setup sidebar-setup--order">
-          {sections.order.map((id, i) => (
-            <li key={id} className="sidebar-setup__row" data-section={id}>
-              <span className="settings-row__icon ac-num" aria-hidden="true">
-                {i + 1}
-              </span>
-              <span className="sidebar-setup__name">{sectionName(t, id, personal)}</span>
-              <span className="sidebar-setup__moves">
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  iconOnly
-                  icon="chevronUp"
-                  aria-label={`${t("contextMenu.moveUp")}: ${sectionName(t, id, personal)}`}
-                  disabled={i === 0}
-                  onClick={() => sections.put(moveSection(sections.order, id, -1))}
-                />
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  iconOnly
-                  icon="chevronDown"
-                  aria-label={`${t("contextMenu.moveDown")}: ${sectionName(t, id, personal)}`}
-                  disabled={i === sections.order.length - 1}
-                  onClick={() => sections.put(moveSection(sections.order, id, 1))}
-                />
-              </span>
-            </li>
-          ))}
-        </ol>
+        {/* A team's list keeps its fixed order (ADR 0260): only a personal workspace orders its parts. */}
+        {personal && (
+          <>
+            <div className="ac-field__label-row">
+              <h3 className="sidebar-setup__heading">{t("shell.sidebarSetup.order")}</h3>
+              <button
+                type="button"
+                className="ac-link ac-link--muted small"
+                disabled={sameOrder(sections.order, sidebarSections(personal))}
+                onClick={() => sections.put([...sidebarSections(personal)])}
+              >
+                {t("contextMenu.restoreOrder")}
+              </button>
+            </div>
+            <p className="small muted sidebar-setup__hint">{t("shell.sidebarSetup.orderHint")}</p>
+            <ol className="sidebar-setup sidebar-setup--order">
+              {sections.order.map((id, i) => (
+                <li key={id} className="sidebar-setup__row" data-section={id}>
+                  <span className="settings-row__icon ac-num" aria-hidden="true">
+                    {i + 1}
+                  </span>
+                  <span className="sidebar-setup__name">{sectionName(t, id, personal)}</span>
+                  <span className="sidebar-setup__moves">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      iconOnly
+                      icon="chevronUp"
+                      aria-label={`${t("contextMenu.moveUp")}: ${sectionName(t, id, personal)}`}
+                      disabled={i === 0}
+                      onClick={() => sections.put(moveSection(sections.order, id, -1))}
+                    />
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      iconOnly
+                      icon="chevronDown"
+                      aria-label={`${t("contextMenu.moveDown")}: ${sectionName(t, id, personal)}`}
+                      disabled={i === sections.order.length - 1}
+                      onClick={() => sections.put(moveSection(sections.order, id, 1))}
+                    />
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </>
+        )}
       </DialogBody>
       <DialogFooter>
         <Button

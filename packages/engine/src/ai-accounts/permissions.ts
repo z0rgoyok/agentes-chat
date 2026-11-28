@@ -13,7 +13,7 @@ import {
 import { publishMachineAgentsChanged } from "../machines";
 import { requirePermission } from "../organizations";
 import { enqueue } from "../outbox";
-import { agentsMovedOnto, wakeAgentsBrainWaits } from "../usage-pause";
+import { agentsWaitingOn, wakeAgentsBrainWaits } from "../usage-pause";
 import {
   ACCOUNT_OPENED_JOB,
   ACCOUNT_RIGHTS,
@@ -232,7 +232,7 @@ export async function setAccountPermissions(
     return { agentIds, people: gone.length };
   });
   forgetAgents(orgId, released.agentIds);
-  const moved = changed.includes("use") ? await agentsMovedOnto(deps.db, orgId, logins) : [];
+  const moved = changed.includes("use") ? await agentsWaitingOn(deps.db, orgId, logins) : [];
   await wakeAgentsBrainWaits(deps, orgId, [...released.agentIds, ...moved]);
   if (released.people > 0) await publishMachineAgentsChanged(deps.pubsub, orgId);
   const opened = (["use", "reply"] as const).filter((r) => widensAccountAudience(before[r], next[r]));

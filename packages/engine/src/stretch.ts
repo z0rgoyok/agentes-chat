@@ -154,7 +154,8 @@ export async function pauseStretch(tx: Executor, orgId: string, hold: StretchHol
     kind: STRETCH_JOB,
     payload: { ...hold },
     dedupeKey: `${STRETCH_JOB}:${hold.stretchId}:${hold.messageId ?? hold.runId}:${hold.agentId}`,
-    maxAttempts: 4,
+    // The card is the only sign the work stopped: it keeps trying for hours, past a database outage, before giving up.
+    maxAttempts: 8,
   });
 }
 

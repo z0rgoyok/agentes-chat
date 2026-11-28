@@ -1016,13 +1016,15 @@ export async function approveJoinRequest(
         decidedByUserId: actorId,
         decidedAt: now,
         invitationId,
-        // The page that asked signs in only to an account this approval made (`claimJoinRequest`): its key stays live
-        // only then. Any other approval spends it, whoever the request names, so the page reads `closed` and an
-        // account that was already there signs in as it always does. The password went into the new account, or
-        // nowhere.
+        // The page that asked signs in only to an account this approval made (`claimJoinRequest`). An invitation to an
+        // account that was already there keeps the key live too: the page that proved the mailbox opens the
+        // invitation as its email would, and the account signs in as it always does there. Any other approval spends
+        // it, so the page reads `closed`. The password went into the new account, or nowhere.
         ...(made
           ? { userId: made, claimHash: row.claimHash }
-          : { claimHash: row.claimHash === null ? null : spentClaimHash(row.claimHash) }),
+          : invitationId
+            ? {}
+            : { claimHash: row.claimHash === null ? null : spentClaimHash(row.claimHash) }),
         passwordHash: null,
       })
       .where(eq(requests.id, row.id));
@@ -1369,8 +1371,9 @@ export async function renewInviteLink(db: Database, actorId: string, orgId: stri
 /**
  * Where the page that asked stands (ADR 0090), by the key it kept (`{requestId}.{secret}`), through the link it
  * asked with: waiting; `in` once, for an account the approval made (the caller signs that page in, and the key is
- * spent); denied, with the reason; or closed (run out, turned off, joined another way, approved for an address that
- * signs in as it always did, or its key already traded). A spent key (`spentClaimHash`) still finds its request and
+ * spent); `invited` once, for an approval that invited an account already there (the caller hands the page the
+ * invitation as its email carries it); denied, with the reason; or closed (run out, turned off, joined another way,
+ * or its key already traded). A spent key (`spentClaimHash`) still finds its request and
  * reads `closed`, never `in`; anything else answers 404, as a key that matches nothing.
  */
 export async function claimJoinRequest(db: Database, token: string, key: string, now = new Date()) {
@@ -1388,15 +1391,29 @@ export async function claimJoinRequest(db: Database, token: string, key: string,
   if (isWaiting(row, now)) return { status: "pending" as const };
   // The page checks every 15 s while open: a key nobody came back with for a day signs in no one.
   if ((row.decidedAt?.getTime() ?? 0) < now.getTime() - DAY_MS) return { status: "closed" as const };
-  // Live after an approval only when it made the account (`approveJoinRequest` spends it otherwise).
+  // Another page with the same key may have traded it a moment ago.
+  const trade = async () =>
+    (
+      await db
+        .update(requests)
+        .set({ claimHash: spentClaimHash(live) })
+        .where(and(eq(requests.id, row.id), eq(requests.claimHash, live)))
+        .returning({ id: requests.id })
+    ).length > 0;
+  // Live after an approval only when it made the account or invited one already there (`approveJoinRequest` spends
+  // it otherwise). The invitation comes first: a request can name an account it didn't make.
+  if (row.status === "approved" && row.invitationId) {
+    const [invitation] = await db
+      .select({ acceptedAt: organizationInvitations.acceptedAt, expiresAt: organizationInvitations.expiresAt })
+      .from(organizationInvitations)
+      .where(eq(organizationInvitations.id, row.invitationId));
+    if (!invitation || invitation.acceptedAt || invitation.expiresAt <= now || !(await trade())) {
+      return { status: "closed" as const };
+    }
+    return { status: "invited" as const, invitationId: row.invitationId };
+  }
   if (row.status === "approved" && row.userId) {
-    const [traded] = await db
-      .update(requests)
-      .set({ claimHash: spentClaimHash(live) })
-      .where(and(eq(requests.id, row.id), eq(requests.claimHash, live)))
-      .returning({ id: requests.id });
-    // Another page with the same key traded it a moment ago.
-    if (!traded) return { status: "closed" as const };
+    if (!(await trade())) return { status: "closed" as const };
     return { status: "in" as const, userId: row.userId, orgId: row.orgId };
   }
   if (row.status === "denied") return { status: "denied" as const, reason: row.reason };

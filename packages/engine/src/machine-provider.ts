@@ -10,6 +10,7 @@ import {
   PASSWORD_CLASSES,
   PASSWORD_LENGTH,
   type PasswordClass,
+  permissionWaitText,
   policyRefusal,
   type SandboxProvider,
   SECRET_ACTIVATE_PROTOCOL,
@@ -93,7 +94,7 @@ function explain(
             { cause: error },
           )
         : said(
-            `Commands are turned off on the computer ${name} (its runner was started with --no-exec): you can only read, write, list and upload files there. Tell the person; its owner can restart the runner without --no-exec.`,
+            `Commands are turned off on the computer ${name} (agentes.chat there was started with --no-exec): you can only read, write, list and upload files there. Tell the person; its owner can start it again without --no-exec.`,
           );
     // The runner names what is wrong with the path and what to use instead.
     case "outside_workspace":
@@ -210,10 +211,11 @@ export function createMachineSandboxProvider(hub: MachineCaller, agent: AgentSco
         },
         { signal: request.signal, onOutput },
       );
+      const wait = r.permission ? permissionWaitText((await hub.status(id))?.name ?? "the computer", r.permission) : "";
       return {
         exitCode: r.exitCode,
         stdout: r.stdout,
-        stderr: r.stderr,
+        stderr: wait ? `${r.stderr.trimEnd()}\n${wait}` : r.stderr,
         timedOut: r.timedOut,
         ...(r.canceled ? { canceled: r.canceled } : {}),
         ...(r.merge ? { merge: r.merge } : {}),
@@ -247,7 +249,7 @@ export function createMachineSandboxProvider(hub: MachineCaller, agent: AgentSco
       const status = await hub.status(id);
       if (status && status.protocol < SECRETS_PROTOCOL) {
         throw new Error(
-          `The runner on the computer ${status.name} is too old to keep secrets. ${runnerUpdateWay(status)}`,
+          `The agentes.chat program on the computer ${status.name} is too old to keep secrets. ${runnerUpdateWay(status)}`,
         );
       }
       if (
@@ -256,7 +258,7 @@ export function createMachineSandboxProvider(hub: MachineCaller, agent: AgentSco
         (request.action === "keypair" || request.action === "deliver" || request.action === "activate")
       ) {
         throw new Error(
-          `The runner on the computer ${status.name} is too old for safe secret delivery. ${runnerUpdateWay(status)}`,
+          `The agentes.chat program on the computer ${status.name} is too old for safe secret delivery. ${runnerUpdateWay(status)}`,
         );
       }
       try {

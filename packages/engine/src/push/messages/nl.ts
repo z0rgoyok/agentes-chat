@@ -65,6 +65,8 @@ export const strings: Partial<PushStrings> = {
   deviceJoinRequestBody: "Tik om toe te laten of te weigeren.",
   waitingTitle: "Er wacht iets op je",
   openBody: "Tik om te openen.",
+  cutBody: "Gestopt voordat het klaar was. Vraag het opnieuw om verder te gaan.",
+  movedBody: "Dit duurt even, dus ik ga op de achtergrond verder.",
   sentGif: "Heeft een GIF gestuurd",
   sentSticker: "Heeft een sticker gestuurd",
   sentVoice: "Heeft een spraakbericht gestuurd",
@@ -89,11 +91,13 @@ export const strings: Partial<PushStrings> = {
   deviceFolderTitle: (a, f, d) => (f ? `${a} vraagt om ${f} op je ${d}` : `${a} vraagt om een map op je ${d}`),
   deviceFolderBody: "Sta het toe in de app op die computer.",
   adminAskTitle: (a, what, l) =>
-    what === "channel_agent"
-      ? `${a} vraagt je een agent toe te voegen aan #${l}`
-      : what === "create_agents"
-        ? `${a} vraagt om agents te mogen maken`
-        : `${a} vraagt je de ${l}-webhook voor routines in te stellen`,
+    what === "voice"
+      ? `${a} vraagt je spraakberichten aan te zetten`
+      : what === "channel_agent"
+        ? `${a} vraagt je een agent toe te voegen aan #${l}`
+        : what === "create_agents"
+          ? `${a} vraagt om agents te mogen maken`
+          : `${a} vraagt je de ${l}-webhook voor routines in te stellen`,
   deviceWaitingTitle: (p, d) => `De agent van ${p} wacht op je ${d}`,
   deviceWaitingBody: "Hij begint zodra die terug is.",
   teamWeekReady: "De week van je team staat klaar",

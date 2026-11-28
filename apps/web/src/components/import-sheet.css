@@ -280,12 +280,3 @@ html:not([data-pointer]) .imp-row__open:focus-visible {
 .imp-flow > li > span {
   min-width: 0;
 }
-/* An app's ways: each line says what the way brings and needs, whole. */
-.imp-paths .imp-row__line {
-  display: block;
-  overflow: visible;
-}
-/* The way that brings the most says so, as words in the colour of good news. */
-.imp-paths__best {
-  color: var(--ok);
-}

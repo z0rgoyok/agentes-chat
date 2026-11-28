@@ -84,6 +84,13 @@ test("a hold stops the clock until every hold is released (a list scrolling, a s
 test("a face's sky is drawn once and every still face is kept, not recorded again on the next mount", () => {
   const src = readFileSync(join(import.meta.dir, "../src/agent/AgentAvatar.tsx"), "utf8");
   expect(src).toContain("return kept(skies, ");
-  expect(src).toContain("{ gaze, bodyless, sky: false },");
+  expect(src).toContain("{ gaze, bodyless, sky: false, px },");
   expect(src).toContain('return kept(stills, key.join("|"), draw);');
+});
+
+test("a face is drawn in the screen's pixels, so the eyes' thinnest line stays thin on a small face", () => {
+  const src = readFileSync(join(import.meta.dir, "../src/agent/AgentAvatar.tsx"), "utf8");
+  expect(src).toContain("const px = PixelRatio.get();");
+  expect(src).toContain("rec.scale(1 / px, 1 / px);");
+  expect(src).toContain("drawAgent(asCtx(rec), box.x * px, box.y * px, box.inner * px, {");
 });

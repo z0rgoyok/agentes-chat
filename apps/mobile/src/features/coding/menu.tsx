@@ -5,11 +5,11 @@ import type { HeaderAction, HeaderMenuItem } from "@/ui";
 import { router } from "@/ui/navigation";
 import { useErrorToast, useOrgId } from "../shared/hooks";
 import { showActionSheet } from "../shared/PickerSheet";
-import { CODING_HREF, sessionPeopleHref } from "./logic";
+import { CODING_HREF, sessionPeopleHref, sessionTerminalHref } from "./logic";
 
 /**
  * A session's "…" (ADR 0215), in its conversation's bar and on its code screen: what the web's header holds, as the
- * system's menu from the bar's button (the app's sheet on Android): who is in it, its pull request, and closing it
+ * system's menu from the bar's button (the app's sheet on Android): its terminal, who is in it, its pull request, and closing it
  * (red). A commit or a merge is asked in the conversation, in the person's own words. Null until the session is known.
  */
 export function useSessionMenu(session: CodeSession | null): HeaderAction | null {
@@ -19,6 +19,17 @@ export function useSessionMenu(session: CodeSession | null): HeaderAction | null
   const close = useCloseCodeSession(orgId);
   if (!session) return null;
   const menu: HeaderMenuItem[] = [
+    // The web's Terminal: a shell in the session's worktree, once it has one.
+    ...(session.worktree.state === "ready"
+      ? [
+          {
+            label: t("codeSessions.panel.terminal"),
+            icon: "codeBlock" as const,
+            sf: "terminal" as const,
+            onPress: () => router.push(sessionTerminalHref(session.id) as never),
+          },
+        ]
+      : []),
     {
       label: t("codeSessions.who.label"),
       icon: "members",

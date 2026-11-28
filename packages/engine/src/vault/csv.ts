@@ -17,6 +17,7 @@ import { assertRoom, cleanScope, teamNeedsPermission, vaultViewer } from "./item
 import { openItemValue, type SealedItemColumns, sealItemValue } from "./seal";
 import {
   VAULT_LIMITS,
+  type VaultAccess,
   type VaultCsvFormat,
   type VaultDeps,
   type VaultImportResult,
@@ -174,13 +175,14 @@ const SKIP_ORDER: VaultImportSkip[] = ["duplicate", "not_https", "no_password", 
 
 /**
  * Imports a CSV export into the chosen scope (personal for anyone, team for who manages credentials), or with
- * `dryRun` only counts what it would do. Team items get the default team access.
+ * `dryRun` only counts what it would do. New items get `access`, else the scope's default (a team item: everyone, no
+ * agent); a login already saved keeps its own.
  */
 export async function importVaultCsv(
   deps: VaultDeps,
   userId: string,
   orgId: string,
-  input: { csv: string; scope: VaultScope; dryRun: boolean },
+  input: { csv: string; scope: VaultScope; dryRun: boolean; access?: VaultAccess },
 ): Promise<VaultImportResult> {
   const { db } = deps;
   const viewer = await vaultViewer(db, userId, orgId);
@@ -255,7 +257,7 @@ export async function importVaultCsv(
   if (input.dryRun || (adds.length === 0 && updates.length === 0)) return result;
 
   await assertRoom(db, orgId, adds.length);
-  const access = await cleanAccess(db, orgId, scope, undefined);
+  const access = await cleanAccess(db, orgId, scope, input.access);
   const now = vaultNow(deps);
   const newRows: (typeof vaultItems.$inferInsert)[] = [];
   for (const add of adds) {

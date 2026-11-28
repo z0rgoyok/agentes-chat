@@ -55,7 +55,7 @@ import { chooseSlideAction, confirmDelete } from "./menus";
 import { usePhotoPick } from "./photos";
 import { useFilePictures } from "./pictures";
 import { slideLayoutRoute, slideShowRoute, textRoute } from "./routes";
-import { type PictureOf, SlideView } from "./SlideView";
+import { type PictureOf, SlideFontsContext, SlideView } from "./SlideView";
 import { useDeck } from "./useDeck";
 
 /**
@@ -310,7 +310,7 @@ export function SlideFocus({
   const menu: HeaderMenuItem[] = [...ask, ...edits];
 
   return (
-    <>
+    <SlideFontsContext.Provider value={deck.fonts}>
       <LiveBar live={live} fileId={fileId} title={title} detail={detail} menu={menu} />
       <View style={[styles.fill, { backgroundColor: c.sunken }]}>
         <PagerView
@@ -393,7 +393,7 @@ export function SlideFocus({
         </ToolBar>
       ) : null}
       <FileTalkLine file={detail} />
-    </>
+    </SlideFontsContext.Provider>
   );
 }
 

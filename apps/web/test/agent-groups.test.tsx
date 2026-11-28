@@ -166,7 +166,8 @@ describe("setores on Equipe (ADR 0083, ADR 0148)", () => {
     await type(within(dialog).getByLabelText("Nome"), "Ops");
     await click(within(dialog).getByRole("button", { name: "Criar setor" }));
     expect(calls(list.state, "agentGroups.create")).toEqual([
-      [{ name: "Ops", agentIds: [ATLAS_ID], color: "graphite", icon: "person" }],
+      // A new setor starts in a color no other setor has: Integrations is graphite.
+      [{ name: "Ops", agentIds: [ATLAS_ID], color: "indigo", icon: "person" }],
     ]);
   });
 
@@ -212,7 +213,7 @@ describe("Organograma › Por setor with no setor", () => {
     const dialog = screen().getByRole("dialog", { name: "Novo setor" });
     await type(within(dialog).getByLabelText("Nome"), "Vendas");
     await click(within(dialog).getByRole("button", { name: "Criar setor" }));
-    expect(calls(state, "agentGroups.create")).toEqual([[{ name: "Vendas", color: "graphite", icon: "person" }]]);
+    expect(calls(state, "agentGroups.create")).toEqual([[{ name: "Vendas", color: "indigo", icon: "person" }]]);
     expect(screen().queryByRole("dialog")).toBeNull();
     expect(document.querySelector(".team-chart .ac-empty")).toBeNull();
     expect(screen().getByRole("region", { name: "Vendas" })).toBeTruthy();

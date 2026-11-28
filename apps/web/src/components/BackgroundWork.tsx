@@ -1,6 +1,7 @@
 import { type Issue, type Message, useChannels, type WorkView } from "@agenteschat/client";
 import { ownsAgentAs } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
+import { upperFirst } from "@agenteschat/client/lib/format";
 import { heldBack } from "@agenteschat/client/lib/issues";
 import {
   handedLine,
@@ -10,15 +11,17 @@ import {
   workWaitsOnPerson,
 } from "@agenteschat/client/lib/long-work";
 import { can } from "@agenteschat/client/lib/permissions";
-import { WorkLine, WorkLineAction, WorkPlan } from "@agenteschat/ui";
+import { type AgentColor, agentGradient, PixelSpinner, WorkLine, WorkLineAction, WorkPlan } from "@agenteschat/ui";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
+import type { CSSProperties, ReactNode } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { useChannelActions } from "@/components/channel-actions";
 import { useNow } from "@/components/missions/MissionBits";
 import { useOrg } from "@/components/org-context";
+import { colorOf } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useToast } from "@/lib/toast";
 
@@ -59,55 +62,108 @@ function useWorkLine(work: WorkView, inUpdatesThread = false) {
   return { view, handed: () => handedLine(t, work, context), agent, stop, t };
 }
 
+/** The delegate in the hand-off's words: its face, then its name in ink (an `.ac-who`, as "helping Ada" draws it). */
+function HandedWho({ agentId, talk, children }: { agentId: string; talk?: string; children?: ReactNode }) {
+  const name = typeof children === "string" ? children : "";
+  return (
+    <span className="ac-who handed-line__who" data-handoff={talk}>
+      <AgentAvatar agentId={agentId} name={name} state="idle" size="xs" />
+      <b>{children}</b>
+    </span>
+  );
+}
+
+/** The line's mark, by its tone: the agent's pixel orbit while it works, a check once done, a wait's small square. */
+function HandedMark({ tone, color }: { tone: string; color?: AgentColor }) {
+  if (tone === "working") return <PixelSpinner size={14} color={color} />;
+  if (tone === "done")
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="m2.5 6.2 2.3 2.3 4.7-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
+  if (tone === "failed")
+    return (
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+        <path d="M6 2.5v4.2M6 9.2v.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      </svg>
+    );
+  return <span className="handed-line__dot" />;
+}
+
 /**
- * Under the reply of the agent that handed work over: "Handed to Atlas · working on it · step 3 of 5 · 2 min", the
- * state word in the agent's colour while it works and amber while it waits on someone. Ver (the two agents' talk, as
- * the bar's) and Stop while it isn't over, See the result once done. Its updates and report are the delegate's own
- * messages right below. `data-handoff` lets the bar above the composer leave it out while it is on screen.
+ * Under the reply of the agent that handed work over, a quiet line on the reply's text (no plate, so no edge to miss
+ * the bubble's): "Handed to [Atlas] Atlas · [Working] step 3 of 5 · 2 min · See · Stop". The state is a badge
+ * in the delegate's colour while it works, amber while it waits, green once done; See (the two agents' talk, as the
+ * bar's) and Stop while it isn't over, See result once done. Its updates and report are the delegate's own messages
+ * right below. `data-handoff` lets the bar above the composer leave it out while it is on screen.
  */
 export function HandedWorkLine({ work }: { work: WorkView }) {
+  const { i18n } = useTranslation();
   const actions = useChannelActions();
   const { handed, agent, stop, t } = useWorkLine(work, true);
   const h = handed();
   const name = agent?.name ?? t("channel.unknownAgent");
   const talk = work.handedBy?.consultationId;
   const seeTalk = talk && !workIsOver(work) && actions?.openConsultation ? actions.openConsultation : undefined;
+  // The report's copy is posted in the thread the work was handed from (`homeThreadId`), never a row of the timeline:
+  // a jump there finds no such row. That thread opens at it, as the phone's line does.
+  const seeResult = (messageId: string) => {
+    if (work.homeThreadId && actions?.openThread) actions.openThread(work.homeThreadId, messageId);
+    else actions?.jumpTo?.(messageId);
+  };
+  const color = agent ? colorOf(agent) : undefined;
+  const links = [
+    h.result && (
+      <WorkLineAction key="result" onClick={() => seeResult(h.result?.messageId as string)}>
+        {h.result.label}
+      </WorkLineAction>
+    ),
+    seeTalk && talk && (
+      <WorkLineAction key="see" onClick={() => seeTalk(talk)}>
+        {t("run.strip.see")}
+      </WorkLineAction>
+    ),
+    h.stop && (
+      <WorkLineAction key="stop" danger disabled={stop.isPending} onClick={() => stop.mutate(h.stop?.runId as string)}>
+        {t("work.stop")}
+      </WorkLineAction>
+    ),
+  ].filter(Boolean);
   return (
-    <WorkLine
-      tone={h.tone}
+    <div
       className="handed-line"
-      text={
-        <>
-          <Trans
-            i18nKey="work.handed.lead"
-            values={{ name }}
-            components={[
-              <span key="who" className="handed-line__who" data-handoff={talk}>
-                <AgentAvatar agentId={work.agentId} name={name} state="idle" size="xs" />
-              </span>,
-            ]}
-          />
+      data-tone={h.tone}
+      role="status"
+      style={color ? ({ "--work-tone": agentGradient(color)[1] } as CSSProperties) : undefined}
+    >
+      <span className="handed-line__mark" aria-hidden="true">
+        <HandedMark tone={h.tone} color={color} />
+      </span>
+      <p className="handed-line__text">
+        <Trans
+          i18nKey="work.handed.lead"
+          values={{ name }}
+          components={[<HandedWho key="who" agentId={work.agentId} talk={talk} />]}
+        />
+        <span className="handed-line__keep">
           {" · "}
-          <span className="handed-line__state">{h.state}</span>
-          {h.facts.map((fact) => ` · ${fact}`).join("")}
-        </>
-      }
-      actions={
-        <>
-          {h.result && (
-            <WorkLineAction onClick={() => actions?.jumpTo?.(h.result?.messageId as string)}>
-              {h.result.label}
-            </WorkLineAction>
+          <span className="handed-line__state">{upperFirst(h.state, i18n.language)}</span>
+          {h.facts.length > 0 && (
+            <>
+              {" "}
+              <span className="handed-line__facts">{h.facts.join(" · ")}</span>
+            </>
           )}
-          {seeTalk && talk && <WorkLineAction onClick={() => seeTalk(talk)}>{t("run.strip.see")}</WorkLineAction>}
-          {h.stop && (
-            <WorkLineAction danger disabled={stop.isPending} onClick={() => stop.mutate(h.stop?.runId as string)}>
-              {t("work.stop")}
-            </WorkLineAction>
-          )}
-        </>
-      }
-    />
+        </span>
+        {links.map((link) => (
+          <span key={(link as { key: string }).key} className="handed-line__keep">
+            {" · "}
+            {link}
+          </span>
+        ))}
+      </p>
+    </div>
   );
 }
 

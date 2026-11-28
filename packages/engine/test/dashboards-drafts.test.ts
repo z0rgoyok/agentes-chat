@@ -350,7 +350,7 @@ describe("who names a widget (ADR 0135 §17)", () => {
     const draft = await testWidget(dash(), f.owner.id, f.org.id, b.id, ask());
     await drainOutbox(f.db, f.handlers);
     expect(results[0]).toContain("short `title`");
-    expect(results[1]).toContain("at most 40 characters");
+    expect(results[1]).toContain("at most 20 characters");
     expect(await widgetOf(draft.id)).toMatchObject({ status: "ok", title: "Visitas", titleSetByUser: false });
   });
 

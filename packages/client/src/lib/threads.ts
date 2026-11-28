@@ -219,24 +219,6 @@ export function selectionOf(list: Message[], ctx: ThreadInfo["context"]): RangeS
 // ── What the channel shows ─────────────────────────────────────────────────
 
 /**
- * Messages of this channel that are the context of a thread (still in the
- * channel): they get the quiet mark in the gutter. `list` is the channel's
- * top-level timeline, oldest first.
- */
-export function contextMarks(threads: ThreadInfo[], list: Message[], channelId: string): Set<string> {
-  const marks = new Set<string>();
-  const top = rangeCandidates(list);
-  for (const t of threads) {
-    const ctx = t.context;
-    if (!ctx || ctx.moved || ctx.channelId !== channelId || t.state === "archived") continue;
-    const sel = selectionOf(top, ctx);
-    if (!sel) continue;
-    for (const m of selectionInfo(top, sel).included) marks.add(m.id);
-  }
-  return marks;
-}
-
-/**
  * What the channel hides because of threads: the replies of closed and
  * archived threads (a closed one is one line; an archived one isn't shown),
  * archived roots, and the replies of threads made from a range (those live in
@@ -267,3 +249,20 @@ export function threadStatus(t: Pick<ThreadInfo, "state" | "working" | "needsYou
  */
 export const threadMessageCount = (t: Pick<ThreadInfo, "replyCount" | "context">) =>
   !t.context ? t.replyCount + 1 : t.context.moved ? t.replyCount : t.context.count + t.replyCount;
+
+/**
+ * Where a thread opens: a channel's or a DM's in its conversation, at its root, with the thread in the panel beside
+ * it; a mission's (its plan on top), a task's and a file's on a screen of their own.
+ */
+export const opensInConversation = (t: Pick<ThreadInfo, "channelKind" | "mission">) =>
+  (t.channelKind === "channel" || t.channelKind === "dm") && !t.mission;
+
+/**
+ * The message a thread's conversation opens at, beside the thread: its root, or the first message of its range while
+ * the range is still there; none for an archived one, which the conversation no longer shows.
+ */
+export function threadAnchor(t: Pick<ThreadInfo, "id" | "channelId" | "state" | "context">): string | null {
+  if (t.state === "archived") return null;
+  const ctx = t.context;
+  return ctx && !ctx.moved && ctx.channelId === t.channelId ? ctx.firstMessageId : t.id;
+}

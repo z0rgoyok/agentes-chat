@@ -35,6 +35,8 @@ export interface RunSteeredEvent {
   computer?: "queued" | "away" | "line";
   /** Into a run waiting on its plan's limit or its budget. */
   usage?: "plan" | "budget";
+  /** Into a run parked on an outage: it retries by itself. */
+  outage?: boolean;
 }
 
 /** `agent.run.read`: the run read these messages sent while it worked ("Leu seu recado"). */
@@ -153,6 +155,8 @@ export interface LiveRun {
   intent?: string;
   /** Its line on the way (`say_now`) is in the conversation: a late `agent.intent` says nothing more. */
   said?: boolean;
+  /** A step before the model has the turn that is taking a while (`agent.phase`): `code`, its checkouts updating. */
+  phase?: LivePhase;
   /** "Parar" was pressed and the server hasn't confirmed yet. */
   stopping?: boolean;
   /** Its browser command waits for a shared profile someone else has (ADR 0110). */
@@ -213,6 +217,8 @@ export type LiveWork =
       requestId?: string;
       /** A rule ("Aprovar sempre") let it run without asking: whose person, a reads one or not. */
       autoApproved?: { by: string | null; reads: boolean };
+      /** What it wrote before this call (`agent.tool`'s `said`): the live trail quotes it above the call's line. */
+      said?: string;
       /** A call of the computer brain's own in a code session (`agent.step`, ADR 0215): its line, as in a terminal. */
       cli?: CliLine;
       /**
@@ -352,6 +358,18 @@ export interface AgentIntentEvent {
   text: string;
 }
 
+export type LivePhase = "code";
+
+/** A step before the model has the turn that is taking a while, and its end (`phase: null`). */
+export interface AgentPhaseEvent {
+  type: "agent.phase";
+  channelId: string;
+  threadId: string;
+  runId: string;
+  agentId: string;
+  phase: LivePhase | null;
+}
+
 export interface StreamsState {
   runs: Record<string, LiveRun>;
   /** Runs heard to stop, and when: late deltas for them are ignored. */
@@ -476,6 +494,7 @@ type StreamEvent =
   | AgentToolEvent
   | AgentStepEvent
   | AgentIntentEvent
+  | AgentPhaseEvent
   | AgentToolOutputEvent
   | AgentToolProgressEvent
   | RunCanceledEvent
@@ -518,7 +537,7 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
       // later. The resumed run's first event takes the guess's place (`upsert`); one still parked on its computer
       // or its plan says so here, and its guess goes.
       const live = state.runs[event.runId];
-      const settles = (live && !live.provisional) || event.computer || event.usage || event.stop;
+      const settles = (live && !live.provisional) || event.computer || event.usage || event.outage || event.stop;
       const s =
         event.agentId && settles
           ? settleAfterRun(state, { agentId: event.agentId, channelId: event.channelId, threadId: null })
@@ -596,6 +615,7 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
             since: Date.now(),
             id: event.toolUseId ?? `call-${work.length}`,
             tool: event.tool ?? "",
+            ...(event.said ? { said: event.said } : {}),
             connector: event.connector ?? null,
             ...(event.service ? { service: event.service } : {}),
             ...(event.serviceIcon ? { serviceIcon: event.serviceIcon } : {}),
@@ -628,7 +648,8 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
         service: event.service ?? null,
         serviceIcon: event.serviceIcon ?? null,
         toolDetail: event.detail ?? null,
-        ...(newCall ? { code: event.code ?? null, output: [] } : {}),
+        // A call means the model has the turn: whatever came before it is over, even if its end was never heard.
+        ...(newCall ? { code: event.code ?? null, output: [], phase: undefined } : {}),
         // A new call is the step now: its own words, or none (the call's verb says it). The computer's permission
         // check before a command is no step of its own: the command it lets through was told a moment before
         // (`agent.step`) and stays the step while it runs, or the bar would say "thinking" for as long as it takes.
@@ -643,7 +664,7 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
       const step = { tool: event.tool, ...(event.said ? { said: event.said } : {}) };
       // In a code session (ADR 0215) the call is a line of the work too: its start adds it, its end closes it.
       const cli = cliLineOf(event.cli);
-      if (!cli || !event.toolUseId) return upsert(state, event, { step });
+      if (!cli || !event.toolUseId) return upsert(state, event, { step, phase: undefined });
       const work = current.work ?? [];
       const at = work.findIndex((w) => w.kind === "call" && w.id === event.toolUseId);
       const told = work[at];
@@ -666,9 +687,10 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
         running: !event.ended,
         ...(event.ended ? {} : { since: Date.now() }),
         ...(event.failed ? { failed: true } : {}),
+        ...(event.said ? { said: event.said } : {}),
         cli,
       };
-      return upsert(state, event, { step, work: [...work, line] });
+      return upsert(state, event, { step, work: [...work, line], phase: undefined });
     }
     case "agent.tool.progress": {
       if (state.finished[event.runId]) return state;
@@ -691,6 +713,13 @@ function applyEvent(state: StreamsState, event: StreamEvent): StreamsState {
       // Its own words came first: the line it said on the way, or its reply.
       if (state.finished[event.runId] || !r || r.said) return state;
       return { ...state, runs: { ...state.runs, [event.runId]: { ...r, intent: event.text } } };
+    }
+    case "agent.phase": {
+      const r = state.runs[event.runId];
+      if (state.finished[event.runId] || !r) return state;
+      // A phase this app doesn't know says nothing: the line stays as it was.
+      const phase = event.phase === "code" ? event.phase : undefined;
+      return { ...state, runs: { ...state.runs, [event.runId]: { ...r, phase } } };
     }
     case "agent.tool.output": {
       if (state.finished[event.runId]) return state;
@@ -851,12 +880,13 @@ const postedOnTheWay = (state: StreamsState, m: Pick<Message, "agentRunId" | "me
       ),
   );
 
-/** No event for this long: the row says "sem notícias há 3 min · Atualizar". */
-export const QUIET_AFTER_MS = 3 * 60_000;
+/** No event for this long: the app asks the server, unseen, whether the run still runs (`recheckRuns`). */
+export const QUIET_AFTER_MS = 90_000;
 
 /**
- * A live run that went silent (orphaned by a server restart, a lost socket…). One whose last call waits on a person
- * (a command's card, an approval) isn't: nothing happens until they answer, and the answer ends that call.
+ * A live run that went silent: its end may have been lost on the way (a server restart, a socket that stayed open while
+ * its events stopped). One whose last call waits on a person (a command's card, an approval) isn't: nothing happens
+ * until they answer, and the answer ends that call.
  */
 export const isQuiet = (r: LiveRun, now = Date.now()) =>
   !r.provisional &&
@@ -864,10 +894,37 @@ export const isQuiet = (r: LiveRun, now = Date.now()) =>
   (r.work ?? []).filter((w) => w.kind === "call").at(-1)?.held !== true &&
   now - (r.lastEventAt ?? r.startedAt ?? now) >= QUIET_AFTER_MS;
 
-/** "Atualizar" found the run still active: quiet again for another while. */
+/** The runs gone quiet at `at` by channel, leaving out `asking` (runs a check is already out for). */
+export function quietRunsByChannel(state: StreamsState, at: number, asking: ReadonlySet<string> = new Set()) {
+  const out = new Map<string, string[]>();
+  for (const r of Object.values(state.runs)) {
+    if (isQuiet(r, at) && !asking.has(r.runId)) out.set(r.channelId, [...(out.get(r.channelId) ?? []), r.runId]);
+  }
+  return out;
+}
+
+/** The server found the run still active: quiet again for another while. */
 export function touchRun(state: StreamsState, runId: string, now = Date.now()): StreamsState {
   const r = state.runs[runId];
   return r ? { ...state, runs: { ...state.runs, [runId]: { ...r, lastEventAt: now } } } : state;
+}
+
+/**
+ * The server's active runs, asked about `runIds` (runs gone quiet): those it no longer lists ended while their end never
+ * reached us and go (their message reads again); the rest are quiet again for another while. `active` undefined: the
+ * check failed (offline, no access any more, a server error), and they are asked about again after another while, not
+ * on every 5 s sweep.
+ */
+export function recheckRuns(
+  state: StreamsState,
+  runIds: readonly string[],
+  active: readonly ActiveRun[] | undefined,
+  now = Date.now(),
+) {
+  const known = new Set((active ?? []).map((a) => a.runId));
+  let s = state;
+  for (const id of runIds) s = !active || known.has(id) ? touchRun(s, id, now) : dismissRun(s, id);
+  return s;
 }
 
 const ACTIVE: ReadonlySet<string> = new Set(["queued", "running", "waiting_approval"]);

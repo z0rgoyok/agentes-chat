@@ -124,9 +124,10 @@ export function errorPageHtml({ cause, locale, action, errorId }: ErrorPageInput
   const title = say(`${cause}.title`);
   const id = cause === "server" && errorId ? `<p class="id">${say("errorId", { id: errorId })}</p>` : "";
   return `<!doctype html>
-<html lang="${locale}">
+<html lang="${locale}" translate="no">
 <head>
 <meta charset="utf-8">
+<meta name="google" content="notranslate">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <title>${title}</title>

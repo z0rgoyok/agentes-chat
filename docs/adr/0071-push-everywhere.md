@@ -36,7 +36,8 @@ Phone push changes (sending straight to Firebase and Apple, a push relay for sel
 - A browser where nobody opens the app while its session lasts (a week unused, Better Auth's default) stops getting pushes until someone signs in there again.
 - A browser's notifications aren't taken down while no tab of the app is open; they are the next time one is.
 - The desktop app's own notifications aren't taken down when read elsewhere.
-- Left for later: phone push without Expo and through a relay for self-hosted servers, sealed phone pushes, clear on read for phones, a manifest so the site installs on iPhone.
+- Home Screen installs use the web app manifest in [ADR 0249](0249-installable-web-app.md).
+- Left for later: phone push without Expo and through a relay for self-hosted servers, sealed phone pushes, clear on read for phones.
 
 ## Amendment (2026-11-08): our ask waits for the first answer (§3)
 

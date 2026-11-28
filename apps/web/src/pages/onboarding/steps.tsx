@@ -30,6 +30,7 @@ import { useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
 import { AgentAvatar } from "@/components/AgentAvatar";
+import { type PaidComputer, PaidScene } from "@/components/arrival/PaidMoment";
 import { useOpenBilling } from "@/components/BillingLinkButton";
 import { TeamAsleepSky } from "@/components/Sky";
 import { TeamPlanBody } from "@/components/TeamPlan";
@@ -93,10 +94,16 @@ export function BusinessStep({
           </div>
           <Field
             label={t("agentSetup.firstRun.about.line")}
-            hint={{
-              name: t("common.about", { label: t("agentSetup.firstRun.about.line") }),
-              text: other ? undefined : t("agentSetup.firstRun.about.optional"),
-            }}
+            hint={
+              other
+                ? undefined
+                : {
+                    name: t("common.about", { label: t("agentSetup.firstRun.about.line") }),
+                    text: t("agentSetup.firstRun.about.optional"),
+                  }
+            }
+            // "Outra coisa" has no words of its own: Continue waits for the sentence, and says so in sight.
+            example={other && !text ? t("agentSetup.firstRun.about.otherNeeded") : undefined}
           >
             <Textarea
               className="onb__line"
@@ -270,7 +277,9 @@ export function TeamStep({
  * what each one does (its first routine, else its role; the right hand, what it is to the person), the plan the
  * billing service recommends with its price when it says one, what comes after it (`next`: connecting an AI, ADR
  * 0162), and the way in without it, where the right hand's card keeps the plan. Back from paying (`confirming`), the
- * payment said as received until the hold lifts.
+ * payment said as received until the hold lifts. Then (`awake`, ADR 0079) the moment the plan turned on: day over
+ * the team, the computer as it is (on, or getting ready), a hello to the person who paid, and the step that comes
+ * next as the one way on.
  */
 export function PlanStep({
   orgId,
@@ -281,6 +290,7 @@ export function PlanStep({
   next,
   confirming,
   personal,
+  awake,
 }: {
   orgId: string;
   team: Agent[];
@@ -290,11 +300,28 @@ export function PlanStep({
   next: boolean;
   confirming: boolean;
   personal: boolean;
+  /** The plan just turned on: who paid (greeted by their first name), the computer as it is, and the step after it. */
+  awake: { name: string | null | undefined; computer: PaidComputer; next: string; onNext: () => void } | null;
 }) {
   const { t } = useTranslation();
   const routines = useRoutines(orgId).data;
   const turnOn = useOpenBilling(orgId, "onboarding", offer?.key);
   const allPlans = useOpenBilling(orgId, "onboarding");
+  if (awake)
+    return (
+      <section
+        className="onb__plan"
+        aria-label={t(personal ? "onboarding.flow.steps.planPersonal" : "onboarding.flow.steps.plan")}
+      >
+        <PaidScene agents={team} name={awake.name} computer={awake.computer} className="onb__plan-scene" />
+        <PlanWeek team={team} routines={routines} />
+        <div className="onb__plan-acts">
+          <Button variant="primary" kbd={["↵"]} data-enter="" onClick={awake.onNext}>
+            {awake.next}
+          </Button>
+        </div>
+      </section>
+    );
   return (
     <>
       <section
@@ -314,21 +341,7 @@ export function PlanStep({
             {t(personal ? "onboarding.flow.plan.asleepPersonal" : "onboarding.flow.plan.asleep")}
           </Chip>
         </div>
-        <ul className="onb__plan-week">
-          {team.map((a) => {
-            // The right hand has no role of its own: it is said as what it is to the person. Nothing to say, no dot.
-            const job = firstJob(a, routines) || (isRightHand(a) ? t("rightHand.labelCapitalized") : "");
-            return (
-              <li key={a.id} className="ac-iconline">
-                <Icon name="check" size={14} />
-                <span>
-                  <b>{a.name}</b>
-                  {job && ` · ${job}`}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
+        <PlanWeek team={team} routines={routines} />
         <div className="onb__plan-price">
           {/* Why the Cloud costs, where the price is: one's own server is free, said here and nowhere louder. */}
           <HintLine name={t("hosting.whyPaid")} hint={t("hosting.whyPaidText")}>
@@ -378,6 +391,28 @@ export function PlanStep({
         </p>
       )}
     </>
+  );
+}
+
+/** What each one does: its first routine, else its role; the right hand, what it is to the person. */
+function PlanWeek({ team, routines }: { team: Agent[]; routines: Parameters<typeof firstJob>[1] }) {
+  const { t } = useTranslation();
+  return (
+    <ul className="onb__plan-week">
+      {team.map((a) => {
+        // The right hand has no role of its own: it is said as what it is to the person. Nothing to say, no dot.
+        const job = firstJob(a, routines) || (isRightHand(a) ? t("rightHand.labelCapitalized") : "");
+        return (
+          <li key={a.id} className="ac-iconline">
+            <Icon name="check" size={14} />
+            <span>
+              <b>{a.name}</b>
+              {job && ` · ${job}`}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

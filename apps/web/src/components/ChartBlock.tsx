@@ -2,6 +2,8 @@ import { type ChartSpec, chartShares, chartTable, formatChartValue, parseChart }
 import {
   type AgentColor,
   Button,
+  ChartTip,
+  type ChartTipAt,
   Dialog,
   DialogBody,
   gradientOf,
@@ -16,20 +18,12 @@ import {
   chartRamp,
   chartSlices,
   linePoints,
+  nearestPoint,
   ringCells,
   smoothPath,
 } from "@agenteschat/ui/sky/chart";
 import { chartBlockToWidgetSpec } from "@agenteschat/ui/widgets/spec";
-import {
-  createContext,
-  type ReactNode,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CodeBlock } from "@/components/CodeBlock";
 import { useOrg } from "@/components/org-context";
@@ -224,22 +218,6 @@ function useShown() {
   return shown;
 }
 
-type Tip = { x: number; y: number; text: ReactNode } | null;
-
-function TipLayer({ tip }: { tip: Tip }) {
-  return (
-    <span
-      className="chart-tip"
-      data-on={Boolean(tip)}
-      data-below={tip ? tip.y < 44 : undefined}
-      style={tip ? { left: tip.x, top: tip.y } : undefined}
-      aria-hidden="true"
-    >
-      {tip?.text}
-    </span>
-  );
-}
-
 /* ---------- bars ---------- */
 
 function BarChart({ spec, big }: { spec: ChartSpec; big: boolean }) {
@@ -249,7 +227,7 @@ function BarChart({ spec, big }: { spec: ChartSpec; big: boolean }) {
   const max = Math.max(0, ...values) || 1;
   const shown = useShown();
   const [rail, railWidth] = useElementWidth<HTMLSpanElement>();
-  const [tip, setTip] = useState<Tip>(null);
+  const [tip, setTip] = useState<ChartTipAt>(null);
   const [hot, setHot] = useState<number | null>(null);
   const box = useRef<HTMLDivElement>(null);
   const height = big ? 20 : 14;
@@ -296,7 +274,7 @@ function BarChart({ spec, big }: { spec: ChartSpec; big: boolean }) {
           </div>
         );
       })}
-      <TipLayer tip={tip} />
+      <ChartTip tip={tip} />
     </div>
   );
 }
@@ -355,7 +333,7 @@ function LineChart({
   const path = useRef<SVGPathElement>(null);
   const area = useRef<HTMLCanvasElement>(null);
   const [length, setLength] = useState(0);
-  const [tip, setTip] = useState<Tip>(null);
+  const [tip, setTip] = useState<ChartTipAt>(null);
   const [cursor, setCursor] = useState<number | null>(null);
   const first = points[0] ?? [];
   const at = cursor === null ? undefined : first[cursor];
@@ -381,10 +359,7 @@ function LineChart({
             : (e) => {
                 const r = e.currentTarget.getBoundingClientRect();
                 const x = e.clientX - r.left;
-                let i = 0;
-                first.forEach((p, j) => {
-                  if (Math.abs(p[0] - x) < Math.abs((first[i]?.[0] ?? 0) - x)) i = j;
-                });
+                const i = nearestPoint(first, x);
                 const p = first[i];
                 if (!p) return;
                 setCursor(i);
@@ -448,7 +423,7 @@ function LineChart({
               ))}
           </svg>
         )}
-        <TipLayer tip={tip} />
+        <ChartTip tip={tip} />
       </div>
       {!spark && (
         <div className="chart-line__x">
@@ -517,7 +492,7 @@ function PieChart({ spec, big }: { spec: ChartSpec; big: boolean }) {
   const values = spec.series[0]?.values ?? [];
   const total = values.reduce((a, b) => a + b, 0);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const [tip, setTip] = useState<Tip>(null);
+  const [tip, setTip] = useState<ChartTipAt>(null);
   const still = useContext(ChartStill);
 
   // The ring sweeps in clockwise once; then it stays drawn.
@@ -567,7 +542,7 @@ function PieChart({ spec, big }: { spec: ChartSpec; big: boolean }) {
           </li>
         ))}
       </ul>
-      <TipLayer tip={tip} />
+      <ChartTip tip={tip} />
     </div>
   );
 }

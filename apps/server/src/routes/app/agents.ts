@@ -19,6 +19,7 @@ import {
   canViewCost,
   checkCredential,
   checkEndpoint,
+  closeSetup,
   confirmSetupStep,
   createAgent,
   createAgentFromProposal,
@@ -69,6 +70,7 @@ import {
   rightHandWidgetsReady,
   SETUP_AGENTS_MAX,
   seesAgentDetails,
+  seesAgentFactsOnly,
   setAgentBrain,
   setReportsTo,
   speakerOf,
@@ -172,6 +174,7 @@ const toAgent = (
     canTalk: canTalkTo(a, viewerId, speakerOf(viewer)),
     ...agentRights(a, viewerId, viewer),
     editors: seesDetails ? editorsOf(a) : { userIds: [], roleIds: [] },
+    factsOnly: seesAgentFactsOnly(a, viewerId, viewer),
     listed: listsAgentTo(a, viewerId, viewer),
   };
 };
@@ -284,7 +287,7 @@ const AgentProposal = z
         ai: z.discriminatedUnion("kind", [
           z.object({
             kind: z.literal("account"),
-            brain: z.enum(["claude_code", "codex", "cursor", "opencode", "grok", "antigravity"]),
+            brain: z.enum(["claude_code", "codex", "cursor", "opencode", "grok", "antigravity", "devin"]),
             machineId: z.uuid(),
             accountId: z.uuid(),
             label: z.string(),
@@ -749,7 +752,7 @@ export function agentRoutes(deps: AppDeps) {
                     "plan_tools",
                   ])
                   .optional(),
-                own: z.enum(["claude_code", "codex", "cursor", "opencode", "grok", "antigravity"]).optional(),
+                own: z.enum(["claude_code", "codex", "cursor", "opencode", "grok", "antigravity", "devin"]).optional(),
                 owner: z.string().optional().openapi({
                   description:
                     "With `plans_not_yours`: whose the workspace's plans are (each serves only the person who connected it).",
@@ -809,7 +812,7 @@ export function agentRoutes(deps: AppDeps) {
       security,
       summary: "Each agent's presence (online, busy, away, out of office, offline) and what it says it is doing",
       description:
-        "From its work (ADR 0084): `busy` on a routine, a task, a run going for over 2 minutes or one rated heavy, or when it said so; `online` while answering, waiting on an answer or active in the last 30 minutes (one never active, in the 30 minutes since it was made; the right hand always); `away` after that; `out` (out of office, §12) while its plan is at its limit or its monthly budget is spent, with an `out_of_plan`/`out_of_budget` line whose `until` says when it is back, and the router leaves it out of messages nobody mentioned it in; `offline` when held. An agent with no AI is drawn offline by the apps (`ai-status`). `status`: its own words (`set_status`), a line picked for its run (`kind` + `subject`), or what its run waits on; gone when the run ends unless it set `until`. Refreshed on `agent.status` events and every 30 seconds while open.",
+        'From its work (ADR 0084): `busy` on a routine, a task, a run going for over 2 minutes or one rated heavy, or when it said so; `online` while answering, or active in the last 10 minutes (a run waiting on an answer or an approval counts from its last change; one never active, from when it was made); `away` after that, the right hand too (the apps say "Inativo"); `out` (out of office, §12) while its plan is at its limit or its monthly budget is spent, with an `out_of_plan`/`out_of_budget` line whose `until` says when it is back, and the router leaves it out of messages nobody mentioned it in; `offline` when held. An agent with no AI is drawn offline by the apps (`ai-status`). `status`: its own words (`set_status`), a line picked for its run (`kind` + `subject`), or what its run waits on; gone when the run ends unless it set `until`. Refreshed on `agent.status` events and every 30 seconds while open.',
       request: { params: OrgParams },
       responses: {
         200: json(
@@ -899,6 +902,10 @@ export function agentRoutes(deps: AppDeps) {
                     routine: z.boolean().openapi({ description: "A routine's work: no conversation holds it." }),
                     count: z.number().int().openapi({ description: "How many runs it has on." }),
                     at: z.string().optional().openapi({ description: "With `later`: when it comes back (ISO)." }),
+                    private: z.literal(true).optional().openapi({
+                      description:
+                        "Its conversation is one you don't read (someone else's DM, a private channel you're not in): no place to open.",
+                    }),
                   })
                   .nullable()
                   .openapi({
@@ -937,6 +944,10 @@ export function agentRoutes(deps: AppDeps) {
       .openapi({ description: "The channels it is in that the current person may see, in the sidebar's order." }),
     canTalk: z.boolean(),
     seesDetails: z.boolean().openapi({ description: "Whether the current person sees how it works." }),
+    factsOnly: z.boolean().optional().openapi({
+      description:
+        "A teammate's private agent seen through \"Editar agentes\" (ADR 0085, addendum of 2026-11-24): listed on Equipe with a lock, its page shows its facts and this month's usage, never how it works, and nothing to change. Absent (older servers): false.",
+    }),
     canManage: z.boolean().openapi({
       description: "Whether the current person manages it (`manage_agents` where it reaches, ADR 0085 addendum).",
     }),
@@ -1639,25 +1650,49 @@ export function agentRoutes(deps: AppDeps) {
       const { orgId, agentId, step } = c.req.valid("param");
       const actor = c.get("user").id;
       await confirmSetupStep(db, actor, orgId, agentId, step);
-      // Another device of theirs, or another admin, ticks the row at once.
-      await publishAgentsChanged(adapters.pubsub, orgId);
-      const agent = await getAgent(db, orgId, agentId);
-      if (!agent) throw new NotFoundError("Agent not found");
-      const [seesCost, brains, viewer, old] = await Promise.all([
-        canViewCost(db, actor, orgId),
-        agentBrainLines(db, actor, orgId, [agent]),
-        getMembership(db, actor, orgId),
-        oldHandlesByAgent(db, orgId),
-      ]);
-      return c.json(
-        {
-          ...toAgent(agent, actor, seesCost, undefined, brains.get(agent.id), viewer),
-          previousHandles: old.get(agent.id) ?? [],
-        },
-        200,
-      );
+      return c.json(await afterSetupChange(actor, orgId, agentId), 200);
     },
   );
+
+  app.openapi(
+    createRoute({
+      method: "patch",
+      path: "/organizations/{orgId}/agents/{agentId}/setup",
+      tags,
+      security,
+      summary: "Close a new agent's setup checklist on its page",
+      description:
+        "Its owner or whoever manages agents closed the checklist on its page (ADR 0155 §2): the page shows it no more, whatever is left, while its chat keeps its own. Closing twice changes nothing; an agent with no checklist keeps none.",
+      request: {
+        params: AgentParams,
+        body: body(z.object({ closed: z.literal(true) })),
+      },
+      responses: { 200: json(Agent), ...errors },
+    }),
+    async (c) => {
+      const { orgId, agentId } = c.req.valid("param");
+      const actor = c.get("user").id;
+      await closeSetup(db, actor, orgId, agentId);
+      return c.json(await afterSetupChange(actor, orgId, agentId), 200);
+    },
+  );
+
+  /** After its checklist changed: tells the other devices and admins at once, and answers with the agent as it is now. */
+  async function afterSetupChange(actor: string, orgId: string, agentId: string) {
+    await publishAgentsChanged(adapters.pubsub, orgId);
+    const agent = await getAgent(db, orgId, agentId);
+    if (!agent) throw new NotFoundError("Agent not found");
+    const [seesCost, brains, viewer, old] = await Promise.all([
+      canViewCost(db, actor, orgId),
+      agentBrainLines(db, actor, orgId, [agent]),
+      getMembership(db, actor, orgId),
+      oldHandlesByAgent(db, orgId),
+    ]);
+    return {
+      ...toAgent(agent, actor, seesCost, undefined, brains.get(agent.id), viewer),
+      previousHandles: old.get(agent.id) ?? [],
+    };
+  }
 
   app.openapi(
     createRoute({
@@ -1781,10 +1816,20 @@ export function agentRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/agent-groups",
       tags,
       security,
-      summary: "Add a group after the others, with these agents in it in order (owners and admins)",
+      summary: "Add a group after the others, with these agents and channels in it in order (owners and admins)",
       request: {
         params: OrgParams,
-        body: body(z.object({ name: GroupName, agentIds: z.array(z.uuid()).max(200).optional(), ...GroupLook })),
+        body: body(
+          z.object({
+            name: GroupName,
+            agentIds: z.array(z.uuid()).max(200).optional(),
+            channelIds: z.array(z.uuid()).max(200).optional().openapi({
+              description:
+                "Channels it takes (ADR 0240): each one the caller may move (who manages channels, its creator).",
+            }),
+            ...GroupLook,
+          }),
+        ),
       },
       responses: { 201: json(Groups, "Created"), ...errors },
     }),

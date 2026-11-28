@@ -7,6 +7,7 @@ import {
   customModelId,
   customModelOf,
   endpointModelId,
+  endpointOutputLimit,
   isOpenRouterModel,
   listEndpointModels,
   maxCostNanoUsd,
@@ -97,6 +98,30 @@ describe("model lists", () => {
       { id: "qwen3" },
     ]);
     expect(parseEndpointModels("nope")).toEqual([]);
+  });
+
+  test("a model's output limit as its list tells it: its own field, else a quarter of its window, else none", async () => {
+    const body = {
+      data: [
+        { id: "router/m", top_provider: { max_completion_tokens: 32_768 }, context_length: 131_072 },
+        { id: "groq-m", max_completion_tokens: 8192, context_window: 131_072 },
+        { id: "claude-y", max_tokens: 64_000, max_input_tokens: 200_000 },
+        { id: "vllm-m", max_model_len: 32_768 },
+        { id: "bare" },
+      ],
+    };
+    expect(endpointOutputLimit(body, "router/m")).toBe(32_768);
+    expect(endpointOutputLimit(body, "groq-m")).toBe(8192);
+    expect(endpointOutputLimit(body, "claude-y")).toBe(64_000);
+    expect(endpointOutputLimit(body, "vllm-m")).toBe(8192);
+    expect(endpointOutputLimit(body, "bare")).toBeNull();
+    expect(endpointOutputLimit(body, "absent")).toBeNull();
+    expect(endpointOutputLimit({ models: [{ name: "qwen3", max_output_tokens: 4096 }] }, "qwen3")).toBe(4096);
+
+    const fetcher = (async () => new Response(JSON.stringify(body))) as unknown as typeof fetch;
+    const provider = createCustomProvider({ fetch: fetcher });
+    const endpoint = { style: "openai" as const, baseURL: "https://gw.example/v1" };
+    expect(await provider.outputLimit?.(customModelId(CRED, "groq-m"), { apiKey: "k-123456789", endpoint })).toBe(8192);
   });
 
   test("the list's address and key by style; a refusal and an oversized list fail with words", async () => {
@@ -255,6 +280,67 @@ describe("calls", () => {
     // Any other endpoint: no session of ours, the SDK's own User-Agent.
     expect(req?.headers.get("x-opencode-session")).toBeNull();
     expect(req?.headers.get("user-agent")).not.toStartWith("agentes.chat/");
+  });
+
+  test("Chat Completions: an effort the endpoint refuses goes again with the nearest it takes, then stays mapped", async () => {
+    // Mistral's own words for a model without `medium` (deepseek-v4-1-flash-1017, seen 2026-11-19).
+    const refusal = JSON.stringify({
+      object: "error",
+      message:
+        "reasoning_effort 'medium' is not supported for this model; supported values: ['none', 'low', 'high', 'xhigh', 'max']",
+      type: "invalid_request_invalid_args",
+      code: "3051",
+    });
+    const stream = chat([
+      { choices: [{ index: 0, delta: { content: "ok" }, finish_reason: "stop" }] },
+      { choices: [], usage: { prompt_tokens: 10, completion_tokens: 2 } },
+    ]);
+    const seen: { body: Record<string, unknown>; status: number }[] = [];
+    const fetcher = (async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>;
+      // The model takes no `medium`: only that request is refused, so the second attempt answers.
+      const refused = body.reasoning_effort === "medium";
+      seen.push({ body, status: refused ? 400 : 200 });
+      return refused
+        ? new Response(refusal, { status: 400, headers: { "content-type": "application/json" } })
+        : new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as unknown as typeof fetch;
+    const provider = createCustomProvider({ fetch: fetcher, maxRetries: 0 });
+    const call = () =>
+      provider.stream(
+        {
+          model: customModelId(CRED, "deepseek-v4.1-flash"),
+          system: "s",
+          messages: [{ role: "user", content: "hi" }],
+          maxTokens: 100,
+          effort: "medium",
+        },
+        { apiKey: "k-123456789", endpoint: { style: "openai", baseURL: "https://gw.example/v1" }, onDelta: () => {} },
+      );
+    const result = await call();
+    expect(result.text).toBe("ok");
+    // `medium` sits between `low` and `high`: the tie goes to the stronger one, never to less thinking.
+    expect(seen.map((r) => [r.body.reasoning_effort, r.status])).toEqual([
+      ["medium", 400],
+      ["high", 200],
+    ]);
+    // The endpoint's list is remembered: the next turn asks for `high` once, with no wasted call.
+    seen.length = 0;
+    await call();
+    expect(seen.map((r) => [r.body.reasoning_effort, r.status])).toEqual([["high", 200]]);
+  });
+
+  test("Chat Completions: a 400 that isn't about the effort is the turn's own failure", async () => {
+    const fetcher = (async () =>
+      new Response(JSON.stringify({ object: "error", message: "Model not found" }), {
+        status: 400,
+        headers: { "content-type": "application/json" },
+      })) as unknown as typeof fetch;
+    const refused = createCustomProvider({ fetch: fetcher, maxRetries: 0 }).stream(
+      { model: id, system: "s", messages: [{ role: "user", content: "hi" }], maxTokens: 100, effort: "medium" },
+      { apiKey: "k-123456789", endpoint: { style: "openai", baseURL: "https://gw.example/v1" }, onDelta: () => {} },
+    );
+    await expect(refused).rejects.toThrow("Model not found");
   });
 
   test("Chat Completions: no effort, or none, sends no reasoning_effort", async () => {

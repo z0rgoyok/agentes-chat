@@ -3,10 +3,19 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
-import { keys } from "@agenteschat/client";
+import { keys, type Machine } from "@agenteschat/client";
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import { connectRequest } from "@/pages/onboarding/AiStep";
-import { createFakeApi, type FakeState, GENERAL_ID, LODI_ID, ORG_ID, seedState, withRightHand } from "./fake-api";
+import {
+  createFakeApi,
+  type FakeState,
+  fakeMachinesOf,
+  GENERAL_ID,
+  LODI_ID,
+  ORG_ID,
+  seedState,
+  withRightHand,
+} from "./fake-api";
 import { shownText } from "./hint";
 import { renderApp, screen, settle } from "./render";
 
@@ -216,7 +225,9 @@ describe("Connect an AI, the rail's last step", () => {
     state.aiStatus = { any: true, apiKey: true, agents: state.agents.map((a) => ({ agentId: a.id, state: "ready" })) };
     await act(async () => services.queryClient.invalidateQueries({ queryKey: keys.aiStatus(ORG_ID) }));
     await settle(10);
-    expect(document.querySelector(".onb-ai__connected .ac-option__title")?.textContent).toBe("Chave de API");
+    expect(document.querySelector(".onb-ai__connected .ac-optrow__title")?.textContent).toBe("Chave de API");
+    // The kit's row the choices had, its state in a chip.
+    expect(document.querySelector(".onb-ai__connected.ac-optrow .ac-chip--done")).not.toBeNull();
   });
 
   test("on agentes.chat Cloud, a plan left for later skips the step: Lodi's DM, the beta notice alone", async () => {
@@ -388,5 +399,57 @@ describe("each card opens Connect for the whole team on its own steps (ADR 0162)
     expect(screen().getByRole("dialog", { name: "Seu plano do Claude" })).toBeTruthy();
     await allThink(state, services);
     expect(heading()).toBe("Pronto. O time da Acme já pensa.");
+  });
+});
+
+describe("the server's own computer, added with the workspace (ADR 0060 §3)", () => {
+  test("not connected yet: the plan's panel says it connects, never offline, nameless or a key", async () => {
+    const state = ownTeam();
+    const api = createFakeApi(state);
+    // Made with the workspace before the runner here got its token (ADR 0060 §3): no name yet, never seen.
+    const host = fakeMachinesOf.get(api)?.pair({
+      name: "",
+      kind: "host",
+      online: false,
+      lastSeenAt: null,
+      pairedBy: null,
+      createdAt: new Date().toISOString(),
+    }) as Machine;
+    const viewOf = api.agents.brain;
+    api.agents.brain = async (orgId, agentId) => ({
+      ...(await viewOf(orgId, agentId)),
+      computer: { machineId: host.id, name: "", online: false },
+    });
+    await renderApp("/onboarding", { api });
+    await settle(16);
+    await click(within(body()).getByRole("button", { name: /^Claude/ }), 12);
+    const panel = within(screen().getByRole("dialog")).getByRole("region", { name: "Seu plano do Claude" });
+    expect(panel.textContent).toContain("O computador deste servidor conecta em até um minuto.");
+    expect(panel.textContent).not.toContain("está offline");
+    expect(within(panel).queryByRole("button", { name: "Usar uma chave de API agora" })).toBeNull();
+  });
+
+  test("in the desktop app, the workspace being set up reaches the app, so this computer joins it at once", async () => {
+    const asked: Record<string, unknown>[] = [];
+    const w = window as { __agentesDesktop?: unknown; __TAURI_INTERNALS__?: unknown };
+    w.__agentesDesktop = { version: "0.6.0" };
+    w.__TAURI_INTERNALS__ = {
+      invoke: async (_cmd: string, args?: { request?: Record<string, unknown> }) => {
+        asked.push(args?.request ?? {});
+        return {};
+      },
+    };
+    try {
+      await renderApp("/onboarding", { api: createFakeApi(madeTeam()) });
+      await settle(16);
+      // Outside the workspace's pages, which tell the app on their own: the app syncs its computer on this.
+      expect(asked.filter((r) => r.kind === "orgs").at(-1)).toEqual({
+        kind: "orgs",
+        orgs: [{ id: ORG_ID, name: "Acme" }],
+      });
+    } finally {
+      delete w.__agentesDesktop;
+      delete w.__TAURI_INTERNALS__;
+    }
   });
 });

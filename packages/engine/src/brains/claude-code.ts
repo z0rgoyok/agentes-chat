@@ -11,7 +11,9 @@ import {
   CLI_GIT_MISSING,
   CONTEXT_LIMIT_PROTOCOL,
   CONVERSATION_PROTOCOL,
+  HELD_TURN_PROTOCOL,
   LOCKED_BRAIN_PROTOCOL,
+  type MachineReplies,
   type PubSub,
   parseBrainEvent,
   SPEED_PROTOCOL,
@@ -20,16 +22,33 @@ import {
 } from "@agenteschat/adapters";
 import { type Database, schema, sql } from "@agenteschat/db";
 import { catalogModelOf, costAtRates, costNanoUsd } from "@agenteschat/providers";
+import { CLI_FLOORS, CLI_UPDATE_COMMAND, cliVersionProblem, type FloorCli } from "@agenteschat/providers/cli-floors";
 import { autoContextFor } from "@agenteschat/providers/context-limits";
 import { getAgentCached } from "../agents";
+import { isShutdown } from "../cancel";
+import { fetchesCli } from "../cli-fetch";
 import type { CodeSetup } from "../git/machine";
-import { type MachineCaller, MachineRequestError, type MachineStatus } from "../machine-hub";
-import { MachineDroppedError, MachineOfflineError, MachinePausedError, pausedMessage } from "../machines";
+import {
+  computerBackSoon,
+  type MachineCaller,
+  type MachineCallOptions,
+  MachineRequestError,
+  type MachineStatus,
+} from "../machine-hub";
+import {
+  MachineDroppedError,
+  MachineOfflineError,
+  MachinePausedError,
+  maintenanceWords,
+  pausedMessage,
+} from "../machines";
 import { addPersonSpend } from "../person-usage";
 import { apiNano } from "../plan-usage";
 import { respanPrimary, respanRates, usesRespanPricing } from "../respan-pricing";
 import { runnerUpdateWay } from "../runner-update";
 import { budgetPeriodOf } from "../usage";
+import { noteModelRefusal, skipRefusedModel, withFailureCause } from "./failure-causes";
+import { inPhase } from "./phase";
 import { computerPrompt, systemWithConversation } from "./prompt";
 import {
   askingPermissions,
@@ -76,7 +95,7 @@ import {
  */
 
 export interface ClaudeCodeBrainDeps {
-  hub: Pick<MachineCaller, "call" | "status">;
+  hub: Pick<MachineCaller, "call" | "status" | "wake">;
   pubsub: PubSub;
   /** The agent as the runner names its folder (`agentScopeFromDb`). */
   agentScope: (turn: BrainTurn) => Promise<AgentScope>;
@@ -106,6 +125,8 @@ export interface ClaudeCodeBrainDeps {
   finalGraceMs?: number;
   /** How long a `brain.steer` may take (default `STEER_CALL_MS`). */
   steerTimeoutMs?: number;
+  /** Tests: `HELD_TURN_WAIT_MS`. */
+  heldTurnWaitMs?: number;
 }
 
 /** A `brain.warm` answers once the CLI started, or a cold worker came up first; past this nobody waits on it. */
@@ -181,7 +202,7 @@ const err = (code: string, message: string, retryable: boolean): BrainEvent => (
 export function accountUnavailable(
   status: { name?: string; protocol?: number; kind?: string; executors?: { mode?: string } } | null,
   account: BrainAccount | undefined,
-  kind: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity",
+  kind: "claude_code" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin",
 ): { code: string; message: string } | null {
   if (!account) return null;
   const name = BRAIN_PLAN_NAMES[kind];
@@ -189,7 +210,7 @@ export function accountUnavailable(
   if (status?.protocol !== undefined && status.protocol < ACCOUNTS_PROTOCOL) {
     return {
       code: "runner_outdated",
-      message: `The runner${where} is too old for agents with their own ${name} account. ${runnerUpdateWay(status)}`,
+      message: `The agentes.chat program${where} is too old for agents with their own ${name} account. ${runnerUpdateWay(status)}`,
     };
   }
   if (account.status === "signed_out") {
@@ -249,10 +270,54 @@ export function cliMissingMessage(
     : `${program} is on ${status.name} but can't start: ${said}`;
 }
 
+/**
+ * A CLI the computer reports at a version agentes.chat holds back (`CLI_FLOORS`): older than its floor, or a blocked one.
+ * Its turns wait (`cli_outdated` is in `UNAVAILABLE_CODES`) until the runner reports a newer one (`executors.changed`
+ * resumes them), never sent to fail there. Null: it may run.
+ */
+export function cliOutdated(
+  status: {
+    name?: string | null;
+    executors?:
+      | (Partial<Record<FloorCli, { version: string }>> & Pick<schema.MachineExecutors, "copies" | "mode">)
+      | null;
+    kind?: string | null;
+    os?: string;
+    protocol?: number;
+  },
+  cli: FloorCli,
+  program: string,
+  floors = CLI_FLOORS,
+): { code: "cli_outdated"; message: string } | null {
+  // Its runner fetches the pinned CLI itself (ADR 0228 §6): the turn goes, and the runner brings it first.
+  if (fetchesCli(status, cli)) return null;
+  const problem = cliVersionProblem(cli, status.executors?.[cli]?.version, floors);
+  if (!problem) return null;
+  const where = status.name || "the computer";
+  const command = CLI_UPDATE_COMMAND[cli];
+  const how = command
+    ? `Update it there (${command}).`
+    : "Update it there, from the agent's settings or with the installer it came from.";
+  return {
+    code: "cli_outdated",
+    message:
+      problem.kind === "too_old"
+        ? `${program} ${problem.version} on ${where} is older than ${problem.min}, the oldest version agentes.chat works with. ${how}`
+        : `${program} ${problem.version} on ${where} has a known problem with agentes.chat. ${how}`,
+  };
+}
+
 /** Why the turn can't go to this machine now (null: it can). With an account, the account decides the sign-in. */
 export function claudeCodeAvailability(status: MachineStatus | null, account?: BrainAccount): BrainEvent | null {
   if (!status) return err("machine_offline", "The agent's computer is not connected to the organization.", true);
-  if (!status.online) return err("machine_offline", `Claude Code on ${status.name} is offline.`, true);
+  if (!status.online) {
+    const away = status.maintenance?.away ? status.maintenance : null;
+    return err(
+      "machine_offline",
+      away ? maintenanceWords(status.name, away) : `Claude Code on ${status.name} is offline.`,
+      true,
+    );
+  }
   if (status.paused) {
     return err("machine_paused", pausedMessage(status.name, status.paused.until, status.paused.timezone), true);
   }
@@ -263,12 +328,16 @@ export function claudeCodeAvailability(status: MachineStatus | null, account?: B
   if (status.protocol < BRAIN_PROTOCOL) {
     return err(
       "runner_outdated",
-      `The runner on ${status.name} is too old for agents that think with Claude Code. ${runnerUpdateWay(status)}`,
+      `The agentes.chat program on ${status.name} is too old for agents that think with Claude Code. ${runnerUpdateWay(status)}`,
       true,
     );
   }
   const ex = status.executors ?? {};
-  if (ex.detectedAt && !ex.claude) return err("cli_missing", cliMissingMessage("Claude Code", status, "claude"), true);
+  if (ex.detectedAt && !ex.claude && !fetchesCli(status, "claude")) {
+    return err("cli_missing", cliMissingMessage("Claude Code", status, "claude"), true);
+  }
+  const old = cliOutdated(status, "claude", "Claude Code");
+  if (old) return err(old.code, old.message, true);
   if (account) {
     const e = accountUnavailable(status, account, "claude_code");
     return e ? err(e.code, e.message, true) : null;
@@ -285,7 +354,7 @@ export function claudeCodeAvailability(status: MachineStatus | null, account?: B
  */
 export function toolOff(
   status: Pick<MachineStatus, "name" | "execAllowed" | "access">,
-  tool: "claude" | "codex" | "cursor" | "opencode" | "grok" | "antigravity",
+  tool: "claude" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin",
 ): { code: string; message: string } | null {
   const tools = status.access?.tools;
   const name = tool === "claude" ? "Claude Code" : BRAIN_NAMES[tool];
@@ -321,6 +390,78 @@ export function busyRefusal(error: unknown): BrainEvent | null {
   return null;
 }
 
+/**
+ * How long a turn whose computer dropped waits for it, still running, before the drop stands. Under the runner's
+ * `HELD_TURN_MS`, so the turn is still held there when the computer is back in time.
+ */
+export const HELD_TURN_WAIT_MS = 90_000;
+/** Drops one turn rides through: a computer that keeps dropping is left to the engine's own wait. */
+const HELD_TURN_DROPS = 3;
+
+/**
+ * `brain.turn` through short drops (`HELD_TURN_PROTOCOL`): the runner keeps the turn running when the link drops, so
+ * the turn waits for the computer (`computerBackSoon`; the run stays `running`) and takes the rest of the same turn
+ * over (`reattach`) instead of failing it and starting it again. A runner that no longer has it (it restarted) answers
+ * `not_found`, and the first drop stands: the engine's wait for the computer goes on from there.
+ */
+export async function callTurnThroughDrops(
+  hub: Pick<MachineCaller, "call" | "status" | "wake">,
+  machineId: string,
+  request: BrainTurnRequest & { agent?: AgentScope },
+  options: MachineCallOptions & { waitMs?: number } = {},
+): Promise<MachineReplies["brain.turn"]> {
+  const { waitMs = HELD_TURN_WAIT_MS, ...call } = options;
+  let dropped: unknown = null;
+  for (let drops = 0; ; drops++) {
+    try {
+      return await hub.call<"brain.turn">(
+        machineId,
+        { op: "brain.turn", ...request, ...(dropped ? { reattach: true } : {}) },
+        call,
+      );
+    } catch (error) {
+      if (!(error instanceof MachineDroppedError) || drops >= HELD_TURN_DROPS) throw dropped ?? error;
+      dropped ??= error;
+      const canceled = () => call.signal?.aborted === true;
+      const back = canceled()
+        ? null
+        : await computerBackSoon(hub, machineId, { waitMs, signal: call.signal, canceled });
+      if (back === null) {
+        // The runner holds the turn still, running on, and no cancel can reach it. Not on our own restart: the next
+        // server takes the turn over.
+        if (!isShutdown(call.signal?.reason)) void stopHeldTurn(hub, machineId, request, waitMs);
+        throw new MachineRequestError("canceled", "canceled");
+      }
+      if (!back) throw dropped;
+      const status = await hub.status(machineId).catch(() => null);
+      if ((status?.protocol ?? 0) < HELD_TURN_PROTOCOL) throw dropped;
+    }
+  }
+}
+
+/**
+ * Once the computer is back within `waitMs`, it ends the canceled run's turn it may still hold (`reattach: "stop"`).
+ * Never wakes it: a computer that sleeps holds no turn.
+ */
+async function stopHeldTurn(
+  hub: Pick<MachineCaller, "call" | "status">,
+  machineId: string,
+  request: BrainTurnRequest & { agent?: AgentScope },
+  waitMs: number,
+) {
+  for (const until = Date.now() + waitMs; ; await Bun.sleep(1_000)) {
+    const status = await hub.status(machineId).catch(() => null);
+    if (status?.online) {
+      if ((status.protocol ?? 0) < HELD_TURN_PROTOCOL) return;
+      await hub
+        .call<"brain.turn">(machineId, { op: "brain.turn", ...request, reattach: "stop" }, { timeoutMs: 30_000 })
+        .catch(() => {});
+      return;
+    }
+    if (Date.now() >= until) return;
+  }
+}
+
 /** A failed `brain.turn` request as the turn's error. */
 export function claudeCodeCallError(error: unknown): BrainEvent {
   if (error instanceof MachineDroppedError && error.serverStop) {
@@ -348,7 +489,8 @@ export function claudeCodeCallError(error: unknown): BrainEvent {
   return err("runner_error", error instanceof Error ? error.message : String(error), false);
 }
 
-const toBrainEvent = (e: WireBrainEvent): BrainEvent => e as BrainEvent;
+/** A runner's event, with the cause its words say where the runner gave none (`withFailureCause`). */
+const toBrainEvent = (e: WireBrainEvent): BrainEvent => withFailureCause(e as BrainEvent);
 const isFinal = (e: BrainEvent) => e.type === "done" || e.type === "error";
 
 type Item = { kind: "event"; event: BrainEvent } | { kind: "stream_end" } | { kind: "reply"; final: BrainEvent };
@@ -391,9 +533,10 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
     // The launch the turn below sends (its folder before `prepare` moves it to a checkout), without its words.
     async warm(turn: BrainTurn) {
       const session = turn.session;
-      if (!session || deps.keepAlive === false) return;
+      if (!session || deps.keepAlive === false) return false;
       const status = await deps.hub.status(session.machineId).catch(() => null);
-      if (!status || status.protocol < BRAIN_WARM_PROTOCOL || claudeCodeAvailability(status, turn.account)) return;
+      if (!status || status.protocol < BRAIN_WARM_PROTOCOL || claudeCodeAvailability(status, turn.account))
+        return false;
       try {
         const [agent, personalMcp, asked] = await Promise.all([
           deps.agentScope(turn),
@@ -401,31 +544,39 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
           deps.permissions?.(turn),
         ]);
         const permissions = askingPermissions(asked, true);
-        if (permissions?.mode === "chat") return;
-        await deps.hub.call<"brain.warm">(
+        // Locked down as its turn is (ADR 0137 §4), the same launch, so the turn takes this process. Every runner that
+        // warms (`BRAIN_WARM_PROTOCOL`) locks the CLI down.
+        const chat = permissions?.mode === "chat";
+        const reply = await deps.hub.call<"brain.warm">(
           session.machineId,
           {
             op: "brain.warm",
+            runId: turn.runId,
             kind: "claude_code",
             session: { id: session.id, resume: session.resume },
             cwd: session.cwd,
             ...(turn.model ? { model: turn.model } : {}),
-            personalMcp,
+            personalMcp: personalMcp && !chat,
             // A code session's turn starts with its own tools (ADR 0215 §6): the warm process the same, or it isn't
             // the one the turn takes.
-            ...(session.codeSession ? { codeSession: true } : {}),
+            ...(session.codeSession && !chat ? { codeSession: true } : {}),
             ...(permissions ? { permissions } : {}),
             ...accountFields(status.protocol, turn),
             ...contextFields(status.protocol, turn, "claude_code"),
+            ...(turn.timeZone ? { timeZone: turn.timeZone } : {}),
             agent,
           },
           { timeoutMs: WARM_CALL_MS },
         );
+        return reply.open === true;
       } catch {
         // the turn starts its CLI itself
+        return false;
       }
     },
-    async *run(turn: BrainTurn, io: BrainIO): AsyncIterable<BrainEvent> {
+    async *run(asked: BrainTurn, io: BrainIO): AsyncIterable<BrainEvent> {
+      // A model the sign-in refused lately goes out as the CLI's default; a new refusal is remembered (as Codex's).
+      const turn = skipRefusedModel("claude_code", asked);
       const session = turn.session;
       if (!session) {
         yield err("no_session", "This agent has no computer for Claude Code.", true);
@@ -459,7 +610,7 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
         if (chat && (status?.protocol ?? 0) < LOCKED_BRAIN_PROTOCOL) {
           yield err(
             "runner_outdated",
-            `The runner on the computer is too old to keep Claude Code to the right hand's tools. ${runnerUpdateWay(status)}`,
+            `The agentes.chat program on the computer is too old to keep Claude Code to the right hand's tools. ${runnerUpdateWay(status)}`,
             true,
           );
           return;
@@ -469,12 +620,13 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
         if (permissions?.mode === "plan" && (status?.protocol ?? 0) < BRAIN_PROFILES_PROTOCOL) {
           yield err(
             "runner_outdated",
-            `The runner on the computer is too old to keep Claude Code within this agent's permissions. ${runnerUpdateWay(status)}`,
+            `The agentes.chat program on the computer is too old to keep Claude Code within this agent's permissions. ${runnerUpdateWay(status)}`,
             true,
           );
           return;
         }
-        const code = chat ? null : await (turn.code ?? deps.prepare?.(turn, io.signal))?.catch(() => null);
+        const prepared = chat ? null : (turn.code ?? deps.prepare?.(turn, io.signal))?.catch(() => null);
+        const code = prepared ? await inPhase(io, "code", prepared) : null;
         // A runner that takes the conversation apart reads it at the start of the session: the system text stays the
         // agent's, the same in each of its conversations (and its cached prefix with it).
         const apart = (status?.protocol ?? 0) >= CONVERSATION_PROTOCOL;
@@ -495,28 +647,32 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
           ...accountFields(status?.protocol, turn),
           ...contextFields(status?.protocol, turn, "claude_code"),
           ...(turn.personWaiting ? { personWaiting: true } : {}),
+          ...(turn.timeZone ? { timeZone: turn.timeZone } : {}),
           // Each answer the turn finishes before it goes on is its own message (ADR 0112).
           answers: "each",
         };
-        deps.hub
-          .call<"brain.turn">(
-            session.machineId,
-            { op: "brain.turn", ...request, agent },
-            { signal: io.signal, ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}) },
-          )
-          .then(
-            (reply) => {
-              const final = parseBrainEvent(reply?.final);
-              queue.push({
-                kind: "reply",
-                final:
-                  final && isFinal(toBrainEvent(final))
-                    ? toBrainEvent(final)
-                    : err("runner_error", "The computer answered without an end to the turn.", false),
-              });
-            },
-            (error: unknown) => queue.push({ kind: "reply", final: claudeCodeCallError(error) }),
-          );
+        callTurnThroughDrops(
+          deps.hub,
+          session.machineId,
+          { ...request, agent },
+          {
+            signal: io.signal,
+            ...(deps.timeoutMs ? { timeoutMs: deps.timeoutMs } : {}),
+            ...(deps.heldTurnWaitMs !== undefined ? { waitMs: deps.heldTurnWaitMs } : {}),
+          },
+        ).then(
+          (reply) => {
+            const final = parseBrainEvent(reply?.final);
+            queue.push({
+              kind: "reply",
+              final:
+                final && isFinal(toBrainEvent(final))
+                  ? toBrainEvent(final)
+                  : err("runner_error", "The computer answered without an end to the turn.", false),
+            });
+          },
+          (error: unknown) => queue.push({ kind: "reply", final: claudeCodeCallError(error) }),
+        );
         // The turn is on its way: a person's messages can reach it mid-turn (an older runner reads them at the end).
         if (io.steerable && (status?.protocol ?? 0) >= STEER_PROTOCOL) {
           const target = {
@@ -534,10 +690,14 @@ export function createClaudeCodeBrain(deps: ClaudeCodeBrainDeps): Brain {
         for (;;) {
           const item = await queue.next(replyFinal ? (streamEnded ? 0 : (deps.finalGraceMs ?? 1500)) : undefined);
           if (item === null) {
-            if (replyFinal) yield replyFinal;
+            if (replyFinal) {
+              noteModelRefusal("claude_code", asked, replyFinal);
+              yield replyFinal;
+            }
             return;
           }
           if (item.kind === "event") {
+            noteModelRefusal("claude_code", asked, item.event);
             yield item.event;
             if (isFinal(item.event)) return;
           } else if (item.kind === "stream_end") {

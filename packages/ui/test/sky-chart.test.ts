@@ -6,6 +6,7 @@ import {
   chartRamp,
   linePoints,
   lineTops,
+  nearestPoint,
   ringCells,
   smoothPath,
 } from "../src/sky/chart";
@@ -60,5 +61,20 @@ describe("chart cells (C · Traço + trama)", () => {
     expect(paths.get(1)).toBe("M0 0h4v2h-4Z");
     expect(paths.get(2)).toBe("M0 2h2v2h-2Z");
     expect(paths.has(0)).toBe(false);
+  });
+});
+
+describe("the point under a pointer", () => {
+  test("the nearest across, whatever its height; none with no points", () => {
+    const points: [number, number][] = [
+      [0, 40],
+      [50, 2],
+      [100, 30],
+    ];
+    expect(nearestPoint(points, -20)).toBe(0);
+    expect(nearestPoint(points, 24)).toBe(0);
+    expect(nearestPoint(points, 26)).toBe(1);
+    expect(nearestPoint(points, 400)).toBe(2);
+    expect(nearestPoint([], 10)).toBe(-1);
   });
 });

@@ -5,6 +5,7 @@ import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BAR_TITLE_FROM, BAR_TITLE_TO, type HeaderAction, LargeTitleHead, useLargeTitleScroll } from "@/ui";
 import { FadingHeaderTitle } from "@/ui/cover";
+import { ReadableColumn } from "@/ui/pane";
 import { useColors } from "./hooks";
 import { FocusLive, type HeaderWordAction, PushedHeader } from "./parts";
 
@@ -85,7 +86,8 @@ function SystemLargeTitle({
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: insets.bottom + bottomInset }}
         >
-          {children}
+          {/* On a large screen the content keeps to the readable column (ADR 0212). */}
+          <ReadableColumn>{children}</ReadableColumn>
         </ScrollView>
       </FocusLive>
       {dock}
@@ -146,7 +148,7 @@ function DrawnLargeTitle({
           contentContainerStyle={{ paddingBottom: insets.bottom + bottomInset }}
         >
           <LargeTitleHead y={scroll.y} title={title} collapsed={collapsed} />
-          {children}
+          <ReadableColumn>{children}</ReadableColumn>
         </Animated.ScrollView>
       </FocusLive>
       {dock}

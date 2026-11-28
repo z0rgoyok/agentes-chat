@@ -211,6 +211,9 @@ test("chooseToolGroups: one calibrated question per group, the threshold, and th
     source: "timeout",
   });
   expect((await chooseToolGroups(slow, { ...input, previous: ["*"], timeoutMs: 5 })).groups).toHaveLength(4);
+  // Past 1 s the run doesn't wait for it.
+  const later: Judge = { name: "later", ask: () => Bun.sleep(1100).then(() => ({})) };
+  expect(await chooseToolGroups(later, input)).toMatchObject({ source: "timeout" });
   // In a thread the list only grows: the previous run's groups stay without asking, even when the judge fails.
   expect(
     await chooseToolGroups(slow, { ...input, keep: ["browser", "gone"], previous: ["browser"], timeoutMs: 5 }),

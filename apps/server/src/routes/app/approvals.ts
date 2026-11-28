@@ -13,6 +13,7 @@ import {
   memoryJudging,
   RIGHT_HAND_CAPS,
   removeApprovalRule,
+  runApprovalNow,
   setMyCover,
   setRightHandApprovals,
   undoRightHandDecision,
@@ -134,6 +135,14 @@ export const Approval = z
     canCancel: z
       .boolean()
       .openapi({ description: "Approved ahead and not run yet, and you may withdraw it (`…/cancel`)." }),
+    afterIds: z.array(z.uuid()).openapi({
+      description:
+        "Other runs' requests the agent was told already waited in this conversation when it asked: once approved, it runs after they are settled (ADR 0182). A request waiting for a person over 30 minutes holds nothing.",
+    }),
+    canRunNow: z.boolean().openapi({
+      description:
+        "Approved, not done yet, may wait for `afterIds`, and you may decide it: `…/run-now` runs it at once.",
+    }),
     approvers: z
       .object({
         label: z.string().openapi({ description: "Who decides, in words.", example: "Diretoria" }),
@@ -367,6 +376,26 @@ export function approvalRoutes(deps: AppDeps) {
     async (c) => {
       const { orgId, approvalId } = c.req.valid("param");
       const view = await cancelAheadApproval({ db, pubsub: adapters.pubsub }, c.get("user").id, orgId, approvalId);
+      deps.wakeWorkers?.();
+      return c.json(view, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/approvals/{approvalId}/run-now",
+      tags,
+      security,
+      summary: '"Rodar este agora": an approved action waiting for other runs\' requests runs at once',
+      description:
+        "Who may decide it may (403 otherwise). It and its run's other approved actions no longer wait for `afterIds`; the run resumes and the audit records `approval.run_now`. 409 `approval.not_waiting` when it waits for nothing (not approved, already done, or nothing before it).",
+      request: { params: ApprovalParams },
+      responses: { 200: json(Approval), ...errors },
+    }),
+    async (c) => {
+      const { orgId, approvalId } = c.req.valid("param");
+      const view = await runApprovalNow({ db, pubsub: adapters.pubsub }, c.get("user").id, orgId, approvalId);
       deps.wakeWorkers?.();
       return c.json(view, 200);
     },

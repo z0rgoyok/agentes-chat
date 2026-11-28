@@ -492,48 +492,6 @@ export function prepareBurst(from: HTMLElement): () => void {
 
 /* ---------- Sidebar ---------- */
 
-/** Behind a working agent's row: a light sweep in its color, stronger on the right. */
-export function AgentTrail({ color }: { color: AgentColor }) {
-  return (
-    <span className="sidebar__trail" aria-hidden="true">
-      <PixelSky
-        options={{
-          pixel: 3,
-          surface: "--side",
-          palette: (bg) => softTones(color, bg),
-          light: 0,
-          base: (u, _v, tt) => {
-            const p = ((tt * 0.42) % 1.6) - 0.3;
-            const d = u - (1 - p);
-            return Math.min(0.6, 0.3 * u * u * u + 0.26 * Math.exp(-(d * d) / 0.018) * (0.4 + 0.6 * u));
-          },
-        }}
-      />
-    </span>
-  );
-}
-
-/** Behind a working agent's icon in the rail: a soft pulse in its color. */
-export function AgentGlow({ color }: { color: AgentColor }) {
-  return (
-    <span className="sidebar__glow" aria-hidden="true">
-      <PixelSky
-        options={{
-          pixel: 2,
-          surface: "--side",
-          palette: (bg) => softTones(color, bg),
-          light: 0,
-          base: (u, v, tt) => {
-            const dx = (u - 0.5) * 2;
-            const dy = (v - 0.5) * 2;
-            return 0.9 * Math.exp(-(dx * dx + dy * dy) / (0.42 + 0.12 * S(tt * 3)));
-          },
-        }}
-      />
-    </span>
-  );
-}
-
 /** The sky rising from the sidebar's bottom: fuller the more agents are working. No pixel agents (product decision: they drew the eye for nothing). */
 export function SidebarHorizon({ working, total }: { working: number; total: number }) {
   const share = total > 0 ? Math.min(1, working / Math.min(total, 3)) : 0;

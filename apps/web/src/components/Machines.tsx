@@ -2,6 +2,7 @@ import type { Machine, MachineAccessReduce, MachinePause, MachineToolName } from
 import {
   profilesApply,
   useAllAgents,
+  useAskMachineFolder,
   useAuthConfig,
   useDesktopStatus,
   useHostComputer,
@@ -10,6 +11,7 @@ import {
   useMachines,
   useReduceMachineAccess,
 } from "@agenteschat/client";
+import { maintenanceOf } from "@agenteschat/client/lib/computer-maintenance";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { clockAt, joinNames, relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -17,6 +19,7 @@ import {
   allowedFolders,
   allowsInApp,
   canReduceAccess,
+  codexSandboxNote,
   computerKind,
   computerState,
   folderName,
@@ -69,7 +72,7 @@ import { BrowserProfilesCard } from "./browser/BrowserProfiles";
 import { MachineBrowserCard } from "./browser/MachineBrowserCard";
 import { Egress } from "./computer/Egress";
 import { MachineDesktopUseCard } from "./desktop/MachineDesktopUseCard";
-import { CommandBlock, MachineChip, osOf } from "./machine-bits";
+import { MachineChip, osOf, TerminalFallback } from "./machine-bits";
 import { ComputerTitle, SetupFacts, useSetupView } from "./WorkspaceComputer";
 
 /** "Pausado até 16:24" (another day: "Pausado até 18 out 09:00"), "Pausado"; null when not paused now. */
@@ -166,7 +169,7 @@ function MachineRow({
             {machineTitle(m, t("machines.host.label"))}
           </Link>
           {m.kind === "host" && m.name && <Chip icon="computer">{t("machines.host.label")}</Chip>}
-          <MachineChip online={m.online} />
+          <MachineChip online={m.online} maintenance={maintenanceOf(m)} />
           <PausedChip paused={m.paused} />
           {!m.execAllowed && <Chip icon="block">{t("machines.execOff")}</Chip>}
         </span>
@@ -592,7 +595,7 @@ function ToolsCard({ machine: m, onReduce }: { machine: Machine; onReduce: (r: R
   const access = m.access;
   if (!access) return null;
   const isOn = (tool: (typeof MACHINE_TOOLS)[number]) =>
-    tool === "cursor" || tool === "opencode" || tool === "grok" || tool === "antigravity"
+    tool === "cursor" || tool === "opencode" || tool === "grok" || tool === "antigravity" || tool === "devin"
       ? (access.tools[tool] ?? access.tools.codex)
       : access.tools[tool];
   return (
@@ -602,6 +605,9 @@ function ToolsCard({ machine: m, onReduce }: { machine: Machine; onReduce: (r: R
         {MACHINE_TOOLS.map((tool) => {
           const on = isOn(tool);
           const name = t(`machines.access.tool.${tool}`);
+          const about = t(`machines.access.toolText.${tool}`);
+          // Codex on Windows: what holds its commands there, when that is less than MXC.
+          const note = tool === "codex" ? codexSandboxNote(t, m) : null;
           // Commands, on, has a line under its name: the name rises to its tile's top and its state stays on the
           // name's line. A name alone centres on the tile, its state with it.
           const warn = tool === "commands" && on;
@@ -619,7 +625,9 @@ function ToolsCard({ machine: m, onReduce }: { machine: Machine; onReduce: (r: R
               <span className="ac-mediarow__head">
                 <span className="ac-hintline">
                   <span className="machine-folder__name">{name}</span>
-                  <InfoHint name={t("common.about", { label: name })}>{t(`machines.access.toolText.${tool}`)}</InfoHint>
+                  <InfoHint name={t("common.about", { label: name })}>
+                    {note ? t("common.joinSentences", { a: about, b: note }) : about}
+                  </InfoHint>
                 </span>
               </span>
               {warn && <span className="ac-mediarow__body small muted">{t("machines.access.commandsWarn")}</span>}
@@ -653,7 +661,11 @@ function ToolsCard({ machine: m, onReduce }: { machine: Machine; onReduce: (r: R
   );
 }
 
-/** Never a grant button: granting happens on the machine (the app, or the command as a fallback). */
+/**
+ * Granting happens on the machine: where the agentes.chat app runs it, "Liberar uma pasta" asks the app there to open
+ * the system's folder picker for whoever is at it; elsewhere how to do it there, the command folded as the way without
+ * the app.
+ */
 function GrantCard({ machine: m }: { machine: Machine }) {
   const { t } = useTranslation();
   const { org } = useOrg();
@@ -675,6 +687,8 @@ function GrantCard({ machine: m }: { machine: Machine }) {
           </p>
           <OpenPrefsButton tab="folders">{t("machines.thisMac.openFolders")}</OpenPrefsButton>
         </div>
+      ) : m.canManage && m.folderPick ? (
+        <AskFolder machine={m} />
       ) : m.canManage ? (
         <>
           <p className="small" style={{ margin: 0 }}>
@@ -684,8 +698,7 @@ function GrantCard({ machine: m }: { machine: Machine }) {
                 ? t("machines.access.grantTextAdmin")
                 : t("machines.access.grantTextTerminal")}
           </p>
-          {app && <span className="small muted">{t("machines.access.grantTerminal")}</span>}
-          <CommandBlock command={allowExample} />
+          <TerminalFallback command={allowExample} label={t("machines.access.grantTerminalMore")} />
         </>
       ) : (
         <p className="small muted" style={{ margin: 0 }}>
@@ -695,6 +708,54 @@ function GrantCard({ machine: m }: { machine: Machine }) {
         </p>
       )}
     </Card>
+  );
+}
+
+/**
+ * "Liberar uma pasta": the app on the computer opens its folder picker there; until a folder comes back from it, a
+ * line says it waits for the person there.
+ */
+function AskFolder({ machine: m }: { machine: Machine }) {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const toast = useToast();
+  const ask = useAskMachineFolder(org.id);
+  // A folder allowed there (picked, or any other way, a folder already allowed given to more agents too) ends the wait.
+  const folders = JSON.stringify(m.access?.folders ?? []);
+  const [askedAt, setAskedAt] = useState<string | null>(null);
+  const asked = askedAt !== null && askedAt === folders;
+  return (
+    <div className="row machine-grant__ask" style={{ gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+      <p className="small" style={{ margin: 0, flex: 1, minWidth: 200 }}>
+        {asked ? (
+          <span className="ac-iconline" role="status">
+            <Icon name="spinner" size={14} />
+            {t("machines.access.pickWaiting", { machine: m.name })}
+          </span>
+        ) : (
+          t("machines.access.pickText", { machine: m.name })
+        )}
+      </p>
+      <Button
+        variant="primary"
+        icon="drive"
+        loading={ask.isPending}
+        onClick={() =>
+          ask.mutate(
+            { machineId: m.id },
+            {
+              onSuccess: () => {
+                setAskedAt(folders);
+                toast.show(t("machines.access.picked", { machine: m.name }));
+              },
+              onError: (err) => toast.show(errorText(t, err), "error"),
+            },
+          )
+        }
+      >
+        {t("machines.access.pick")}
+      </Button>
+    </div>
   );
 }
 
@@ -888,7 +949,8 @@ export function MachinePage({ machineId }: { machineId: string }) {
       </span>
     ),
     // Egress draws nothing without an observation, a wait or a move: only then does it count as a detail.
-    managed && (m.networkTransition || (m.online && (m.egressWaiting || m.egress?.ip))) && (
+    ((m.online && m.egressVia) ||
+      (managed && (m.egressOffline || m.networkTransition || (m.online && (m.egressWaiting || m.egress?.ip))))) && (
       <Egress key="egress" machine={m} />
     ),
     // System mode: each agent works in its own home, never in the folder the computer was connected from.
@@ -928,7 +990,11 @@ export function MachinePage({ machineId }: { machineId: string }) {
             {managed ? <ComputerTitle name={title}>{heading}</ComputerTitle> : heading}
             {/* One status word: paused outranks online. */}
             <span className="row" style={{ gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-              {paused ? <PausedChip paused={m.paused} /> : <MachineChip online={m.online} />}
+              {paused ? (
+                <PausedChip paused={m.paused} />
+              ) : (
+                <MachineChip online={m.online} maintenance={maintenanceOf(m)} />
+              )}
             </span>
           </span>
           {m.canManage && <MachineMenu machine={m} onRename={() => setRenaming(m)} onRemove={() => setRemoving(m)} />}

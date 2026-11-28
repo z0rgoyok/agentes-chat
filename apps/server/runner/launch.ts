@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -66,6 +66,20 @@ export function currentProcess(): ProcessShape {
 
 /** `selfCommand(currentProcess())`. */
 export const thisRunner = () => selfCommand(currentProcess());
+
+/**
+ * A stamp of the file a runner command starts from (its last word: the script, or the executable when compiled), or
+ * null when it can't be read. A write to it, or another file renamed over it (`agentes-runner update`), changes it.
+ * From source it is `main.ts` alone, not the files it imports.
+ */
+export function runnerStamp(command: readonly string[]): string | null {
+  try {
+    const st = statSync(command.at(-1) ?? "", { bigint: true });
+    return `${st.dev}:${st.ino}:${st.size}:${st.mtimeNs}`;
+  } catch {
+    return null;
+  }
+}
 
 /** `isCompiled(currentProcess())`. */
 export const runningCompiled = () => isCompiled(currentProcess());

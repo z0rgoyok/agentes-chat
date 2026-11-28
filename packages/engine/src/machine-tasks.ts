@@ -96,12 +96,12 @@ export const liveTaskSqlAs = (alias: string) =>
 export const isCutStart = (t: Pick<MachineTaskRow, "status" | "startedAt" | "endedAt">) =>
   t.status === "interrupted" && !t.startedAt && !t.endedAt;
 
-/** `checkCutTaskStart` for this task in `inMs`. */
-const enqueueStartCheck = (db: Executor, row: Pick<MachineTaskRow, "id" | "orgId">, inMs: number) =>
+/** `checkCutTaskStart` for this task in `inMs`; `claimedAt`: for one taken from our queue then. */
+const enqueueStartCheck = (db: Executor, row: Pick<MachineTaskRow, "id" | "orgId">, inMs: number, claimedAt?: string) =>
   enqueue(db, {
     orgId: row.orgId,
     kind: "machine.task_start_check",
-    payload: { taskId: row.id },
+    payload: { taskId: row.id, ...(claimedAt ? { claimedAt } : {}) },
     dedupeKey: `machine.task_start_check:${row.id}:${Date.now()}`,
     runAt: new Date(Date.now() + inMs),
   });
@@ -273,10 +273,41 @@ export interface StartTaskInput {
   worktreeBranch?: string | null;
   /** A person approved starting this very task: a shell task's command runs even when the computer would hold it. */
   approved?: boolean;
+  /** `TaskStart.pushHarder`: the person asked, in their own message, to push the computer harder for it. */
+  pushHarder?: boolean;
 }
 
 /** What a task waiting in our queue keeps to start later (`machine_tasks.start_request`). */
 export type QueuedTaskStart = Omit<StartTaskInput, "protocol" | "machineName">;
+
+/**
+ * Still waiting in our queue: a start request not yet taken to start. `claimQueuedTask` stamps `claimedAt` on it
+ * instead of clearing it, so a crash before the runner had it loses none of its launch options; the runner taking it
+ * clears it.
+ */
+export const waitsInQueue = (t: Pick<MachineTaskRow, "status" | "startRequest">) =>
+  t.status === "queued" && Boolean(t.startRequest) && !t.startRequest?.claimedAt;
+
+/** When `claimQueuedTask` took it from our queue, while its start isn't confirmed. */
+const claimedAtOf = (t: Pick<MachineTaskRow, "status" | "startRequest">) =>
+  t.status === "queued" && typeof t.startRequest?.claimedAt === "string" ? t.startRequest.claimedAt : undefined;
+
+/** Back in our queue with all it was asked: once per claim, however many hellos or checks say so. */
+async function unclaimTask(db: Executor, taskId: string, claimedAt: string) {
+  const [back] = await db
+    .update(machineTasks)
+    .set({ startRequest: sql`${machineTasks.startRequest} - 'claimedAt'`, updatedAt: new Date() })
+    .where(
+      and(
+        eq(machineTasks.id, taskId),
+        eq(machineTasks.status, "queued"),
+        isNull(machineTasks.endedAt),
+        sql`${machineTasks.startRequest}->>'claimedAt' = ${claimedAt}`,
+      ),
+    )
+    .returning({ id: machineTasks.id });
+  return Boolean(back);
+}
 
 /** A runner older than protocol 4 can't run background tasks: the computer needs an update (`runnerUpdateWay`). */
 export class RunnerOutdatedError extends Error {
@@ -287,8 +318,8 @@ export class RunnerOutdatedError extends Error {
   ) {
     super(
       missions
-        ? `The runner on the computer ${machineName} is too old for missions. ${runnerUpdateWay(computer)}`
-        : `The runner on the computer ${machineName} is too old for background tasks (until then use run_code). ${runnerUpdateWay(computer)}`,
+        ? `The agentes.chat program on the computer ${machineName} is too old for missions. ${runnerUpdateWay(computer)}`
+        : `The agentes.chat program on the computer ${machineName} is too old for background tasks (until then use run_code). ${runnerUpdateWay(computer)}`,
     );
     this.name = "RunnerOutdatedError";
   }
@@ -335,8 +366,8 @@ export async function taskSignIn(
   if (!account && machine.pairedByUserId === null) {
     if (own) {
       throw refuse(
-        `The runner on ${machine.name} is too old to sign tasks in with your ${plan} account.`,
-        "the computer's runner needs an update before tasks can use your account, so try again later",
+        `The agentes.chat program on ${machine.name} is too old to sign tasks in with your ${plan} account.`,
+        "agentes.chat on the computer needs an update before tasks can use your account, so try again later",
       );
     }
     const other = input.executor === "codex" ? "claude" : "codex";
@@ -442,11 +473,22 @@ async function insertTask(
   return row;
 }
 
+/**
+ * The runner's connection had `MAX_IN_FLIGHT` requests in flight: it refuses anything but a person's view with
+ * `internal` / `busy`. Short of capacity, not a failed task.
+ */
+const isConnectionBusy = (error: unknown) =>
+  (error as { code?: unknown })?.code === "internal" && (error as { message?: unknown })?.message === "busy";
+
+/** A queued task its runner's connection had no room for looks again after this: no task end signals room there. */
+export const TASK_BUSY_RETRY_MS = 15_000;
+
 /** The runner said its slots are full, or the computer is away: a queued task waits for the next chance. */
 export const isWaitError = (error: unknown) =>
   error instanceof MachineOfflineError ||
   ["no_slot", "offline", "paused"].includes(String((error as { code?: unknown })?.code ?? "")) ||
-  error instanceof MachinePausedError;
+  error instanceof MachinePausedError ||
+  isConnectionBusy(error);
 
 /**
  * Asks the machine to start a recorded task (status `queued`). `requeue`: a
@@ -488,6 +530,7 @@ export async function launchTask(
       ...(input.commit ? { commit: input.commit } : {}),
       ...(input.baseCheck ? { baseCheck: input.baseCheck } : {}),
       ...(input.approved ? { approved: true } : {}),
+      ...(input.pushHarder ? { pushHarder: true } : {}),
       ...signIn,
     });
     const at = new Date(started.startedAt);
@@ -502,6 +545,7 @@ export async function launchTask(
         branch: started.branch ?? (input.branch ? null : (input.worktreeBranch ?? null)),
         startedAt: Number.isNaN(at.getTime()) ? new Date() : at,
         lastEventAt: new Date(),
+        startRequest: null,
         updatedAt: new Date(),
       })
       // A fast task may already have reported its end.
@@ -534,6 +578,16 @@ export async function launchTask(
         .returning();
       if (back) {
         await publishTaskEvent(deps.pubsub, back);
+        if (isConnectionBusy(error)) {
+          const at = Date.now() + TASK_BUSY_RETRY_MS;
+          await enqueue(deps.db, {
+            orgId: back.orgId,
+            kind: "machine.queue_retry",
+            payload: { machineId: back.machineId },
+            dedupeKey: `machine.queue_retry:${back.machineId}:${Math.floor(at / TASK_BUSY_RETRY_MS)}`,
+            runAt: new Date(at),
+          });
+        }
         return { row: back, queued: true };
       }
     }
@@ -594,12 +648,12 @@ export async function claimQueuedTask(
         sql`${machineTasks.id} = (select q.id from ${machineTasks} q
           left join ${schema.missions} m on m.id = q.mission_id
           where q.machine_id = ${machineId}::uuid and q.status = 'queued' and q.ended_at is null
-            and q.start_request is not null
+            and q.start_request is not null and q.start_request->>'claimedAt' is null
             and (q.mission_id is null or q.mode = 'setup' or (m.status in ('active', 'awaiting_close') and m.worktree_state = 'ready'))
             and (q.mode is distinct from 'write' or (
               not exists (select 1 from ${machineTasks} w
                 where w.mission_id = q.mission_id and w.id <> q.id and w.mode = 'write'
-                  and w.start_request is null and ${liveTaskSqlAs("w")})
+                  and (w.start_request is null or w.start_request->>'claimedAt' is not null) and ${liveTaskSqlAs("w")})
               and not exists (select 1 from ${agentRuns} r
                 where r.thread_root_id = m.thread_root_id and r.agent_id = m.agent_id
                   and r.status = 'running' and r.started_at <= q.created_at)))
@@ -609,8 +663,13 @@ export async function claimQueuedTask(
     if (!next?.startRequest) return null;
     const [row] = await tx
       .update(machineTasks)
-      .set({ startRequest: null, updatedAt: new Date() })
-      .where(and(eq(machineTasks.id, next.id), sql`${machineTasks.startRequest} is not null`))
+      .set({ startRequest: { ...next.startRequest, claimedAt: new Date().toISOString() }, updatedAt: new Date() })
+      .where(
+        and(
+          eq(machineTasks.id, next.id),
+          sql`${machineTasks.startRequest} is not null and ${machineTasks.startRequest}->>'claimedAt' is null`,
+        ),
+      )
       .returning();
     return row ? { row, start: next.startRequest as unknown as QueuedTaskStart } : null;
   });
@@ -1166,9 +1225,9 @@ export async function cancelOrgTasks(
   await Promise.all(
     rows.map(async ({ task, handle }) => {
       await deps.db.update(machineTasks).set({ canceledBy, updatedAt: new Date() }).where(eq(machineTasks.id, task.id));
-      // A task with a start request still waits in our queue: its computer never had it.
+      // A task still waiting in our queue: its computer never had it.
       const reply =
-        deps.call && !task.startRequest
+        deps.call && !waitsInQueue(task)
           ? await deps
               .call<"task.cancel">(task.machineId, {
                 agent: taskScope(task, handle),
@@ -1226,10 +1285,22 @@ export async function reconcileMachineTasks(
     }
     if (there) continue;
     // Waiting in our queue (ADR 0044): the runner never had it.
-    if (row.status === "queued" && row.startRequest) continue;
+    if (waitsInQueue(row)) continue;
+    // Taken from our queue, and the runner's journal doesn't have it: the start never reached it (the server
+    // stopped in between). Back in the queue with all it was asked.
+    const claimedAt = claimedAtOf(row);
     // Being started right now (its `task.start` may still be on the way). One from our queue began when it was
-    // taken from there, not when it was queued.
-    if (row.status === "queued" && Date.now() - row.updatedAt.getTime() < TASK_START_GRACE_MS) continue;
+    // taken from there, not when it was queued. A server back within that time says hello within it too: one taken
+    // from the queue is looked at again once its start can't still be underway (`checkCutTaskStart`).
+    const age = Date.now() - row.updatedAt.getTime();
+    if (row.status === "queued" && age < TASK_START_GRACE_MS) {
+      if (claimedAt) await enqueueStartCheck(deps.db, row, TASK_START_GRACE_MS - age, claimedAt);
+      continue;
+    }
+    if (claimedAt) {
+      await unclaimTask(deps.db, row.id, claimedAt);
+      continue;
+    }
     await settleInterruptedTask(deps, row);
   }
 }
@@ -1255,7 +1326,9 @@ async function markRunning(deps: TaskDeps, row: MachineTaskRow, there: RunnerTas
  * on the computer says (`task.status`, answered by the process that runs the agent's tasks there): running
  * there is running here; ended there, its `task.done` is on its way; not there, it never started, and it is
  * settled like a task that went away (Claude Code starts with what it was asked, others wake the agent). Its
- * computer away: its next hello asks for this check again.
+ * computer away: its next hello asks for this check again. `claimedAt`: a task taken from our queue at that time
+ * whose start the server may never have sent (a hello came while it could still be underway); not there, it goes
+ * back in the queue with all it was asked.
  */
 export async function checkCutTaskStart(
   deps: TaskDeps & {
@@ -1264,9 +1337,10 @@ export async function checkCutTaskStart(
     startQueued?: (machineId: string) => Promise<unknown>;
   },
   taskId: string,
+  claimedAt?: string,
 ) {
   const row = await getTask(deps.db, taskId);
-  if (!row || !isCutStart(row)) return;
+  if (!row || (claimedAt ? claimedAtOf(row) !== claimedAt : !isCutStart(row))) return;
   const [agent] = await deps.db
     .select({ handle: schema.agents.handle })
     .from(schema.agents)
@@ -1286,6 +1360,10 @@ export async function checkCutTaskStart(
   const there = reply.tasks.find((t) => t.taskId === row.id);
   if (there?.status === "running") return markRunning(deps, row, there);
   if (there) return;
+  if (claimedAt) {
+    if (await unclaimTask(deps.db, row.id, claimedAt)) await deps.startQueued?.(row.machineId);
+    return;
+  }
   await settleInterruptedTask(deps, row);
 }
 

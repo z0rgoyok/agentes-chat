@@ -10,7 +10,13 @@ import { createsRoutinesFor } from "@agenteschat/client/lib/audience";
 import { knownErrorText } from "@agenteschat/client/lib/errors";
 import { relativeTime, toYmd, whenAt } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { type RoutineFix, routineChannelOf, runPixels, type Words } from "@agenteschat/client/lib/routine-view";
+import {
+  atWorkWords,
+  type RoutineFix,
+  routineChannelOf,
+  runPixels,
+  type Words,
+} from "@agenteschat/client/lib/routine-view";
 import { browserTimezone, onceParts, routineHookUrl, timezoneName } from "@agenteschat/client/lib/routines";
 import { useCallback, useMemo } from "react";
 import { useTranslation } from "react-i18next";
@@ -88,12 +94,13 @@ export function useWhenText() {
 /** "Próxima em 10 min" (within a day), else "Próxima: sex 16 out, 10:00"; a one-off, an event, a pause. */
 export function useNextText() {
   const { t, i18n } = useTranslation();
+  const say = useSay();
   return useCallback(
     (r: Routine, now: Date): string => {
       const n = nextLine(r, now);
       switch (n.kind) {
         case "running":
-          return t("routines.runningNow");
+          return say(atWorkWords(r));
         case "fired":
           return t("routines.firedAt", { when: whenAt(t, i18n.language, n.at, now) });
         case "canceled":
@@ -120,20 +127,21 @@ export function useNextText() {
           return t("routines.next", { when: nextLabel(i18n.language, n.iso) });
       }
     },
-    [t, i18n.language],
+    [t, i18n.language, say],
   );
 }
 
 /** The runs as words: the strip's caption ("Respondeu há 2 h") and what a screen reader hears for it. */
 export function useRunWords() {
   const { t, i18n } = useTranslation();
+  const say = useSay();
   return useMemo(
     () => ({
       caption: (r: Routine, now: Date) => {
         const c = runCaption(r);
         switch (c.kind) {
           case "running":
-            return t("routines.runningNow");
+            return say(atWorkWords(r));
           case "never":
             return t("routines.neverRan");
           case "silentOf":
@@ -154,7 +162,7 @@ export function useRunWords() {
         });
       },
     }),
-    [t, i18n.language],
+    [t, i18n.language, say],
   );
 }
 

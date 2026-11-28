@@ -91,6 +91,12 @@ export function AskWaiting({ asked }: { asked: Asked }) {
   // biome-ignore lint/correctness/useExhaustiveDependencies: each answer once; signing in starts on the first
   useEffect(() => {
     if (answer !== null || got === undefined) return;
+    // An account that was already there: its invitation, as its email opens it, where it signs in and joins.
+    if (got?.status === "invited") {
+      forgetAsk();
+      router.replace({ pathname: "/invite/[token]", params: { token: got.token, mail: got.mail } });
+      return;
+    }
     const next = claimAnswer(got);
     if (!next) return;
     // Whatever it says, it's the last word: the checks stop, and opening the app no longer returns here.

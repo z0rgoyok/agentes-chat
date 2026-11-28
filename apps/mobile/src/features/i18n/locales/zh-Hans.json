@@ -4,21 +4,17 @@
     "send": "发送"
   },
   "categories": {
-    "title": "分类",
-    "where": "#{{channel}} 显示的位置",
-    "whereHelp": "对所有人生效。频道的成员保持不变。",
-    "create": "创建",
-    "endOfList": "对所有人移到列表末尾。",
-    "channelCount_other": "{{count}} 个频道",
-    "none": "还没有分类。",
-    "manageHint": "排序、名称和删除",
-    "deleteTitle": "删除 {{name}}？",
-    "order": "在列表中的位置",
     "up": "上移",
     "down": "下移",
-    "position": "第 {{at}} 个，共 {{count}} 个。",
-    "channelPosition": "第 {{at}} 个，共 {{count}} 个。",
-    "itsChannels": "频道"
+    "channelPosition": "第 {{at}} 个，共 {{count}} 个。"
+  },
+  "sections": {
+    "title": "分区",
+    "where": "#{{channel}} 在你列表中的位置",
+    "whereHelp": "只改变你的列表。每个人整理自己的分区。",
+    "none": "无分区",
+    "order": "在分区中的位置",
+    "tooLong": "最多 40 个字符。"
   },
   "blocks": {
     "send": "发送",
@@ -68,6 +64,15 @@
     "raw": "原始数据",
     "more": "查看全部 {{count}} 行",
     "gone": "此代码已不再打开。"
+  },
+  "table": {
+    "label_other": "表格 · {{count}} 行",
+    "title": "表格",
+    "rows_other": "{{count}} 行",
+    "copy": "复制表格",
+    "copied": "已复制表格",
+    "more": "查看全部 {{count}} 行",
+    "gone": "此表格已不再打开。"
   },
   "time": {
     "today": "今天",
@@ -181,11 +186,11 @@
       "text": "它可能已停机，或不在你的网络中。恢复后你的聊天会自动显示。",
       "kept": "正在显示应用中已有的内容。"
     },
-    "pinned": "已置顶",
+    "favorites": "收藏",
     "recent": "最近",
     "view": {
       "title": "显示对话",
-      "sectors": "部门",
+      "sections": "分区",
       "dms": "私信",
       "channels": "频道"
     },
@@ -822,6 +827,7 @@
   },
   "agent": {
     "talk": "聊天",
+    "responsible": "负责人",
     "task": "任务",
     "owner": "所有者：{{name}}",
     "cantTalk": "此智能体不和你一起工作。",
@@ -883,6 +889,7 @@
       "admin_ask_channel_agent": "{{names}} 请你把 {{agent}} 加入 #{{label}}",
       "admin_ask_create_agents": "{{names}} 请求获得创建智能体的权限",
       "admin_ask_webhook": "{{names}} 请你为例行任务设置 {{service}} Webhook",
+      "admin_ask_voice": "{{names}} 请你开启语音消息",
       "routine_paused_other": "例行工作已暂停",
       "routine_stalled_other": "例行工作正在等待电脑",
       "agent_unreached_other": "一项例行工作无法呼叫智能体",
@@ -920,6 +927,8 @@
       "plan_model_dropped_other": "{{model}} 已从 {{plan}} 下架。{{names}} 暂时使用 {{runs}}",
       "computer_disk_full_other": "一台电脑的磁盘快满了",
       "computer_no_chrome_other": "电脑需要 Google Chrome。请在 google.com/chrome 下载",
+      "computer_down_other": "一台电脑没有响应",
+      "computer_back_other": "一台电脑已恢复",
       "app_created_other": "一个 AI 应用为你创建了内容"
     },
     "markRead": "标为已读",
@@ -1422,6 +1431,15 @@
     "next": {
       "pr": "分支已推送，还没有拉取请求",
       "mergeLocal": "可以合并到 {{base}} 了"
+    },
+    "terminal": {
+      "keys": "终端按键",
+      "keyboard": "键盘",
+      "pasteHint": "将复制的内容粘贴到终端",
+      "key": {
+        "CtrlC": "Control-C，中断",
+        "CtrlD": "Control-D，输入结束"
+      }
     }
   },
   "taskManager": {
@@ -1990,6 +2008,7 @@
       "tool_request": "{{names}} 请你在你的 {{device}} 上打开{{tool}}",
       "cli_request": "{{names}} 请你在 {{device}} 上安装 {{tool}}",
       "folder_request": "{{names}} 请你在你的 {{device}} 上开放文件夹 {{path}}",
+      "internet_shared": "智能体现在通过 {{device}} 的网络打开网站",
       "allowOnce": "允许一次",
       "always": "始终允许 {{name}}",
       "no": "不允许",
@@ -2681,11 +2700,12 @@
     },
     "formatAuto": "{{name}} 会选最合适的",
     "newWidget": {
-      "alerts": "提醒已开",
       "realData": "真实数据",
       "editAsk": "修改需求",
       "asked": "“{{ask}}”",
-      "autoFormat": "自动形式"
+      "testReal": "用真实数据测试",
+      "addHome": "添加到首页",
+      "addTo": "添加到{{where}}"
     },
     "agentPick": {
       "search": "搜索智能体",
@@ -3111,7 +3131,8 @@
       "workspaceSub": "工作区的 API 密钥",
       "key": "API 密钥",
       "keyDefault": "工作区默认",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} 将不再使用它。"
     },
     "missionAi": "AI",
     "missionLocked": "开始前选择由谁来做。模型随时可以更改。"

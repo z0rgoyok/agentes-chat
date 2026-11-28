@@ -79,7 +79,7 @@ people than asked.
    `run.continue_forbidden`, and `wait.canContinue` says which), and any other wait is refused with its cause and when
    it picks up (`widget.waiting`, 409). Beside the cause, the one thing that ends it sooner, for who may do it: a higher
    budget (admins), another model for a model's own limit (its owner and admins), or its computer opened. A refresh
-   isn't long work by kind, so it pauses near the limit only once it grew long (ADR 0118, addendum of 2026-11-11). Each
+   is never long work, whatever its size, so it never pauses near the limit (ADR 0118, addendum of 2026-11-23). Each
    update or failure is kept with what it showed (`dashboard_widget_updates`, the latest 20), shown in the widget's
    panel. When the alert is on and the agent says its condition was met, the person who set the alert hears it in
    "Waiting on you" (`widget_alert`, waiting, one row per widget merging while open); never in the chat. A widget that
@@ -146,13 +146,22 @@ people than asked.
     what the agent reads), its latest updates, remove, and a composer to ask its agent for a change. Removing a
     widget, from anywhere, asks first: its routine stops and its history goes. Charts in messages get "Pin".
 15. **On the phone.** Dashboards open from the home screen: at the top of Chats, what Início shows (My Home, or the
-    board chosen for it, §18) heads a strip of its widgets, small and side by side, that scrolls sideways (with none
-    yet, one card asks for a widget), and "See all" at its end pushes the list, `/dashboards`. The tab bar is unchanged (Chats, Threads,
+    board chosen for it, §18) heads a strip of its widgets side by side, each at its size (a small one takes one
+    column, a medium or large one two, as on a board), that scrolls sideways (with none
+    yet, one card asks for a widget), and at its end "Add" (for who edits that board) beside "See all", which pushes the list, `/dashboards`. The tab bar is unchanged (Chats, Threads,
     Agents, Activity and Search): a sixth tab would push search out of Android's bar, which holds five at most. The
     list shows "My Home" first, then the same groups. Everything is a pushed screen with a back button, never a sheet:
     the list, a board (two columns, a 2-wide widget across the row), a widget (big, how it updates, history, remove,
-    ask for a change), a new widget (preview on top, text and suggestions, agent, format, schedule, alert, board),
+    ask for a change), a new widget (the card on top holds only its title and the ask with its suggestions; agent,
+    format, size, schedule, alert and board are rows under it, each a finger's target, and Test, then Add, sit at the
+    screen's foot over the keyboard: a form squeezed inside the card left 24-point controls on a phone),
     share and a new board.
+    A strip card is 152 points tall and breathes 16 all round, 8 under its title. Its text has four roles: the title a
+    label (13 semibold); what it shows leads (the number, a line's last value with its unit, a summary's first sentence
+    at 17 semibold); text at 15 (a list's rows, a summary's other sentences, quieter); the detail at 13 (the change
+    semibold, notes and times quieter). Sentences show only whole: one that doesn't fit isn't drawn and stays on the
+    widget's screen. A chart's unit is a word (at the title line's end on the strip), never a tag. Updating, waiting
+    and a failure are a mark beside a number or a goal's share, else at the title line's end.
 16. **Test before creating.** "+ Widget" asks the agent first and creates after: "Test" makes a draft
     (`dashboard_widgets.draft`) that its agent builds at once with real data, through the same refresh run as any
     widget (`update_widget`, a history row, failure reasons, its cost recorded); the card shows it building in place,
@@ -169,8 +178,8 @@ people than asked.
     (ADR 0053 §10): its routine's firing and its run take a person's slots, never the background ones, since its creator
     watches the preview. Pinning a chart needs no test: its data is already real. Agents' `create_widget` is unchanged.
 17. **Who names a widget, and notes that fit.** The ask is never the title. The agent names the widget on its first
-    build (a draft's test included): `update_widget` requires a short `title` then (at most 40 characters, sentence
-    case, in the person's language, no period at the end) and refuses a longer one rather than cutting it; it may rename
+    build (a draft's test included): `update_widget` requires a short `title` then (at most 20 characters, so a small
+    card on the phone shows it whole; sentence case, in the person's language, no period at the end) and refuses a longer one rather than cutting it; it may rename
     it again only on a change request, and never once a person named it (`dashboard_widgets.title_set_by_user`: a title
     given on create, a different title on confirm, or Rename). Until it is named the apps show a generic "New widget".
     A `note` longer than one short sentence (140 characters) is a tool error the agent fixes; the apps clamp a note to

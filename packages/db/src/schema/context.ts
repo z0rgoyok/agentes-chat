@@ -227,6 +227,8 @@ export interface ProposedSettingLine {
   label?: { from?: string; to?: string };
   /** `budget`: at or below what the agent spent this month, so applying it stops the agent at once. */
   pausesNow?: boolean;
+  /** The team's right hand's `model` or `effort`: the person whose own AI (`right_hand_brains`) it changes. */
+  person?: string;
 }
 
 /**

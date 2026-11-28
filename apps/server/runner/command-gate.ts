@@ -1,8 +1,11 @@
 import { execFile } from "node:child_process";
 import { open, stat } from "node:fs/promises";
 import path from "node:path";
+import type { Readable, Writable } from "node:stream";
+import { text as readAll } from "node:stream/consumers";
 import {
   approvalNeeded,
+  approvalOf,
   type GitPush,
   githubRepo,
   gitPushes,
@@ -13,8 +16,11 @@ import {
   pushRemote,
   type RepoFacts,
   simpleCommands,
+  type TextVerdict,
+  textVerdict,
 } from "@agenteschat/adapters/command-policy";
 import { HARDENED_GIT_ARGS } from "./git-guard";
+import { runnerStamp, thisRunner } from "./launch";
 
 /**
  * The command policy's git side (ADR 0053 §3, amended 2026-10-30): where a push goes, read on the computer
@@ -27,6 +33,23 @@ const GIT_MS = 5000;
 const REMOTE_MS = 10_000;
 /** The most of a script `exec` reads to check it. */
 const SCRIPT_MAX_BYTES = 1024 * 1024;
+/**
+ * A script this long is read in a child runner (`script-check`), so this runner's one thread, every agent's work on
+ * the computer, never waits for it. On a laptop the check costs a crafted 1 MiB script up to about 40 s and several
+ * GB, an ordinary 8 KiB one a millisecond or less, and a child adds about 55 ms and 50 MB (from source). Below this
+ * the costliest shape measured (code dense with `gh |`) takes about 55 ms: it is read here, with no child.
+ */
+const APART_CHARS = 2 * 1024;
+/**
+ * A child that hasn't answered by then is hung (the slowest scripts measured take it about 40 s, and this runner only
+ * waits): the script is read here.
+ */
+const APART_MS = 300_000;
+/**
+ * The longest answer taken from a child (a 1 MiB script naming one branch half a million times: 22 MiB); past it
+ * the script is read here.
+ */
+const APART_MAX_BYTES = 64 * 1024 * 1024;
 
 /** git's stdout trimmed, or null on any failure. Never asks for a credential; the repository's hooks never run. */
 function git(cwd: string, args: string[], timeout = GIT_MS): Promise<string | null> {
@@ -159,6 +182,61 @@ async function scriptOf(command: string, cwd: string): Promise<{ text: string; c
   }
 }
 
+/** How a long script's child runner starts, and its file's `runnerStamp` now: the build it answers for. */
+export const childRunner = (command: readonly string[]) => ({ command, stamp: runnerStamp(command) });
+/** This runner, as `launch.ts` starts it, stamped as this process started from it. */
+const SELF = childRunner(thisRunner());
+/** Tests: another child runner (default: `SELF`), and its time. */
+type Apart = { runner?: ReturnType<typeof childRunner>; ms?: number };
+
+/** A child's answer, when it reads as one. */
+function answered(answer: string | null): TextVerdict | null {
+  try {
+    const v = JSON.parse(answer ?? "") as Partial<TextVerdict> | null;
+    const pushes = v?.pushes === null || Array.isArray(v?.pushes);
+    return pushes && (v?.denied === null || typeof v?.denied === "string") ? (v as TextVerdict) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A script's `textVerdict`, worked out in a child runner when it is long (`APART_CHARS`). When the child can't (it
+ * doesn't start, dies, hangs or answers nonsense) or isn't this build (its file changed since this runner started:
+ * an update renamed a new one over it, and this runner reads the answer with its own code) it is worked out here:
+ * never run unread, never refused for that.
+ */
+async function scriptVerdict(text: string, how: string, code: boolean, apart?: Apart): Promise<TextVerdict> {
+  const { command, stamp } = apart?.runner ?? SELF;
+  if (text.length < APART_CHARS || stamp === null) return textVerdict(text, how, code);
+  const [bin = "", ...args] = command;
+  const answer = await new Promise<string | null>((resolve) => {
+    const child = execFile(
+      bin,
+      [...args, "script-check"],
+      { timeout: apart?.ms ?? APART_MS, maxBuffer: APART_MAX_BYTES, windowsHide: true },
+      (err, stdout) => resolve(err ? null : stdout),
+    );
+    // A child that ends before reading it all fails the write: the callback above has said so already.
+    child.stdin?.on("error", () => {});
+    child.stdin?.end(JSON.stringify({ text, how, code }));
+  }).catch(() => null);
+  // Stamped after it answers: a file replaced before the child read it, or while it ran, counts too.
+  return (runnerStamp(command) === stamp ? answered(answer) : null) ?? textVerdict(text, how, code);
+}
+
+/**
+ * `agentes-runner script-check`: a script's `textVerdict` for the runner that started it (`scriptVerdict`), the
+ * request on `input` and the answer on `output`, as JSON.
+ */
+export async function scriptCheck(input: Readable, output: Writable): Promise<number> {
+  const { text, how, code } = JSON.parse(await readAll(input)) as { text: string; how: string; code: boolean };
+  const answer = JSON.stringify(textVerdict(text, how, code));
+  // All of it out before the process exits: a pipe takes a long answer in parts.
+  await new Promise<void>((resolve, reject) => output.write(answer, (err) => (err ? reject(err) : resolve())));
+  return 0;
+}
+
 /**
  * Why a command waits for a person before it runs here, as the agent reads it (`how`: what it does to ask
  * them), or never runs (`never`: a push our git proxy refuses whoever approves), or null: the command itself
@@ -168,7 +246,7 @@ async function scriptOf(command: string, cwd: string): Promise<{ text: string; c
  */
 export async function commandApproval(
   command: string,
-  opts: { cwd: string | null; own: readonly string[]; how: string; head?: string; script?: boolean },
+  opts: { cwd: string | null; own: readonly string[]; how: string; head?: string; script?: boolean; apart?: Apart },
 ): Promise<Hold | null> {
   const cwd = opts.cwd;
   const facts = new Map<string, RepoFacts>();
@@ -190,7 +268,10 @@ export async function commandApproval(
   if (held?.never || !opts.script || cwd === null) return held;
   const script = await scriptOf(command, cwd);
   const inScript = script
-    ? await approvalNeeded(script.text, opts.how, { code: script.code, own: opts.own, facts: factsAt })
+    ? await approvalOf(await scriptVerdict(script.text, opts.how, script.code, opts.apart), opts.how, {
+        own: opts.own,
+        facts: factsAt,
+      })
     : null;
   return inScript?.never ? inScript : (held ?? inScript);
 }

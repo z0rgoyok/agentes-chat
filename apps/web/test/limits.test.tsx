@@ -47,6 +47,8 @@ async function inviteDialog() {
   return dialog;
 }
 const sendButton = (dialog: HTMLElement) => within(dialog).getByRole("button", { name: "Convidar 1 pessoa" });
+/** Plano e cobrança's card: its address opens IA e uso's page, where the part around the card has the same name. */
+const billingCard = () => screen().getAllByLabelText("Plano e cobrança").at(-1) as HTMLElement;
 
 describe("a workspace's limits (ADR 0079)", () => {
   test("Plano e cobrança: people and files against them, in plain numbers", async () => {
@@ -54,34 +56,34 @@ describe("a workspace's limits (ADR 0079)", () => {
       members: { used: 3, limit: 10 },
       storage: { usedBytes: 40 * GB, limitBytes: 50 * GB, ownStorage: false },
     });
-    const card = screen().getByLabelText("Plano e cobrança");
+    const card = billingCard();
     expect(card.textContent).toContain("Pessoas3 de 10");
     expect(card.textContent).toContain("Arquivos40 GB de 50 GB");
     expect(within(card).getAllByRole("meter")).toHaveLength(2);
     cleanup();
     // X's month once it was used, as a share alone; nothing before.
     await go("settings/billing", { connectors: { usedUsd: 1.3, limitUsd: 4.35 } });
-    const x = screen().getByLabelText("Plano e cobrança");
+    const x = billingCard();
     expect(x.textContent).toContain("X neste mês30% usado");
     expect(x.textContent).not.toContain("US$");
     cleanup();
     await go("settings/billing", { connectors: { usedUsd: 0, limitUsd: 4.35 } });
-    expect(screen().getByLabelText("Plano e cobrança").textContent).not.toContain("X neste mês");
+    expect(billingCard().textContent).not.toContain("X neste mês");
     cleanup();
     await go("settings/billing", { storage: { usedBytes: GB, limitBytes: 50 * GB, ownStorage: true } });
-    const own = screen().getByLabelText("Plano e cobrança");
+    const own = billingCard();
     expect(own.textContent).toContain("PessoasSem limite");
     expect(own.textContent).toContain("ArquivosNo seu próprio bucket, sem limite nosso");
     expect(within(own).queryAllByRole("meter")).toHaveLength(0);
     cleanup();
     // Against the plan's top, with the seats paid for under it; no such line when they are the same.
     await go("settings/billing", { members: { used: 12, limit: 12, max: 15, canAddSeats: true } });
-    const top = screen().getByLabelText("Plano e cobrança");
+    const top = billingCard();
     expect(top.textContent).toContain("Pessoas12 de 15");
     expect(top.textContent).toContain("12 vagas pagas");
     cleanup();
     await go("settings/billing", { members: { used: 1, limit: 1, max: 1, canAddSeats: false } });
-    const one = screen().getByLabelText("Plano e cobrança");
+    const one = billingCard();
     expect(one.textContent).toContain("Pessoas1 de 1");
     expect(one.textContent).not.toContain("paga");
   });

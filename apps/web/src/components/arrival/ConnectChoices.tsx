@@ -1,6 +1,6 @@
 import { joinNames } from "@agenteschat/client/lib/format";
 import { type AiChoice, PLAN_CHOICES, type PlanChoice, planLabel, planMark } from "@agenteschat/client/lib/no-ai";
-import { Icon, ProviderLogo } from "@agenteschat/ui";
+import { Icon, type OptionLinkItem, OptionLinks, ProviderLogo } from "@agenteschat/ui";
 import { type ReactNode, useState } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -18,10 +18,13 @@ export function ConnectChoices({
   dims,
   mayAddKey,
   perAgent,
+  offSystem,
 }: {
   onPick: (choice: AiChoice) => void;
   /** A plan that can't sign in now: its mark dims, and its steps say why. */
   dims: (choice: PlanChoice) => boolean;
+  /** The computer's system where a plan doesn't run there (`planOffSystem`): its card says so before it is picked. */
+  offSystem?: (choice: PlanChoice) => string | null;
   mayAddKey: boolean;
   /**
    * For several agents: a plan that will ask for one login per agent there ends its card saying so, quietly, before
@@ -31,66 +34,84 @@ export function ConnectChoices({
 }) {
   const { t } = useTranslation();
   const [others, setOthers] = useState(false);
-  const card = (choice: AiChoice, lead: ReactNode, title: string, text: string, end?: ReactNode) => (
-    <button key={choice} type="button" className="ac-option" onClick={() => onPick(choice)}>
-      {lead}
-      <span className="ac-option__text">
-        <span className="ac-option__title">{title}</span>
-        <span className="ac-option__desc">{text}</span>
-      </span>
-      {end ?? <Icon name="chevronRight" className="arrival-opts__end" />}
-    </button>
-  );
+  const card = (
+    choice: AiChoice,
+    leading: ReactNode,
+    title: string,
+    description: string,
+    more: Pick<OptionLinkItem, "tag" | "side"> = {},
+  ): OptionLinkItem => ({ value: choice, leading, title, description, onSelect: () => onPick(choice), ...more });
+  const off = (c: PlanChoice) => offSystem?.(c) ?? null;
   const plan = (c: PlanChoice) =>
     card(
       c,
       <ProviderLogo id={planMark(c)} size="tile" off={dims(c)} />,
       planLabel(t, c),
-      t(`connectAi.plan.${c}.tiers`),
-      perAgent?.(c) ? (
-        <span className="arrival-opts__tag arrival-opts__tag--quiet">{t("connectAi.team.perAgent")}</span>
-      ) : undefined,
+      off(c) ? t("connectAi.offSystem", { system: off(c) }) : t(`connectAi.plan.${c}.tiers`),
+      // A plan that can't run there has no logins to count.
+      perAgent?.(c) && !off(c) ? { side: t("connectAi.team.perAgent") } : {},
     );
-  return (
-    <div className="arrival-opts">
-      {FIRST.map(plan)}
-      {others ? (
-        OTHERS.map(plan)
-      ) : (
-        <button type="button" className="ac-option" aria-expanded={false} onClick={() => setOthers(true)}>
-          <span className="arrival-opts__tile arrival-opts__tile--four" aria-hidden="true">
-            {OTHERS.slice(0, 4).map((c) => (
-              <ProviderLogo key={c} id={planMark(c)} size="xs" />
-            ))}
-          </span>
-          <span className="ac-option__text">
-            <span className="ac-option__title">{t("arrival.connect.others")}</span>
-            <span className="ac-option__desc">
-              {joinNames(
-                OTHERS.map((c) => planLabel(t, c)),
-                t,
-              )}
-            </span>
-          </span>
-          <Icon name="chevronDown" className="arrival-opts__end" />
-        </button>
-      )}
-      {mayAddKey &&
-        card(
-          "key",
-          <span className="arrival-opts__tile" aria-hidden="true">
-            <Icon name="key" />
-          </span>,
-          t("connectAi.key.title"),
-          t("connectAi.key.sub"),
+  const offOthers = OTHERS.filter((c) => off(c));
+  const more: OptionLinkItem = {
+    value: "others",
+    leading: (
+      <span className="arrival-opts__tile arrival-opts__tile--four" aria-hidden="true">
+        {OTHERS.slice(0, 4).map((c) => (
+          <ProviderLogo key={c} id={planMark(c)} size="xs" />
+        ))}
+      </span>
+    ),
+    title: t("arrival.connect.others"),
+    description: (
+      <>
+        {joinNames(
+          OTHERS.map((c) => planLabel(t, c)),
+          t,
         )}
-      {card(
-        FREE,
-        <ProviderLogo id={planMark(FREE)} size="tile" off={dims(FREE)} />,
-        t("arrival.connect.free"),
-        t("arrival.connect.freeText"),
-        <span className="arrival-opts__tag">{t("arrival.connect.noPlan")}</span>,
-      )}
-    </div>
+        {offOthers.length > 0 && (
+          <span className="ac-optrow__desc">
+            {t("connectAi.offSystemSome", {
+              count: offOthers.length,
+              names: joinNames(
+                offOthers.map((c) => planLabel(t, c)),
+                t,
+              ),
+              system: off(offOthers[0] as PlanChoice),
+            })}
+          </span>
+        )}
+      </>
+    ),
+    end: "chevronDown",
+    button: { "aria-expanded": false },
+    onSelect: () => setOthers(true),
+  };
+  return (
+    <OptionLinks
+      className="arrival-opts"
+      options={[
+        ...FIRST.map(plan),
+        ...(others ? OTHERS.map(plan) : [more]),
+        ...(mayAddKey
+          ? [
+              card(
+                "key",
+                <span className="arrival-opts__tile" aria-hidden="true">
+                  <Icon name="key" />
+                </span>,
+                t("connectAi.key.title"),
+                t("connectAi.key.sub"),
+              ),
+            ]
+          : []),
+        card(
+          FREE,
+          <ProviderLogo id={planMark(FREE)} size="tile" off={dims(FREE)} />,
+          t("arrival.connect.free"),
+          t("arrival.connect.freeText"),
+          { tag: t("arrival.connect.noPlan") },
+        ),
+      ]}
+    />
   );
 }

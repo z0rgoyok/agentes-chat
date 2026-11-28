@@ -17,7 +17,7 @@
 // three after its prefix, "KEY403" is forbidden by it (a model or account switched off), "HANG…" (the API's pings
 // going on in "HANGPING", inside an open thinking block in "HANGTHINK"), "LONGTHINK", "LONGTOOL", "OURTOOLWAIT",
 // "RETRYWAIT" and "QUIETWAIT" go quiet (see below), "THOUGHT" thinks in two blocks first (one with 10 characters of text,
-// one whose text is left out), "ECHOMODEL" answers with the model and effort it runs on. Control requests:
+// one whose text is left out; its API request said 30 ms before), "ECHOMODEL" answers with the model and effort it runs on. Control requests:
 // `initialize`, `get_usage` as $FAKE_CLAUDE_USAGE says ("" a Max plan's windows, "signed_out", "error", "hang": never),
 // and `set_model` and `apply_flag_settings` (`effortLevel`), which switch what "ECHOMODEL" says (and `get_settings`
 // shows) unless $FAKE_CLAUDE_NO_SWITCH is "refuse" (an error answer), "silent" (none) or "flag_wins" (the effort says
@@ -63,6 +63,8 @@ if (log) {
   const oauthEnv = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? null;
   const baseUrl = process.env.ANTHROPIC_BASE_URL ?? null;
   const compactWindow = process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW ?? null;
+  const tz = process.env.TZ ?? null;
+  const tmpdir = process.env.TMPDIR ?? null;
   const autoMemoryOff = process.env.CLAUDE_CODE_DISABLE_AUTO_MEMORY ?? null;
   const at = args.indexOf("--settings");
   let settingsEnv = null;
@@ -79,7 +81,7 @@ if (log) {
   } catch {}
   appendFileSync(
     log,
-    `${JSON.stringify({ pid: process.pid, args, configDir, cwd: process.cwd(), apiKey, authToken, oauthToken, oauthEnv, oauthFd, baseUrl, settingsEnv, cleanupDays, compactWindow, autoMemoryOff, system })}\n`,
+    `${JSON.stringify({ pid: process.pid, args, configDir, cwd: process.cwd(), apiKey, authToken, oauthToken, oauthEnv, oauthFd, baseUrl, settingsEnv, cleanupDays, compactWindow, tz, tmpdir, autoMemoryOff, system })}\n`,
   );
 }
 const flag = (name) => {
@@ -192,6 +194,13 @@ const init = () =>
       ? {}
       : { tools: initTools, mcp_servers: mcpServers.map((name) => ({ name, status: "connected" })) }),
   });
+// `--debug-file`: Claude Code's debug log, its lines as it writes them (a hook's output on a line of its own after it).
+const debugFile = flag("--debug-file");
+const debugLine = (level, said) => {
+  if (debugFile) appendFileSync(debugFile, `${new Date().toISOString()} [${level}] ${said}\n`);
+};
+debugLine("DEBUG", "[STARTUP] setup() completed in 41ms");
+debugLine("DEBUG", '"Hook SessionStart:startup (SessionStart) success:\nthe words a hook said"');
 init();
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let turns = 0;
@@ -401,6 +410,9 @@ async function answer(line) {
     ev({ type: "content_block_stop", index: 0 });
   }
   if (prompt.includes("THOUGHT")) {
+    // Claude Code says it right before it sends the API request.
+    out({ type: "system", subtype: "status", status: "requesting" });
+    await sleep(30);
     out({
       type: "stream_event",
       event: { type: "message_start", message: { id: "msg_thought" } },
@@ -439,6 +451,11 @@ async function answer(line) {
     });
   }
   if (prompt.includes("RETRYWAIT")) {
+    debugLine(
+      "DEBUG",
+      "[API REQUEST] /v1/messages x-client-request-id=0f0e5b55-7e6c-4b51-9c3c-2f1d8f5a7c01 source=sdk",
+    );
+    debugLine("ERROR", "API error (attempt 1/10): 529 overloaded_error for ana@example.com");
     out({
       type: "system",
       subtype: "api_retry",

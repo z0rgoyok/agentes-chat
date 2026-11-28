@@ -116,6 +116,8 @@ export function CommandMenu() {
       { key: "calendar", to: "/org/$orgId/calendar", icon: "calendar", label: t("shell.calendar") },
       { key: "drive", to: "/org/$orgId/drive", icon: "drive", label: t("shell.drive") },
       { key: "team", to: "/org/$orgId/team", icon: "agent", label: t("shell.team") },
+      // Skills is a page of its own (ADR 0020, amendment of 2026-11-25), no longer a settings section to find here.
+      { key: "skills", to: "/org/$orgId/skills", icon: "bolt", label: t("shell.skills") },
       { key: "members", to: "/org/$orgId/members", icon: "members", label: t("shell.members") },
       { key: "search", to: "/org/$orgId/search", icon: "search", label: t("shell.searchWorkspace") },
     ] as const;

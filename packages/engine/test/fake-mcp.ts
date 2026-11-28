@@ -7,16 +7,19 @@ import { type McpConnect, mcpSessionOver } from "../src";
  * An in-process MCP server shaped like GitHub's (no network). Records every
  * call, the auth headers each session was opened with, and every request a
  * session sent as it left (`requests`: the handshake and listings too, each
- * with its `params._meta`).
+ * with its `params._meta`). `instructions`: what it answers `initialize` with.
  */
-export function fakeGithubMcp(options: { issueWrite?: boolean; writes?: boolean } = {}) {
+export function fakeGithubMcp(options: { issueWrite?: boolean; writes?: boolean; instructions?: string } = {}) {
   const calls: { tool: string; args: Record<string, unknown> }[] = [];
   const sessions: { serverUrl: string; headers: Record<string, string> }[] = [];
   const requests: { method: string; params?: Record<string, unknown> }[] = [];
   const pr = { owner: z.string(), repo: z.string(), pullNumber: z.number().int() };
 
   const build = () => {
-    const server = new McpServer({ name: "fake-github", version: "1" });
+    const server = new McpServer(
+      { name: "fake-github", version: "1" },
+      options.instructions === undefined ? {} : { instructions: options.instructions },
+    );
     server.registerTool("pull_request_read", { description: "Get a pull request", inputSchema: pr }, async (args) => {
       calls.push({ tool: "pull_request_read", args });
       return { content: [{ type: "text", text: `PR #${args.pullNumber}: fix token refresh (checks passing)` }] };

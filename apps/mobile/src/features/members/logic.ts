@@ -147,20 +147,12 @@ export const outsideLine = (t: TFunction, person: Pick<Person, "outsideOf">) =>
   person.outsideOf ? `${t("members.outside.chip")} · ${person.outsideOf}` : null;
 
 /**
- * What a person's row offers in its menu, in order: a message to anyone but oneself, their cargos when the viewer may
- * give one (P11, "Cargos de Carla"), then removing them (or leaving, on one's own row) when the viewer may. Empty: the
- * row has no menu.
+ * What a person's row offers in its menu, in order: their cargos when the viewer may give one (P11, "Cargos de
+ * Carla"), then removing them (or leaving, on one's own row) when the viewer may. The message is the row's own button,
+ * so a plain member's rows have no menu. Empty: the row has no menu.
  */
-export function memberActions(
-  mine: boolean,
-  removable: boolean,
-  cargos = false,
-): ("dm" | "roles" | "remove" | "leave")[] {
-  return [
-    ...(mine ? [] : (["dm"] as const)),
-    ...(cargos ? (["roles"] as const) : []),
-    ...(removable ? ([mine ? "leave" : "remove"] as const) : []),
-  ];
+export function memberActions(mine: boolean, removable: boolean, cargos = false): ("roles" | "remove" | "leave")[] {
+  return [...(cargos ? (["roles"] as const) : []), ...(removable ? ([mine ? "leave" : "remove"] as const) : [])];
 }
 
 /** The people who may invite here (ADR 0085): the owners, and whoever holds a role that gives it. */
@@ -213,18 +205,22 @@ export const invitationExpired = (
 export function invitationLine(
   t: TFunction,
   locale: string,
-  invitation: Pick<InvitationWithStatus, "role" | "roleIds" | "expiresAt"> & {
+  invitation: Pick<InvitationWithStatus, "role" | "roleIds" | "expiresAt" | "undelivered"> & {
     status?: InvitationWithStatus["status"];
   },
   roles: readonly OrgRole[],
   extra: { resentUntil?: string | undefined; sender?: string | null | undefined } = {},
   now = new Date(),
 ) {
-  const state = extra.resentUntil
-    ? t("members.invitations.resentState", { date: formatShortDate(locale, extra.resentUntil) })
-    : invitationExpired(invitation, now)
-      ? t("members.invitations.expired", { when: whenWords(t, locale, invitation.expiresAt, now) })
-      : t("members.invitations.expires", { left: timeLeft(t, invitation.expiresAt, now) ?? "" });
+  const expired = invitationExpired(invitation, now);
+  const state =
+    invitation.undelivered && !expired
+      ? t(`members.invitations.undelivered.${invitation.undelivered}`)
+      : extra.resentUntil
+        ? t("members.invitations.resentState", { date: formatShortDate(locale, extra.resentUntil) })
+        : expired
+          ? t("members.invitations.expired", { when: whenWords(t, locale, invitation.expiresAt, now) })
+          : t("members.invitations.expires", { left: timeLeft(t, invitation.expiresAt, now) ?? "" });
   return [invitationRoles(t, invitation, roles), extra.sender, lowerFirst(state, locale)].filter(Boolean).join(" · ");
 }
 
@@ -467,7 +463,7 @@ export interface ChannelPick {
 }
 
 /**
- * Canais' groups: what the picked cargos bring first ("Do cargo Suporte"), then the rest in the sidebar's categories
+ * Canais' groups: what the picked cargos bring first ("Do cargo Suporte"), then the rest in the sidebar's sectors
  * and order, #general on top, ticked and fixed. On offer, as the server takes them: the public channels, the private
  * ones the viewer is in, and those limited to a picked cargo. A search keeps the ones it names, and a group left
  * without any goes.
@@ -477,9 +473,9 @@ export function channelPicks(
   args: {
     channels: readonly Pick<
       Channel,
-      "id" | "name" | "visibility" | "isMember" | "audienceRoleIds" | "categoryId" | "position"
+      "id" | "name" | "visibility" | "isMember" | "audienceRoleIds" | "groupId" | "position"
     >[];
-    categories: readonly { id: string; name: string }[];
+    sectors: readonly { id: string; name: string }[];
     roles: readonly OrgRole[];
     draft: Pick<InviteDraft, "roleIds" | "added" | "removed">;
     query?: string;
@@ -511,7 +507,7 @@ export function channelPicks(
   const rest = offered.filter((c) => !own.includes(c.id));
   return [
     ...(mine.length ? [{ title: fromCargosTitle(t, roles, draft.roleIds), picks: mine.map(pick) }] : []),
-    ...channelGroups(rest, args.categories).map((g) => ({ title: g.name, picks: g.channels.map(pick) })),
+    ...channelGroups(rest, args.sectors).map((g) => ({ title: g.name, picks: g.channels.map(pick) })),
   ];
 }
 

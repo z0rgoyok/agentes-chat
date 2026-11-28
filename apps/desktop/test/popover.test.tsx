@@ -3,12 +3,15 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
 
+import { readInstance } from "@agenteschat/client/lib/server";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { AppProvider } from "../src/app";
+import { ControlError } from "../src/control/client";
 import { siteApi } from "../src/control/devices";
-import { PREPARE_PREF } from "../src/control/permissions";
+import { raisePick } from "../src/control/notify";
+import { PERMISSION_ASK_PREF, PREPARE_PREF } from "../src/control/permissions";
 import { DesktopStore, pairedHomes } from "../src/control/store";
 import { FAKE_SERVER } from "../src/dev/fake-runner";
 import { readPref, writePref } from "../src/hooks";
@@ -97,6 +100,52 @@ test("the menu bar menu: what goes on here scrolls, and Open, Preferences and Qu
     }
   }));
 
+test("a new OS permission an agent's work waits on opens the welcome window's ask, and stays on the menu until it ends", async () => {
+  const host = createFakeHost("popover", "here");
+  await withMenu(async (el) => {
+    const runner = [...host.runners.values()][0];
+    host.window = "popover";
+    await act(async () =>
+      runner?.setPermissions([
+        { permission: "screen", trigger: "screencapture -x a.png", since: "2026-11-26T18:00:00.000Z" },
+      ]),
+    );
+    await until(() => host.window === "welcome");
+    expect(readPref(PERMISSION_ASK_PREF, false)).toBe(true);
+    expect(banners(el)).toContainEqual({
+      title: "Waiting for Screen Recording",
+      line: "Agents need it to take screenshots of this Mac.",
+      actions: ["Allow"],
+    });
+    // Asked again from the menu after the window was closed.
+    writePref(PERMISSION_ASK_PREF, false);
+    host.window = "popover";
+    const allow = [...el.querySelectorAll(".dk-banner__acts button")].find((b) => b.textContent === "Allow");
+    await act(async () => (allow as HTMLElement).click());
+    expect(host.window as string).toBe("welcome");
+    expect(readPref(PERMISSION_ASK_PREF, false)).toBe(true);
+    await act(async () => runner?.setPermissions([]));
+    await until(() => !banners(el).some((b) => b.title === "Waiting for Screen Recording"));
+  }, host);
+  writePref(PERMISSION_ASK_PREF, false);
+});
+
+test("a folder request the computer can't answer says why, and stays to be answered again", () =>
+  withMenu(async (el, store) => {
+    const real = store.request.bind(store);
+    store.request = (async (homeId: string, req: { type: string }) => {
+      if (req.type === "access.answer") throw new ControlError("invalid_path", "/Users/voce/roteiros doesn't exist");
+      return real(homeId, req as never);
+    }) as typeof store.request;
+    const allow = [...el.querySelectorAll(".dk-req button")].find((b) => b.textContent === "Allow") as HTMLElement;
+    await act(async () => allow.click());
+    await until(() => document.querySelector(".dk-toast")?.textContent);
+    expect(document.querySelector(".dk-toast")?.textContent).toContain(
+      "Couldn't answer this request: /Users/voce/roteiros doesn't exist",
+    );
+    expect((allow as HTMLButtonElement).disabled).toBe(false);
+  }));
+
 test("on a short screen the card's cap is lower, so the window and the actions at its bottom stay on it", async () => {
   const screen = window.screen as { availHeight: number };
   const height = screen.availHeight;
@@ -155,6 +204,31 @@ describe("the menu's banners say only what matters there", () => {
         (el) => banners(el).length > 0,
       );
     }));
+
+  test("a saved server whose app API this app no longer speaks, or doesn't yet: the welcome window's words", async () => {
+    const tooNew = createFakeHost("popover", "cloud");
+    tooNew.checkServer = async (server) =>
+      readInstance(server, { name: "agentes.chat", version: "9.0.0", api: 3, minApi: 2, url: server });
+    await withMenu(
+      (el) =>
+        expect(banners(el)).toEqual([
+          { title: "Update the app to use agentes.chat.", line: null, actions: ["Check for updates"] },
+        ]),
+      tooNew,
+      (el) => banners(el).length > 0,
+    );
+    const tooOld = createFakeHost("popover", "cloud");
+    tooOld.checkServer = async (server) =>
+      readInstance(server, { name: "agentes.chat", version: "0.0.1", api: 0, minApi: 0, url: server });
+    await withMenu(
+      (el) =>
+        expect(banners(el)).toEqual([
+          { title: "agentes.chat needs an update to work with this app.", line: null, actions: [] },
+        ]),
+      tooOld,
+      (el) => banners(el).length > 0,
+    );
+  });
 
   test("agentes.chat not starting here: its title, why and where to look, Copy details, the logs and Try again", () =>
     withMenu(
@@ -243,6 +317,51 @@ describe("the menu's banners say only what matters there", () => {
         "agentes.chat stops on this Mac: nobody can use it, here, on your phone or your teammates', until you open the app again.",
       ),
     );
+  });
+});
+
+describe("Quit from the menu while agents work here", () => {
+  /** The fake host with the menu's choices sent by hand, and what the system's dialog was asked. */
+  const menuHost = (answer: (words: { title: string; body: string }) => Promise<boolean>) => {
+    const host = createFakeHost("popover", "here");
+    const menu: ((action: string) => void)[] = [];
+    host.onMenuAction = (cb) => {
+      menu.push(cb as (action: string) => void);
+      return () => {};
+    };
+    host.askQuit = answer;
+    return { host, choose: (action: string) => act(async () => menu.at(-1)?.(action)) };
+  };
+
+  test("the system's own dialog asks, never the popover that hides when another window takes focus", async () => {
+    const asked: { title: string; body: string }[] = [];
+    const { host, choose } = menuHost(async (words) => {
+      asked.push(words);
+      return false;
+    });
+    await withMenu(async (el) => {
+      await choose("quit");
+      expect(asked).toEqual([
+        {
+          title: "Quit agentes.chat?",
+          body: "agentes.chat stops on this Mac: nobody can use it, here, on your phone or your teammates', until you open the app again.",
+          quit: "Quit",
+          cancel: "Cancel",
+        } as never,
+      ]);
+      expect(el.querySelector(".dk-confirm")).toBeNull();
+    }, host);
+  });
+
+  test("when the system can't ask, the popover does", async () => {
+    const { host, choose } = menuHost(async () => {
+      throw new Error("no dialog");
+    });
+    await withMenu(async (el) => {
+      await choose("quit");
+      await until(() => el.querySelector(".dk-confirm"));
+      expect(el.querySelector(".dk-confirm h2")?.textContent).toBe("Quit agentes.chat?");
+    }, host);
   });
 });
 
@@ -341,4 +460,71 @@ test("the site's This computer: the Mac pairs with commands on, then the welcome
   } finally {
     writePref(PREPARE_PREF, null);
   }
+});
+
+test("a folder asked for from agentes.chat: its card says who asks and for whom, and the folder picked here is allowed for that agent", () => {
+  const host = createFakeHost("popover", "here");
+  return withMenu(async (el, store) => {
+    const home = pairedHomes(store.getSnapshot())[0];
+    const agent = home?.status?.agents[0];
+    const runner = home ? host.runners.get(home.homeId) : undefined;
+    await act(async () => runner?.askPick(true));
+    const card = () => [...el.querySelectorAll(".dk-req")].find((c) => c.textContent?.includes("asks for a folder"));
+    await until(card);
+    expect(card()?.querySelector("b")?.textContent).toBe(`Bia Rocha asks for a folder for ${agent?.name}`);
+    expect(card()?.textContent).toContain("Choose which folder to allow on this Mac.");
+    const choose = [...(card()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Choose folder");
+    await act(async () => (choose as HTMLElement).click());
+    await until(() => !card());
+    const folders = pairedHomes(store.getSnapshot())[0]?.access?.folders ?? [];
+    expect(folders.some((f) => agent && f.agents.includes(agent.id))).toBe(true);
+    expect(document.querySelector(".dk-toast")?.textContent).toContain(`allowed for ${agent?.name}`);
+  }, host);
+});
+
+test("a folder asked for from the apps keeps the popover up until it is answered, then it hides on focus loss again", () => {
+  const host = createFakeHost("popover", "here");
+  const t = createDesktopI18n("en", host.platform).t;
+  return withMenu(async (el, store) => {
+    const home = pairedHomes(store.getSnapshot())[0];
+    if (!home) throw new Error("no home");
+    raisePick(host, t, home, { byName: "Bia Rocha", at: new Date().toISOString() });
+    expect(host.shown.at(-1)).toEqual({ name: "popover", keep: true });
+    const runner = host.runners.get(home.homeId);
+    await act(async () => runner?.askPick());
+    const card = () => [...el.querySelectorAll(".dk-req")].find((c) => c.textContent?.includes("asks for a folder"));
+    await until(card);
+    const button = (name: string) =>
+      [...(card()?.querySelectorAll("button") ?? [])].find((b) => b.textContent === name) as HTMLElement;
+    // The picker closed without a folder: one picker, and the popover no longer kept.
+    let picks = 0;
+    host.pickFolder = async () => {
+      picks++;
+      return null;
+    };
+    await act(async () => button("Choose folder").click());
+    await until(() => host.shown.at(-1)?.keep === false);
+    expect(picks).toBe(1);
+    expect(card()).toBeTruthy();
+    // Not now: the card goes, the popover is no longer kept either.
+    host.shown.length = 0;
+    await act(async () => button("Not now").click());
+    await until(() => !card());
+    expect(host.shown).toEqual([{ name: "popover", keep: false }]);
+  }, host);
+});
+
+test("an agent's folder request raised from the apps: answered, the popover is no longer kept up", async () => {
+  const host = createFakeHost("popover", "here");
+  const t = createDesktopI18n("en", host.platform).t;
+  await withMenu(async (el, store) => {
+    const home = pairedHomes(store.getSnapshot())[0];
+    const request = home?.requests[0];
+    if (!home || !request) throw new Error("no request");
+    raisePick(host, t, home, { requestId: request.requestId, byName: "Bia Rocha", at: new Date().toISOString() });
+    expect(host.shown.at(-1)).toEqual({ name: "popover", keep: true });
+    const allow = [...el.querySelectorAll(".dk-req button")].find((b) => b.textContent === "Allow") as HTMLElement;
+    await act(async () => allow.click());
+    await until(() => host.shown.at(-1)?.keep === false);
+  }, host);
 });

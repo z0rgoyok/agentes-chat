@@ -4,24 +4,17 @@
     "send": "Отправить"
   },
   "categories": {
-    "title": "Категории",
-    "where": "Где показывается #{{channel}}",
-    "whereHelp": "Изменится для всех. Участники канала останутся прежними.",
-    "create": "Создать",
-    "endOfList": "Окажется в конце списка у всех.",
-    "channelCount_one": "{{count}} канал",
-    "channelCount_few": "{{count}} канала",
-    "channelCount_many": "{{count}} каналов",
-    "channelCount_other": "{{count}} канала",
-    "none": "Категорий пока нет.",
-    "manageHint": "Порядок, названия и удаление",
-    "deleteTitle": "Удалить {{name}}?",
-    "order": "Место в списке",
     "up": "Выше",
     "down": "Ниже",
-    "position": "{{at}} из {{count}}.",
-    "channelPosition": "{{at}} из {{count}}.",
-    "itsChannels": "Каналы"
+    "channelPosition": "{{at}} из {{count}}."
+  },
+  "sections": {
+    "title": "Раздел",
+    "where": "Где #{{channel}} у вас",
+    "whereHelp": "Меняется только ваш список. Каждый раскладывает свои разделы сам.",
+    "none": "Без раздела",
+    "order": "Место в разделе",
+    "tooLong": "Не больше 40 символов."
   },
   "blocks": {
     "send": "Отправить",
@@ -74,6 +67,21 @@
     "raw": "Исходный",
     "more": "Показать все строки ({{count}})",
     "gone": "Этот код больше не открыт."
+  },
+  "table": {
+    "label_one": "Таблица · {{count}} строка",
+    "label_few": "Таблица · {{count}} строки",
+    "label_many": "Таблица · {{count}} строк",
+    "label_other": "Таблица · {{count}} строки",
+    "title": "Таблица",
+    "rows_one": "{{count}} строка",
+    "rows_few": "{{count}} строки",
+    "rows_many": "{{count}} строк",
+    "rows_other": "{{count}} строки",
+    "copy": "Скопировать таблицу",
+    "copied": "Таблица скопирована",
+    "more": "Показать все строки ({{count}})",
+    "gone": "Эта таблица больше не открыта."
   },
   "time": {
     "today": "Сегодня",
@@ -199,11 +207,11 @@
       "text": "Возможно, он не работает или находится вне вашей сети. Чаты появятся сами, когда он снова будет доступен.",
       "kept": "Показываем то, что уже было в приложении."
     },
-    "pinned": "Закреплённые",
+    "favorites": "Избранное",
     "recent": "Недавние",
     "view": {
       "title": "Показывать чаты",
-      "sectors": "Отделы",
+      "sections": "Разделы",
       "dms": "Личные сообщения",
       "channels": "Каналы"
     },
@@ -897,6 +905,7 @@
   },
   "agent": {
     "talk": "Чат",
+    "responsible": "Ответственный",
     "task": "Задача",
     "owner": "владелец: {{name}}",
     "cantTalk": "Этот агент с вами не работает.",
@@ -1015,6 +1024,7 @@
       "admin_ask_channel_agent": "{{names}} просит добавить {{agent}} в #{{label}}",
       "admin_ask_create_agents": "{{names}} просит разрешить создавать агентов",
       "admin_ask_webhook": "{{names}} просит настроить вебхук {{service}} для рутин",
+      "admin_ask_voice": "{{names}} просит включить голосовые сообщения",
       "routine_paused_one": "Регулярная задача на паузе",
       "routine_paused_few": "Регулярные задачи на паузе",
       "routine_paused_many": "Регулярные задачи на паузе",
@@ -1145,6 +1155,14 @@
       "computer_no_chrome_few": "Компьютерам нужен Google Chrome. Скачайте его на google.com/chrome",
       "computer_no_chrome_many": "Компьютерам нужен Google Chrome. Скачайте его на google.com/chrome",
       "computer_no_chrome_other": "Компьютерам нужен Google Chrome. Скачайте его на google.com/chrome",
+      "computer_down_one": "Компьютер не отвечает",
+      "computer_down_few": "Компьютер не отвечает",
+      "computer_down_many": "Компьютер не отвечает",
+      "computer_down_other": "Компьютер не отвечает",
+      "computer_back_one": "Компьютер снова на связи",
+      "computer_back_few": "Компьютер снова на связи",
+      "computer_back_many": "Компьютер снова на связи",
+      "computer_back_other": "Компьютер снова на связи",
       "app_created_one": "Приложение ИИ кое-что создало для вас",
       "app_created_few": "Приложение ИИ кое-что создало для вас",
       "app_created_many": "Приложение ИИ кое-что создало для вас",
@@ -1686,6 +1704,15 @@
     "next": {
       "pr": "Ветка отправлена, пул-реквеста пока нет",
       "mergeLocal": "Готова к слиянию с {{base}}"
+    },
+    "terminal": {
+      "keys": "Клавиши терминала",
+      "keyboard": "Клавиатура",
+      "pasteHint": "Вставить в терминал скопированное",
+      "key": {
+        "CtrlC": "Control-C, прервать",
+        "CtrlD": "Control-D, конец ввода"
+      }
     }
   },
   "taskManager": {
@@ -2296,6 +2323,7 @@
       "tool_request": "{{names}} просит вас включить {{tool}} на вашем {{device}}",
       "cli_request": "{{names}} просит установить {{tool}} на вашем {{device}}",
       "folder_request": "{{names}} просит папку {{path}} на вашем {{device}}",
+      "internet_shared": "Теперь агенты открывают сайты через интернет компьютера {{device}}",
       "allowOnce": "Разрешить один раз",
       "always": "Всегда разрешать {{name}}",
       "no": "Нет",
@@ -3044,11 +3072,12 @@
     },
     "formatAuto": "{{name}} выберет лучший",
     "newWidget": {
-      "alerts": "Оповещает",
       "realData": "Реальные данные",
       "editAsk": "Изменить запрос",
       "asked": "«{{ask}}»",
-      "autoFormat": "Автоматический вид"
+      "testReal": "Проверить на реальных данных",
+      "addHome": "Добавить на главную",
+      "addTo": "Добавить в «{{where}}»"
     },
     "agentPick": {
       "search": "Поиск агентов",
@@ -3522,7 +3551,8 @@
       "workspaceSub": "Ключ API пространства",
       "key": "Ключ API",
       "keyDefault": "по умолчанию в пространстве",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} перестаёт его использовать."
     },
     "missionAi": "ИИ",
     "missionLocked": "Кто выполняет работу, выбирается до запуска. Модель можно поменять в любой момент."

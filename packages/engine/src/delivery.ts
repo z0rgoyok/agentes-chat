@@ -59,14 +59,16 @@ export async function deliverNotice(
     meta: { notice: input.notice, ...(input.readOutside ? { readOutside: true } : {}) },
   });
   const wake = input.wake !== false && !SELF_REPORT_NOTICES.includes(input.notice.kind);
+  // What came of work handed off, and work ended in a channel it is responsible for, join its turn open in a
+  // channel's main timeline too (`joinChannelRun`): two reports at once wake one turn, not two acting on the same
+  // results side by side (ADR 0095). Who is behind each still decides (`mayJoin`). Other notices keep a turn of their
+  // own there: a routine's report works within that routine's brief.
+  const joinChannelRun = input.notice.kind === "consult_reply" || input.notice.kind === "channel_work";
   const runs = wake
-    ? await createAgentRuns(
-        tx,
-        message,
-        [input.agentId],
-        input.trigger ?? "mention",
-        input.after ? { after: input.after } : {},
-      )
+    ? await createAgentRuns(tx, message, [input.agentId], input.trigger ?? "mention", {
+        ...(input.after ? { after: input.after } : {}),
+        ...(joinChannelRun ? { joinChannelRun } : {}),
+      })
     : [];
   return { message, runs };
 }

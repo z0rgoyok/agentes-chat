@@ -1,0 +1,1 @@
+ALTER TABLE "approvals" ADD COLUMN "after_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL;

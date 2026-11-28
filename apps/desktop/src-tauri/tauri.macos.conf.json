@@ -1,6 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
+    "externalBin": [
+      "binaries/agentes-runner",
+      "binaries/agent-browser",
+      "binaries/agent-desktop",
+      "binaries/agent-desktop-macos-helper"
+    ],
     "macOS": {
       "dmg": {
         "background": "dmg/background.tiff",

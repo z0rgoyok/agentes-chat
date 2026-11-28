@@ -70,9 +70,13 @@ async function loadTemplate(): Promise<Blob> {
   return dump;
 }
 
-/** What the template depends on: every migration, their journal and the PGlite version this package pins. */
+/**
+ * What the template depends on: every migration, their journal, the PGlite version this package pins, and the month
+ * (its `messages` partitions are the month it was made in and the next two).
+ */
 function templateKey(): string {
   const hash = createHash("sha256");
+  hash.update(new Date().toISOString().slice(0, 7));
   const pins = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8")) as {
     dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
@@ -95,6 +99,19 @@ export async function runMigration(db: Database, name: string) {
   if (!file) throw new Error(`No migration named ${name}`);
   const statements = readFileSync(join(migrationsFolder, file), "utf8").split("--> statement-breakpoint");
   for (const statement of statements) await db.execute(sql.raw(statement));
+}
+
+/** LISTEN/NOTIFY on a PGlite database, shaped as the Postgres pub/sub's notifier (`PgNotifier` in the adapters). */
+export function pgliteNotifier(pg: PGlite) {
+  return {
+    async listen(channel: string, onPayload: (payload: string) => void) {
+      const unsub = await pg.listen(channel, onPayload);
+      return async () => unsub();
+    },
+    async notify(channel: string, payload: string) {
+      await pg.query("select pg_notify($1, $2)", [channel, payload]);
+    },
+  };
 }
 
 /** The statements `read` sent to the database, each on one line. */

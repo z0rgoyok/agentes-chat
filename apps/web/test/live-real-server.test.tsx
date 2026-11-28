@@ -198,7 +198,8 @@ const rowPresence = (name: string) =>
 /** The badge on my face in the sidebar's account button. */
 const footerPresence = () =>
   document.querySelector(".sidebar__user .ac-presence")?.getAttribute("data-presence") ?? null;
-const links = () => [...document.querySelectorAll<HTMLAnchorElement>("a.sidebar__item")];
+/** The sidebar's links: the list's rows and the tool column's tiles (ADR 0260). */
+const links = () => [...document.querySelectorAll<HTMLAnchorElement>("a.sidebar__item, a.sidebar__tile")];
 const label = (a: HTMLAnchorElement) => a.querySelector(".sidebar__item-label")?.textContent?.trim().replace(/^#/, "");
 const link = (name: string) => links().find((a) => label(a) === name);
 const click = async (el: Element | null | undefined) => {
@@ -440,7 +441,7 @@ describe("a conversation shown again after another page", () => {
     return document.querySelector("aside.thread-panel") as HTMLElement;
   };
 
-  test("a thread open, the inbox, a reply meanwhile, back and the thread again: the reply, and its header counts it", async () => {
+  test("a thread open, Não lidas, a reply meanwhile, back and the thread again: the reply, and its header counts it", async () => {
     const w = await workspace();
     await click(link("general"));
     const root = (await (
@@ -450,7 +451,7 @@ describe("a conversation shown again after another page", () => {
     await burst();
     const first = await openThread(root.id);
     expect(first.textContent).toContain("primeira resposta");
-    await click(links().find((a) => a.getAttribute("href")?.endsWith("/notifications")));
+    await click(links().find((a) => a.getAttribute("href")?.endsWith("/unreads")));
     await w.as.admin(`/channels/${w.general}/messages`, {
       json: { body: "resposta enquanto eu estava fora", threadId: root.id },
     });

@@ -18,6 +18,7 @@ import {
   draftLevels,
   draftMailLevels,
   installSkillDone,
+  installSkillSource,
   inviteDone,
   mayApplyCard,
   mayContinueStretch,
@@ -278,8 +279,33 @@ test("skill cards: install done once a skill has its link; each update's state f
     actionCardOf({ actionCard: { kind: "install_skill", forUserId: null, params: { url: "http://x" } } }),
   ).toBeNull();
   if (install?.kind !== "install_skill") throw new Error("no card");
-  expect(installSkillDone(install, [{ sourceUrl: null }])).toBe(false);
-  expect(installSkillDone(install, [{ sourceUrl: link }])).toBe(true);
+  expect(installSkillDone(install, [{ sourceUrl: null, name: "deploy" }])).toBe(false);
+  expect(installSkillDone(install, [{ sourceUrl: link, name: "deploy" }])).toBe(true);
+  expect(installSkillSource(install)).toBe(link);
+
+  // A .zip sent in the conversation: done once every skill its SKILL.md files name is in the library.
+  const fromZip = actionCardOf({
+    actionCard: {
+      kind: "install_skill",
+      forUserId: "u1",
+      params: { file: "f1", name: "kit.zip", skills: ["deploy", "review", 3], why: "Deploys" },
+    },
+  });
+  expect(fromZip).toEqual({
+    kind: "install_skill",
+    forUserId: "u1",
+    file: { id: "f1", name: "kit.zip", skills: ["deploy", "review"] },
+    why: "Deploys",
+  });
+  if (fromZip?.kind !== "install_skill") throw new Error("no card");
+  expect(installSkillSource(fromZip)).toBe("kit.zip");
+  expect(installSkillDone(fromZip, [{ sourceUrl: null, name: "deploy" }])).toBe(false);
+  expect(
+    installSkillDone(fromZip, [
+      { sourceUrl: null, name: "deploy" },
+      { sourceUrl: null, name: "review" },
+    ]),
+  ).toBe(true);
 
   expect(
     actionCardOf({ actionCard: { kind: "update_skills", forUserId: null, params: { skillIds: ["s1", 2], why: "" } } }),
@@ -466,6 +492,7 @@ test("a card of a workspace change shows all it changes, and a card of their own
   expect(actionCardDetail(card("update_channel", { topic: "Campanha", private: true }), t)).toBe(
     "Campanha · channel.visibilityPrivate",
   );
+  expect(actionCardDetail(card("update_channel", { reply_in_threads: false }), t)).toBe("channel.replyInChannel");
   expect(actionCardDetail(card("update_role", { name: "Comercial", add_permissions: ["post"] }), t)).toBe(
     "→ Comercial · + post",
   );
@@ -628,4 +655,34 @@ test("a people card's rows, as the web and the phone both say and gate them", ()
   expect(rows.map((r) => memberRowDone(r, members))).toEqual([false, false]);
   const after = [{ userId: "u2", role: "owner" as const, roleIds: rolesAfter(rows[1] as never, ["r2"]) }];
   expect(rows.map((r) => memberRowDone(r, after))).toEqual([true, true]);
+});
+
+test("an approvals level card: its sentence names the level as the agent's page does, and says what it means under it", () => {
+  const card = (
+    action: string,
+    input: Record<string, unknown>,
+    words: Record<string, string>,
+  ): WorkspaceActionCard => ({
+    kind: "workspace_action",
+    forUserId: "u1",
+    params: { action, input, words, needs: "administrator", why: "" },
+    state: "pending",
+    decidedByUserId: null,
+    decidedAt: null,
+  });
+  const t = ((key: string) => key) as unknown as TFunction;
+  const workspace = card("set_approvals_level", { level: "never", every: true }, { level: "never", variant: "every" });
+  expect(actionCardKey(workspace)).toBe("rightHand.action.set_approvals_level_every");
+  expect(actionCardWords(workspace, t)).toMatchObject({ level: "approvalsLevel.never.title" });
+  expect(actionCardDetail(workspace, t)).toBe("approvalsLevel.never.text");
+  expect(actionCardMark(workspace)).toBe("shield");
+  expect(actionCardApplyKey(workspace)).toBe("rightHand.card.apply");
+  const follows = card(
+    "set_agent_approvals_level",
+    { agentId: "a1", level: null },
+    { agent: "Dev", variant: "workspace" },
+  );
+  expect(actionCardKey(follows)).toBe("rightHand.action.set_agent_approvals_level_workspace");
+  expect(actionCardDetail(follows, t)).toBe("");
+  expect(mayApplyCard(workspace, { userId: "u2", may: (k) => k === "manage_agents" })).toBe(false);
 });

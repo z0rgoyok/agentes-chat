@@ -66,3 +66,15 @@ test("painted on the CPU, glass is solid and nothing blurs or loops", () => {
   expect(all).toContain("-webkit-backdrop-filter: none !important");
   expect(all).toContain("animation-iteration-count: 1 !important");
 });
+
+test("with nobody looking, endless loops end their round; merely idle, they keep going", () => {
+  const css = readFileSync(path.join(import.meta.dir, "../src/desktop.css"), "utf8");
+  const at = css.indexOf('html[data-sight="away"] *,');
+  expect(at).toBeGreaterThan(-1);
+  const rule = css.slice(at, css.indexOf("}", at));
+  for (const sight of ["away", "hidden"])
+    for (const part of ["*", "*::before", "*::after"]) expect(rule).toContain(`html[data-sight="${sight}"] ${part}`);
+  expect(rule).toContain("animation-iteration-count: 1 !important");
+  expect(css).not.toContain('html[data-sight="idle"]');
+  expect(css).not.toContain("html[data-sight] *");
+});

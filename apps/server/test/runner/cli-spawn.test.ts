@@ -3,7 +3,9 @@ import { brainProfileLaunch, claudeBrainArgs } from "../../runner/brain";
 import {
   cliSpawn,
   envValue,
+  execResult,
   findOnWindowsPath,
+  launcherNodeMissing,
   npmNativeLauncher,
   windowsShell,
   winQuote,
@@ -81,6 +83,55 @@ const has =
   (file: string) =>
     files.includes(file);
 
+/** What a CLI that can't start on Windows runs instead: cmd.exe ending with its not found code, nothing else. */
+const NOT_FOUND = {
+  file: windowsShell(),
+  args: ["/d", "/c", "exit", "9009"],
+  env: { NoDefaultCurrentDirectoryInExePath: "1" },
+};
+
+/** npm's launcher for a Node script (`claude.cmd` of `npm i -g`), as npm writes it. */
+const NODE_SHIM = [
+  "@ECHO off",
+  "GOTO start",
+  ":find_dp0",
+  "SET dp0=%~dp0",
+  "EXIT /b",
+  ":start",
+  "SETLOCAL",
+  "CALL :find_dp0",
+  "",
+  'IF EXIST "%dp0%\\node.exe" (',
+  '  SET "_prog=%dp0%\\node.exe"',
+  ") ELSE (",
+  '  SET "_prog=node"',
+  "  SET PATHEXT=%PATHEXT:;.JS;=;%",
+  ")",
+  "",
+  'endLocal & goto #_undefined_# 2>NUL || title %COMSPEC% & "%_prog%"  "%dp0%\\node_modules\\@anthropic-ai\\claude-code\\cli.js" %*',
+  "",
+].join("\r\n");
+
+test("on Windows a Node script's launcher with no node to run ends as not found, whatever language cmd.exe speaks", () => {
+  const args = ["-p", "--output-format", "stream-json"];
+  const read = (file: string) => (file === NPM_SHIM ? NODE_SHIM : null);
+  const nodeOnPath = "C:\\Program Files\\nodejs\\node.exe";
+  const ownNode = "C:\\Users\\user\\AppData\\Roaming\\npm\\node.exe";
+  // cmd.exe would say "'node' is not recognized…" in the system's language, and end with exit 1.
+  expect(cliSpawn(["claude"], args, PATH_WIN, "win32", { exists: has(NPM_SHIM), read })).toEqual(NOT_FOUND);
+  // A node on the PATH, or next to the launcher: the launcher runs.
+  for (const node of [nodeOnPath, ownNode]) {
+    const run = cliSpawn(["claude"], args, PATH_WIN, "win32", { exists: has(NPM_SHIM, node), read });
+    expect(splitWindows((run.args[4] ?? "").slice(1, -1))).toEqual([NPM_SHIM, ...args]);
+  }
+  // pnpm's launcher names it as `%~dp0\node.exe`; one that names no node (hand-written) is never second-guessed.
+  const pnpm =
+    '@IF EXIST "%~dp0\\node.exe" (\r\n  "%~dp0\\node.exe" "%~dp0\\cli.js" %*\r\n) ELSE (\r\n  node "%~dp0\\cli.js" %*\r\n)';
+  expect(launcherNodeMissing(NPM_SHIM, PATH_WIN, "", () => pnpm, has(NPM_SHIM))).toBe(true);
+  expect(launcherNodeMissing(NPM_SHIM, PATH_WIN, "", () => "@echo off\r\nbun x claude %*", has(NPM_SHIM))).toBe(false);
+  expect(launcherNodeMissing(NPM_SHIM, PATH_WIN, "", () => null, has(NPM_SHIM))).toBe(false);
+});
+
 test("on Windows a CLI is found on the PATH, never in the current folder; a .cmd runs through cmd.exe, every argument quoted", () => {
   const args = ["-p", "--setting-sources", "", "--tools", "Bash,Read", "--add-dir", "C:\\Users\\Some User\\work"];
   const win = cliSpawn(["claude"], args, PATH_WIN, "win32", { exists: has(NPM_SHIM) });
@@ -107,10 +158,9 @@ test("on Windows a CLI is found on the PATH, never in the current folder; a .cmd
   const sameFolder = NPM_SHIM.replace(/\.cmd$/, ".exe");
   expect(cliSpawn(["claude"], args, PATH_WIN, "win32", { exists: has(NPM_SHIM, sameFolder) }).file).toBe(sameFolder);
 
-  // Not on the PATH: cmd.exe says so (exit 9009), still without the current folder; a relative PATH entry isn't read.
+  // Not on the PATH (a relative PATH entry isn't read): cmd.exe's not found, exit 9009 in every system language.
   const missing = cliSpawn(["claude"], args, PATH_WIN, "win32", { exists: (f) => f.startsWith("relative") });
-  expect(splitWindows((missing.args[4] ?? "").slice(1, -1))[0]).toBe("claude");
-  expect(missing.env).toEqual({ NoDefaultCurrentDirectoryInExePath: "1" });
+  expect(missing).toEqual(NOT_FOUND);
 
   // A launcher and what it runs: no shell, argv as given.
   const launcher = cliSpawn(["C:\\agentes\\bun.exe", "C:\\agentes\\claude.js"], args, undefined, "win32");
@@ -221,4 +271,19 @@ test("npm's launcher for a native binary starts that binary directly; a Node scr
     cliSpawn(["codex"], ["exec"], path, "win32", { exists: (f) => f === `${dir}\\codex.cmd`, read: () => nodeScript })
       .file,
   ).toBe(windowsShell());
+});
+
+test("a look killed past its time limit couldn't tell, even where the runtime reports an exit code (Windows)", () => {
+  // Bun on Windows: `TerminateProcess` leaves exit code 1 on the killed process, and `execFile` reports it.
+  const killed = execResult({ code: 1, killed: true, signal: null }, "", "");
+  expect(killed.status).toBeNull();
+  expect(killed.error).toBeDefined();
+  expect(execResult({ code: null, killed: true, signal: "SIGTERM" }, "", "").status).toBeNull();
+  // A CLI that ran and failed says so with its exit code and its words.
+  expect(execResult({ code: 1, killed: false }, "", "Error: boom\n")).toEqual({
+    status: 1,
+    stdout: "",
+    stderr: "Error: boom\n",
+  });
+  expect(execResult(null, "opencode 1.19.6\n", "")).toEqual({ status: 0, stdout: "opencode 1.19.6\n" });
 });

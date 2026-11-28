@@ -3,7 +3,7 @@
 - Status: Accepted (built)
 - Date: 2026-11-03
 - Extends: ADR 0061 (action cards, `setup:write`), 0081 (proposed agents), 0090 (invitations), 0107 (Composio)
-- Code: engine `setup-tools.ts` (`offer_connect_app`, `offer_invites`, `catalogConnector`, `mcpAddress`), `agent-proposals.ts` (`deciderCanOpen` takes a permission), `tools/directory.ts` (the setup group's label, the find-tools hint); client `lib/action-cards.ts` (`ConnectAppCard`, `InviteCard`, `connectAppDone`, `inviteDone`), `lib/connected.ts` (`isMcpItem`); web `Connectors.tsx` (two cards), `ConnectFlow.tsx` (`url` filled in), `ActionCard.tsx`; phone `ConnectorsScreen.tsx` (MCPs strip, `?connect=` / `?mcp=`), `ConnectSheet.tsx` (`AddressSheet url`), `InvitePeople.tsx` (`?emails=`), `ai/OfferCard.tsx`
+- Code: engine `setup-tools.ts` (`offer_connect_app`, `offer_invites`, `catalogConnector`, `catalogNear`, `mcpAddress`), `agent-proposals.ts` (`deciderCanOpen` takes a permission), `tools/directory.ts` (the setup group's label, the find-tools hint); client `lib/action-cards.ts` (`ConnectAppCard`, `InviteCard`, `connectAppDone`, `inviteDone`), `lib/connected.ts` (`isMcpItem`); web `Connectors.tsx` (two cards), `ConnectFlow.tsx` (`url` filled in), `ActionCard.tsx`; phone `ConnectorsScreen.tsx` (MCPs strip, `?connect=` / `?mcp=`), `ConnectSheet.tsx` (`AddressSheet url`), `InvitePeople.tsx` (`?emails=`), `ai/OfferCard.tsx`
 
 ## Context
 
@@ -23,9 +23,9 @@ Anything a person can do in the UI, an agent can start: directly, within its per
 
 ### 3. `offer_connect_app`
 
-- Input: `app` (a catalog service by id or name) or `url` (an `https://` address with no user or password), and `why`. An address of a one-click server becomes that catalog entry. Neither: the card opens connecting by address and the person types it. The agent asks for the address first when a person wants an MCP server and gave none.
+- Input: `app` (a catalog service by id or name) or `url` (an `https://` address with no user or password), and `why`. An address of a one-click server becomes that catalog entry. Neither: the card opens connecting by address and the person types it. A catalog service's MCP server goes by its name like the service ("MCP do Sentry" is Sentry's one-click server): the agent asks for an address only when a person wants a server the catalog doesn't have and gave none (amended 2026-11-25).
 - The card (`meta.actionCard = { kind: "connect_app", params: { connector?, url?, why } }`, `bodyCode` `action_connect_app` with `name`, or `action_add_mcp`) opens the same connect dialog as Settings (on the phone, Connectors with the same sheet), with the address filled in. Done from live data: a connection of that entry, or a server at that address.
-- An unknown name is refused with "ask for its MCP server's address".
+- A name is read without the words around it (MCP, server, servidor, do, the, official…), accents or case, and a brand finds its entry when only one has it (amended 2026-11-25). A name the catalog doesn't have is refused with its closest entries (the brand's variants, as Cloudflare's two; a typo; a longer or shorter name), to call again with one or ask which, and otherwise with "ask for its MCP server's address".
 
 ### 4. `offer_invites`
 

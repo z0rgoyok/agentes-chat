@@ -1,6 +1,7 @@
 import type { AppNotification, NotificationActor } from "@agenteschat/client";
 import { appCreatedLine } from "@agenteschat/client/lib/apps";
 import { WORKSPACE_COMPUTER_KIND } from "@agenteschat/client/lib/computer";
+import { isComputerOutage } from "@agenteschat/client/lib/computer-outage";
 import { deviceNoticeOf } from "@agenteschat/client/lib/devices";
 import { formatUsd, namesText } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
@@ -114,6 +115,12 @@ export function SystemFace({ n, className = "nt-av24" }: { n: AppNotification; c
         <Icon name="bulb" size={16} />
       </span>
     );
+  if (isComputerOutage(n))
+    return (
+      <span className={cx("nt-sys", className)} aria-hidden="true">
+        <Icon name="computer" size={16} />
+      </span>
+    );
   if (n.kind === "computer_disk_full")
     return (
       <span className={cx("nt-sys", className)} aria-hidden="true">
@@ -216,6 +223,7 @@ type WhatKey =
   | "adminAskChannel"
   | "adminAskCreate"
   | "adminAskWebhook"
+  | "adminAskVoice"
   | "reaction";
 
 /** The line on top of a row: who did what, where. */
@@ -414,7 +422,9 @@ export function Headline({
           })
         : n.latest.reason === "webhook"
           ? k("adminAskWebhook", { name, service: n.latest.title ?? "" })
-          : k("adminAskCreate", { name });
+          : n.latest.reason === "voice"
+            ? k("adminAskVoice", { name })
+            : k("adminAskCreate", { name });
     case "approval_cover":
       return k(
         n.latest.statusTo === "declined"

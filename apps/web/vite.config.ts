@@ -17,6 +17,13 @@ export default defineConfig({
     react(),
     babel({ presets: [reactCompilerPreset()] }),
     preloadLocale(),
+    // When this build was made, on its pages: a later build's `agentes-oldest-good` (index.html) is compared with it.
+    {
+      name: "agentes-build",
+      transformIndexHtml: () => [
+        { tag: "meta", attrs: { name: "agentes-build", content: new Date().toISOString() }, injectTo: "head" },
+      ],
+    },
   ],
   // One copy of Yjs: it checks its own types with instanceof (live files, ADR 0196).
   resolve: {
@@ -25,6 +32,7 @@ export default defineConfig({
   },
   server: { port: 5173, proxy: { "/api": { target: "http://localhost:3000", ws: true } } },
   // `screen.html`: the agent's screen for the phone app (ADR 0098), a small page of its own, not the web app.
+  // `terminal.html`: a code session's terminal for the phone app (ADR 0215), the same way.
   build: {
     outDir: "dist",
     sourcemap: true,
@@ -32,6 +40,7 @@ export default defineConfig({
       input: {
         main: fileURLToPath(new URL("./index.html", import.meta.url)),
         screen: fileURLToPath(new URL("./screen.html", import.meta.url)),
+        terminal: fileURLToPath(new URL("./terminal.html", import.meta.url)),
       },
     },
   },

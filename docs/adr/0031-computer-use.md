@@ -5,6 +5,7 @@
 - First slice: ADR 0040 (the agent browser on connected computers, on `agent-browser`), which supersedes §4 and the browser parts of §8, §9 and §14
 - Desktop slice: ADR 0058 (a desktop per agent on connected Linux computers that people watch and control, and a terminal), which supersedes the connected-Linux line of §6, the virtual desktop's part of §8 and the shared OS user of §10 in system mode
 - Desktop computer use: ADR 0062 (ADR 0054's screen layer on the agent's desktop), which supersedes §1, §1a and §6 for the agent's desktop on a connected Linux computer
+- The person's apps: ADR 0258, which amends §7 and §15: on every connected computer where agents work as the person, agents use the person's apps through the accessibility tree (headless, agentes.chat never), with no opt-in and no session approval
 - Cloud computers: ADR 0077, which supersedes every Daytona line here: an agent's screens are on connected computers only
 - Extends: ADR 0021 (code sandbox), ADR 0025 (connected computers), ADR 0027 (secrets), ADR 0030 (runner isolation), ADR 0036 (desktop app)
 

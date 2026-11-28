@@ -33,6 +33,7 @@ export interface VoicePlayerProps {
   src: string;
   /** The wave, from 0 to 1. */
   peaks: readonly number[];
+  /** 0 when not known yet: read from the sound once it loads. */
   durationMs: number;
   labels: VoicePlayerLabels;
   /** Its date passed: nothing plays, and the words can still be opened. */
@@ -47,6 +48,8 @@ export interface VoicePlayerProps {
   speed?: number;
   /** The speed button picked `speed`. */
   onSpeed?: (speed: number) => void;
+  /** Given: a sound that can't play hands its place back (a file's tile) instead of offering to try again. */
+  onFailed?: () => void;
   className?: string;
 }
 
@@ -67,7 +70,6 @@ export const stopVoicePlayback = stopPlayback;
 export function VoicePlayer({
   src,
   peaks,
-  durationMs,
   labels,
   expired,
   isGone,
@@ -75,7 +77,9 @@ export function VoicePlayer({
   note,
   speed: shared,
   onSpeed,
+  onFailed,
   className,
+  durationMs: givenMs,
 }: VoicePlayerProps) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const audio = useRef<HTMLAudioElement | null>(null);
@@ -86,6 +90,8 @@ export function VoicePlayer({
   const [broken, setBroken] = useState(false);
   const [time, setTime] = useState(0);
   const [own, setOwn] = useState(1);
+  const [loadedMs, setLoadedMs] = useState(0);
+  const durationMs = givenMs > 0 ? givenMs : loadedMs;
   const speed = shared ?? own;
   const [open, setOpen] = useState(false);
   const wordsId = useId();
@@ -101,6 +107,20 @@ export function VoicePlayer({
     if (audio.current) audio.current.playbackRate = speed;
   }, [speed]);
 
+  // A length not given: the sound's own, read from its first bytes, so the clock says it before a press.
+  useEffect(() => {
+    if (givenMs > 0 || typeof Audio === "undefined") return;
+    const probe = new Audio();
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => {
+      if (Number.isFinite(probe.duration) && probe.duration > 0) setLoadedMs(probe.duration * 1000);
+    };
+    probe.src = src;
+    return () => {
+      probe.onloadedmetadata = null;
+      probe.removeAttribute("src");
+    };
+  }, [givenMs, src]);
   const halt = useCallback(() => {
     cancelAnimationFrame(frame.current);
     audio.current?.pause();
@@ -131,9 +151,13 @@ export function VoicePlayer({
       // A media element that failed stays failed: the next press makes a new one, which asks the server again (and,
       // from a bucket, gets a new signed link).
       audio.current = null;
+      if (onFailed) {
+        onFailed();
+        return;
+      }
       void (isGone?.() ?? Promise.resolve(false)).then((yes) => (yes ? setGone(true) : setBroken(true)));
     },
-    [halt, isGone],
+    [halt, isGone, onFailed],
   );
 
   const play = () => {
@@ -162,14 +186,22 @@ export function VoicePlayer({
     });
     setOn(true);
     const tick = () => {
-      if (!audio.current) return;
-      to(Math.min(1, (audio.current.currentTime * 1000) / durationMs));
+      const el = audio.current;
+      if (!el) return;
+      // From the element: a length learnt after the press isn't in this closure.
+      const total = durationMs > 0 ? durationMs : el.duration * 1000;
+      if (total > 0 && Number.isFinite(total)) {
+        pos.current = Math.min(1, (el.currentTime * 1000) / total);
+        setTime(Math.min(total, el.currentTime * 1000));
+        paint();
+      }
       frame.current = requestAnimationFrame(tick);
     };
     frame.current = requestAnimationFrame(tick);
   };
 
   const seek = (next: number) => {
+    if (durationMs <= 0) return;
     const clamped = Math.max(0, Math.min(0.999, next));
     to(clamped);
     if (audio.current) audio.current.currentTime = (clamped * durationMs) / 1000;

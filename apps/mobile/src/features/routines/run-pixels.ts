@@ -1,4 +1,4 @@
-import type { RunStatus } from "@agenteschat/client/lib/calendar";
+import type { RunStatus } from "@agenteschat/client/lib/routine-view";
 import {
   AGENT_GRADIENTS,
   type AgentColorName,

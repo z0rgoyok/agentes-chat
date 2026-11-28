@@ -89,9 +89,34 @@ test("its address: POST only, 202 with the run; signed calls with a secret; a ne
 
   // The run goes through the outbox, after the answer.
   await t.drain();
-  const runs = (await (await api(`/routines/${routine.id}/runs`)).json()) as { runs: { status: string }[] };
+  const runs = (await (await api(`/routines/${routine.id}/runs`)).json()) as {
+    runs: { id: string; status: string; calls?: number }[];
+  };
   expect(runs.runs.length).toBeGreaterThan(0);
   expect(runs.runs.every((r) => r.status === "silent")).toBe(true);
+
+  // Its Runs tab reads each run's calls, as kept: the calls that came while it was queued joined it.
+  const calls = (await (await api(`/routines/${routine.id}/runs/${runId}/calls`)).json()) as {
+    calls: { body: string; headers: Record<string, string>; method: string }[];
+  };
+  expect(runs.runs.find((r) => r.id === runId)?.calls).toBe(calls.calls.length);
+  expect(calls.calls[0]).toEqual(
+    expect.objectContaining({ body, method: "POST", headers: expect.objectContaining({ "x-github-event": "push" }) }),
+  );
+});
+
+test("Linear's own secret, pasted: its Linear-Signature calls pass, others are refused", async () => {
+  const { api, routine } = await webhookRoutine();
+  const pasted = "lin_wh_fake_1111111111111111";
+  const set = await api(`/routines/${routine.id}/hook/secret`, { json: { secret: pasted } });
+  expect(set.status).toBe(200);
+  expect(((await set.json()) as { hook: Hook }).hook.signed).toBe(true);
+  const body = JSON.stringify({ action: "create", type: "Issue", webhookTimestamp: Date.now() });
+  const hex = createHmac("sha256", pasted).update(body).digest("hex");
+  expect((await call(routine.trigger.url, body, { "linear-signature": hex })).status).toBe(202);
+  expect((await call(routine.trigger.url, body, { "linear-signature": "0".repeat(64) })).status).toBe(401);
+  const bad = await api(`/routines/${routine.id}/hook/secret`, { json: { secret: "short" } });
+  expect(bad.status).toBe(400);
 });
 
 test("a repeat within 24 hours (Idempotency-Key or X-GitHub-Delivery) answers with the first run", async () => {

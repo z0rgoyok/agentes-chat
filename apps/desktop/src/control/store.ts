@@ -9,6 +9,7 @@ import {
   CONTROL_PROTOCOL_VERSION,
   type ControlAccessRequest,
   type ControlEvent,
+  type ControlFolderPick,
   type ControlJob,
   type ControlReplies,
   type ControlRequest,
@@ -30,6 +31,8 @@ export interface Home {
   logo: string | null;
   /** A tool its owner turned on from the apps (`access.allowed`), shown with Undo until dismissed. */
   allowed?: { tool: keyof RunnerTools; byName: string } | null;
+  /** Someone asked from the apps for a folder here (`access.pick`), shown until picked or dismissed. */
+  pick?: ControlFolderPick | null;
 }
 
 export interface Snapshot {
@@ -63,6 +66,8 @@ export interface StoreOptions {
   onAccessRequested?: (home: Home, request: ControlAccessRequest) => void;
   /** Its owner turned a tool on from the apps (the popover window raises the macOS notification). */
   onToolAllowed?: (home: Home, allowed: { tool: keyof RunnerTools; byName: string }) => void;
+  /** Someone asked from the apps for a folder, or to see an agent's request again (the popover window shows it). */
+  onPickAsked?: (home: Home, pick: ControlFolderPick) => void;
   idPrefix?: string;
 }
 
@@ -212,6 +217,11 @@ export class DesktopStore {
     this.patch(homeId, { allowed: null });
   }
 
+  /** The folder asked for from the apps (`access.pick`) is picked here, or not now. */
+  dismissPick(homeId: string) {
+    this.patch(homeId, { pick: null });
+  }
+
   /** The same request to every paired home (pause, tools, limits are for the whole computer). */
   async requestAll<R extends ControlRequest>(req: R): Promise<void> {
     const homes = pairedHomes(this.snap);
@@ -287,6 +297,13 @@ export class DesktopStore {
         this.patch(homeId, { allowed });
         const fresh = this.home(homeId);
         if (fresh) this.options.onToolAllowed?.(fresh, allowed);
+        break;
+      }
+      case "access.pick": {
+        // An agent's request is already on screen: only shown again.
+        if (!event.pick.requestId) this.patch(homeId, { pick: event.pick });
+        const fresh = this.home(homeId);
+        if (fresh) this.options.onPickAsked?.(fresh, event.pick);
         break;
       }
       case "pair.done":

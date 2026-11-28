@@ -8,10 +8,14 @@ export {
   normalizeHref,
   type RichFormat,
   type RichMarkKey,
+  type RichTypeMark,
   richFormat,
   setRichAlign,
+  setRichCaps,
   setRichColor,
+  setRichLineHeight,
   setRichLink,
+  setRichType,
   shiftRichLevel,
   toggleRichList,
   toggleRichMark,
@@ -20,4 +24,12 @@ export type { CaretLook } from "./cursors";
 export { RichText, type RichTextHandle, type RichTextProps, richViewOf } from "./RichText";
 export { RichView } from "./RichView";
 export { listNumbers, richSchema } from "./schema";
-export { colorWholeText, markWholeText, setWholeParagraphs, shiftWholeLevels, wholeFormat } from "./yformat";
+export {
+  capsWholeText,
+  colorWholeText,
+  markWholeText,
+  setWholeParagraphs,
+  shiftWholeLevels,
+  typeWholeText,
+  wholeFormat,
+} from "./yformat";

@@ -8,6 +8,7 @@ import {
   DialogFooter,
   Field,
   Icon,
+  InlineName,
   Input,
   Locked,
   Menu,
@@ -423,10 +424,7 @@ function ColumnHead({
   const action = useIssueColumnAction(org.id);
   const name = title(col);
   const only = siblings.length === 1;
-  const save = (value: string) => {
-    onRenamed();
-    const v = value.trim();
-    if (!v || v === name) return;
+  const save = (v: string) => {
     const was = col.name;
     action.mutate(
       { type: "update", columnId: col.id, name: v },
@@ -447,26 +445,15 @@ function ColumnHead({
     <div className="issues-col__head">
       {showIcon && <Icon name={STATUS_ICON[col.stage]} size={16} />}
       {renaming ? (
-        <Input
-          className="issues-col__rename"
-          defaultValue={name}
-          maxLength={40}
-          aria-label={t("issues.columns.nameLabel")}
-          autoComplete="off"
-          autoFocus
-          onFocus={(e) => e.currentTarget.select()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              save(e.currentTarget.value);
-            } else if (e.key === "Escape") {
-              e.preventDefault();
-              e.stopPropagation();
-              onRenamed();
-            }
-          }}
-          onBlur={(e) => save(e.currentTarget.value)}
-        />
+        <h2 className="issues-col__naming">
+          <InlineName
+            value={name}
+            maxLength={40}
+            aria-label={t("issues.columns.nameLabel")}
+            onSave={save}
+            onDone={onRenamed}
+          />
+        </h2>
       ) : (
         <>
           <h2>{name}</h2>

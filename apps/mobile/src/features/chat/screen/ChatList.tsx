@@ -1,4 +1,4 @@
-import type { MessagePin } from "@agenteschat/client";
+import { type MessagePin, PAGE_AHEAD_SCREENS } from "@agenteschat/client";
 import { screenAboveEnd } from "@agenteschat/client/lib/chat";
 import { firstUnreadId, opensAtLastRead, unreadThreadRootId } from "@agenteschat/client/lib/chat-look";
 import { issueTakenOf } from "@agenteschat/client/lib/issues";
@@ -6,7 +6,17 @@ import { isEventLine } from "@agenteschat/client/lib/notices";
 import { ConversationSeat } from "@agenteschat/client/lib/seat-context";
 import { KeyboardAwareLegendList } from "@legendapp/list/keyboard";
 import type { LegendListRef, OnViewableItemsChanged } from "@legendapp/list/react-native";
-import { type ComponentProps, type ComponentRef, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ComponentProps,
+  type ComponentRef,
+  memo,
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Platform, StyleSheet, useWindowDimensions, View } from "react-native";
 import { KeyboardEvents, type useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
@@ -510,6 +520,7 @@ export function ChatList({
   receiptId,
   receipts,
   atStart,
+  startCover,
   headerHeight,
   keyboardDragSettled,
   keyboardDragStarted,
@@ -603,6 +614,8 @@ export function ChatList({
     hands: RowHands;
     offerAt: string | null;
     atStart: boolean;
+    /** At its start, before the pins: a personal workspace's group conversation's cover (`GroupCover`, ADR 0159). */
+    startCover?: ReactNode;
     headerHeight: number;
     keyboardDragStarted: () => void;
     keyboardDragSettled: () => void;
@@ -815,8 +828,9 @@ export function ChatList({
     () =>
       !atStart ? (
         <OlderRow loading={loadingOlder} failed={olderFailed} onRetry={fetchOlder} />
-      ) : hasPins || (dmAgent && (rightHand || setupIntro)) ? (
+      ) : startCover || hasPins || (dmAgent && (rightHand || setupIntro)) ? (
         <>
+          {startCover ?? null}
           {hasPins ? (
             <PinnedLines channelId={channelId} threadId={threadId} onOpen={openPinsHere} onPick={goToPinHere} />
           ) : null}
@@ -833,6 +847,7 @@ export function ChatList({
       ),
     [
       atStart,
+      startCover,
       loadingOlder,
       olderFailed,
       fetchOlder,
@@ -912,7 +927,8 @@ export function ChatList({
                             onScrollEndDrag={onScrollSettled}
                             onMomentumScrollBegin={onGlide}
                             onMomentumScrollEnd={onScrollSettled}
-                            onStartReachedThreshold={0.5}
+                            onStartReachedThreshold={PAGE_AHEAD_SCREENS}
+                            onEndReachedThreshold={PAGE_AHEAD_SCREENS}
                             keyboardDismissMode="interactive"
                             keyboardShouldPersistTaps="handled"
                             keyboardOffset={lift}

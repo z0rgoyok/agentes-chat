@@ -156,7 +156,7 @@ export class ControlClient {
       if (p.homeId !== homeId) continue;
       this.pending.delete(id);
       this.clearTimer(p.timer);
-      p.reject(new ControlError("closed", "runner stopped"));
+      p.reject(new ControlError("closed", "agentes.chat stopped on this computer"));
     }
   }
 

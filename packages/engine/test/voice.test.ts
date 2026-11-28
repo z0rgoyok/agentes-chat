@@ -25,14 +25,17 @@ import {
   storedBytes,
   sweepExpiredVoice,
   transcribeVoiceClip,
+  VOICE_NO_ENGINE_BODY,
   VOICE_NO_WORDS_BODY,
   type VoiceDeps,
   type VoiceLimits,
   voiceAllowed,
   voiceClipAudio,
   voiceOf,
+  voiceStatusText,
 } from "../src";
 import { addMember, type Fixture, SECRET, setup } from "./fixtures";
+import { until } from "./stream-fixtures";
 
 const { voiceClips, messages } = schema;
 
@@ -156,12 +159,27 @@ describe("sending", () => {
     expect(await messageOf(clipId)).toBeNull();
   });
 
-  test("only audio is taken, within its limits, and only with an engine", async () => {
+  test("only audio is taken, within its limits, and only where the workspace has voice messages", async () => {
     f = await setup();
     const deps = voiceDeps([engine("oi")]);
     await expect(accept(deps, { contentType: "text/html" })).rejects.toMatchObject({ code: "voice.bad_type" });
     await expect(accept(deps, { durationMs: 6 * 60_000 })).rejects.toMatchObject({ code: "voice.bad_duration" });
-    await expect(accept(voiceDeps([]))).rejects.toMatchObject({ code: "voice.unavailable" });
+    await f.db
+      .insert(schema.organizationSettings)
+      .values({ orgId: f.org.id, voiceMessages: false })
+      .onConflictDoUpdate({ target: schema.organizationSettings.orgId, set: { voiceMessages: false } });
+    await expect(accept(deps)).rejects.toMatchObject({ code: "voice.unavailable" });
+  });
+
+  test("with no engine on the server a recording still goes at once, as audio the agent is told it can't hear", async () => {
+    f = await setup();
+    const deps = voiceDeps([]);
+    const { clipId } = await accept(deps);
+    await transcribeVoiceClip(deps, clipId, { finalAttempt: false });
+    const message = await messageOf(clipId);
+    expect(message?.body).toBe(VOICE_NO_ENGINE_BODY);
+    expect(voiceOf(message?.meta)?.noWords).toBe(true);
+    expect((await clipOf(clipId)).status).toBe("sent");
   });
 
   test("the next engine takes over from one that fails", async () => {
@@ -290,9 +308,8 @@ describe("“gravando áudio…” while the words are made out", () => {
 
   test("the others keep seeing it from the upload to the message, which ends it: none comes after it", async () => {
     const { done, answer, heard, beats } = await listening();
-    await Bun.sleep(70);
     // At once, then every beat, to the conversation and to the agents' quiet window alike.
-    expect(beats().length).toBeGreaterThanOrEqual(6);
+    await until(() => beats().length >= 6, "three beats");
     expect(beats()[0]?.e).toEqual({
       type: "user.typing",
       channelId: f.general.id,
@@ -647,5 +664,20 @@ describe("the owner's provider", () => {
     expect(speech.chain().map((e) => e.id)).toEqual(["elevenlabs", "groq"]);
     expect((await speech.remove()).state).toBe("off");
     expect(speech.chain().map((e) => e.id)).toEqual(["groq"]);
+  });
+});
+
+describe("what agents know of voice here", () => {
+  test("a line while voice doesn't become text, naming who turns it on; nothing once it does", () => {
+    expect(voiceStatusText({ state: "ready", owner: "Walter" })).toBe("");
+    const none = voiceStatusText({ state: "none", owner: "Walter" });
+    expect(none).toContain("nothing on this server turns voice into text yet");
+    expect(none).toContain("Walter (who runs this server) turns it on in Settings › Voice");
+    expect(voiceStatusText({ state: "failed", owner: null })).toContain("Whoever runs this server");
+    const installing = voiceStatusText({ state: "installing", owner: null });
+    expect(installing).toContain("getting ready");
+    // Recorded meanwhile, a note goes as audio (`VOICE_NO_ENGINE_BODY`): its words never come later.
+    expect(installing).toContain("can't hear it");
+    expect(installing).not.toContain("with their words");
   });
 });

@@ -15,7 +15,7 @@ import {
 } from "@agenteschat/client";
 import { type Level, saveLevels } from "@agenteschat/client/lib/access-levels";
 import type { AiChoice } from "@agenteschat/client/lib/ai-choice";
-import { personalAllowed } from "@agenteschat/client/lib/connected";
+import { personalServesAgents } from "@agenteschat/client/lib/connected";
 import { setDraftFor } from "@agenteschat/client/lib/drafts";
 import { errorText as failureText } from "@agenteschat/client/lib/errors";
 import { FIELD_LIMITS } from "@agenteschat/client/lib/field-limits";
@@ -1181,6 +1181,8 @@ export function NewAgentDialog({
                             value={brain.choice}
                             onChange={setAiPick}
                             disabled={busy}
+                            // Connect over this form: a plan connected there thinks for the agents the person creates.
+                            {...(connectAi ? { onAdd: () => connectAi.open({ forNewAgent: true }) } : {})}
                           />
                         </section>
                       )}
@@ -1522,7 +1524,7 @@ export function NewAgentDialog({
           }
           connected={new Set(connectedApps.keys())}
           onCard={new Set(appIds)}
-          canConnect={(d) => can(org, "manage_connectors") || personalAllowed(d.id)}
+          canConnect={(d) => can(org, "manage_connectors") || personalServesAgents(d.id)}
           onUse={(d) => takeApp(d.id)}
           onConnect={connectApp}
           onClose={() => setPicking(false)}

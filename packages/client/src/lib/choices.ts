@@ -87,5 +87,30 @@ export function choiceSummary(
 /** The person's reply as its compact line shows it: without the agent's @handle the server put in front. */
 export const choiceReplyLine = (body: string) => body.replace(/^@[\w.-]+\s+/, "");
 
+export interface ChoiceReplyRow {
+  question: string;
+  answer: string;
+}
+
+/**
+ * The reply's questions and answers apart (`meta.choiceReply.answers`), so the question reads quiet and the answer
+ * stands out; null when the message doesn't carry them or its words no longer say them (then it is one line).
+ */
+export function choiceReplyRows(
+  body: string,
+  meta: Record<string, unknown> | null | undefined,
+): ChoiceReplyRow[] | null {
+  const reply = meta?.choiceReply as { answers?: unknown } | undefined;
+  const answers = reply?.answers;
+  if (!Array.isArray(answers) || answers.length === 0) return null;
+  const rows = answers.filter(
+    (a): a is ChoiceReplyRow =>
+      typeof a === "object" && a !== null && typeof a.question === "string" && typeof a.answer === "string",
+  );
+  if (rows.length !== answers.length) return null;
+  const said = rows.map((r) => `${r.question} ${r.answer}`).join("\n");
+  return said === choiceReplyLine(body) ? rows : null;
+}
+
 /** Someone answered first (409 `choices.answered`): not a failure to retry, the card just shows their pick. */
 export const answeredFirst = (e: unknown) => e instanceof ApiError && e.code === "choices.answered";

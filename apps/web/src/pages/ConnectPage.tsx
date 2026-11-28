@@ -1,6 +1,7 @@
 import type { Machine } from "@agenteschat/client";
-import { ApiError, useConfirmDevice, useDenyDevice, useMachineDevice, useMe } from "@agenteschat/client";
+import { ApiError, useAuthConfig, useConfirmDevice, useDenyDevice, useMachineDevice, useMe } from "@agenteschat/client";
 import { workspaceLabel, workspaceNotes } from "@agenteschat/client/lib/deletion";
+import { joinLends, lendsInternet, shareInternetHint } from "@agenteschat/client/lib/devices";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { computerKind, formatUserCode, locationText } from "@agenteschat/client/lib/machines";
@@ -21,7 +22,7 @@ import { Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { CenteredLayout } from "@/components/AuthLayout";
-import { useUpdateComputer } from "@/components/devices/queries";
+import { useDevices, useUpdateComputer } from "@/components/devices/queries";
 import { LoadingLine } from "@/components/Loading";
 import { osOf } from "@/components/machine-bits";
 import { PrefRow } from "@/components/NoticePrefs";
@@ -47,6 +48,7 @@ type Outcome =
 export function ConnectPage({ code }: { code: string }) {
   const { t, i18n } = useTranslation();
   const me = useMe();
+  const auth = useAuthConfig();
   const device = useMachineDevice(code);
   const confirm = useConfirmDevice();
   const deny = useDenyDevice();
@@ -54,12 +56,22 @@ export function ConnectPage({ code }: { code: string }) {
   const [orgId, setOrgId] = useState<string | undefined>(undefined);
   const spill = useUpdateComputer(orgId ?? "");
   const [name, setName] = useState("");
-  /** Spill-over for other people's turns (`spill.others`): off unless the person turns it on here. */
-  const [others, setOthers] = useState(false);
+  /** "Help when the team's computer is full or away" (`spill.own`): on, as a new computer's is, unless turned off here. */
+  const [help, setHelp] = useState(true);
+  /**
+   * Its internet for the computers that borrow it (ADR 0237): as the server starts it unless changed here. This page
+   * confirms Terminal installs (the app confirms its own), and where the server lends one on Linux is a server box,
+   * which borrows instead (`joinLends`). Null: left as it starts.
+   */
+  const [lendSet, setLend] = useState<boolean | null>(null);
+  const list = useDevices(orgId ?? "", false, !!orgId).data;
+  const lends = lendsInternet(list);
   const [outcome, setOutcome] = useState<Outcome>(null);
   const [expired, setExpired] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const request = device.data;
+  const lendDefault = joinLends(list, request?.os ?? "");
+  const lend = lendSet ?? lendDefault;
   const reconnect =
     request?.reconnect && orgs.some((o) => o.id === request.reconnect?.orgId) ? request.reconnect : null;
 
@@ -206,7 +218,14 @@ export function ConnectPage({ code }: { code: string }) {
               { orgId: org.id, userCode: code, ...(clean ? { name: clean } : {}) },
               {
                 onSuccess: (machine) => {
-                  if (others) spill.mutate({ id: machine.id, spill: { others: true } });
+                  // A new computer's switch, said either way: on, it starts installing the CLIs their agents need
+                  // there. A reconnected one keeps what its owner chose.
+                  if (!reconnect)
+                    spill.mutate({
+                      id: machine.id,
+                      spill: { own: help },
+                      ...(lends && lend !== lendDefault ? { shareInternet: lend } : {}),
+                    });
                   setOutcome({
                     kind: "confirmed",
                     machine,
@@ -273,11 +292,20 @@ export function ConnectPage({ code }: { code: string }) {
               </Field>
               <PrefRow
                 id="connect-spill"
-                icon="audiencePeople"
-                label={t("devices.spillOthers")}
-                hint={t("devices.spillOthersHint")}
-                control={<Switch checked={others} onCheckedChange={setOthers} />}
+                icon="bolt"
+                label={t("devices.spillOwn")}
+                hint={t("devices.spillOwnHint")}
+                control={<Switch checked={help} onCheckedChange={setHelp} />}
               />
+              {lends && (
+                <PrefRow
+                  id="connect-internet"
+                  icon="globe"
+                  label={t("devices.shareInternet")}
+                  hint={shareInternetHint(t, auth.data)}
+                  control={<Switch checked={lend} onCheckedChange={setLend} />}
+                />
+              )}
             </Locked>
           )}
           {error && <Alert>{error}</Alert>}

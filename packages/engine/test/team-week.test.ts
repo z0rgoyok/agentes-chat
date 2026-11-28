@@ -1389,3 +1389,63 @@ test("what Lodi posts unasked is on by default and named on its page in every la
     expect({ code, named: labels.every(Boolean) }).toEqual({ code, named: true });
   }
 });
+
+test("a second admin's card skips settings proposals for agents restricted to their owner instead of failing", async () => {
+  f = await setup({ rightHand: true });
+  await inZone(f);
+  const secondAdmin = await addMember(f.db, f.org.id, "admin", "caio");
+  const day = (n: number) => new Date(SLOT.getTime() - n * DAY);
+  // Owner has a personal-only agent in no channel (and over budget), plus a shared agent in no channel and active.
+  const [personal] = await f.db
+    .insert(schema.agents)
+    .values({
+      orgId: f.org.id,
+      name: "Nora",
+      handle: "nora",
+      role: "Personal assistant",
+      instructions: "",
+      model: "claude-opus-5-5",
+      ownerUserId: f.owner.id,
+      audienceMode: "owner",
+      createdAt: day(40),
+    })
+    .returning();
+  const [sharedLonely] = await f.db
+    .insert(schema.agents)
+    .values({
+      orgId: f.org.id,
+      name: "Radar",
+      handle: "radar",
+      role: "News",
+      instructions: "",
+      model: "claude-sonnet-5-5",
+      ownerUserId: f.owner.id,
+      createdAt: day(5),
+    })
+    .returning();
+  await run(f, f.agent.id, day(1), "done");
+  await insertMessage(f.db, {
+    orgId: f.org.id,
+    channelId: f.general.id,
+    author: { type: "agent", agentId: personal?.id ?? "", runId: null, hop: 1, stretchId: null },
+    body: "My budget for the month ran out.",
+    meta: { bodyCode: "budget_wait", usageWait: { code: "budget", runId: crypto.randomUUID() } },
+    createdAt: day(2),
+  });
+
+  const msgId = await postTeamWeek({ db: f.db, pubsub: f.pubsub }, f.org.id, {
+    userId: secondAdmin.id,
+    slot: SLOT.toISOString(),
+  });
+  expect(msgId).not.toBeNull();
+  const [msg] = await f.db
+    .select()
+    .from(schema.messages)
+    .where(eq(schema.messages.id, msgId as string));
+  const card = teamWeekCardOf(msg?.meta);
+  expect(card).not.toBeNull();
+  // `personal` (`only_owner`) was skipped without throwing ForbiddenError, and `sharedLonely` still got its channel row.
+  expect(card?.rows.some((r) => r.kind === "channel" && r.agentId === sharedLonely?.id)).toBe(true);
+  expect(card?.rows.some((r) => "agentId" in r && r.agentId === personal?.id)).toBe(false);
+  expect((card?.moreRows ?? []).some((r) => "agentId" in r && r.agentId === personal?.id)).toBe(false);
+});

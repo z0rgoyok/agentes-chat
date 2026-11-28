@@ -51,9 +51,49 @@ function runOf(text: string, attributes: Record<string, unknown> | undefined): R
         if (typeof href === "string") run.link = href;
         break;
       }
+      default:
+        readTypeMark(markName(attribute), value, run);
     }
   }
   return run;
+}
+
+/**
+ * Reads one of the type marks of ADR 0220 §3 (font, size, weight, highlight, tracking, caps) into `run`, as
+ * y-prosemirror stores them (`{ font: { font } }`, `{ highlight: { color } }`, `{ caps: {} }`). Documents share it.
+ */
+export function readTypeMark(name: string, value: unknown, run: Partial<RichRun>): void {
+  const attrs = (value ?? {}) as Record<string, unknown>;
+  switch (name) {
+    case "font":
+      if (typeof attrs.font === "string") run.font = attrs.font;
+      break;
+    case "size":
+      if (typeof attrs.size === "number") run.size = attrs.size;
+      break;
+    case "weight":
+      if (typeof attrs.weight === "number") run.weight = attrs.weight as RichRun["weight"];
+      break;
+    case "highlight":
+      if (typeof attrs.color === "string") run.highlight = attrs.color;
+      break;
+    case "tracking":
+      if (typeof attrs.tracking === "number") run.tracking = attrs.tracking;
+      break;
+    case "caps":
+      run.caps = true;
+      break;
+  }
+}
+
+/** Writes a run's type marks as y-prosemirror attributes (the other half of `readTypeMark`). */
+export function writeTypeMarks(run: Partial<RichRun>, attributes: Record<string, unknown>): void {
+  if (run.font) attributes.font = { font: run.font };
+  if (run.size !== undefined) attributes.size = { size: run.size };
+  if (run.weight !== undefined) attributes.weight = { weight: run.weight };
+  if (run.highlight) attributes.highlight = { color: run.highlight };
+  if (run.tracking !== undefined) attributes.tracking = { tracking: run.tracking };
+  if (run.caps) attributes.caps = {};
 }
 
 function textRuns(text: Y.XmlText | Y.Text): RichRun[] {
@@ -102,6 +142,7 @@ function markAttributes(run: RichRun): Record<string, unknown> {
   if (run.strike) attributes.strike = {};
   if (run.color) attributes.color = { color: run.color };
   if (run.link) attributes.link = { href: run.link };
+  writeTypeMarks(run, attributes);
   return attributes;
 }
 
@@ -134,6 +175,8 @@ function paragraphElement(paragraph: RichParagraph): Y.XmlElement {
   if (paragraph.align) element.setAttribute("align", paragraph.align);
   element.setAttribute("level", paragraph.level ?? 0);
   if (paragraph.list) element.setAttribute("list", paragraph.list);
+  if (paragraph.lineHeight !== undefined) element.setAttribute("lineHeight", paragraph.lineHeight);
+  if (paragraph.spaceAfter !== undefined) element.setAttribute("spaceAfter", paragraph.spaceAfter);
   element.insert(0, inlineNodes(paragraph.runs));
   return element as unknown as Y.XmlElement;
 }
@@ -234,6 +277,8 @@ export function editParagraphTexts(fragment: Y.XmlFragment, texts: readonly stri
         ...(attrs.align ? { align: attrs.align } : {}),
         ...(attrs.level ? { level: attrs.level } : {}),
         ...(attrs.list ? { list: attrs.list } : {}),
+        ...(attrs.lineHeight !== undefined ? { lineHeight: attrs.lineHeight } : {}),
+        ...(attrs.spaceAfter !== undefined ? { spaceAfter: attrs.spaceAfter } : {}),
       });
     }
     // Applied from the end, so the positions of what comes before stay put.

@@ -18,6 +18,7 @@ import { platformOf } from "../control/platform";
 import type { ServerList, ServerWorkspaces } from "../control/server";
 import type { ThisMacRequest } from "../control/this-mac";
 import type { TrayState } from "../control/tray";
+import type { ReportFacts } from "../report/report";
 import {
   type AppInfo,
   type BadgeCounts,
@@ -85,11 +86,13 @@ export function createTauriHost(): Host {
     revealFolder: (path) => invoke<void>("reveal_folder", { path }),
     pickFolder: () => invoke<string | null>("pick_folder"),
     setTrayState: (state: TrayState) => invoke<void>("set_tray_state", { state }),
-    setTrayVisible: (show) => invoke<void>("tray_visible", { show }),
-    showWindow: (w) => invoke<void>("show_window", { name: w }),
+    setTrayVisible: (show, off) => invoke<void>("tray_visible", { show, off }),
+    showWindow: (w, o) => invoke<void>("show_window", { name: w, keep: o?.keep === true }),
     hideWindow: (w) => invoke<void>("hide_window", { name: w }),
     quit: () => invoke<void>("quit_app"),
+    askQuit: (words) => invoke<boolean>("quit_ask", words),
     appInfo: () => invoke<AppInfo>("app_info"),
+    reportFacts: () => invoke<ReportFacts>("problem_report_facts"),
     compatMode: () => invoke<CompatMode>("compat_get"),
     setCompatMode: (on) => invoke<void>("compat_set", { on }),
     reopen: () => invoke<void>("app_reopen"),

@@ -9,9 +9,10 @@ import { useReveal } from "@/hooks/useReveal";
 
 /**
  * A long text an agent wrote, on a page rather than in a conversation: its Markdown as a message's, folded until
- * "Ver mais" opens it in place, for good.
+ * "Ver mais" opens it in place, for good. `plain`: words from outside (a server's own instructions) as they are
+ * written, nothing in them made a link, a chip or a diagram, so they fetch nothing and nothing hidden takes the focus.
  */
-export function FoldedBody({ body }: { body: string }) {
+export function FoldedBody({ body, plain = false }: { body: string; plain?: boolean }) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
@@ -28,7 +29,11 @@ export function FoldedBody({ body }: { body: string }) {
         data-folded={open ? undefined : ""}
         data-cut={cut && !open ? "" : undefined}
       >
-        <MessageBody body={body} resolveMention={dir.mentionName} mentionTone={dir.mentionTone} />
+        {plain ? (
+          <p className="folded-body__plain">{body}</p>
+        ) : (
+          <MessageBody body={body} resolveMention={dir.mentionName} mentionTone={dir.mentionTone} />
+        )}
       </div>
       {cut && !open && (
         <button

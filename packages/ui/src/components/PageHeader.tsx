@@ -19,6 +19,11 @@ export interface PageHeaderProps {
   lead?: ReactNode;
   /** At the end of the title's line: the page's own buttons, its main one last. */
   actions?: ReactNode;
+  /**
+   * At the end of the line under the title, the line then running the header's whole width: a narrow column's view
+   * control (the inbox's filter), which beside the title would squeeze it or take a row of its own.
+   */
+  metaActions?: ReactNode;
   /** Under the title: the page's tabs, search, filters or navigation. */
   children?: ReactNode;
   /** 1 for a page; 2 when the page shows inside another one (a Settings section). */
@@ -39,6 +44,7 @@ export function PageHeader({
   metaLive,
   lead,
   actions,
+  metaActions,
   children,
   level = 1,
   titleId,
@@ -51,6 +57,16 @@ export function PageHeader({
     <Heading className="ac-pagehead__title" id={titleId} ref={titleRef}>
       {title}
     </Heading>
+  );
+  const metaLine = (
+    <p
+      className="ac-pagehead__meta"
+      aria-live={metaLive ? "polite" : undefined}
+      // One line: a longer one ends in "…", and the whole of it shows on hover.
+      title={typeof meta === "string" ? meta : undefined}
+    >
+      {meta}
+    </p>
   );
   return (
     <header className={cx("ac-pagehead", className)} {...rest}>
@@ -65,19 +81,16 @@ export function PageHeader({
           ) : (
             heading
           )}
-          {meta !== undefined && (
-            <p
-              className="ac-pagehead__meta"
-              aria-live={metaLive ? "polite" : undefined}
-              // One line: a longer one ends in "…", and the whole of it shows on hover.
-              title={typeof meta === "string" ? meta : undefined}
-            >
-              {meta}
-            </p>
-          )}
+          {meta !== undefined && !metaActions && metaLine}
         </div>
         {actions && <div className="ac-pagehead__actions">{actions}</div>}
       </div>
+      {metaActions && (
+        <div className="ac-pagehead__metaline">
+          {meta !== undefined ? metaLine : <span />}
+          <div className="ac-pagehead__metaacts">{metaActions}</div>
+        </div>
+      )}
       {children && <div className="ac-pagehead__bar">{children}</div>}
     </header>
   );

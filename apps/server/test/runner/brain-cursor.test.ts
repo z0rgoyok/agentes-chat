@@ -212,6 +212,13 @@ test("a turn that went wrong: a usage limit, a sign-in that ended, anything else
   expect(new CursorEventMapper().finish({ exitCode: 0, sessionId: SESSION })[0]).toMatchObject({
     code: "cursor_failed",
   });
+  // A failed result with no words of its own: how it ended, never a generic "failed".
+  const bare = new CursorEventMapper();
+  bare.line(JSON.stringify({ type: "result", subtype: "error_max_turns", is_error: true }));
+  expect(bare.finish({ exitCode: 0, sessionId: SESSION })[0]).toMatchObject({
+    code: "cursor_failed",
+    message: "Cursor ended the turn with error_max_turns",
+  });
 });
 
 test("our bridge in the agent's .cursor/mcp.json: the run and the token only as env references, any other server and planted hooks dropped", () => {

@@ -11,6 +11,7 @@ import { getMembership } from "../organizations";
 import { personLocale } from "../requester";
 import { lodiFor, postFromLodi } from "../right-hand-proactive";
 import { surfaceOn } from "./config";
+import { type NudgeSettings, nudgeOf } from "./nudge";
 
 /**
  * Links between a sender on the outside chat surface and an account (ADR 0187): a code minted in the app, typed on
@@ -39,6 +40,10 @@ export interface SurfaceLinkView {
   confirmedAt: string | null;
   /** Pending only: when it stops counting. */
   expiresAt: string | null;
+  /** A PIN confirms actions asked from the surface (ADR 0226). */
+  pinSet: boolean;
+  /** The unread nudge's settings (ADR 0234). */
+  nudge: NudgeSettings;
 }
 
 /** `publicUrl`: where the emails link to; absent or null on a server that sends no email, which sends none. */
@@ -198,9 +203,16 @@ export async function confirmLink(deps: LinkDeps, userId: string, linkId: string
         and(eq(surfaceLinks.userId, userId), eq(surfaceLinks.surface, surface.id), eq(surfaceLinks.status, "active")),
       )
       .returning();
+    // The same sender moving to another workspace keeps their PIN (ADR 0226); a new sender chooses one.
+    const moved = replaced.find((old) => old.externalId === pending.externalId);
     const [active] = await tx
       .update(surfaceLinks)
-      .set({ status: "active", confirmedAt: new Date() })
+      .set({
+        status: "active",
+        confirmedAt: new Date(),
+        pinHash: moved?.pinHash ?? null,
+        pinLockedUntil: moved?.pinLockedUntil ?? null,
+      })
       .where(eq(surfaceLinks.id, pending.id))
       .returning();
     if (!active?.orgId) throw new Error("surface link not confirmed");
@@ -385,6 +397,8 @@ async function viewsOf(db: Executor, where: SQL | undefined): Promise<SurfaceLin
     createdAt: link.createdAt.toISOString(),
     confirmedAt: link.confirmedAt?.toISOString() ?? null,
     expiresAt: link.status === "pending" ? pendingExpiry(link.createdAt).toISOString() : null,
+    pinSet: link.pinHash !== null,
+    nudge: nudgeOf(link),
   }));
 }
 

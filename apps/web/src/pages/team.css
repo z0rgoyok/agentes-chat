@@ -688,3 +688,13 @@
   color: var(--muted);
   font-size: 13px;
 }
+
+/* A teammate's private agent seen by its facts alone: the lock and "Private" after its handle, on the handle's one
+   line, so the face beside the name never stands by three lines (the table scrolls sideways on a phone instead). */
+.team-who__text > .muted:has(> .team-private) {
+  white-space: nowrap;
+}
+.team-private {
+  display: inline-flex;
+  gap: var(--space-1);
+}

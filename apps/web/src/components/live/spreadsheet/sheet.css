@@ -520,13 +520,15 @@ html:not([data-pointer]) .sheet-tabs__tab:focus-visible {
   width: 1px;
   height: 1px;
 }
-.ac-input.sheet-tabs__rename {
+/* A tab's name renamed in place (the kit's InlineName): the tab's own height and words. */
+.ac-inlinename.sheet-tabs__rename {
   flex: none;
-  width: auto;
   height: var(--control-h-sm);
+  margin: 0;
   padding: 0 var(--space-2);
   border-radius: var(--control-r-sm);
   font-size: var(--text-sm);
+  line-height: var(--control-h-sm);
 }
 .sheet-tabs__status {
   flex: none;

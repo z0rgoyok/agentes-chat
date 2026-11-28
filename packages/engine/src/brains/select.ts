@@ -4,7 +4,9 @@ import {
   type BrainEffort,
   CODEX_WINDOWS_PROTOCOL,
   CURSOR_PROTOCOL,
+  DEVIN_PROTOCOL,
   GROK_PROTOCOL,
+  GROK_WINDOWS_PROTOCOL,
   isBrainEffort,
   OPENCODE_ACP_PROTOCOL,
   OPENCODE_PROTOCOL,
@@ -26,10 +28,11 @@ import { planFull, planState } from "@agenteschat/ui/plan-state";
 import type { Agent } from "../agents";
 import { replyRefusal } from "../ai-accounts/reply";
 import { accountServes } from "../ai-accounts/serves";
+import { fetchesCli } from "../cli-fetch";
 import type { CodeSessionContext } from "../code-sessions";
 import type { ModelGateway } from "../gateway";
 import type { MachineStatus } from "../machine-hub";
-import { pausedMessage } from "../machines";
+import { lentOfflineText, lentOnlyOffline, maintenanceWords, pausedMessage } from "../machines";
 import { missionTurnFor } from "../missions-engine";
 import {
   isRightHand,
@@ -42,10 +45,26 @@ import {
 import { runState } from "../run-state";
 import { runnerUpdateWay } from "../runner-update";
 import type { AgentRun } from "../runs";
-import { accountUnavailable, brainSessionId, claudeCodeAvailability, cliMissingMessage, toolOff } from "./claude-code";
+import {
+  accountUnavailable,
+  brainSessionId,
+  claudeCodeAvailability,
+  cliMissingMessage,
+  cliOutdated,
+  toolOff,
+} from "./claude-code";
 import { BRAIN_NAMES, BRAIN_PLAN_NAMES, type BrainAccount, type BrainKind, type BrainSession } from "./types";
 
-const KINDS: readonly BrainKind[] = ["model", "claude_code", "codex", "cursor", "opencode", "grok", "antigravity"];
+const KINDS: readonly BrainKind[] = [
+  "model",
+  "claude_code",
+  "codex",
+  "cursor",
+  "opencode",
+  "grok",
+  "antigravity",
+  "devin",
+];
 const kindOf = (v: unknown): BrainKind => (KINDS.includes(v as BrainKind) ? (v as BrainKind) : "model");
 
 /** A mission's choice for a run in its thread (`missionTurnFor`). */
@@ -342,6 +361,11 @@ export interface BrainUnavailability {
   resetsAt?: string;
   /** A `plan_limit` that is one model's (`refusalScope`), not the account's. */
   scope?: ModelScope;
+  /**
+   * `lent_offline` (ADR 0237, amendment 2026-11-27 c): the computer whose internet its agents use only, offline. The
+   * run waits for that one, not for its own computer.
+   */
+  lent?: { machineId: string; name: string };
 }
 
 /**
@@ -417,7 +441,14 @@ export function computerBrainUnavailable(
     return { code: e.code, message: e.message, ...(e.code === "machine_paused" ? pausedUntil : {}) };
   }
   if (!status?.online) {
-    return { code: "machine_offline", message: `${name}${status ? ` on ${status.name}` : ""} is offline.` };
+    const away = status?.maintenance?.away ? status.maintenance : null;
+    return {
+      code: "machine_offline",
+      message:
+        away && status
+          ? maintenanceWords(status.name, away)
+          : `${name}${status ? ` on ${status.name}` : ""} is offline.`,
+    };
   }
   if (status.paused) {
     return {
@@ -426,7 +457,7 @@ export function computerBrainUnavailable(
       ...pausedUntil,
     };
   }
-  if (kind === "cursor" || kind === "opencode" || kind === "grok" || kind === "antigravity") {
+  if (kind === "cursor" || kind === "opencode" || kind === "grok" || kind === "antigravity" || kind === "devin") {
     const off = toolOff(status, kind);
     if (off) return off;
     if (
@@ -436,23 +467,28 @@ export function computerBrainUnavailable(
         opencode: OPENCODE_PROTOCOL,
         grok: GROK_PROTOCOL,
         antigravity: ANTIGRAVITY_PROTOCOL,
+        devin: DEVIN_PROTOCOL,
       }[kind]
     ) {
       return {
         code: "runner_outdated",
-        message: `The runner on ${status.name} is too old for ${name} agents. ${runnerUpdateWay(status)}`,
+        message: `The agentes.chat program on ${status.name} is too old for ${name} agents. ${runnerUpdateWay(status)}`,
       };
     }
-    // On Windows a runner before `OPENCODE_ACP_PROTOCOL` refuses every OpenCode turn.
-    if (kind === "opencode" && status.os === "windows" && status.protocol < OPENCODE_ACP_PROTOCOL) {
+    // On Windows a runner before `OPENCODE_ACP_PROTOCOL` refuses every OpenCode turn, one before
+    // `GROK_WINDOWS_PROTOCOL` every Grok turn.
+    const windowsProtocol = kind === "opencode" ? OPENCODE_ACP_PROTOCOL : kind === "grok" ? GROK_WINDOWS_PROTOCOL : 0;
+    if (status.os === "windows" && status.protocol < windowsProtocol) {
       return {
         code: "runner_outdated",
-        message: `The runner on ${status.name} is too old for ${name} agents on Windows. ${runnerUpdateWay(status)}`,
+        message: `The agentes.chat program on ${status.name} is too old for ${name} agents on Windows. ${runnerUpdateWay(status)}`,
       };
     }
-    if (status.executors?.detectedAt && !status.executors[kind]) {
+    if (status.executors?.detectedAt && !status.executors[kind] && !fetchesCli(status, kind)) {
       return { code: `${kind}_missing`, message: cliMissingMessage(`${name}'s CLI`, status, kind) };
     }
+    const old = cliOutdated(status, kind, name);
+    if (old) return old;
     return accountUnavailable(status, account, kind);
   }
   const off = toolOff(status, "codex");
@@ -462,13 +498,15 @@ export function computerBrainUnavailable(
   if (status.protocol < BRAIN_PROTOCOL || (windows && status.protocol < CODEX_WINDOWS_PROTOCOL)) {
     return {
       code: "runner_outdated",
-      message: `The runner on ${status.name} is too old for Codex agents${windows ? " on Windows" : ""}. ${runnerUpdateWay(status)}`,
+      message: `The agentes.chat program on ${status.name} is too old for Codex agents${windows ? " on Windows" : ""}. ${runnerUpdateWay(status)}`,
     };
   }
   const codex = status.executors?.codex;
-  if (status.executors?.detectedAt && !codex) {
+  if (status.executors?.detectedAt && !codex && !fetchesCli(status, "codex")) {
     return { code: "codex_missing", message: cliMissingMessage("Codex", status, "codex") };
   }
+  const old = cliOutdated(status, "codex", "Codex");
+  if (old) return old;
   return accountUnavailable(status, account, "codex");
 }
 
@@ -494,11 +532,15 @@ export const UNAVAILABLE_CODES: ReadonlySet<string> = new Set([
   "opencode_missing",
   "grok_missing",
   "antigravity_missing",
+  "devin_missing",
+  // Its CLI at a version agentes.chat holds back (`cliOutdated`): the run waits for it to be updated there.
+  "cli_outdated",
   "plan_limit",
   "plan_not_owner",
   "plan_not_shared",
   "plan_unattended",
   "tools_not_locked",
+  "lent_offline",
 ]);
 
 /**
@@ -514,7 +556,17 @@ export const NO_AI_CODES: ReadonlySet<string> = new Set([
   "opencode_missing",
   "grok_missing",
   "antigravity_missing",
+  "devin_missing",
 ]);
+
+/** `lent_offline` while the computer `orgId`'s agents use only the internet of is offline (`lentOnlyOffline`). */
+async function lentUnavailable(
+  deps: Parameters<typeof lentOnlyOffline>[0],
+  orgId: string,
+): Promise<BrainUnavailability | null> {
+  const lent = await lentOnlyOffline(deps, orgId).catch(() => null);
+  return lent ? { code: "lent_offline", message: lentOfflineText(lent.name), lent } : null;
+}
 
 /** What the engine runs a turn with. */
 export interface BrainPlan {
@@ -685,13 +737,22 @@ async function sessionFor(
   conversation: string,
   machineId: string,
   accountId: string | null,
-  options: { fresh?: boolean; promptKey?: string; peek?: boolean },
+  options: { fresh?: boolean; promptKey?: string; promptParts?: Record<string, string>; peek?: boolean },
   now: Date,
-): Promise<{ id: string; resume: boolean }> {
+): Promise<{
+  id: string;
+  resume: boolean;
+  partsRead?: string | null;
+  refreshRead?: string[];
+  notPickedUp?: string[];
+}> {
   if (run.brainSessionId) {
     return { id: run.brainSessionId, resume: await sessionUsed(db, run, kind, run.brainSessionId) };
   }
   let id: string | null = null;
+  let partsRead: string | null = null;
+  let refreshRead: string[] = [];
+  let notPickedUp: string[] | undefined;
   if (!options.fresh && !run.background) {
     const { agentRuns, agentRunSteps, usageRecords, messages } = schema;
     const [last] = await db
@@ -714,6 +775,14 @@ async function sessionFor(
           (select max(u.input_tokens + u.cache_read_tokens + u.cache_write_tokens)
             from ${usageRecords} u where u.run_id = "agent_runs"."id" and u.provider = ${kind}), 0)`.mapWith(Number),
         promptKey: sql<string | null>`${runState}->>'promptKey'`,
+        // Not in `state`: read on this one row only.
+        partsRead: sql<string | null>`${agentRuns.transcript}->>'sessionParts'`,
+        promptParts: sql<Record<string, string> | null>`${agentRuns.transcript}->'promptParts'`,
+        refreshRead: sql<
+          string[]
+        >`jsonb_path_query_array(${agentRuns.transcript}->'system', '$[*] ? (@.refresh == true).text')::text`.mapWith(
+          (v: string | null) => (v ? (JSON.parse(v) as string[]) : []),
+        ),
       })
       .from(agentRuns)
       .where(
@@ -751,21 +820,29 @@ async function sessionFor(
       )
       .orderBy(desc(agentRuns.createdAt))
       .limit(1);
-    if (
-      last?.sessionId &&
-      now.getTime() - last.at.getTime() < SESSION_IDLE_MS &&
-      last.input < SESSION_MAX_INPUT_TOKENS &&
-      // A live session keeps the system prompt it started with: after an edit to the instructions (or anything
-      // else `promptKey` covers) a new one starts, with the conversation so far in its first prompt.
-      (options.promptKey === undefined || last.promptKey === options.promptKey)
-    ) {
+    const recent = last?.sessionId && now.getTime() - last.at.getTime() < SESSION_IDLE_MS;
+    // A live session keeps the system prompt it started with: after an edit to the instructions (or anything
+    // else `promptKey` covers) a new one starts, with the conversation so far in its first prompt.
+    const samePrompt = options.promptKey === undefined || last?.promptKey === options.promptKey;
+    if (recent && last.input < SESSION_MAX_INPUT_TOKENS && samePrompt) {
       id = last.sessionId;
+      partsRead = last.partsRead;
+      refreshRead = last.refreshRead;
+    } else if (recent) {
+      const was = last.promptParts ?? {};
+      const parts = Object.entries(options.promptParts ?? {}).flatMap(([k, v]) => (was[k] === v ? [] : [k]));
+      notPickedUp = [
+        ...(last.input >= SESSION_MAX_INPUT_TOKENS ? ["size"] : []),
+        ...(samePrompt ? [] : parts.length > 0 && last.promptParts ? parts : ["prompt"]),
+      ];
     }
   }
   const sessionId = id ?? brainSessionId(agent.id, `${conversation}:${run.id}`, kind);
   if (!options.peek)
     await db.update(schema.agentRuns).set({ brainSessionId: sessionId }).where(eq(schema.agentRuns.id, run.id));
-  return { id: sessionId, resume: id ? await sessionUsed(db, run, kind, sessionId) : false };
+  return id
+    ? { id: sessionId, resume: await sessionUsed(db, run, kind, sessionId), partsRead, refreshRead }
+    : { id: sessionId, resume: false, ...(notPickedUp ? { notPickedUp } : {}) };
 }
 
 /**
@@ -795,14 +872,19 @@ export async function resolveBrain(
     fresh?: boolean;
     now?: Date;
     promptKey?: string;
+    /** `promptKey` by its parts (`Transcript.promptParts`): a session it can't pick up says which changed. */
+    promptParts?: Record<string, string>;
     thinker?: Agent;
     peek?: boolean;
     codeSession?: CodeSessionContext | null;
+    /** The right hand's person, for a run with no row yet (a warm start while they type); else read from the run. */
+    person?: string | null;
   } = {},
 ): Promise<BrainPlan> {
   const mission: MissionTurn | null = await missionTurnFor(deps.db, run).catch(() => null);
   // The right hand: the AI of the person whose DM this is, else the workspace's; on a plan, its computer and owner.
-  const person = await rightHandPerson(deps.db, given, run);
+  const person =
+    options.person !== undefined && isRightHand(given) ? options.person : await rightHandPerson(deps.db, given, run);
   const agent = options.thinker ?? (await thinkingAgent(deps.db, given, person));
   const kind = brainFor(agent, run, mission);
   const base = mission ? { missionId: mission.missionId } : {};
@@ -815,6 +897,9 @@ export async function resolveBrain(
   // session: its own agent's turn runs there (an agent called in, or a mission's thread, keeps its own).
   const place = mission?.session ? null : (options.codeSession?.place ?? null);
   const machineId = mission?.session?.machineId ?? place?.machineId ?? agent.machineId ?? null;
+  // Read alongside, so no turn waits for it: kept only where that computer borrows a person's internet.
+  const lent =
+    machineId && deps.machines ? lentUnavailable({ db: deps.db, machines: deps.machines }, agent.orgId) : null;
   const [status, account] = await Promise.all([
     machineId && deps.machines ? deps.machines.status(machineId).catch(() => null) : null,
     brainAccountFor(deps.db, agent, kind, machineId),
@@ -830,7 +915,7 @@ export async function resolveBrain(
   const effort = brainEffortFor(agent, kind);
   const unavailable =
     (isRightHand(agent) && (agent.brainAccountId || agent.machineId)
-      ? await rightHandPlanRefusal(deps.db, agent, run, status)
+      ? await rightHandPlanRefusal(agent, person, status)
       : null) ??
     (account && !isRightHand(agent) ? await replyRefusal(deps.db, agent, account.id, run) : null) ??
     (machineId && !deps.machines
@@ -845,7 +930,9 @@ export async function resolveBrain(
           usage,
           // "Automático" runs another model where the one it maps to is held (`autoPlanModel`).
           isAutoModel(runs) ? autoPlanModel(account?.provider, runs, usage) : runs,
-        ));
+        )) ??
+    // Its computer's agents use only a person's computer's internet, offline now: its CLI can't reach its AI.
+    (status?.kind === "managed" || status?.kind === "host" ? await lent : null);
   // The right hand's plan can't think now: another plan or the workspace's key thinks for it (ADR 0137 §7, amended
   // 2026-11-15). Not while its computer is coming back (`computerBackSoon` waits for it, as `agentAiState` says):
   // one in standby, which the run wakes, or one gone less than the outage grace (a server restart, its runner redialing).

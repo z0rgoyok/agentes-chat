@@ -17,8 +17,8 @@ export const UNDO_WINDOW_MS = 5 * 60_000;
 /**
  * What an agent did. Covered: issues (created, fields changed, assigned),
  * memory (saved, changed, forgotten), routines (created, changed, deleted), an agent
- * added to a channel, a channel created, wiki pages (created, edited), threads
- * (renamed, closed). Merge, deploy, rollback, anything that leaves the organization
+ * added to a channel, a channel's responsible agent (ADR 0095), a channel created, wiki pages (created, edited),
+ * threads (renamed, closed). Merge, deploy, rollback, anything that leaves the organization
  * and deletes that can't be restored keep asking (approvals). A merge in a repository the agent merges in without
  * asking only has its receipt (`final`: nothing undoes it). The API's enum is this list. The apps keep their own
  * copy (`@agenteschat/client`'s `AGENT_ACTION_KINDS`), and a test keeps the two the same.
@@ -34,6 +34,8 @@ export const AGENT_ACTION_KINDS = [
   "routine.updated",
   "routine.deleted",
   "channel.agent_added",
+  /** The channel's responsible agent set, changed or cleared (`set_channel_lead`, ADR 0095). */
+  "channel.lead_changed",
   "channel.created",
   "wiki.page_created",
   "wiki.page_edited",
@@ -60,6 +62,7 @@ export const UNDOABLE_TOOLS = new Set([
   "update_routine",
   "delete_routine",
   "add_agent_to_channel",
+  "set_channel_lead",
   "create_channel",
   "create_wiki_page",
   "update_wiki_page",
@@ -291,6 +294,10 @@ export function describeAction(a: Pick<AgentActionView, "kind" | "target" | "par
       return `deleted the routine${title}`;
     case "channel.agent_added":
       return `added ${typeof p.agentName === "string" ? p.agentName : "an agent"} to #${t.title ?? "?"}`;
+    case "channel.lead_changed":
+      return typeof p.agentName === "string"
+        ? `made ${p.self === true ? "myself" : p.agentName} responsible for #${t.title ?? "?"}`
+        : `left #${t.title ?? "?"} with no responsible agent`;
     case "channel.created":
       return `created the channel #${t.title ?? "?"}`;
     case "wiki.page_created":

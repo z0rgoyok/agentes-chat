@@ -64,6 +64,8 @@ export const ptBR: PushStrings = {
   deviceJoinRequestBody: "Toque para deixar entrar ou recusar.",
   waitingTitle: "Tem algo esperando você",
   openBody: "Toque para abrir.",
+  cutBody: "Parou antes de terminar. Peça de novo para continuar.",
+  movedBody: "Isso vai levar um tempo, então sigo em segundo plano.",
   sentGif: "Mandou um GIF",
   sentSticker: "Mandou uma figurinha",
   sentVoice: "Mandou uma mensagem de voz",
@@ -87,11 +89,13 @@ export const ptBR: PushStrings = {
   deviceFolderTitle: (a, f, d) => (f ? `${a} pede ${f} no seu ${d}` : `${a} pede uma pasta no seu ${d}`),
   deviceFolderBody: "Libere no app do computador.",
   adminAskTitle: (a, what, l) =>
-    what === "channel_agent"
-      ? `${a} pede para adicionar um agente a #${l}`
-      : what === "create_agents"
-        ? `${a} pede para poder criar agentes`
-        : `${a} pede para ligar o webhook do ${l} para rotinas`,
+    what === "voice"
+      ? `${a} pede para ligar as mensagens de voz`
+      : what === "channel_agent"
+        ? `${a} pede para adicionar um agente a #${l}`
+        : what === "create_agents"
+          ? `${a} pede para poder criar agentes`
+          : `${a} pede para ligar o webhook do ${l} para rotinas`,
   deviceWaitingTitle: (p, d) => `O agente de ${p} está esperando seu ${d}`,
   deviceWaitingBody: "Começa quando ele voltar.",
   teamWeekReady: "Sua semana da equipe está pronta",

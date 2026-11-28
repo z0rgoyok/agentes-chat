@@ -38,7 +38,8 @@ const label = (v: string) => v.replace(/\s+/g, " ").trim().slice(0, PLAN_USAGE_L
 export function resetIso(v: unknown): string | undefined {
   if (typeof v === "string") {
     const t = Date.parse(v);
-    return Number.isNaN(t) ? undefined : iso(t);
+    // A quota never started is printed with the epoch's zero time: no reset.
+    return Number.isNaN(t) || t <= 0 ? undefined : iso(t);
   }
   const n = finite(v);
   return n !== undefined && n > 0 ? iso(n < 1e12 ? n * 1000 : n) : undefined;
@@ -511,16 +512,17 @@ const agyLimit = (line: string) => {
 
 /**
  * The Antigravity CLI's `/usage` report (ADR 0143), printed in print mode: per model group ("Gemini Models", "Claude
- * and GPT models", "Gemini 4 Argon"), its five-hour and weekly limits, with when each refreshes. The first group's
- * (Gemini's) are the plan's windows; every other group's come as `other` named `<group> · 5h|7d`: a model group's own
- * quota, which binds only that group's models (`planBinding`), never the whole account (`planState`).
+ * and GPT models", "Gemini 4 Argon"), its five-hour and weekly limits, with when each refreshes. Gemini's group
+ * ("Gemini Models", wherever the CLI lists it; else the first group) holds the plan's windows; every other group's
+ * come as `other` named `<group> · 5h|7d`: a model group's own quota, which binds only that group's models
+ * (`planBinding`), never the whole account (`planState`).
  *
  * Two shapes: the CLI's (1.5.6, read 2026-11-14), one tab-separated row per quota (`Gemini Models\tWeekly Limit
  * Remaining\t98%\t2026-11-21T21:48:50Z`, the percent `disabled` where the plan has none, its reset an ISO time); and
  * the docs' panel (antigravity.google/docs/models' View Usage panel), the group on a line of its own above its quotas
  * (a group starts at any short line without a % that limit lines follow, whatever its words), a reset in words.
  * Every percentage is what is left, whether or not the line says "Remaining" (Argon's "Weekly Limit\t99%"); only a
- * line that says "used" counts up.
+ * line or a row that says "used" counts up. A reset at the epoch's zero time (a quota not started) is none.
  */
 export function antigravityUsage(text: string, source: PlanUsage["source"], now = Date.now()): PlanUsage | null {
   const lines = text
@@ -529,28 +531,20 @@ export function antigravityUsage(text: string, source: PlanUsage["source"], now 
     .split(/\r?\n/)
     .map((l) => l.trim())
     .filter(Boolean);
-  const windows: PlanWindow[] = [];
+  const read: { where: string; which: "five_hour" | "seven_day"; used: number; at: string | undefined }[] = [];
   let group = "";
-  let first: string | undefined;
-  const add = (where: string, which: "five_hour" | "seven_day", used: number, at: string | undefined) => {
-    first ??= where;
-    windows.push({
-      ...(where !== first && where
-        ? { kind: "other" as const, label: label(`${where} · ${which === "five_hour" ? "5h" : "7d"}`) }
-        : { kind: which }),
-      usedPercent: percent(used),
-      ...(at ? { resetsAt: at } : {}),
-    });
-  };
+  const add = (where: string, which: "five_hour" | "seven_day", used: number, at: string | undefined) =>
+    read.push({ where, which, used, at });
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i] ?? "";
     const cells = line.split("\t").map((c) => c.trim());
     const row = cells.length >= 3 ? agyLimit(cells[1] ?? "") : null;
     if (row) {
       // The CLI's row: a quota that's `disabled` (no number) is no window.
-      const left = /^(\d{1,3}(?:\.\d+)?)\s*%$/.exec(cells[2] ?? "");
-      const at = cells[3] && !Number.isNaN(Date.parse(cells[3])) ? resetIso(cells[3]) : undefined;
-      if (left?.[1]) add(cells[0] ?? "", row.which, 100 - Number(left[1]), at);
+      const shown = /^(\d{1,3}(?:\.\d+)?)\s*%$/.exec(cells[2] ?? "");
+      const at = cells[3] ? resetIso(cells[3]) : undefined;
+      const used = /\bused\b/i.test(cells[1] ?? "");
+      if (shown?.[1]) add(cells[0] ?? "", row.which, used ? Number(shown[1]) : 100 - Number(shown[1]), at);
       continue;
     }
     // The docs' panel.
@@ -574,5 +568,15 @@ export function antigravityUsage(text: string, source: PlanUsage["source"], now 
       resetFromWords(`${line} ${shown} ${agyLimit(after) || /%/.test(after) ? "" : after}`, now),
     );
   }
+  const plan = read.find((r) => /^gemini models?$/i.test(r.where))?.where ?? read[0]?.where;
+  const windows = read.map(
+    ({ where, which, used, at }): PlanWindow => ({
+      ...(where !== plan && where
+        ? { kind: "other" as const, label: label(`${where} · ${which === "five_hour" ? "5h" : "7d"}`) }
+        : { kind: which }),
+      usedPercent: percent(used),
+      ...(at ? { resetsAt: at } : {}),
+    }),
+  );
   return snapshot(windows, source, now);
 }

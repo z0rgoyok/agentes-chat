@@ -2,7 +2,7 @@ import { type Channel, channelsQuery, type Issue, type Message, useApi, type Wor
 import { managesAgent } from "@agenteschat/client/lib/audience";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { heldBack } from "@agenteschat/client/lib/issues";
+import { handedFinished, heldBack } from "@agenteschat/client/lib/issues";
 import {
   blockedText,
   handedLine,
@@ -36,8 +36,10 @@ import { chatHref, consultationHref } from "../links/logic";
 import { useBubblePart } from "../shared/bubble-part";
 import { AgentFace } from "../shared/Face";
 import { useColors, useNow, useOrgId } from "../shared/hooks";
+import { agentLook } from "../shared/logic";
 import { ownsIn } from "../shared/owner";
 import { tapHaptic, useSurface } from "../shared/parts";
+import { StatusBadge } from "../shared/StatusBadge";
 import { RowPartContext, useCardTop, useMessageCardFrame } from "./look";
 import { useRowDirectory, useRowMeId } from "./row-data";
 
@@ -119,6 +121,8 @@ function Line({
   const part = useBubblePart();
   const cardTop = useCardTop();
   const card = useMessageCardFrame();
+  const dir = useRowDirectory();
+  const agentColor = agentLook(dir.agentById.get(work.agentId)).color;
   const fontScale = useFontScale();
   const inBody = useContext(RowPartContext) !== null;
   const line = useLine(work, inUpdatesThread);
@@ -206,17 +210,10 @@ function Line({
     const go = actions.filter((a) => !a.danger).sort((a, b) => a.rank - b.rank)[0];
     const halt = actions.find((a) => a.danger);
     const g = agentGrammar(line.agentName);
-    const tone =
-      view.tone === "done"
-        ? c.ok
-        : h.tone === "working"
-          ? c.agent
-          : h.tone === "waiting"
-            ? c.warn
-            : view.tone === "failed"
-              ? c.danger
-              : c.muted;
-    const state = [upFirst(h.state), ...h.facts, go?.label].filter(Boolean).join(" · ");
+    // Its state as a badge, as the web's line draws it; its facts and the way to it after it.
+    const badgeTone =
+      view.tone === "done" ? "done" : h.tone === "working" ? "working" : h.tone === "waiting" ? "you" : "neutral";
+    const after = [...h.facts, go?.label].filter(Boolean).join(" · ");
     const frame = [styles.handed, card.style];
     return (
       <View style={cardTop}>
@@ -238,10 +235,12 @@ function Line({
               {t("mobile.chat.handedTo", { name: g.name, context: g.context })}
             </Text>
             <View style={styles.handedState}>
-              {markOf("footnote", HANDED_MARK)}
-              <Text variant="footnote" numberOfLines={1} style={[styles.bold, styles.shrink, { color: tone }]}>
-                {state}
-              </Text>
+              <StatusBadge text={h.state} tone={badgeTone} color={agentColor} />
+              {after ? (
+                <Text variant="footnote" numberOfLines={1} style={[styles.shrink, { color: c.muted }]}>
+                  {after}
+                </Text>
+              ) : null}
             </View>
           </View>
           {halt ? (
@@ -365,10 +364,8 @@ const MARK = 16;
 const QUIET_MARK = 14;
 /** A handed work's bubble: the agent's face, and its state's mark. */
 const HANDED_FACE = 32;
-const HANDED_MARK = 13;
 
 /** A state's words opening a line ("pronto em 1 min" → "Pronto em 1 min"). */
-const upFirst = (text: string) => (text ? text.charAt(0).toLocaleUpperCase() + text.slice(1) : text);
 
 /** One action in words, on a task's screen: neutral, the stop in the danger color. */
 function Action({ action: a }: { action: WorkAction }) {
@@ -426,7 +423,8 @@ export function IssueWorkLine({ issue, style }: { issue: Issue; style?: StylePro
   const c = useColors();
   const work = issue.backgroundWork;
   const blocked = blockedText(t, issue.blocked);
-  if (work?.how === "handed") return <HandedWork work={work} style={[styles.block, style]} />;
+  if (work?.how === "handed")
+    return <HandedWork work={work} finished={handedFinished(issue)} style={[styles.block, style]} />;
   if (!work && !blocked) return null;
   const progress = work ? workPlanProgress(work) : null;
   return (
@@ -471,14 +469,15 @@ export function IssueWorkLine({ issue, style }: { issue: Issue; style?: StylePro
 
 /**
  * A handed task's work on its screen, as the web's box: its line while it works; its question with Answer (full width)
- * when it waits on the reader, which opens the card where it was asked; once done, who finished it, when, who handed it
- * and the first line of what came of it.
+ * when it waits on the reader, which opens the card where it was asked; once done with every criterion met, who finished
+ * it, when, who handed it and the first line of what came of it.
  */
-function HandedWork({ work, style }: { work: WorkView; style?: StyleProp<ViewStyle> }) {
+function HandedWork({ work, finished, style }: { work: WorkView; finished: boolean; style?: StyleProp<ViewStyle> }) {
   const { t, i18n } = useTranslation();
   const dir = useRowDirectory();
   const surface = useSurface();
   if (work.status === "done") {
+    if (!finished) return null;
     const name = dir.anyAgent(work.agentId)?.name ?? t("channel.unknownAgent");
     const by = work.handedBy ? dir.anyAgent(work.handedBy.agentId)?.name : null;
     const when = relativeTime(t, i18n.language, work.finishedAt ?? work.startedAt);

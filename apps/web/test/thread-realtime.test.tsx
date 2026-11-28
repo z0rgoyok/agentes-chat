@@ -4,14 +4,14 @@ import { setupDom } from "@agenteschat/ui/testing/dom";
 setupDom();
 
 import { type ActiveRun, type Message, UNREAD_REFRESH_MS } from "@agenteschat/client";
-import { act, cleanup, fireEvent, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { createStreamsStore } from "@/realtime/context";
 import { ADA_ID, createFakeApi, ENG_ID, GENERAL_ID, ORG_ID, seedDm, seedState } from "./fake-api";
 import { renderApp, screen, settle } from "./render";
 
 afterEach(() => cleanup());
 
-type Surface = "panel" | "page";
+type Surface = "panel" | "link";
 
 const reply = (id: string, body: string, over: Partial<Message> = {}): Message => ({
   id,
@@ -51,13 +51,14 @@ async function open(surface: Surface, state: ReturnType<typeof seedState>) {
     const r = await openChannel(state);
     return { ...r, view: await openPanel() };
   }
+  // A thread's link: its channel, with the thread in the panel.
   const r = await renderApp(`/org/${ORG_ID}/threads/m-1`, { api: createFakeApi(state) });
-  await settle(8);
+  const view = await waitFor(() => screen().getByRole("complementary", { name: "Thread" }));
   const socket = r.sockets.last();
   await act(async () => socket.open());
   await act(async () => socket.push({ type: "subscribed", channelId: ENG_ID }));
   await settle(3);
-  return { ...r, socket, view: document.body };
+  return { ...r, socket, view };
 }
 
 type Pushes = { push: (frame: unknown) => void };
@@ -67,7 +68,7 @@ const created = (socket: Pushes, m: Message) => event(socket, { type: "message.c
 const inView = (view: HTMLElement, text: string) =>
   [...view.querySelectorAll("article")].filter((a) => a.textContent?.includes(text));
 
-describe.each(["panel", "page"] as const)("%s", (surface) => {
+describe.each(["panel", "link"] as const)("%s", (surface) => {
   test("a person's reply", async () => {
     const state = seedState();
     const { socket, view } = await open(surface, state);
@@ -117,7 +118,7 @@ describe.each(["panel", "page"] as const)("%s", (surface) => {
     });
     await event(socket, { type: "agent.tool.output", ...run, toolUseId: "t1", stream: "stdout", text: "saida\n" });
     await settle(2);
-    await act(async () => fireEvent.click(within(view).getByRole("button", { name: "Ver código da Ada" })));
+    await act(async () => fireEvent.click(within(view).getByRole("button", { name: "Ver código" })));
     const live = view.querySelector(".live-code") as HTMLElement;
     expect(within(live).getByLabelText("Saída").querySelector(".live-code__stdout")?.textContent).toBe("saida\n");
     await event(socket, { type: "agent.tool", ...run, tool: null, toolUseId: "t1" });
@@ -456,13 +457,13 @@ describe("other conversations shown as a thread", () => {
     expect(inView(side, "fixada na thread")).toHaveLength(1);
   });
 
-  test("a DM's thread: a live reply lands", async () => {
+  test("a DM's thread's link: a live reply lands in the panel", async () => {
     const state = seedState();
     seedDm(state, { type: "agent", id: ADA_ID });
     const channelId = `dm-${ADA_ID}`;
     const rootId = `m-${channelId}`;
     const r = await renderApp(`/org/${ORG_ID}/threads/${rootId}`, { api: createFakeApi(state) });
-    await settle(8);
+    const side = await waitFor(() => screen().getByRole("complementary", { name: "Thread" }));
     const socket = r.sockets.last();
     await act(async () => socket.open());
     await act(async () => socket.push({ type: "subscribed", channelId }));
@@ -477,7 +478,7 @@ describe("other conversations shown as a thread", () => {
       }),
     );
     await settle(3);
-    expect(inView(document.body, "no dm")).toHaveLength(1);
+    expect(inView(side, "no dm")).toHaveLength(1);
   });
 
   test("a DM's thread in the panel: a live reply lands", async () => {

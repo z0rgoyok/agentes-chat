@@ -25,12 +25,12 @@ import {
   estimateTokens,
   hasToolImages,
   laidOut,
+  lostWithoutImages,
   type ModelProvider,
   type ModelRequest,
   type ModelResult,
   type ModelUsage,
   type PartialUsage,
-  PDF_MEDIA_TYPE,
   ProviderError,
   promptChars,
   type StopReason,
@@ -430,6 +430,53 @@ function toMessages(request: ModelRequest, claude: boolean, pictures: boolean): 
   return out;
 }
 
+/** Our effort scale, weakest first: an endpoint's refusal is matched against it. */
+const EFFORT_ORDER = ["none", "low", "medium", "high", "xhigh", "max"] as const;
+
+/** The value nearest `wanted` among `supported`, the stronger one on a tie: never less thinking than was asked. */
+function nearestEffort(wanted: string, supported: readonly string[]): string | undefined {
+  const order = (value: string) => EFFORT_ORDER.indexOf(value as (typeof EFFORT_ORDER)[number]);
+  const wantedAt = order(wanted);
+  let best: string | undefined;
+  for (const value of supported) {
+    const at = order(value);
+    if (at < 0) continue;
+    if (best === undefined) {
+      best = value;
+      continue;
+    }
+    if (wantedAt < 0) continue;
+    const distance = Math.abs(at - wantedAt);
+    const bestDistance = Math.abs(order(best) - wantedAt);
+    if (distance < bestDistance || (distance === bestDistance && at > order(best))) best = value;
+  }
+  return best;
+}
+
+/**
+ * What a compatible endpoint's 400 says about the effort it refused, when it says. Mistral, for one, has no `medium`:
+ * `reasoning_effort 'medium' is not supported for this model; supported values: ['none', 'low', 'high', 'xhigh', 'max']`.
+ */
+function effortRefusal(error: unknown): { wanted: string; supported: string[] } | undefined {
+  if (!(error instanceof OpenAI.APIError) || error.status !== 400) return undefined;
+  const wanted = /reasoning_effort\s+['"]?([a-z]+)['"]?\s+is not supported/i.exec(error.message)?.[1];
+  const listed = /supported values?:\s*\[?([^\]\n]+?)\]?\s*$/im.exec(error.message)?.[1];
+  if (!wanted || !listed) return undefined;
+  const supported = listed
+    .split(",")
+    .map((value) =>
+      value
+        .trim()
+        .replace(/^['"]|['"]$/g, "")
+        .toLowerCase(),
+    )
+    .filter((value) => value.length > 0);
+  return supported.length > 0 ? { wanted: wanted.toLowerCase(), supported } : undefined;
+}
+
+/** What each endpoint said it takes, per `${baseURL}|${model}`: learned once, so the refusal costs one turn, not every. */
+const effortSupport = new Map<string, readonly string[]>();
+
 function toBody(request: ModelRequest, compatible: boolean, pictures: boolean) {
   const claude = !compatible && isClaude(request.model);
   const reasoning = compatible ? undefined : reasoningFor(request.effort, modelInfo(request.model));
@@ -589,10 +636,31 @@ export function createOpenRouterProvider(
           maxRetries: options.maxRetries ?? 2,
           fetch: options.fetch,
         });
-        const stream = await client.chat.completions.create(
-          toBody(request, compatible !== undefined, pictures) as unknown as ChatCompletionCreateParamsStreaming,
-          { signal: request.signal },
-        );
+        // An effort the endpoint refused before goes out already mapped, so only the first turn pays for learning it.
+        const body = toBody(request, compatible !== undefined, pictures) as unknown as Record<string, unknown>;
+        const supportKey = compatible ? `${compatible.baseURL}|${request.model}` : undefined;
+        const support = supportKey ? effortSupport.get(supportKey) : undefined;
+        const asked = typeof body.reasoning_effort === "string" ? body.reasoning_effort : undefined;
+        if (support && asked) {
+          const near = nearestEffort(asked, support);
+          if (near) body.reasoning_effort = near;
+        }
+        const open = (payload: Record<string, unknown>) =>
+          client.chat.completions.create(payload as unknown as ChatCompletionCreateParamsStreaming, {
+            signal: request.signal,
+          });
+        let stream: Awaited<ReturnType<typeof open>>;
+        try {
+          stream = await open(body);
+        } catch (error) {
+          // A 400 comes before any stream: nothing was said yet, so the nearest effort it does take is worth one retry.
+          const refused = supportKey ? effortRefusal(error) : undefined;
+          const near = refused ? nearestEffort(refused.wanted, refused.supported) : undefined;
+          if (!refused || !near || !supportKey) throw error;
+          effortSupport.set(supportKey, refused.supported);
+          body.reasoning_effort = near;
+          stream = await open(body);
+        }
         for await (const raw of stream) {
           const chunk = raw as unknown as Chunk;
           if (typeof chunk.model === "string" && chunk.model) model = chunk.model;
@@ -669,9 +737,7 @@ export function createOpenRouterProvider(
                 cacheWriteTokens: 0,
               },
           ...(cost !== undefined ? { costNanoUsd: cost } : {}),
-          ...(hasToolImages(request.messages, (image) => !pictures || image.mediaType === PDF_MEDIA_TYPE)
-            ? { imagesLeftOut: true as const }
-            : {}),
+          ...(hasToolImages(request.messages, lostWithoutImages(pictures)) ? { imagesLeftOut: true as const } : {}),
         };
       } catch (error) {
         const mapped = request.signal?.aborted

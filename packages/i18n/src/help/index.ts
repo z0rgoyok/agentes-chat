@@ -35,6 +35,7 @@ export const HELP_PAGES = {
   "who-answers": "both",
   jev: "selfhost",
   "apps-de-ia": "both",
+  "integration-apps": "both",
   computers: "both",
 } as const;
 

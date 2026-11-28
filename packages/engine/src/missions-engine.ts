@@ -128,7 +128,16 @@ export const engineOf = (deps: MissionDeps): MissionEngine => deps.missionEngine
 // ── Which brain, which session ───────────────────────────────────────────────
 
 const BRAIN_OF_EXECUTOR: Record<string, BrainKind> = { claude: "claude_code", codex: "codex", agent: "model" };
-const BRAINS: readonly BrainKind[] = ["model", "claude_code", "codex", "cursor", "opencode", "grok", "antigravity"];
+const BRAINS: readonly BrainKind[] = [
+  "model",
+  "claude_code",
+  "codex",
+  "cursor",
+  "opencode",
+  "grok",
+  "antigravity",
+  "devin",
+];
 
 /** Mission columns block 3a adds (`missions.brain`, `missions.brain_model`): read when present. */
 type BrainOverride = { brain?: string | null; brainModel?: string | null };

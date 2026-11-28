@@ -5,12 +5,14 @@ import type { ErrorBoundaryProps } from "expo-router";
 import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { View } from "react-native";
+import { usePlanTurnedOn } from "@/features/billing/PaidMoment";
 import { NoticeIsland } from "@/features/island/NoticeIsland";
 import { noteWorkspaceOnScreen } from "@/features/links/on-screen";
 import { LiveActivityWork } from "@/features/live-activity/LiveActivityWork";
 import { ShareInbox } from "@/features/share/ShareInbox";
 import { useConnection, useRememberAgentLooks } from "@/features/shared/hooks";
 import { useAppIconBadge } from "@/features/shared/queries";
+import { ReconnectPill } from "@/features/shared/ReconnectPill";
 import { ScreenError } from "@/features/shared/ScreenError";
 import { useUserEvents } from "@/features/shared/userEvents";
 import { useVaultEvents } from "@/features/vault/live";
@@ -47,6 +49,8 @@ export default function AppLayout() {
       <LiveActivityWork />
       {/* What reaches me while the app is open, out of the camera's island (ADR 0071 §9). */}
       <NoticeIsland />
+      {/* The live connection down for two minutes: why, and one way out. */}
+      <ReconnectPill />
       {/* What other apps share through the system's share sheet opens "Compartilhar com…". */}
       <ShareInbox />
     </>
@@ -75,6 +79,8 @@ function AppWork() {
   // The unread and latest conversations load while the app is idle, each with what its rows wait for before it shows
   // (`prefetchConversation`: the threads' links, the agents' questions): opening one is instant.
   usePrefetchRecent(orgId, RECENT_PREFETCH, { whole: true });
+  // The moment a plan turned on since this phone last looked (ADR 0079): the web's, after paying.
+  usePlanTurnedOn();
   // What I sent while the connection was down goes out once it's back, whatever screen is open.
   const { t, i18n } = useTranslation();
   const toast = useToast();
@@ -117,6 +123,7 @@ function AppSheets() {
       {/* Another workspace (ADR 0154): a short sheet fitted to its rows. */}
       <Sheet.Screen name="me/add-workspace" options={auto} />
       <Sheet.Screen name="push-ask" options={auto} />
+      <Sheet.Screen name="paid-moment" options={auto} />
       <Sheet.Screen name="wiki-new" options={o.wikiNew} />
       <Sheet.Screen name="new-channel" options={o.newChannel} />
       <Sheet.Screen name="new-chat" options={full} />

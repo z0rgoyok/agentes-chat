@@ -16,6 +16,7 @@ import {
   Dialog,
   DialogBody,
   Icon,
+  InlineName,
   Input,
   Locked,
   Select,
@@ -25,10 +26,10 @@ import {
 } from "@agenteschat/ui";
 import { WIDGET_SCHEDULES } from "@agenteschat/ui/widgets/spec";
 import type { TFunction } from "i18next";
-import { type ReactNode, useId, useRef, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AgentAvatar } from "@/components/AgentAvatar";
-import { useFocusAtEnd, useSent } from "@/components/EditInPlace";
+import { useSent } from "@/components/EditInPlace";
 import { useOrg } from "@/components/org-context";
 import { useNow } from "@/hooks/useNow";
 import { useToast } from "@/lib/toast";
@@ -64,20 +65,14 @@ export function WidgetPanel({
   // Renaming: the field's text while it is open, then what was sent until the widget comes back with it.
   const [naming, setNaming] = useState<string | null>(null);
   const sent = useSent<string>(widget?.title ?? "");
-  const field = useFocusAtEnd<HTMLInputElement>(naming !== null);
-  const cancelled = useRef(false);
   const shown = widget ? (sent.pending ?? widgetTitle(t, widget)) : gone ? t("dashboards.errors.widgetNotFound") : "";
   const startNaming = () => {
     if (!widget?.canEdit) return;
-    cancelled.current = false;
     // A widget its agent hasn't named yet starts empty, not with the name it shows meanwhile.
     setNaming(sent.pending ?? (widgetTitle(t, widget) === widget.title ? widget.title : ""));
   };
-  const saveName = () => {
-    if (naming === null || !widget) return;
-    const next = naming.trim();
-    setNaming(null);
-    if (cancelled.current || !next || next === widget.title) return;
+  const saveName = (next: string) => {
+    if (!widget || next === widget.title) return;
     sent.send(next);
     update.mutate(
       { widgetId: widget.id, title: next },
@@ -91,20 +86,13 @@ export function WidgetPanel({
   };
   const title: ReactNode =
     naming !== null ? (
-      <input
-        ref={field}
+      <InlineName
         className="wd__title-input"
         value={naming}
         maxLength={80}
         aria-label={t("widgets.panel.titleLabel")}
-        onChange={(e) => setNaming(e.target.value)}
-        onBlur={saveName}
-        onKeyDown={(e) => {
-          if (e.key !== "Enter" && e.key !== "Escape") return;
-          e.preventDefault();
-          cancelled.current = e.key === "Escape";
-          e.currentTarget.blur();
-        }}
+        onSave={saveName}
+        onDone={() => setNaming(null)}
       />
     ) : widget?.canEdit ? (
       // biome-ignore lint/a11y/useKeyWithClickEvents lint/a11y/noStaticElementInteractions: a pointer shortcut; the pencil is the keyboard way

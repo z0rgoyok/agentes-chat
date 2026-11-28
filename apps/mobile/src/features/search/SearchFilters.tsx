@@ -25,6 +25,7 @@ import {
   Button,
   EmptyState,
   Filters,
+  Refreshing,
   SCREEN_X,
   SectionHeader,
   SideScroll,
@@ -317,42 +318,44 @@ export function FilteredResults({
         {/* The results' own shape while they come, never a spinner. */}
         {hits.isLoading ? <SkeletonList rows={3} /> : null}
         {hits.isError && !hits.data ? <LoadFailed onRetry={() => void hits.refetch()} /> : null}
-        {groupHitsByPlace(list).map((g) => (
-          <View key={g.key}>
-            <SectionHeader title={g.thread ? threadName(g.thread.title, g.channelId) : placeName(g.channelId)} />
-            <View style={styles.list}>
-              <ActionList
-                items={g.hits.map((h) => ({
-                  key: h.sourceId,
-                  leading: h.author ? (
-                    <Face who={h.author} size={RESULT_LEAD} live={false} />
-                  ) : (
-                    <Tile icon="chat" size={RESULT_LEAD} />
-                  ),
-                  label: previewOf(hitText(t, h)),
-                  marks: terms,
-                  hint: [h.author?.name, when.short(h.createdAt)].filter(Boolean).join(" · "),
-                  onPress: () => {
-                    onOpen();
-                    if (onPick) onPick(h);
-                    else router.push(hitHref(h));
-                  },
-                }))}
-              />
+        <Refreshing busy={hits.isPlaceholderData} label={t("common.loading")}>
+          {groupHitsByPlace(list).map((g) => (
+            <View key={g.key}>
+              <SectionHeader title={g.thread ? threadName(g.thread.title, g.channelId) : placeName(g.channelId)} />
+              <View style={styles.list}>
+                <ActionList
+                  items={g.hits.map((h) => ({
+                    key: h.sourceId,
+                    leading: h.author ? (
+                      <Face who={h.author} size={RESULT_LEAD} live={false} />
+                    ) : (
+                      <Tile icon="chat" size={RESULT_LEAD} />
+                    ),
+                    label: previewOf(hitText(t, h)),
+                    marks: terms,
+                    hint: [h.author?.name, when.short(h.createdAt)].filter(Boolean).join(" · "),
+                    onPress: () => {
+                      onOpen();
+                      if (onPick) onPick(h);
+                      else router.push(hitHref(h));
+                    },
+                  }))}
+                />
+              </View>
             </View>
-          </View>
-        ))}
-        {hits.isSuccess && list.length === 0 ? (
-          <EmptyState
-            size="inline"
-            title={t("mobile.find.nothing", {
-              q: text.trim() || chips.map((c) => searchChipLabel(t, i18n.language, c)).join(" "),
-            })}
-            {...(onClear && chips.length > 0
-              ? { action: <Button variant="secondary" size="sm" label={t("filters.clearAll")} onPress={onClear} /> }
-              : {})}
-          />
-        ) : null}
+          ))}
+          {hits.isSuccess && list.length === 0 ? (
+            <EmptyState
+              size="inline"
+              title={t("mobile.find.nothing", {
+                q: text.trim() || chips.map((c) => searchChipLabel(t, i18n.language, c)).join(" "),
+              })}
+              {...(onClear && chips.length > 0
+                ? { action: <Button variant="secondary" size="sm" label={t("filters.clearAll")} onPress={onClear} /> }
+                : {})}
+            />
+          ) : null}
+        </Refreshing>
       </View>
     </View>
   );

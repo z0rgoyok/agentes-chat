@@ -1,6 +1,6 @@
 # 0084. Presence and written status, for people and agents
 
-- Status: Accepted (built: the server, the shared client, §7–§11, the web and the phone app). Addendum 2026-10-31: a run reads how its teammates are now. Addendum 2026-11-13: an agent's face says its work, and its work shows where it was handed off
+- Status: Accepted (built: the server, the shared client, §7–§11, the web and the phone app). Addendum 2026-10-31: a run reads how its teammates are now. Addendum 2026-11-13: an agent's face says its work, and its work shows where it was handed off. Addendum 2026-11-24: idle agents read idle
 - Date: 2026-10-30
 - Code: `packages/engine/src/member-status.ts`, `packages/engine/src/agent-status.ts` (`loadAgentStatuses`, `statusCandidates`, `statusQuestions`, `askRunStatus`, `startRunStatus`, `followWork`, `set_status`; called from `executor.ts` and `run-tools.ts` `invokeWithChip`), `packages/engine/src/judge.ts` (`score`), `packages/engine/src/team.ts` (`find_agent`), `packages/engine/src/tools/run-policy.ts` (kind `self`), `packages/db/src/schema/tenancy.ts` (`organization_members.availability`, `status_*`), `packages/db/src/schema/agents.ts` (`agents.status_*`), `apps/server/src/routes/app/management.ts` (`/people`, `PUT …/me/status`), `apps/server/src/routes/app/agents.ts` (`GET …/agent-status`), `apps/server/src/realtime/ws.ts`; shared: `packages/client/src/lib/presence.ts`, `packages/ui/src/presence/badge.ts`; web: `packages/ui` `PresenceBadge` (Avatar `presence`), `apps/web/src/components/StatusDialog.tsx`, `Presence.tsx`, `hooks/usePresence.ts`; phone: `apps/mobile/src/ui/PresenceBadge.tsx`, `src/features/status/*` (route `/me/status`)
 
@@ -95,3 +95,16 @@ work; "Ausente" told people an agent due back later was gone.
     whichever run spoke last (`set_status` included), so it could carry someone else's private conversation. Out of
     office still says so to everyone.
 
+## Addendum (2026-11-24): idle agents read idle
+
+Every agent read "Disponível" all day: the apps drew the server's `away` as free (§16), a run parked on an approval or an
+answer for days kept it `online`, and the right hand was never away (§15).
+
+22. **Away after 10 minutes** (`AGENT_AWAY_AFTER_MS`, was 30) since its last run ended, or since it was made. A run that
+    only waits (an approval, an answer, its computer) counts from its last change (`updated_at`), so a parked one stops
+    keeping it online after 10 minutes; its wait line stays (§11). The right hand idles too: replaces §15's exception.
+23. **The face says it**: `AgentFace` gains `away`, drawn with the people's away badge and worded "Inativo" (`presence.idle`),
+    never a person's "Ausente" (it reads as gone) and never asleep or on standby. Working, waiting on you, out of office
+    and offline come first, as in §16, so work always shows. Web and phone read it from `agentPresenceShown`.
+24. **Agents read it too**: `find_agent` says "idle, answers when called", never "away": a mention or `ask_agent`
+    reaches an idle agent at once, and most agents are idle most of the time.

@@ -626,3 +626,48 @@ describe("server restarts", () => {
     expect(f.provider.calls).toHaveLength(1);
   });
 });
+
+test("a run parked on a busy computer whose retry job was lost is woken once; live jobs, fresh waits and ended runs aren't", async () => {
+  f = await setup();
+  const old = new Date(Date.now() - 10 * 60_000);
+  const parked = async (status: "waiting_input" | "canceled" | "done", updatedAt = old) => {
+    const id = Bun.randomUUIDv7();
+    const waitId = Bun.randomUUIDv7();
+    const [run] = await f.db
+      .insert(schema.agentRuns)
+      .values({
+        orgId: f.org.id,
+        agentId: f.agent.id,
+        channelId: f.general.id,
+        threadRootId: id,
+        triggerMessageId: id,
+        trigger: "mention",
+        hop: 1,
+        status,
+        updatedAt,
+        transcript: { waitingForBrain: { kind: "claude_code", machineId: "m", code: "busy", waitId } },
+      })
+      .returning();
+    if (!run) throw new Error("no run");
+    return { id: run.id, waitId };
+  };
+  const lost = await parked("waiting_input");
+  const fresh = await parked("waiting_input", new Date());
+  await parked("canceled");
+  await parked("done");
+  const withJob = await parked("waiting_input");
+  await enqueue(f.db, {
+    orgId: f.org.id,
+    kind: "agent_run.execute",
+    payload: { runId: withJob.id, wait: withJob.waitId },
+    dedupeKey: `agent_run.execute:${withJob.id}:room:${withJob.waitId}`,
+    runAt: new Date(Date.now() + 15_000),
+    maxAttempts: 4,
+  });
+
+  expect((await recoverStaleRuns({ db: f.db, pubsub: f.pubsub })).requeued).toEqual([lost.id]);
+  expect((await jobOf(lost.id))?.payload).toEqual({ runId: lost.id, wait: lost.waitId });
+  expect(await jobOf(fresh.id)).toBeUndefined();
+  // The job it got is live: the next sweep adds none.
+  expect((await recoverStaleRuns({ db: f.db, pubsub: f.pubsub })).requeued).toEqual([]);
+});

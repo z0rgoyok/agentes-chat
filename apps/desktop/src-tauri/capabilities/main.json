@@ -1,6 +1,6 @@
 {
   "identifier": "main",
-  "description": "The main window on agentes.chat (servers.rs adds the same for another server's origin, at runtime): it may drag and zoom the window from its title bar, and ask this computer what `this_mac` relays (status, pairing after the system's own dialog, reconnect, a Preferences tab, the access requests, the badge, notifications). Its right-click menu may be drawn by the system (`context_menu`). It says when it painted (`page_ready`, the cover goes). The notification plugin's stand-in for the web's `Notification`, which it puts in every page, may ask whether the app may notify (the page's notifications still go through `this_mac`). No other app command, nothing else of this computer.",
+  "description": "The main window on agentes.chat (servers.rs adds the same for another server's origin, at runtime): it may drag and zoom the window from its title bar, and ask this computer what `this_mac` relays (status, pairing after the system's own dialog, reconnect, a Preferences tab, the access requests, the badge, notifications, the app's own speed numbers). Its right-click menu may be drawn by the system (`context_menu`). It says when it painted (`page_ready`, the cover goes). The notification plugin's stand-in for the web's `Notification`, which it puts in every page, may ask whether the app may notify (the page's notifications still go through `this_mac`). No other app command, nothing else of this computer.",
   "webviews": ["main"],
   "local": false,
   "remote": {

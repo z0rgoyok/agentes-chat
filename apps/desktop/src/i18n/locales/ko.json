@@ -1,4 +1,20 @@
 {
+  "permissionAsk": {
+    "title": "agentes.chat에 {{permission}} 권한이 필요해요",
+    "done": "허용했어요",
+    "later": "나중에",
+    "trayTitle": "{{permission}} 허용을 기다리는 중",
+    "why": {
+      "app_management": "에이전트가 이 {{device}}의 앱을 변경하려면 필요해요.",
+      "screen": "에이전트가 이 {{device}}의 스크린샷을 찍으려면 필요해요.",
+      "accessibility": "에이전트가 이 {{device}}의 앱에서 클릭하고 입력하려면 필요해요.",
+      "disk": "macOS가 폴더마다 묻지 않고 에이전트가 파일을 열 수 있게 해요.",
+      "network": "에이전트가 네트워크의 휴대폰과 기기에 연결하려면 필요해요.",
+      "camera": "에이전트가 이 {{device}}의 카메라를 쓰려면 필요해요.",
+      "microphone": "에이전트가 이 {{device}}의 마이크를 쓰려면 필요해요.",
+      "automation": "에이전트가 이 {{device}}의 다른 앱을 제어하려면 필요해요."
+    }
+  },
   "device": {
     "mac": "Mac",
     "windows": "PC",
@@ -7,6 +23,11 @@
   "windowTitle": {
     "welcome": "환영합니다",
     "prefs": "환경설정"
+  },
+  "background": {
+    "title": "agentes.chat이 계속 실행 중입니다",
+    "bodyMac": "화면 위쪽 메뉴 막대에 있습니다. 거기에서 열거나 종료할 수 있습니다.",
+    "bodyTray": "시스템 트레이에 있습니다. 거기에서 열거나 종료할 수 있습니다."
   },
   "common": {
     "cancel": "취소",
@@ -66,6 +87,12 @@
         "capturing": "스크린샷 찍는 중",
         "tabs": "탭 전환하는 중"
       }
+    },
+    "apps": {
+      "title": "{{agent}}이(가) {{app}} 사용 중",
+      "detail": "마우스와 키보드는 그대로 쓸 수 있어요",
+      "stop": "중지",
+      "stopped": "{{agent}}이(가) 앱 사용을 멈췄어요"
     },
     "label": "agentes.chat",
     "now": "지금",
@@ -127,12 +154,17 @@
     "allowedOne": "{{agent}}에게 {{folder}}을(를) 허용했어요",
     "allowedAll": "모든 에이전트에게 {{folder}}을(를) 허용했어요",
     "denied": "거절했어요. {{agent}}이(가) 채팅에서 알려요.",
+    "answerFailed": "이 요청에 응답하지 못했습니다: {{message}}",
     "notifTitle": "{{agent}}이(가) {{folder}} 폴더를 사용하려고 해요",
     "allowedTitle": "{{name}}님이 agentes.chat에서 {{tool}}을(를) 켰습니다",
     "allowedBody": "본인이 아니라면 여기서 되돌리세요.",
     "allowedUndo": "되돌리기",
     "allowedOk": "확인",
     "allowedUndone": "다시 꺼짐: {{tool}}",
+    "pickTitle": "{{name}}님이 에이전트용 폴더를 요청해요",
+    "pickTitleAgent": "{{name}}님이 {{agent}}용 폴더를 요청해요",
+    "pickBody": "이 {{device}}에서 허용할 폴더를 고르세요.",
+    "pickChoose": "폴더 선택",
     "quitTitle": "agentes.chat을 종료할까요?",
     "quitBody": "앱이 닫혀 있는 동안 에이전트는 이 {{device}}을(를) 사용할 수 없어요. 이미 실행 중인 작업은 끝까지 진행되고, 앱을 다시 열면 결과를 보내요.",
     "quitHereBody": "이 {{device}}에서 agentes.chat이 멈춰요. 앱을 다시 열 때까지 여기서도, 내 휴대폰이나 팀원의 휴대폰에서도 아무도 쓸 수 없어요.",
@@ -230,7 +262,7 @@
     "openTailscale": "Tailscale 열기",
     "getTailscale": "Tailscale 받기",
     "usage": "agentes.chat에 익명 사용 통계 보내기",
-    "usageText": "사람 수, 에이전트 수, 머신 사양, 사용한 AI 토큰, 에이전트 브라우저가 주고받은 데이터양 같은 수치예요. 메시지, 파일, 이름, 사이트는 절대 보내지 않아요.",
+    "usageText": "사람 수, 에이전트 수, 머신 사양, 사용한 AI 토큰, 에이전트 브라우저가 주고받은 데이터양, 앱이 열리고 동작하는 속도 같은 수치예요. 메시지, 파일, 이름, 사이트는 절대 보내지 않아요.",
     "start": "시작",
     "setting": "모두 준비하는 중",
     "rest": "앱을 닫으면 에이전트도 쉬어요. 다시 열면 바로 돌아와요.",
@@ -451,6 +483,16 @@
     "linkBody": "요청한 적이 없다면 나중에를 선택하세요.",
     "waiting": "{{by}}님이 들여보내 주기를 기다리는 중…",
     "done": "{{org}}에 연결됨",
+    "share": "워크스페이스 전체가 쓰게 하기",
+    "internet": "에이전트가 이 컴퓨터의 인터넷을 써요",
+    "internetOn": "에이전트가 접속하는 사이트와 서버에 내 위치가 보여요",
+    "internetOff": "꺼짐: 에이전트가 평소 연결을 써요",
+    "internetHint": "워크스페이스의 에이전트가 이 컴퓨터의 연결로 인터넷에 접속해요. 웹사이트, git, SSH, 데이터베이스 등 TCP 연결이 해당돼요. 내 네트워크에 있는 것에는 절대 접근하지 않고, 포트 25로 이메일을 보내지도 않아요. 에이전트의 AI, 이름 조회, 통화 등 UDP 트래픽은 평소 연결을 쓰고, 이 컴퓨터가 오프라인인 동안에는 모두 평소 연결을 써요.",
+    "internetHintProxy": "워크스페이스 에이전트의 브라우저와 프록시 설정을 따르는 프로그램(HTTPS를 통한 git, curl, 대부분의 명령줄 도구)이 이 컴퓨터의 연결로 인터넷에 접속해요. SSH, 데이터베이스 클라이언트 등 프록시 설정을 무시하는 프로그램은 평소 연결을 쓰고, 에이전트의 AI, 이름 조회, UDP 트래픽도 마찬가지예요. 내 네트워크에 있는 것에는 절대 접근하지 않고, 포트 25로 이메일을 보내지도 않아요. 이 컴퓨터가 오프라인인 동안에는 모두 평소 연결을 써요.",
+    "internetOnly": "이 컴퓨터의 인터넷만 사용",
+    "internetOnlyHint": "에이전트가 AI까지 포함해 이 컴퓨터의 인터넷만 쓰고, 평소 연결은 쓰지 않아요. 이 컴퓨터가 오프라인인 동안에는 돌아올 때까지 인터넷을 쓸 수 없어요.",
+    "shareOff": "지금은 나만",
+    "shareHint": "{{org}}의 모든 사람의 에이전트가 내 사용자로 여기서 작업을 실행할 수 있어요.",
     "addFolders": "폴더 추가",
     "expired": "이 링크는 만료됐어요. 기기에서 새로 만드세요.",
     "openDevices": "기기 열기",
@@ -494,6 +536,9 @@
     "grokDesc": "내 Grok 계정으로 허용된 폴더에서 코드를 작성하고 수정해요.",
     "antigravityName": "Antigravity CLI",
     "antigravityDesc": "내 Gemini 계정으로 허용된 폴더에서 코드를 작성하고 수정해요.",
+    "devinName": "Devin CLI",
+    "devinDesc": "내 Devin 계정으로 허용된 폴더에서 코드를 작성하고 수정해요.",
+    "devinWindows": "Devin은 아직 Windows에서 실행되지 않아요. 여기서는 Devin CLI가 계정마다 로그인을 따로 보관하지 못하기 때문이에요. 에이전트는 Mac이나 Linux 컴퓨터에서 Devin으로 생각해요.",
     "found": "찾음",
     "notFound": "찾지 못함",
     "loggedOut": "로그인 안 됨",
@@ -783,6 +828,7 @@
       "brainMax": "열린 대화",
       "brainMaxDesc": "워크스페이스마다 열어 둘 대화 수예요. 많을수록 답이 빠르지만 메모리를 더 써요.",
       "brainIdle": "유휴 대화를 닫을 시간",
+      "mixed": "워크스페이스마다 달라요: {{values}}. 여기서 바꾸면 모두에 적용돼요.",
       "folder": "에이전트 폴더",
       "folderDesc": "워크스페이스마다 폴더 하나, 그 안에 에이전트별 폴더가 있어요."
     }

@@ -7,6 +7,8 @@ import {
   CONNECT_AI_CARD,
   CONNECT_APP_CARD,
   type ConnectAppCard,
+  catalogConnector,
+  catalogNear,
   connectorListing,
   createChannel,
   createSetupToolSource,
@@ -217,6 +219,36 @@ describe("offer_connect_app", () => {
       expect(out.isError).toBe(true);
     }
     expect((await cards(f)).length).toBe(2);
+  });
+
+  test("a catalog MCP server by name, however it's said; a brand with variants or a typo gets the closest names", async () => {
+    f = await setup();
+    const ctx = await runFor(f, f.owner.id, "adiciona o MCP do Vercel");
+    const out = await call(f, ctx, "offer_connect_app", { app: "MCP do Vercel", why: "Para ver os deploys." });
+    expect(out.isError).toBeUndefined();
+    expect(out.content).toContain("Posted the card to connect Vercel");
+    expect((await cards(f)).map((m) => (m.meta.actionCard as ConnectAppCard).params)).toEqual([
+      { connector: "vercel", why: "Para ver os deploys." },
+    ]);
+    for (const app of ["Vercel MCP", "the Vercel MCP server", "Vercel's official MCP", "o servidor remoto da Vercel"]) {
+      expect(catalogConnector(app)?.id).toBe("vercel");
+    }
+    expect(catalogConnector("Servidor MCP da Mercado Pago")?.id).toBe("mercadopago");
+    expect(catalogConnector("Intercom")?.id).toBe("intercom");
+    expect(catalogConnector("GitLab")?.id).toBe("gitlab");
+
+    const brand = await call(f, ctx, "offer_connect_app", { app: "Cloudflare MCP", why: "x" });
+    expect(brand.isError).toBe(true);
+    expect(brand.content).toContain("Closest: Cloudflare (Workers), Cloudflare (logs).");
+    const typo = await call(f, ctx, "offer_connect_app", { app: "Supabse", why: "x" });
+    expect(typo.content).toContain("Closest: Supabase, Supabase (read-only).");
+    expect((await call(f, ctx, "offer_connect_app", { app: "Gmail MCP", why: "x" })).content).toContain(
+      "Browse connectors › Email",
+    );
+    const none = await call(f, ctx, "offer_connect_app", { app: "Acme Interno", why: "x" });
+    expect(none.content).not.toContain("Closest");
+    expect(catalogNear("MCP")).toEqual([]);
+    expect((await cards(f)).length).toBe(1);
   });
 
   test("a member who may not connect for the team gets the card for their own; GitHub, the team's only, needs an admin who can open it", async () => {

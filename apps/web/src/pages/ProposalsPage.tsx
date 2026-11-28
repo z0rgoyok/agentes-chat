@@ -12,7 +12,7 @@ import { AgentAvatar } from "@/components/AgentAvatar";
 import {
   isReviewing,
   isText,
-  ProposalUndo,
+  ProposalAction,
   proposalEndedAt,
   proposalOutcome,
   SettingChange,
@@ -165,7 +165,7 @@ export function ProposalsPage({ agentId }: { agentId?: string }) {
                         ? t(isText(current) ? "proposals.staleNote" : "proposals.staleNoteAgent")
                         : (current.review ?? undefined)
                     }
-                    action={<ProposalUndo p={current} />}
+                    action={<ProposalAction p={current} />}
                   />
                 </Card>
 

@@ -351,6 +351,39 @@ describe("what the viewer sees", () => {
     expect(within(rows).getByRole("link", { name: "Ver todas" }).getAttribute("href")).toContain("/routines");
   });
 
+  test("routines: a one-off that already fired is past and left out, count included; one still ahead stays", async () => {
+    widthIs(DM_SIDE_WIDE_QUERY);
+    const once = (at: string) => ({ type: "once" as const, at, timezone: "America/Sao_Paulo", description: "" });
+    await openDm({
+      prepare: async (api) => {
+        const before = (await api.routines.list(ORG_ID)).filter((r) => r.agentId === ADA_ID);
+        const list = api.routines.list;
+        for (const name of ["Bom dia", "Dentista", "Reunião de sexta"])
+          await api.routines.create(ORG_ID, {
+            name,
+            agentId: ADA_ID,
+            prompt: name,
+            target: { type: "channel", channelId: ENG_ID },
+            trigger: { type: "schedule", phrase: "toda segunda às 9h" },
+          } as never);
+        for (const r of before) await api.routines.remove(ORG_ID, r.id);
+        const day = 86_400_000;
+        api.routines.list = async (orgId) =>
+          (await list(orgId)).map((r) =>
+            r.name === "Dentista"
+              ? { ...r, trigger: once(new Date(Date.now() - day).toISOString()), active: false, nextRunAt: null }
+              : r.name === "Reunião de sexta"
+                ? { ...r, trigger: once(new Date(Date.now() + 2 * day).toISOString()) }
+                : r,
+          );
+      },
+    });
+    const rows = section("Rotinas") as HTMLElement;
+    expect(rows.querySelector(".ac-grouphead__count")?.textContent).toBe("2");
+    expect(rows.textContent).toContain("Reunião de sexta");
+    expect(rows.textContent).not.toContain("Dentista");
+  });
+
   test("como pensa and the recent tasks: model, owner, this month; the agent's latest tasks", async () => {
     widthIs(DM_SIDE_WIDE_QUERY);
     await openDm({

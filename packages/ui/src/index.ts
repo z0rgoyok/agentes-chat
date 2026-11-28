@@ -92,6 +92,7 @@ export {
   randomAppearance,
 } from "./components/AgentLook";
 export { AgentSticker, type AgentStickerProps } from "./components/AgentSticker";
+export { AppMark } from "./components/AppMark";
 export { ApprovalCard, type ApprovalCardProps, type ApprovalStatus } from "./components/ApprovalCard";
 export { type AutonomyKind, AutonomyPixels, drawAutonomy } from "./components/AutonomyPixels";
 export {
@@ -229,6 +230,7 @@ export { FoldRow } from "./components/FoldRow";
 export { GroupHeading } from "./components/GroupHeading";
 export { type Hosting, HostingScene, type Place, PlaceScene } from "./components/HostingScene";
 export { HintLine, type HintLineProps, InfoHint, type InfoHintProps } from "./components/InfoHint";
+export { InlineName, type InlineNameProps } from "./components/InlineName";
 export { type Journey, JourneyScene } from "./components/JourneyScene";
 export { isApple, Kbd, modKey, shortcut } from "./components/Kbd";
 export { Logo, LogoMark, type LogoProps } from "./components/Logo";
@@ -271,7 +273,14 @@ export {
   MessageText,
 } from "./components/Message";
 export { stopPlayback } from "./components/media-playback";
-export { OptionList, type OptionListItem, type OptionListProps } from "./components/OptionList";
+export {
+  type OptionLinkItem,
+  OptionLinks,
+  OptionList,
+  type OptionListItem,
+  type OptionListProps,
+} from "./components/OptionList";
+export { OrbitGlyph } from "./components/OrbitGlyph";
 export { PageHeader, type PageHeaderProps } from "./components/PageHeader";
 export {
   PixelDone,
@@ -359,6 +368,7 @@ export { ChosenValue, Select, type SelectOption, type SelectProps } from "./comp
 export { SettingNote, SettingRow, SettingsMore, SettingsSection } from "./components/Settings";
 export { SettingsPath } from "./components/SettingsPath";
 export {
+  Refreshing,
   SKELETON_DELAY_MS,
   Skeleton,
   SkeletonCard,
@@ -429,6 +439,7 @@ export {
   type VoicePlayerProps,
 } from "./components/VoicePlayer";
 export {
+  recordingVoice,
   type VoiceNotice,
   type VoiceTake,
   voiceRecordingSupported,
@@ -487,6 +498,7 @@ export { HOVERLESS, matchesNow, TOUCH, useMatchMedia } from "./hooks/useMatchMed
 export { useNow } from "./hooks/useNow";
 export { type ScrollSides, useScrollSides } from "./hooks/useScrollSides";
 export { Icon, type IconName, type IconProps, iconNames, icons } from "./icons/Icon";
+export { arriveAfter, crossFade, glideHeight, MorphRoom, useMorph } from "./motion";
 export { driveFolder, initialsOf, isIdHandle } from "./names";
 export {
   BGS as PERSON_BACKGROUNDS,
@@ -521,13 +533,13 @@ export {
   zonedInstant,
 } from "./recurrence";
 export { fold, matchesWords } from "./search";
+export { IDLE_MS, lastInputAt, onSight, type Sight, sight, watchSight } from "./sight";
 export { workspaceSky } from "./sky/accent";
-export { pixelBurst, pixelConfetti } from "./sky/burst";
+export { pixelBurst, pixelConfetti, pixelVeil } from "./sky/burst";
 export { ditherCells, ditherSvg, ditherTones, ditherUrl } from "./sky/dither";
 export {
   drawSprite,
   holdSkies,
-  holdSkiesWhileAway,
   prefersReducedMotion,
   redrawSkies,
   type SkyBlob,
@@ -588,8 +600,17 @@ export {
 } from "./timezones";
 export { installTitleTips, TITLE_TIP_GRACE_MS, TITLE_TIP_ID, TITLE_TIP_OPEN_MS } from "./title-tips";
 export { dragsFiles, pastedFiles, transferFiles } from "./transfer";
-export { DitherLine, fillEnds, paintCells, paintLineArea, useElementWidth } from "./widgets/ChartPieces";
-export { formatWidgetNumber, formatWithUnit, useCountUp, widgetDigits } from "./widgets/format";
+export {
+  ChartTip,
+  type ChartTipAt,
+  DitherLine,
+  fillEnds,
+  paintCells,
+  paintLineArea,
+  useChartCursor,
+  useElementWidth,
+} from "./widgets/ChartPieces";
+export { formatWidgetNumber, formatWithUnit, seriesTip, useCountUp, widgetDigits } from "./widgets/format";
 export { ditherTile, WIDGET_CELL, widgetTileVars, widgetTones } from "./widgets/tiles";
 export { BuildingDither, WidgetBody, type WidgetBodyProps } from "./widgets/WidgetBody";
 export {

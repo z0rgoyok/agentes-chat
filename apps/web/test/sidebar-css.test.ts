@@ -142,12 +142,14 @@ test("a channel: gray when read, full ink and bold with the edge pill when unrea
     value(`${unread} .sidebar__item-label`, "font-weight"),
   ]).toEqual(["var(--ink)", "650"]);
   const pill = `${unread}::before`;
-  expect([value(pill, "left"), value(pill, "width"), value(pill, "height"), value(pill, "background")]).toEqual([
-    "-12px",
-    "4px",
-    "8px",
-    "var(--ink)",
-  ]);
+  // A whole pill 4 in from the sidebar's edge (the rows sit 12 in), never cut by the window or a drawer's frame.
+  expect([
+    value(pill, "left"),
+    value(pill, "width"),
+    value(pill, "height"),
+    value(pill, "border-radius"),
+    value(pill, "background"),
+  ]).toEqual(["-8px", "4px", "8px", "2px", "var(--ink)"]);
   expect([value(".sidebar__unread", "background"), value(".sidebar__unread", "color")]).toEqual([
     "var(--danger)",
     "var(--raised)",
@@ -212,19 +214,29 @@ test("Personalizar: a tool's line has four columns, its arrows one group 8 apart
 });
 
 test("New agent's empty face is the agents' own: their size token in each mode and on the rail, their radius and gap (ADR 0164)", async () => {
-  // The tokens: a team's agents have a message's face, a personal workspace's plain list 40, the rail 28.
+  // The tokens: an agent has a message's face, in a team's workspace and a personal one alike (ADR 0159); the rail 28.
   expect(value(".sidebar", "--sidebar-agent-face")).toBe("var(--name-face)");
-  expect(value(".sidebar[data-personal]", "--sidebar-agent-face")).toBe("40px");
-  // The agents' faces read the token: a team's rows and a personal workspace's plain list.
+  expect(declarations(css, ".sidebar[data-personal]")).toEqual([]);
+  // The agents' faces read the token, the personal workspace's plain list too (no size of its own).
   const agentFace =
     '.sidebar:not([data-rail="true"]) :is([data-agent-row] > .sidebar__item, .sidebar__item[data-right-hand]) > .ac-avatar--sm';
-  const plainFace =
-    '.sidebar:not([data-rail="true"]) .sidebar__agents-plain :is([data-agent-row] > .sidebar__item, .sidebar__item[data-right-hand]) > .ac-avatar--sm';
-  for (const face of [agentFace, plainFace])
-    expect([value(face, "width"), value(face, "height")]).toEqual([
-      "var(--sidebar-agent-face)",
-      "var(--sidebar-agent-face)",
-    ]);
+  expect([value(agentFace, "width"), value(agentFace, "height")]).toEqual([
+    "var(--sidebar-agent-face)",
+    "var(--sidebar-agent-face)",
+  ]);
+  expect(
+    declarations(
+      css,
+      '.sidebar:not([data-rail="true"]) .sidebar__agents-plain :is([data-agent-row] > .sidebar__item, .sidebar__item[data-right-hand]) > .ac-avatar--sm',
+    ),
+  ).toEqual([]);
+  // A personal workspace's group conversation (ADR 0159): its face the agents' size (the rail's on the rail), its name
+  // as far from it as an agent's.
+  expect(value(".sidebar__group-row", "--group-face")).toBe("var(--sidebar-agent-face)");
+  expect(value('.sidebar[data-rail="true"] .sidebar__group-row', "--group-face")).toBe("var(--sidebar-rail-face)");
+  expect(value('.sidebar:not([data-rail="true"]) .sidebar__item.sidebar__group-row', "gap")).toBe(
+    "var(--sidebar-agent-gap)",
+  );
   // New agent's tile reads the same tokens, never a number of its own.
   const tile = ".sidebar__new-agent-face";
   const fullTile = '.sidebar:not([data-rail="true"]) .sidebar__new-agent-face';
@@ -247,4 +259,13 @@ test("New agent's empty face is the agents' own: their size token in each mode a
       "gap",
     ),
   ).toBe("var(--sidebar-agent-gap)");
+});
+
+test("a sector's header sits on the channels' column: its mark where a channel's # is, its name with theirs", () => {
+  const toggle = '.sidebar:not([data-rail="true"]) .sidebar__section--group .sidebar__section-toggle';
+  // No start of its own: the header's 8, as a row's icon starts (its # is 14 in the 16 icon place, 1 each side).
+  expect(value(toggle, "padding-left")).toBeUndefined();
+  expect(value(".sidebar__section-toggle", "padding")).toBe("0 8px");
+  // Its 16px mark, then 8 to its name, as a channel's 16px icon place and the row's gap put its name.
+  expect(value(`${toggle} > .ac-rolemark`, "margin-right")).toBe("8px");
 });

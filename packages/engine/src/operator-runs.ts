@@ -44,11 +44,12 @@ import {
   wordOf,
 } from "./operator-paging";
 import { jobsOfRun } from "./outbox";
+import { LEAD } from "./reply-policy";
 import { rightHandReaches } from "./right-hand";
 import { DEFAULT_CAP, UNDER_NEED_GATE } from "./router";
 import { RELEASE_REASONS } from "./run-inbox";
 import { runState } from "./run-state";
-import { runClaims } from "./run-timings";
+import { runClaims, runWaterfall } from "./run-timings";
 import {
   computerWaitSql,
   KEPT_ON_HOLD,
@@ -676,6 +677,7 @@ export async function operatorRunTrace(
     };
   });
   const sumOf = (field: keyof typeof spentColumns) => usage.reduce((n, u) => n + u[field], 0);
+  const claims = runClaims(kept[0]?.profiles);
   return {
     run: runOf(run),
     steps: trail,
@@ -694,7 +696,8 @@ export async function operatorRunTrace(
       }),
       byModel: usage.map(spentOf),
     },
-    claims: runClaims(kept[0]?.profiles),
+    claims,
+    waterfall: runWaterfall(claims),
     machine:
       tied && computer
         ? {
@@ -941,6 +944,7 @@ const ROUTING_MARKERS: ReadonlySet<string> = new Set([
   "alone",
   "default",
   "coordinator",
+  LEAD,
   "talking to",
   "best",
   "last talked to",

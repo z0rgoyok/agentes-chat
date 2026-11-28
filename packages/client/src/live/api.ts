@@ -13,6 +13,7 @@ import {
   isLiveFileKind,
   type LiveAsset,
   type LiveAssetSource,
+  type LiveFileFont,
   type LiveFileState,
   type LiveKind,
   type LiveVersionSaved,
@@ -48,7 +49,9 @@ export interface LiveApi {
   uploadAsset(orgId: string, fileId: string, file: File): Promise<LiveAsset>;
   /** A picture copied in: from a Drive file the person reads, or from another live file. */
   copyAsset(orgId: string, fileId: string, from: LiveAssetSource): Promise<LiveAsset>;
-  /** The address of a picture of the file (same origin on the web; the server's on the phone). */
+  /** The file's own fonts (brought from the Drive, ADR 0220 §2), regular faces first. */
+  fileFonts(orgId: string, fileId: string): Promise<LiveFileFont[]>;
+  /** The address of a picture or a font of the file (same origin on the web; the server's on the phone). */
   assetUrl(orgId: string, fileId: string, assetId: string): string;
   /**
    * The app's picture of the place a comment points at in a picture, a video or a PDF (ADR 0208): a small PNG or
@@ -135,6 +138,8 @@ export function createLiveApi(request: Requester, options: { upload?: LiveUpload
       return upload<LiveAsset>(`${file(orgId, fileId)}/assets`, form);
     },
     copyAsset: (orgId, fileId, from) => request<LiveAsset>(`${file(orgId, fileId)}/assets/copy`, { json: from }),
+    fileFonts: async (orgId, fileId) =>
+      (await request<{ fonts: LiveFileFont[] }>(`${file(orgId, fileId)}/fonts`)).fonts,
     assetUrl: (orgId, fileId, assetId) => `${base}${file(orgId, fileId)}/assets/${enc(assetId)}`,
     uploadMark: (orgId, fileId, picture) => {
       const form = new FormData();

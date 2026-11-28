@@ -54,7 +54,7 @@ export function TeamMemoryCard() {
       ) : items.length === 0 ? (
         <p className="small muted">{t("teamMemory.empty")}</p>
       ) : (
-        <ul className="list-col">
+        <ul className="agp-list">
           {items.map((m) => (
             <li key={m.id} className="agp-mem">
               {draft?.id === m.id ? (

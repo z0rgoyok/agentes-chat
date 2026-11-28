@@ -1,7 +1,6 @@
 import type { Credential, OrgSettings } from "@agenteschat/client";
 import {
   useAddCredential,
-  useAiAccounts,
   useAuthConfig,
   useComposioUsage,
   useComputerSetup,
@@ -53,7 +52,6 @@ import {
   Dialog,
   DialogBody,
   DialogFooter,
-  EmptyState,
   Field,
   Icon,
   InfoHint,
@@ -94,6 +92,7 @@ import type { ConnectStart } from "@/components/devices/ConnectDialog";
 import { DevicePage } from "@/components/devices/DevicePage";
 import { DevicesSection } from "@/components/devices/DevicesSection";
 import { ImportExportSection } from "@/components/ImportFlow";
+import { IntegrationAppsSection } from "@/components/IntegrationApps";
 import { BillingMeters } from "@/components/Limits";
 import { ErrorState, LoadingLine, LoadingList } from "@/components/Loading";
 import { MediaSettingsSection } from "@/components/MediaSettings";
@@ -105,7 +104,6 @@ import { MyFace, OrgLogoDialog, OrgMark } from "@/components/ProfilePhoto";
 import { KeyMismatch, KeyRefused, KeySite, ProviderKeySelect } from "@/components/ProviderKey";
 import { ReportProblem, useProblemReports } from "@/components/ReportProblem";
 import { RolesSection } from "@/components/roles/RolesSection";
-import { SkillsSection } from "@/components/Skills";
 import { StorageSection } from "@/components/StorageSettings";
 import { TeamMemoryCard } from "@/components/TeamMemory";
 import { OpenPrefsButton, useLocalServerHere } from "@/components/ThisMac";
@@ -116,7 +114,6 @@ import { WorkspaceModeDialog } from "@/components/WorkspaceModeDialog";
 import { ZoneSelect } from "@/components/ZoneSelect";
 import { useCentreCurrent } from "@/hooks/useCentreCurrent";
 import { usePersonalView } from "@/hooks/usePersonalView";
-import { useRightHandLook } from "@/hooks/useRightHandLook";
 import { useTextLimit } from "@/hooks/useTextLimit";
 import { useOpenParam } from "@/lib/open-param";
 import { useToast } from "@/lib/toast";
@@ -148,8 +145,6 @@ function Settings({
   account,
   device,
   connect,
-  install,
-  skill,
   agent,
   person,
   role,
@@ -166,15 +161,11 @@ function Settings({
   /** Back from Gmail/Outlook: `connected` or `failed`, and the mailbox (`account`). */
   mail?: string;
   account?: string;
-  /** Skills, back from connecting GitHub in Instalar skill: the link to read again. */
-  install?: string;
-  /** Skills: the skill to open (a notice of its update). */
-  skill?: string;
   /** Devices → one device: a computer's id, or `phones/<id>` (`/settings/devices/{path}`). */
   device?: string;
   /** Devices, with the connect dialog open on this flow (the phone guide's link opens the Android one). */
   connect?: ConnectStart;
-  /** Auditoria: the agent it opens filtered to. Skills, with `install`: the agent whose card opened that install. */
+  /** Auditoria: the agent it opens filtered to. */
   agent?: string;
   /** Orçamento e uso › Pessoas: the person whose month opens (a limit's notice). */
   person?: string;
@@ -249,28 +240,27 @@ function Settings({
     </li>
   );
 
+  // Plan and billing stands on AI and usage's page: its own address opens that page at it, so the entry the list marks
+  // is the page shown.
+  const page = current === "billing" ? "usage" : current;
   const sections = (
     <>
-      {current !== "members" &&
-        current !== "invites" &&
-        current !== "general" &&
-        current !== "roles" &&
-        current !== "vault" && (
-          <PageHeader
-            level={2}
-            title={sectionName(current)}
-            meta={
-              current !== "devices" ? (
-                t(settingsSectionTextKey(org, current))
-              ) : edition ? (
-                t(edition === "cloud" ? "devices.leadCloud" : "devices.lead")
-              ) : setup.isError ? null : (
-                // Never one edition's words before the server says which this is (the section says if it couldn't).
-                <LoadingLine width={320} />
-              )
-            }
-          />
-        )}
+      {page !== "members" && page !== "invites" && page !== "general" && page !== "roles" && page !== "vault" && (
+        <PageHeader
+          level={2}
+          title={sectionName(page)}
+          meta={
+            page !== "devices" ? (
+              t(settingsSectionTextKey(org, page))
+            ) : edition ? (
+              t(edition === "cloud" ? "devices.leadCloud" : "devices.lead")
+            ) : setup.isError ? null : (
+              // Never one edition's words before the server says which this is (the section says if it couldn't).
+              <LoadingLine width={320} />
+            )
+          }
+        />
+      )}
       {current === "account" && <AccountSection />}
       {current === "notifications" && <NoticePrefsSection />}
       {current === "download" && <AppsDownloadSection />}
@@ -285,6 +275,7 @@ function Settings({
       {current === "media" && <MediaSettingsSection />}
       {current === "voice" && <VoiceSettingsSection />}
       {current === "access" && <AccessMatrixSection />}
+      {current === "integrations" && <IntegrationAppsSection />}
       {current === "connectors" && (
         <ConnectorsSection
           connected={connected}
@@ -295,31 +286,28 @@ function Settings({
           service={service}
         />
       )}
-      {current === "skills" && <SkillsSection install={install} connected={connected} skill={skill} agent={agent} />}
       {current === "storage" && <StorageSection />}
       {current === "devices" && (device ? <DevicePage path={device} /> : <DevicesSection start={connect} />)}
-      {current === "usage" && (
+      {page === "usage" && (
         <>
           <UsageTabs
             person={person}
             accounts={
               <>
-                <AiAccountsTab />
-                <KeysSection />
+                <AiAccountsTab keys={<KeysGroup />} />
                 <WhoPicksSection />
               </>
             }
             summary={<UsageSection />}
           />
           {opens("billing") && (
-            <SettingsPart id="billing">
+            <SettingsPart id="billing" here={current === "billing"}>
               <BillingSection />
             </SettingsPart>
           )}
         </>
       )}
       {current === "import" && <ImportExportSection />}
-      {current === "billing" && <BillingSection />}
       {current === "about" && <AboutSection />}
     </>
   );
@@ -399,12 +387,22 @@ function Settings({
   );
 }
 
-/** A section that stands on another one's page under its own heading: Plan and billing on AI and usage. */
-function SettingsPart({ id, children }: { id: "billing"; children: ReactNode }) {
+/**
+ * A section that stands on another one's page under its own heading: Plan and billing on AI and usage. Opened by its
+ * own address (`here`), the page opens at it.
+ */
+function SettingsPart({ id, here, children }: { id: "billing"; here: boolean; children: ReactNode }) {
   const { t } = useTranslation();
   const { org } = useOrg();
+  const part = useRef<HTMLElement>(null);
+  useEffect(() => {
+    if (!here) return;
+    // After the router has put the page's scroll where it keeps it.
+    const frame = requestAnimationFrame(() => part.current?.scrollIntoView?.({ block: "start" }));
+    return () => cancelAnimationFrame(frame);
+  }, [here]);
   return (
-    <section className="settings__section" aria-labelledby={`settings-part-${id}`}>
+    <section ref={part} className="settings__section" aria-labelledby={`settings-part-${id}`}>
       <PageHeader
         level={2}
         titleId={`settings-part-${id}`}
@@ -848,7 +846,12 @@ function ProblemReportCard() {
   );
 }
 
-function KeysSection() {
+/**
+ * The workspace's API keys, as the last group of "Contas de IA" (the account picker's "Chaves de API"): each key with
+ * its default, its models (an endpoint's) and ⋯ (rotate, remove its copies, remove); "Adicionar chave" on the group's
+ * line. With no key yet the group isn't there: the first one comes with "Adicionar conta", like a plan.
+ */
+function KeysGroup() {
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const allowed = can(org, "manage_credentials");
@@ -867,49 +870,29 @@ function KeysSection() {
     | { type: "copies"; cred: Credential }
     | { type: "models"; cred: Credential }
   >(null);
-  const look = useRightHandLook();
   const hold = usePlanHold();
-  const plans = useAiAccounts(org.id).data?.accounts.length ?? 0;
   if (!allowed) return null;
   const all = (credentials.data ?? []).filter((c) => !c.revokedAt);
   const live = shownKeys(credentials.data ?? []);
-  const noKeys = credentials.isSuccess && live.length === 0;
-  // On plans alone the screen is the accounts: the first key is added from "Conectar uma IA", and this card comes
-  // with it.
-  if (live.length === 0 && plans > 0) return null;
+  if (live.length === 0) return null;
+  const label = t("aiHub.choice.groups.keys");
   return (
-    <Card aria-labelledby="sec-keys">
-      <CardHeader
-        id="sec-keys"
-        icon="key"
-        title={t("settings.keysTitle")}
-        hint={{ name: t("common.about", { label: t("settings.keysTitle") }), text: t("settings.keysSubtitle") }}
-        action={
-          !noKeys &&
-          !hold && (
-            <Button size="sm" icon="plus" onClick={() => setDialog({ type: "add" })}>
-              {t("settings.addKey")}
-            </Button>
-          )
-        }
-      />
+    <section className="aa-keys" aria-label={label}>
+      <div className="aa-group__head">
+        <p className="aa-group__label">
+          <span className="ac-hintline">
+            {label}
+            <InfoHint name={t("common.about", { label })}>{t("settings.keysSubtitle")}</InfoHint>
+          </span>
+        </p>
+        {!hold && (
+          <Button size="sm" variant="ghost" icon="plus" onClick={() => setDialog({ type: "add" })}>
+            {t("settings.addKey")}
+          </Button>
+        )}
+      </div>
       {platform.data && <p className="small muted">{t("settings.platformAvailable")}</p>}
-      {credentials.isLoading && <LoadingList count={2} avatar={false} trailing />}
       {hold && <SettingNote icon="alert">{t("connectAi.key.closed")}</SettingNote>}
-      {noKeys && !hold && (
-        <EmptyState
-          size="panel"
-          agent={look}
-          title={t("settings.noKeysTitle")}
-          actions={
-            <Button variant="primary" icon="plus" onClick={() => setDialog({ type: "add" })}>
-              {t("settings.addKey")}
-            </Button>
-          }
-        >
-          {t("settings.noKeys")}
-        </EmptyState>
-      )}
       {live.length > 0 && (
         <List className="key-list">
           {live.map((c) => {
@@ -1063,7 +1046,7 @@ function KeysSection() {
           </Button>
         </DialogFooter>
       </Dialog>
-    </Card>
+    </section>
   );
 }
 

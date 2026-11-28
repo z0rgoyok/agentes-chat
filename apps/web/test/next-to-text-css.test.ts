@@ -30,7 +30,9 @@ test("a thread floats over the window like a dialog, 10px in, over a scrim; a ph
   const base = topLevel(css);
   const phone = atRule(css, "@media (max-width: 860px)");
   expect(last(base, ".thread-panel", "position")).toBe("fixed");
-  for (const edge of ["top", "right", "bottom"]) expect(last(base, ".thread-panel", edge)).toBe("10px");
+  for (const edge of ["right", "bottom"]) expect(last(base, ".thread-panel", edge)).toBe("10px");
+  // Its top clears the Mac app's window buttons too (`--window-top`, 0 in a browser).
+  expect(last(base, ".thread-panel", "top")).toBe("calc(10px + var(--window-top))");
   // As wide as it always was (640px), from the window, rounded and lifted, no hairline of its own.
   expect(last(base, ".thread-panel", "width")).toBe("min(640px,100vw - 20px)");
   expect(last(base, ".thread-panel", "border-radius")).toBe("var(--radius-section)");
@@ -38,7 +40,7 @@ test("a thread floats over the window like a dialog, 10px in, over a scrim; a ph
   expect(last(base, ".thread-panel", "border-left")).toBeUndefined();
   expect(last(base, ".thread-panel__scrim", "inset")).toBe("0");
   expect(last(base, ".thread-panel__scrim", "position")).toBe("fixed");
-  expect(last(phone, ".thread-panel", "inset")).toBe("0");
+  expect(last(phone, ".thread-panel", "inset")).toBe("var(--window-top) 0 0");
   expect(last(phone, ".thread-panel", "border-radius")).toBe("0");
   expect(last(phone, ".thread-panel__scrim", "display")).toBe("none");
   // No docked variant left.

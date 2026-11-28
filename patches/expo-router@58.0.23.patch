@@ -1,0 +1,39 @@
+diff --git a/ios/LinkPreview/LinkPreviewNativeView.swift b/ios/LinkPreview/LinkPreviewNativeView.swift
+index 1b7d9be..447efe9 100644
+--- a/ios/LinkPreview/LinkPreviewNativeView.swift
++++ b/ios/LinkPreview/LinkPreviewNativeView.swift
+@@ -113,6 +113,11 @@ class NativeLinkPreviewView: RouterViewWithLogger, UIContextMenuInteractionDeleg
+     _ interaction: UIContextMenuInteraction,
+     configurationForMenuAtLocation location: CGPoint
+   ) -> UIContextMenuConfiguration? {
++    // agentes: a press that lands on a control with a hold of its own (hold to approve, inside a message) opens no
++    // menu and keeps its touch. The menu starts before such a hold ends and cancelled it, so it could never finish.
++    if startsOnOwnHold(interaction, at: location) {
++      return nil
++    }
+     cancelReactNativeTouches()
+     linkPreviewNativeNavigation.beginInteraction()
+     onWillPreviewOpen()
+@@ -194,6 +199,22 @@ class NativeLinkPreviewView: RouterViewWithLogger, UIContextMenuInteractionDeleg
+     }
+   }
+ 
++  // agentes: the touched view or one above it, up to the view the menu is on, marked "own-hold" (React Native's
++  // `testID`, the view's accessibilityIdentifier on iOS).
++  private func startsOnOwnHold(_ interaction: UIContextMenuInteraction, at location: CGPoint) -> Bool {
++    guard let host = interaction.view else {
++      return false
++    }
++    var view = host.hitTest(location, with: nil)
++    while let current = view, current !== host {
++      if current.accessibilityIdentifier == "own-hold" {
++        return true
++      }
++      view = current.superview
++    }
++    return false
++  }
++
+   // A press released before the menu fully presents is still recognized as a tap by
+   // react-native, so cancel in-flight touches on the nearest surface when the interaction
+   // starts. Unlike rnscreens_cancelTouches, `reset` is omitted deliberately: the press is

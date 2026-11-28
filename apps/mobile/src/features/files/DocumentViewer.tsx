@@ -22,6 +22,7 @@ import { LoadFailed } from "../shared/FirstUse";
 import { useColors, useDirectory, useOrgId } from "../shared/hooks";
 import { copyText, PushedHeader, successHaptic } from "../shared/parts";
 import { useFileActions } from "./actions";
+import { FileVoice } from "./FileVoice";
 import { extensionOf, fileInfo, fileRoute, isCodeName, textChunks } from "./logic";
 import { useFileLine } from "./MessageFiles";
 import { openFile } from "./open";
@@ -36,7 +37,8 @@ import { fileText } from "./source";
  * and Ver no Drive (the system's own menu on iOS, the app's list of the same choices on Android). Under it the file
  * itself, the screen's whole width: Markdown and text drawn by the app, a page in a web view, a PDF page by page by
  * the system's own renderer (`PdfPages`), an Office file as the server read it (ADR 0198: a workbook in the
- * spreadsheet's grid, a deck's slides, a Word document's page) and an old table in the same grid, anything else says
+ * spreadsheet's grid, a deck's slides, a Word document's page) and an old table in the same grid, an audio file in the
+ * voice-message player (`FileVoice`), anything else says
  * it opens in another app. Pictures and videos open straight in the picture viewer (`openFile`), live files on their
  * own screens (ADR 0196); one reached here anyway (a file's link that didn't say what it was) goes on there, and a link
  * to a message of a picture's or a video's conversation opens the viewer, its conversation pushed over it at the
@@ -113,6 +115,25 @@ export function DocumentViewer({
       ? [{ icon: "drive" as const, sf: "folder" as const, label: t("mobile.files.drive"), onPress: actions.drive }]
       : []),
   ];
+  // A type the app doesn't draw (or a sound this phone can't play): that it has no preview (its name is the bar's title
+  // already), and the way to open it in another app.
+  const noPreview = (
+    <EmptyState
+      size="page"
+      icon="file"
+      title={t("mobile.files.noPreviewTitle")}
+      subtitle={t("mobile.files.noPreview")}
+      action={
+        <Button
+          variant="secondary"
+          icon="share"
+          label={t("mobile.files.sendCopy")}
+          loading={actions.busy === "share"}
+          onPress={() => void actions.share()}
+        />
+      }
+    />
+  );
   const bar: HeaderAction[] = detail
     ? [
         {
@@ -164,24 +185,19 @@ export function DocumentViewer({
         <TextPage detail={detail} markdown={info.view === "markdown"} json={isJsonFile(info.name, info.mime)} />
       ) : pdf ? (
         <PdfPages detail={detail} />
-      ) : (
-        // A type the app doesn't draw: that it has no preview (its name is the bar's title already), and the way to
-        // open it in another app.
-        <EmptyState
-          size="page"
-          icon="file"
-          title={t("mobile.files.noPreviewTitle")}
-          subtitle={t("mobile.files.noPreview")}
-          action={
-            <Button
-              variant="secondary"
-              icon="share"
-              label={t("mobile.files.sendCopy")}
-              loading={actions.busy === "share"}
-              onPress={() => void actions.share()}
+      ) : info.view === "audio" ? (
+        <Middle>
+          <View style={styles.audio}>
+            <FileVoice
+              id={detail.id}
+              version={detail.shownVersion}
+              wave={detail.content.kind === "file" ? detail.content.wave : undefined}
+              fallback={noPreview}
             />
-          }
-        />
+          </View>
+        </Middle>
+      ) : (
+        noPreview
       )}
       {pdfTalk ? <FileTalkLine file={pdfTalk} /> : null}
     </>
@@ -319,6 +335,8 @@ function IsolatedHtml({ html, failed, onRetry }: { html: string | undefined; fai
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   middle: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: SCREEN_X },
+  // The voice player's own width (it caps itself), whatever the centred column would shrink it to.
+  audio: { width: "100%", maxWidth: 320 },
   page: { paddingHorizontal: SCREEN_X, paddingTop: 12 },
   white: { backgroundColor: "#fff" },
   // The app's body, as a message's words.

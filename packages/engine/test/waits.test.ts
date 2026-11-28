@@ -38,8 +38,12 @@ const allText = (req: ModelRequest) => JSON.stringify(req.messages);
 const inAgentDm = (req: ModelRequest) => systemText(req.system).includes("A private conversation between agents");
 const runs = () => f.db.select().from(schema.agentRuns);
 const handoffs = () => f.db.select().from(schema.browserHandoffs);
+// What reached the asking agent: a hand-off's trace in the DM of the agent that got it (`hand_off`) is a record, not one.
 const notices = async () =>
-  (await f.db.select().from(schema.messages)).filter((m) => (m.meta as { notice?: unknown }).notice);
+  (await f.db.select().from(schema.messages)).filter((m) => {
+    const notice = (m.meta as { notice?: { kind?: string } }).notice;
+    return notice && notice.kind !== "hand_off";
+  });
 /** A person's message, in a thread (`threadId`: reaches the agent's run working there) or the channel. */
 const say = (body: string, threadId?: string) =>
   postPersonMessage({ db: f.db, pubsub: f.pubsub, judge: f.context.judge }, f.owner.id, f.org.id, f.general.id, {

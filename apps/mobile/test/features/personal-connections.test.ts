@@ -136,16 +136,27 @@ describe("Conectores on the phone: Equipe | Pessoal as the web's (ADR 0099 adden
 });
 
 describe("Pessoal on the phone: one's mailboxes keep their own rule", () => {
-  test("they are a group of their own, with their line, and the connections' note sits over the connections only", () => {
+  test("they are a group of their own with their rule as its footer, and the connections' rule is theirs", () => {
     const screen = src("features/connectors/ConnectorsScreen.tsx");
     expect(screen).toContain("const rowMail = personal ? [] : mailboxes;");
     expect(screen).toContain('t("connectors.personal.mailTitle")');
-    expect(screen).toContain('t("connectors.personal.mailNote")');
+    // Each rule under its own group, in the column of the group's header (never an icon's note over the list).
+    expect(screen).toContain('<GroupedFooter>{t("connectors.personal.mailNote")}</GroupedFooter>');
+    expect(screen).toContain('{personal ? <GroupedFooter>{t("connectors.personal.note")}</GroupedFooter> : null}');
     const group = screen.indexOf('t("connectors.personal.mailNote")');
     const note = screen.indexOf('t("connectors.personal.note")');
     expect(group).toBeGreaterThan(0);
     expect(note).toBeGreaterThan(group);
-    expect(screen).toContain("{personal && items.length > 0 ? (");
+    expect(screen).not.toContain("<Note ");
+  });
+
+  test("nothing connected yet: its words start where the groups' headers do, never centered under them", () => {
+    const screen = src("features/connectors/ConnectorsScreen.tsx");
+    expect(screen).toMatch(/<View style=\{styles\.group\}>\s*<FirstUse[^>]*align="start"/);
+    const empty = src("ui/EmptyState.tsx");
+    expect(empty).toContain("start && styles.start");
+    expect(empty).toContain('startTitle: { textAlign: "left"');
+    expect(empty).toContain('startSubtitle: { textAlign: "left"');
   });
 
   test("one connection's own screen speaks of it alone, the list of them all", () => {
@@ -163,7 +174,10 @@ describe("Connecting on the phone: Para quem and the closing line", () => {
     expect(sheet).toContain("const forWhom = !item && !teamOnly && members > 1;");
     expect(sheet).toContain("disabled: !admin },");
     expect(sheet).toContain('t("connectors.personal.teamLocked")');
-    expect(sheet).toContain('t("connectors.personal.done")');
+    // A git host of one's own closes with what it does: the work of their code sessions goes out in their name.
+    expect(sheet).toContain(
+      't(isGitHostConnector(def?.id) ? "connectors.personal.githubDone" : "connectors.personal.done")',
+    );
     // A connection already there is looked up in the sheet's own tab, never the other's.
     expect(sheet).toContain("connectionOf(def, mine ? owned.mine : owned.team)");
   });
@@ -186,9 +200,9 @@ describe("Connecting on the phone: Para quem and the closing line", () => {
 
   test("a chat's card to connect opens for every member, GitHub only for who manages connectors", () => {
     const card = src("features/ai/OfferCard.tsx");
-    expect(card).toContain('can(org, "manage_connectors") || personalAllowed(card.connector)');
+    expect(card).toContain('can(org, "manage_connectors") || personalServesAgents(card.connector)');
     const screen = src("features/connectors/ConnectorsScreen.tsx");
-    expect(screen).toContain("if (!manages && !personalAllowed(connect)) return;");
+    expect(screen).toContain("if (!manages && !personalServesAgents(connect)) return;");
   });
 });
 

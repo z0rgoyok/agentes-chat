@@ -13,10 +13,12 @@ import {
   createMachineHub,
   drainOutbox,
   grantScopes,
+  insertMessage,
   interruptOfflineMachineTasks,
   listMessages,
   type MachineHub,
   NEW_AGENT_DEFAULTS,
+  NOT_ASKED_TO_PUSH,
   postPersonMessage,
   queueMachineTask,
   RESUME_PROMPT,
@@ -288,6 +290,50 @@ describe("background tasks (ADR 0029)", () => {
     expect(ran?.content).toContain("Started background task");
     expect(runner.started[1]).toMatchObject({ executor: "shell", command: "git push origin main", approved: true });
     expect(runner.started[0]).not.toHaveProperty("approved");
+  });
+
+  test("push_harder starts a task with less memory kept free only on the person's own words, never an agent's", async () => {
+    f = await setup({ machines: true, reply: () => ({ chunks: ["ok"] }) });
+    const paired = await pairedMachine();
+    const runner = taskRunner(f.machineHub as MachineHub);
+    await runner.hello(paired.token);
+    const msg = await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+      body: "@dev run all 12 at once",
+    });
+    await drainOutbox(f.db, f.handlers);
+    const [run] = await f.db.select().from(schema.agentRuns);
+    if (!run) throw new Error("no run");
+    const ctx = {
+      db: f.db,
+      orgId: f.org.id,
+      agentId: f.agent.id,
+      runId: run.id,
+      channelId: f.general.id,
+      threadRootId: run.threadRootId,
+      triggerMessageId: msg.id,
+    };
+    const start = async (c: typeof ctx) => {
+      const out = await f.tools?.invoke(c, {
+        toolUseId: crypto.randomUUID(),
+        name: "start_task",
+        input: { title: "Suite 1", command: "npm test", push_harder: true },
+      });
+      if (out?.type !== "result") throw new Error(`expected a result, got ${out?.type}`);
+      return out.output;
+    };
+    expect((await start(ctx)).isError).toBeFalsy();
+    expect(runner.started[0]).toMatchObject({ command: "npm test", pushHarder: true });
+
+    // The same words from another agent in the conversation push nothing.
+    const relayed = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: f.general.id,
+      author: { type: "agent", agentId: f.agent.id, runId: run.id, hop: 1 },
+      body: "run all 12 at once",
+    });
+    const refused = await start({ ...ctx, triggerMessageId: relayed.id });
+    expect(refused).toMatchObject({ content: NOT_ASKED_TO_PUSH, isError: true });
+    expect(runner.started).toHaveLength(1);
   });
 
   test("tools: list_tasks, task_status and cancel_task; a full computer answers task.no_slot", async () => {
@@ -1111,7 +1157,7 @@ describe("tasks sign in with their agent's own account (ADR 0041 §5.1, protocol
     await machine({ protocol: TASK_ACCOUNTS_PROTOCOL - 1 });
     // Nobody connected it, so nobody there can run an update command: the agent hears to try again later.
     expect(await refused(dev, "claude")).toBe(
-      "The runner on MacBook is too old to sign tasks in with your Claude account. Tell the person: the computer's runner needs an update before tasks can use your account, so try again later (until then do this work with run_code or a shell task).",
+      "The agentes.chat program on MacBook is too old to sign tasks in with your Claude account. Tell the person: agentes.chat on the computer needs an update before tasks can use your account, so try again later (until then do this work with run_code or a shell task).",
     );
     await machine({ protocol: MACHINE_PROTOCOL_VERSION });
     // His account signed out.

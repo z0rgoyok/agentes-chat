@@ -31,6 +31,7 @@ function setup() {
     const box = await sealSecret(publicKey, value, aad);
     const order = `${new Date(++deliveryNumber).toISOString()}|${requestId}`;
     return {
+      publicKey,
       aad,
       box,
       order,
@@ -252,6 +253,19 @@ test("retrying an identical stage reply is idempotent", async () => {
   expect(await sent.deliver()).toEqual({ size: VALUE.length });
   expect(await sent.activate()).toEqual({ size: VALUE.length });
   expect(await sent.activate()).toEqual({ size: VALUE.length });
+});
+
+test("sending again after a try whose reply was lost: the new box replaces the staged one", async () => {
+  const { call, give } = setup();
+  const first = await give(dev, "req-0025-abcd", "NPM_TOKEN", { kind: "env" }, "first-value");
+  await first.deliver();
+  // The browser seals each Send into a new box under the same request's key.
+  const box = await sealSecret(first.publicKey, "second-value", first.aad);
+  const again = { agent: dev, op: "secret", action: "deliver", requestId: "req-0025-abcd" } as const;
+  expect(await call({ ...again, name: "NPM_TOKEN", target: { kind: "env" }, aad: first.aad, box })).toEqual({
+    size: "second-value".length,
+  });
+  expect(await first.activate()).toEqual({ size: "second-value".length });
 });
 
 test("a removed newer secret keeps an older delayed activation superseded", async () => {

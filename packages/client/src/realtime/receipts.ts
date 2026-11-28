@@ -15,7 +15,7 @@ import type { RunSteeredEvent } from "./streams";
  * / the list receipts; only an unknown run falls back to the event's `threadId`.
  */
 /**
- * `outage`: its run is parked because its AI provider is down, and retries by itself. `queued`: in line for room on
+ * `outage`: its run is parked because its AI isn't answering (its provider down, or its computer refusing while online), and retries by itself. `queued`: in line for room on
  * its computer; `away`: waiting for its computer to come back. `plan` / `budget`: waiting for its plan's limit or its
  * budget to renew. `asking`: it asked the person something. `passed`: its run ended without answering (it passed and
  * posted nothing, or was canceled before it started); `canceled`: a person stopped it once it had started.
@@ -389,7 +389,7 @@ export function applyReceiptEvent(
       // Went into the agent's task in progress: that agent is on it (a "stop" ends it). A task other than the run the
       // receipt follows (Tentar de novo after a failure joins one) is the news, as `message.claimed`'s is.
       const linked = linkRun(state, event.messageId, event.runId, event.agentId);
-      const phase = event.stop ? "handled" : (event.computer ?? event.usage ?? "claimed");
+      const phase = event.stop ? "handled" : (event.computer ?? event.usage ?? (event.outage ? "outage" : "claimed"));
       const moved = Boolean(event.agentId && state[event.messageId]?.runOf?.[event.agentId] !== event.runId);
       return event.agentId ? set(linked, event.messageId, event.agentId, phase, moved) : linked;
     }

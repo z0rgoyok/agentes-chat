@@ -14,6 +14,7 @@ import {
   type GitHubHttp,
   installationToken,
 } from "./github-app";
+import { onSessionRepo, personAccountOfRun } from "./person-account";
 import { reposOfGithubCall } from "./repos";
 
 /** The server's GitHub App as GitHub calls read it: the app now (env or Settings), and GitHub's REST API. */
@@ -134,10 +135,23 @@ const bearer = (token: string): GitHubCallAuth => ({ headers: { authorization: `
 export async function githubCallAuth(
   connectors: ConnectorDeps,
   github: GitHubAppAccess | undefined,
-  ctx: { db: Database; orgId: string },
+  ctx: { db: Database; orgId: string; runId?: string | undefined },
   connection: ConnectorConnection,
   call: { tool: string; scope: string; input: Record<string, unknown> },
 ): Promise<GitHubCallAuth> {
+  // What the agent writes on its code session's repository goes as the person who asked, by the account they
+  // connected as their own (ADR 0215 §13): a pull request, a comment, an API commit. Reads, merges and anything on
+  // another repository go as the workspace, below; so does this one when their token doesn't answer.
+  if (call.scope.endsWith(".write")) {
+    const named = reposOfGithubCall(call.input);
+    const person =
+      named?.length === 1 ? await personAccountOfRun(ctx.db, ctx.orgId, ctx.runId).catch(() => null) : null;
+    if (person && named?.[0] && onSessionRepo(person, named[0])) {
+      const headers = await connectionHeaders(connectors, person.connection).catch(() => null);
+      const token = headers?.authorization?.replace(/^Bearer\s+/i, "");
+      if (headers && token) return { headers, token };
+    }
+  }
   const appOnly = connection.authType === GITHUB_APP_AUTH;
   const viaAccount = async (): Promise<GitHubCallAuth> => {
     const headers = await connectionHeaders(connectors, connection);

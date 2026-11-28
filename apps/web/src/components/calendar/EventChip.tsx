@@ -8,10 +8,8 @@ import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from
 import { useTranslation } from "react-i18next";
 import { ActorWho } from "@/components/AgentAvatar";
 import { useActors } from "@/components/actors";
-import { DetailsLink } from "@/components/details-link";
 import { useOrg } from "@/components/org-context";
 import { lookOf } from "@/lib/look";
-import { RunResult } from "./RunsPopover";
 
 /**
  * An agent's item takes the agent's colour: its deep end tints the block (`--cal-accent`), its light end is what the
@@ -19,7 +17,7 @@ import { RunResult } from "./RunsPopover";
  */
 export function useAccent(item: CalItem): CSSProperties {
   const actors = useActors();
-  if (item.source === "agent" || ((item.source === "routine" || item.source === "reminder") && item.agentId)) {
+  if (item.source === "agent" || (item.source === "reminder" && item.agentId)) {
     const look = lookOf(actors.dir.agentById.get(item.agentId ?? ""));
     const vars = appearanceStyle(look) as Record<string, string> | undefined;
     return {
@@ -30,31 +28,17 @@ export function useAccent(item: CalItem): CSSProperties {
   return {};
 }
 
-/** "09:00–10:00"; a routine run or a reminder is a moment: "09:00". */
+/** "09:00–10:00"; a reminder is a moment: "09:00". */
 export const timeRange = (locale: string, it: CalItem) =>
-  it.kind === "routine" || it.kind === "reminder"
+  it.kind === "reminder"
     ? formatTime(locale, it.start.toISOString())
     : `${formatTime(locale, it.start.toISOString())}–${formatTime(locale, it.end.toISOString())}`;
-
-/** How often a routine band runs: "a cada hora", "a cada 15 min", "6× por dia". */
-export function useCadence() {
-  const { t } = useTranslation();
-  return (it: CalItem) => {
-    const every = it.every;
-    if (every && every % 60 === 0)
-      return every === 60 ? t("calendar.every.hour") : t("calendar.every.hours", { count: every / 60 });
-    if (every) return t("calendar.every.minutes", { count: every });
-    const spanDays = Math.max(1, Math.round((it.end.getTime() - it.start.getTime()) / 86_400_000));
-    return t("calendar.perDay", { count: Math.round((it.runs?.length ?? 0) / spanDays) });
-  };
-}
 
 /** "seg, 12 out". */
 export const dayLabel = shortDay;
 
-/** A moment (a routine's run, a reminder) is over once its time came; anything else once it ended. */
-const isOver = (item: CalItem, now: Date) =>
-  (item.kind === "routine" && !item.runs) || item.kind === "reminder" ? item.start <= now : item.end <= now;
+/** A moment (a reminder) is over once its time came; anything else once it ended. */
+const isOver = (item: CalItem, now: Date) => (item.kind === "reminder" ? item.start <= now : item.end <= now);
 
 /**
  * One item on the calendar, the way Google Calendar draws one: a block tinted
@@ -66,7 +50,6 @@ export function EventChip({
   variant,
   style,
   now,
-  day,
   measure,
   open,
   onOpenChange,
@@ -76,14 +59,12 @@ export function EventChip({
 }: {
   item: CalItem;
   /**
-   * `block` a meeting in the hour grid (its title, then its time where there's room), `run` a moment there (a
-   * routine's run, a reminder) on one line, `bar` all day or several days, `line` a row in the month and the agenda.
+   * `block` a meeting in the hour grid (its title, then its time where there's room), `moment` a reminder there on
+   * one line, `bar` all day or several days, `line` a row in the month and the agenda.
    */
-  variant: "block" | "run" | "bar" | "line";
+  variant: "block" | "moment" | "bar" | "line";
   style?: CSSProperties;
   now?: Date;
-  /** A frequent routine's row for one day (month, agenda): its first run then, and how many. */
-  day?: { at: Date; count: number };
   /** The key its drawn height is measured by (`TimeGrid`). */
   measure?: string;
   open: boolean;
@@ -95,17 +76,12 @@ export function EventChip({
   const { t, i18n } = useTranslation();
   const actors = useActors();
   const accent = useAccent(item);
-  const band = Boolean(item.runs);
-  const bar = item.allDay && !band;
+  const bar = item.allDay;
   const at = (d: Date) => formatTime(i18n.language, d.toISOString());
-  const time = day ? at(day.at) : bar ? t("calendar.allDay") : timeRange(i18n.language, item);
+  const time = bar ? t("calendar.allDay") : timeRange(i18n.language, item);
   const title =
     item.kind === "deadline" ? t("calendar.deadline", { number: item.issueNumber, title: item.title }) : item.title;
-  const label = bar
-    ? t("calendar.allDayAria", { title })
-    : item.kind === "routine"
-      ? t("calendar.runAria", { name: item.title, time })
-      : t("calendar.eventAria", { title: item.title, time });
+  const label = bar ? t("calendar.allDayAria", { title }) : t("calendar.eventAria", { title: item.title, time });
   const owner = item.owner;
   const ownerName = owner ? actors.name(owner) : "";
   // A task nobody has: its kind's glyph stands in for a face where a column has room only for that (the CSS shows it).
@@ -132,7 +108,6 @@ export function EventChip({
       ) : (
         time
       )}
-      {day && day.count > 1 && ` ${t("calendar.runTimes", { count: day.count })}`}
       {variant !== "line" && who}
     </span>
   );
@@ -176,7 +151,7 @@ export function EventChip({
                 {repeat}
               </span>
               {variant === "block" && <span className="cal-chip__when">{range}</span>}
-              {variant === "run" && <> {range}</>}
+              {variant === "moment" && <> {range}</>}
             </>
           )}
           {resizeHandle}
@@ -207,7 +182,6 @@ export function ItemDetails({
   const { t, i18n } = useTranslation();
   const { org } = useOrg();
   const actors = useActors();
-  const cadence = useCadence();
   const channels = useChannels(org.id);
   const target = (tg: RoutineTarget) => {
     if (tg.type === "channel") return `#${channels.data?.find((c) => c.id === tg.channelId)?.name ?? ""}`;
@@ -219,11 +193,9 @@ export function ItemDetails({
   };
   const owner = item.owner;
   const role = owner?.type === "agent" ? actors.dir.agentById.get(owner.id)?.role : undefined;
-  // A run: how it went, or how the routine's last run went while this one is ahead.
-  const result = item.kind === "routine" && !item.runs ? (item.result ?? item.lastResult) : undefined;
   return (
     <section className="cal-details" aria-label={item.title}>
-      {/* Whose it is, first: the agent of a routine or a reminder, who made an event, who has a task. */}
+      {/* Whose it is, first: the agent of a reminder, who made an event, who has a task. */}
       {owner && (
         <p className="cal-details__owner">
           <ActorWho actor={owner} name={actors.name(owner)} />
@@ -237,11 +209,7 @@ export function ItemDetails({
       </span>
       <span className="small muted">
         {dayLabel(i18n.language, item.start)}
-        {item.runs
-          ? `${item.end.getTime() - item.start.getTime() > 86_400_000 ? ` – ${dayLabel(i18n.language, new Date(item.end.getTime() - 1))}` : ""} · ${cadence(item)}`
-          : item.allDay
-            ? ` · ${t("calendar.allDay")}`
-            : ` · ${timeRange(i18n.language, item)}`}
+        {item.allDay ? ` · ${t("calendar.allDay")}` : ` · ${timeRange(i18n.language, item)}`}
         {item.kind === "event" && item.recurring && (
           <>
             {" · "}
@@ -249,15 +217,6 @@ export function ItemDetails({
           </>
         )}
       </span>
-      {item.runs && <span className="small">{t("calendar.runs", { count: item.runs.length })}</span>}
-      {item.kind === "routine" && item.target && (
-        <span className="small">{t("calendar.routineDetail", { target: target(item.target) })}</span>
-      )}
-      {result && (
-        <span className="cal-details__result">
-          <RunResult status={result} last={!item.result} />
-        </span>
-      )}
       {item.kind === "reminder" && item.target && (
         <>
           <span className="small">{t("calendar.reminderPosted", { target: target(item.target) })}</span>
@@ -282,8 +241,7 @@ export function ItemDetails({
         </span>
       )}
       {item.description && <span className="small">{item.description}</span>}
-      {/* A routine's one person is its agent, the line on top. */}
-      {item.kind !== "routine" && item.people.length > 0 && (
+      {item.people.length > 0 && (
         <ul className="cal-details__people">
           {item.people.map((p) => {
             const answer = p.type === "person" ? rsvp?.answers.get(p.id) : undefined;
@@ -310,16 +268,6 @@ export function ItemDetails({
             {t("calendar.openIssue")}
           </Link>
         )}
-        {item.kind === "routine" &&
-          (item.routineId ? (
-            <DetailsLink item={{ kind: "routine", id: item.routineId }} className="ac-link small">
-              {t("calendar.openRoutine")}
-            </DetailsLink>
-          ) : (
-            <Link to="/org/$orgId/routines" params={{ orgId: org.id }} className="ac-link small">
-              {t("calendar.openRoutines")}
-            </Link>
-          ))}
         {onCancel && (
           <Button size="sm" variant="ghost" icon="trash" onClick={onCancel}>
             {t("calendar.cancelReminder")}

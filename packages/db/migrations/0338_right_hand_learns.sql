@@ -1,0 +1,1 @@
+ALTER TABLE "organization_settings" ADD COLUMN "right_hand_learns" boolean DEFAULT true NOT NULL;

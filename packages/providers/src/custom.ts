@@ -78,6 +78,35 @@ export function parseEndpointModels(body: unknown): ListedModel[] {
   return out;
 }
 
+const positive = (v: unknown) => (typeof v === "number" && Number.isSafeInteger(v) && v > 0 ? v : undefined);
+
+/**
+ * The most output tokens `model` takes, as an endpoint's model list tells it: its own output limit (`max_output_tokens`,
+ * `max_completion_tokens`, a router's `top_provider.max_completion_tokens`, Anthropic's `max_tokens`, Google's
+ * `outputTokenLimit`), else a quarter of the window it names (`context_length`, vLLM's `max_model_len`…), since prompt
+ * and output share it. Null when the list doesn't name the model or says neither.
+ */
+export function endpointOutputLimit(body: unknown, model: string): number | null {
+  const root = obj(body);
+  const rows = Array.isArray(root?.data) ? root.data : Array.isArray(root?.models) ? root.models : [];
+  const row = rows.map(obj).find((r) => r && [r.id, r.model, r.name].includes(model));
+  if (!row) return null;
+  const out =
+    positive(row.max_output_tokens) ??
+    positive(row.max_completion_tokens) ??
+    positive(obj(row.top_provider)?.max_completion_tokens) ??
+    positive(row.max_tokens) ??
+    positive(row.output_token_limit) ??
+    positive(row.outputTokenLimit);
+  if (out) return out;
+  const window =
+    positive(row.context_length) ??
+    positive(row.context_window) ??
+    positive(row.max_model_len) ??
+    positive(row.max_context_length);
+  return window ? Math.floor(window / 4) : null;
+}
+
 /** A response's body as JSON, read up to `max` bytes: a longer one fails. */
 async function cappedJson(res: Response, max: number): Promise<unknown> {
   const reader = res.body?.getReader();
@@ -107,6 +136,11 @@ export async function listEndpointModels(
   apiKey: string,
   http: typeof fetch,
 ): Promise<ListedModel[]> {
+  return parseEndpointModels(await endpointModelList(endpoint, apiKey, http));
+}
+
+/** An endpoint's `GET /models` body (`listEndpointModels`). */
+async function endpointModelList(endpoint: Endpoint, apiKey: string, http: typeof fetch): Promise<unknown> {
   const url = endpoint.style === "anthropic" ? `${endpoint.baseURL}/v1/models` : `${endpoint.baseURL}/models`;
   const headers: Record<string, string> =
     endpoint.style === "anthropic"
@@ -122,14 +156,12 @@ export async function listEndpointModels(
     await res.body?.cancel().catch(() => {});
     throw new ProviderError(`the provider answered ${res.status}`, false, res.status);
   }
-  let body: unknown;
   try {
-    body = await cappedJson(res, LIST_MAX_BYTES);
+    return await cappedJson(res, LIST_MAX_BYTES);
   } catch (error) {
     if (error instanceof ProviderError) throw error;
     throw new ProviderError("could not read the model list", false);
   }
-  return parseEndpointModels(body);
 }
 
 /** A reply's ceilings: a server people pointed us at (stuck, or hostile) can't fill this process's memory or hold a worker. */
@@ -306,6 +338,11 @@ export function createCustomProvider(
       );
       const cost = await meter.cost();
       return { ...result, model: request.model, ...cost };
+    },
+    async outputLimit(model, { apiKey, endpoint }) {
+      const parsed = parseCustomModel(model);
+      if (!endpoint || !parsed) return null;
+      return endpointOutputLimit(await endpointModelList(endpoint, apiKey, bounded), parsed.model);
     },
     /**
      * Pictures from an endpoint that speaks OpenAI's Images API (`/images/generations`, `/images/edits`, ADR 0197):

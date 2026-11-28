@@ -1,0 +1,1 @@
+ALTER TABLE "surface_links" ADD COLUMN "pin_lockouts" integer DEFAULT 0 NOT NULL;

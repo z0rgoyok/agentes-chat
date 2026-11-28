@@ -3,7 +3,7 @@ import { useArtifacts, useChannels } from "@agenteschat/client";
 import { mayAsk } from "@agenteschat/client/lib/audience";
 import { relativeTime } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { Button, Card, EmptyState, Icon, SearchField, Segmented, Toolbar } from "@agenteschat/ui";
+import { Button, Card, EmptyState, Icon, Refreshing, SearchField, Segmented, Toolbar } from "@agenteschat/ui";
 import { Link } from "@tanstack/react-router";
 import { useDeferredValue, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -107,61 +107,63 @@ export function FilesTab() {
           />
         </Toolbar>
       )}
-      {files.isLoading ? (
-        <LoadingLine width={260} />
-      ) : files.isError && !files.data ? (
-        <ErrorState error={files.error} onRetry={() => void files.refetch()} />
-      ) : !any ? (
-        <EmptyState
-          size="panel"
-          agent={lookOf(agent) ?? true}
-          title={mayAsk(org, agent) ? t("agentPage.files.empty") : undefined}
-          actions={
-            <AskAgentButton
-              agent={agent}
-              variant="primary"
-              label={t("agentPage.files.ask")}
-              draft={t("agentPage.files.askText")}
-            />
-          }
-        >
-          {t("agentPage.files.emptyText", g)}
-        </EmptyState>
-      ) : shown.length === 0 ? (
-        <EmptyState
-          size="inline"
-          actions={
-            <Button
-              size="sm"
-              onClick={() => {
-                setKind("all");
-                setQ("");
-              }}
-            >
-              {t("drive.clear")}
-            </Button>
-          }
-        >
-          {t("drive.noResults")}
-        </EmptyState>
-      ) : (
-        <ul className="agp-list agp-files">
-          {shown.map((a) => (
-            <li key={a.id} className="agp-file">
-              <DrivePreview artifact={a} size="sm" />
-              <span className="agp-file__text">
-                <button type="button" className="agp-file__title" onClick={() => viewer.open(a.id)}>
-                  {a.title}
-                </button>
-                <span className="small muted">{sub(a)}</span>
-              </span>
-              <Button size="sm" variant="ghost" onClick={() => viewer.open(a.id)}>
-                {t("artifacts.openFile")}
+      <Refreshing busy={files.isPlaceholderData} label={t("common.loading")}>
+        {files.isLoading ? (
+          <LoadingLine width={260} />
+        ) : files.isError && !files.data ? (
+          <ErrorState error={files.error} onRetry={() => void files.refetch()} />
+        ) : !any ? (
+          <EmptyState
+            size="panel"
+            agent={lookOf(agent) ?? true}
+            title={mayAsk(org, agent) ? t("agentPage.files.empty") : undefined}
+            actions={
+              <AskAgentButton
+                agent={agent}
+                variant="primary"
+                label={t("agentPage.files.ask")}
+                draft={t("agentPage.files.askText")}
+              />
+            }
+          >
+            {t("agentPage.files.emptyText", g)}
+          </EmptyState>
+        ) : shown.length === 0 ? (
+          <EmptyState
+            size="inline"
+            actions={
+              <Button
+                size="sm"
+                onClick={() => {
+                  setKind("all");
+                  setQ("");
+                }}
+              >
+                {t("drive.clear")}
               </Button>
-            </li>
-          ))}
-        </ul>
-      )}
+            }
+          >
+            {t("drive.noResults")}
+          </EmptyState>
+        ) : (
+          <ul className="agp-list agp-files">
+            {shown.map((a) => (
+              <li key={a.id} className="agp-file">
+                <DrivePreview artifact={a} size="sm" />
+                <span className="agp-file__text">
+                  <button type="button" className="agp-file__title" onClick={() => viewer.open(a.id)}>
+                    {a.title}
+                  </button>
+                  <span className="small muted">{sub(a)}</span>
+                </span>
+                <Button size="sm" variant="ghost" onClick={() => viewer.open(a.id)}>
+                  {t("artifacts.openFile")}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Refreshing>
       {files.hasNextPage && shown.length > 0 && (
         <div className="agp-files__more">
           <Button size="sm" loading={files.isFetchingNextPage} onClick={() => void files.fetchNextPage()}>

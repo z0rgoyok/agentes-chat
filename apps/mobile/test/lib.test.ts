@@ -7,6 +7,7 @@ import {
   chooseOrg,
   enteringShown,
   firstRunMounted,
+  joinFirstOf,
   openOrgs,
   pushOpens,
   serverDownOf,
@@ -246,6 +247,16 @@ test("the first run: kept, hidden, under an invitation's screen once mounted; ne
   // A workspace now (joined, or made): gone, and not kept for the next invitation.
   expect(firstRunMounted(true, false, false)).toBe(false);
   expect(firstRunMounted(false, false, true)).toBe(false);
+});
+
+test("a waiting invitation opens before the first run; going back from it opens the first run", () => {
+  expect(joinFirstOf(true, "inv-a", null)).toBe("inv-a");
+  // Back from it: nothing set up is under it, so the first run, not an empty screen.
+  expect(joinFirstOf(true, "inv-a", "inv-a")).toBeNull();
+  // Another invitation still opens.
+  expect(joinFirstOf(true, "inv-b", "inv-a")).toBe("inv-b");
+  // A workspace already, or a new one asked for.
+  expect(joinFirstOf(false, "inv-a", null)).toBeNull();
 });
 
 test("signing in never leaves a blank screen, and the passage never covers the sign-in", () => {

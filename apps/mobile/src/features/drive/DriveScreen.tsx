@@ -11,6 +11,7 @@ import {
   EmptyState,
   Filters,
   type HeaderMenuItem,
+  Refreshing,
   SCREEN_X,
   SearchField,
   SectionHeader,
@@ -244,55 +245,57 @@ function DriveBody({ highlightId = null, folderId = null }: { highlightId?: stri
           onPress={uploader.pick}
         />
       ) : (
-        <Animated.View {...fade}>
-          <LayoutAnimationConfig skipEntering>
-            {/* A file on its way in holds a card's place above the days, so a large one shows it's going. */}
-            {uploader.uploading !== null ? (
-              <Animated.View {...fade} style={[styles.row, styles.uploading]}>
-                <UploadingCard name={uploader.uploading} />
-                <View style={styles.spacer} />
-              </Animated.View>
-            ) : null}
-            {sections.map((s) => (
-              <Animated.View key={s.key} {...fade}>
-                <SectionHeader title={label(s)} count={s.items.length} />
-                <View style={styles.grid}>
-                  {gridRows(s.items).map((row) => (
-                    <View key={row.map((a) => a.id).join(":")} style={styles.row}>
-                      {row.map((a) => (
-                        <DriveCard
-                          key={a.id}
-                          artifact={a}
-                          highlighted={a.id === highlightId}
-                          siblings={shownRefs}
-                          onLongPress={fileMenu}
-                          present={presence.data?.[a.id]}
-                        />
-                      ))}
-                      {row.length === 1 ? <View style={styles.spacer} /> : null}
-                    </View>
-                  ))}
+        <Refreshing busy={list.isPlaceholderData} label={t("common.loading")}>
+          <Animated.View {...fade}>
+            <LayoutAnimationConfig skipEntering>
+              {/* A file on its way in holds a card's place above the days, so a large one shows it's going. */}
+              {uploader.uploading !== null ? (
+                <Animated.View {...fade} style={[styles.row, styles.uploading]}>
+                  <UploadingCard name={uploader.uploading} />
+                  <View style={styles.spacer} />
+                </Animated.View>
+              ) : null}
+              {sections.map((s) => (
+                <Animated.View key={s.key} {...fade}>
+                  <SectionHeader title={label(s)} count={s.items.length} />
+                  <View style={styles.grid}>
+                    {gridRows(s.items).map((row) => (
+                      <View key={row.map((a) => a.id).join(":")} style={styles.row}>
+                        {row.map((a) => (
+                          <DriveCard
+                            key={a.id}
+                            artifact={a}
+                            highlighted={a.id === highlightId}
+                            siblings={shownRefs}
+                            onLongPress={fileMenu}
+                            present={presence.data?.[a.id]}
+                          />
+                        ))}
+                        {row.length === 1 ? <View style={styles.spacer} /> : null}
+                      </View>
+                    ))}
+                  </View>
+                </Animated.View>
+              ))}
+              {visible < matches.length || hasNextPage ? (
+                // Centred across the screen inside its margins (a button keeps to its own width at the row's start).
+                <View style={styles.more}>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    label={t("mobile.drive.more")}
+                    loading={list.isFetchingNextPage}
+                    onPress={() => {
+                      setShown((n) => n + PAGE);
+                      // A page that failed is asked for again only when the person asks for more.
+                      if (list.isFetchNextPageError) void fetchNextPage();
+                    }}
+                  />
                 </View>
-              </Animated.View>
-            ))}
-            {visible < matches.length || hasNextPage ? (
-              // Centred across the screen inside its margins (a button keeps to its own width at the row's start).
-              <View style={styles.more}>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  label={t("mobile.drive.more")}
-                  loading={list.isFetchingNextPage}
-                  onPress={() => {
-                    setShown((n) => n + PAGE);
-                    // A page that failed is asked for again only when the person asks for more.
-                    if (list.isFetchNextPageError) void fetchNextPage();
-                  }}
-                />
-              </View>
-            ) : null}
-          </LayoutAnimationConfig>
-        </Animated.View>
+              ) : null}
+            </LayoutAnimationConfig>
+          </Animated.View>
+        </Refreshing>
       )}
     </PushedLargeTitle>
   );

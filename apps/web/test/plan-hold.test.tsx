@@ -7,7 +7,7 @@ setupDom();
 
 import { act, cleanup, fireEvent, within } from "@testing-library/react";
 import i18next from "i18next";
-import { brainDialog, brainRows, brainScreen, mainButton, openAiSelect, payWith, toScreen } from "./ai-picker";
+import { brainDialog, openAccounts, openAiSelect, payWith } from "./ai-picker";
 import { ADA_ID, createFakeApi, fakeMachinesOf, ORG_ID, seedState, withRightHand } from "./fake-api";
 import { shownText } from "./hint";
 import { renderApp, screen, settle } from "./render";
@@ -34,15 +34,17 @@ const COMPUTER: AiComputer = {
   mine: true,
   canAdd: true,
   keys: true,
-  brains: { claude_code: true, codex: true, cursor: true, opencode: true, grok: true, antigravity: true },
+  brains: { claude_code: true, codex: true, cursor: true, opencode: true, grok: true, antigravity: true, devin: true },
 };
 
-const EVERY_PROGRAM = (["claude_code", "codex", "cursor", "opencode", "grok", "antigravity"] as const).map((kind) => ({
-  kind,
-  available: true,
-  models: [],
-  defaultModel: null,
-}));
+const EVERY_PROGRAM = (["claude_code", "codex", "cursor", "opencode", "grok", "antigravity", "devin"] as const).map(
+  (kind) => ({
+    kind,
+    available: true,
+    models: [],
+    defaultModel: null,
+  }),
+);
 const NO_COMPUTER = { computer: null, machines: [] };
 
 const click = async (el: Element) => {
@@ -115,6 +117,7 @@ const CARD: Partial<Record<PlanChoice, string>> = {
   cursor: "Cursor",
   grok: "Grok",
   gemini: "Gemini",
+  devin: "Devin",
   zen: "Começar grátis",
 };
 
@@ -241,20 +244,16 @@ describe("the other places a plan is chosen", () => {
     expect(shownText(screen().getByRole("region", { name: "Contas" }))).not.toContain(WHY);
   });
 
-  test("Quem pensa: why and the plans page on its first screen and in Trocar de conta, the key closed, no plan to pick", async () => {
+  test("Quem pensa: why and the plans page on its first screen, the key closed, nothing to add", async () => {
     await open("owner", `/org/${ORG_ID}/agents/${ADA_ID}`);
     const d = await brainDialog("Quem pensa pela Ada");
     expect(shownText(d)).toContain(WHY);
     expect(buttonNamed(d, PAY)).not.toBeNull();
     // Ada thinks with the key, which waits for the plan too.
     expect(shownText(d)).toContain(CLOSED);
-    await toScreen(d, "Trocar de conta");
-    expect(brainScreen(d)).toBe("Trocar a conta da Ada");
-    expect(shownText(d)).toContain(WHY);
-    expect(buttonNamed(d, PAY)).not.toBeNull();
-    // Only the key in use: no plan to sign in to or switch to while the hold lasts, so nothing to switch to.
-    expect(brainRows(d).map((r) => [r.group, r.title])).toEqual([["Em uso", "Chave padrão do workspace"]]);
-    expect(mainButton(d)?.disabled).toBe(true);
+    // While the hold lasts nothing is added: no plan to sign in to, no key.
+    await openAccounts(d);
+    expect(screen().queryByRole("button", { name: /^Adicionar conta/ })).toBeNull();
   });
 
   test("Lodi's settings: why and the way on in place of the plan row", async () => {

@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import {
   APP_OAUTH_RETURN,
   appOAuthRedirect,
+  desktopBackLink,
+  desktopBackPage,
   desktopOAuthRedirect,
   desktopReturnPath,
   isAppReturn,
@@ -48,4 +50,12 @@ test("the desktop app's deep link carries the organization with state and code, 
   expect(desktopOAuthRedirect({ org: "o1", error: "access_denied" })).toBe(
     "agenteschat://desktop/connectors/oauth?org=o1&error=access_denied",
   );
+});
+
+test("the desktop app's link goes through the browser's page, in its fragment only", () => {
+  const link = desktopOAuthRedirect({ org: "o1", state: "s1", code: "c 2" });
+  const page = desktopBackPage("https://agentes.example.com/", link);
+  expect(page.startsWith("https://agentes.example.com/desktop/back#")).toBe(true);
+  expect(new URL(page).search).toBe("");
+  expect(desktopBackLink(page)).toBe(link);
 });

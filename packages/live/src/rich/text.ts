@@ -1,3 +1,4 @@
+import { isFontRef, isFontWeight } from "../fonts";
 import { RICH_MAX_LEVEL } from "./schema";
 import type { RichDoc, RichParagraph, RichRun } from "./types";
 
@@ -29,8 +30,49 @@ function sameMarks(a: Marks, b: Marks): boolean {
     a.underline === b.underline &&
     a.strike === b.strike &&
     a.color === b.color &&
-    a.link === b.link
+    a.link === b.link &&
+    sameTypeMarks(a, b)
   );
+}
+
+type TypeMarks = Pick<RichRun, "font" | "size" | "weight" | "highlight" | "tracking" | "caps">;
+
+/** Equal type marks (ADR 0220 §3): font, size, weight, highlight, tracking and capitals. */
+export function sameTypeMarks(a: TypeMarks, b: TypeMarks): boolean {
+  return (
+    a.font === b.font &&
+    a.size === b.size &&
+    a.weight === b.weight &&
+    a.highlight === b.highlight &&
+    a.tracking === b.tracking &&
+    a.caps === b.caps
+  );
+}
+
+/** A run's type marks (ADR 0220 §3), checked; shared by rich text and documents. */
+export function typeMarksOf(run: Partial<TypeMarks>): TypeMarks {
+  const marks: TypeMarks = {};
+  if (isFontRef(run.font)) marks.font = run.font;
+  if (isRichSize(run.size)) marks.size = round2(run.size);
+  if (isFontWeight(run.weight)) marks.weight = run.weight;
+  if (isRichColor(run.highlight)) marks.highlight = run.highlight;
+  if (isRichTracking(run.tracking)) marks.tracking = Math.round(run.tracking);
+  if (run.caps === true) marks.caps = true;
+  return marks;
+}
+
+/** A size a run may carry (ADR 0220 §3): 4 to 1000 units of its kind, two decimals at most. */
+export function isRichSize(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 4 && value <= 1000;
+}
+
+/** Letter spacing a run may carry: thousandths of the size, -200 to 1000. */
+export function isRichTracking(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= -200 && value <= 1000 && value !== 0;
+}
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
 }
 
 /** A run's marks, checked (its text left out). */
@@ -46,25 +88,38 @@ function marksOf(run: Partial<RichRun>): Marks {
   if (run.strike === true) marks.strike = true;
   if (isRichColor(run.color)) marks.color = run.color;
   if (isRichHref(run.link)) marks.link = run.link;
-  return marks;
+  return { ...marks, ...typeMarksOf(run) };
 }
 
 function hasMarks(marks: Marks): boolean {
   return Object.keys(marks).length > 0;
 }
 
-/** A paragraph's attributes, checked: align and list from their words, level an integer 0..4. */
+function attrNumber(value: unknown): number | undefined {
+  const n = typeof value === "number" ? value : typeof value === "string" && value.trim() ? Number(value) : NaN;
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/**
+ * A paragraph's attributes, checked: align and list from their words, level an integer 0..4, line height 0.8 to 3
+ * and room after 0 to 1000 (ADR 0220 §3).
+ */
 export function paragraphAttrs(input: {
   align?: unknown;
   level?: unknown;
   list?: unknown;
+  lineHeight?: unknown;
+  spaceAfter?: unknown;
 }): Omit<RichParagraph, "runs"> {
   const out: Omit<RichParagraph, "runs"> = {};
   if (input.align === "left" || input.align === "center" || input.align === "right") out.align = input.align;
-  const level =
-    typeof input.level === "number" ? input.level : typeof input.level === "string" ? Number(input.level) : 0;
-  if (Number.isFinite(level) && level >= 1) out.level = Math.min(RICH_MAX_LEVEL, Math.floor(level));
+  const level = attrNumber(input.level) ?? 0;
+  if (level >= 1) out.level = Math.min(RICH_MAX_LEVEL, Math.floor(level));
   if (input.list === "bullet" || input.list === "ordered") out.list = input.list;
+  const lineHeight = attrNumber(input.lineHeight);
+  if (lineHeight !== undefined && lineHeight >= 0.8 && lineHeight <= 3) out.lineHeight = round2(lineHeight);
+  const spaceAfter = attrNumber(input.spaceAfter);
+  if (spaceAfter !== undefined && spaceAfter > 0 && spaceAfter <= 1000) out.spaceAfter = round2(spaceAfter);
   return out;
 }
 
@@ -302,7 +357,8 @@ function linkAt(src: string, at: number): { label: string; href: string; end: nu
 
 /**
  * Rich text as the light Markdown `richFromText` reads (how agents read slides and canvases): bullets, numbered
- * items, indent, bold, italic, strike and links; underline and color have no Markdown and come out as plain text.
+ * items, indent, bold, italic, strike and links; underline, color and the type marks of ADR 0220 have no Markdown and
+ * come out as plain text (the engine's readers say them apart).
  */
 export function richToMarkdown(rich: readonly RichParagraph[]): string {
   const lines: string[] = [];

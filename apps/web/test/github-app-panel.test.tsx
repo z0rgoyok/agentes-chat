@@ -144,7 +144,7 @@ describe("Conectores › GitHub with the agentes.chat app", () => {
     await settle(2);
     const flow = screen().getByRole("dialog", { name: "Conectar GitHub" });
     // Asked for an account: no app choice, GitHub's sign-in straight away, replacing the app's row.
-    expect(within(flow).queryByRole("radiogroup")).toBeNull();
+    expect(within(flow).queryByRole("radiogroup", { name: "Como os agentes entram no GitHub" })).toBeNull();
     expect(within(flow).getByRole("button", { name: "Continuar no GitHub" })).toBeTruthy();
     expect(flow.textContent).toContain("Substitui o login atual. Quem usa continua igual.");
   });
@@ -233,7 +233,7 @@ describe("Conectar GitHub: the agentes.chat app first", () => {
 
   test("a server without the app: GitHub's sign-in as before", async () => {
     const { flow } = await connect(seedState({ connections: [] }));
-    expect(within(flow).queryByRole("radiogroup")).toBeNull();
+    expect(within(flow).queryByRole("radiogroup", { name: "Como os agentes entram no GitHub" })).toBeNull();
     expect(within(flow).getByRole("button", { name: "Continuar no GitHub" })).toBeTruthy();
   });
 });

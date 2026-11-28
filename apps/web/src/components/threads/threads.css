@@ -7,16 +7,6 @@
  */
 
 /* ── In the channel ────────────────────────────────────────────────────── */
-.msg--context::before {
-  content: "";
-  position: absolute;
-  left: 4px;
-  top: 8px;
-  bottom: 8px;
-  width: 2px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--ink) 18%, transparent);
-}
 .thread-marker {
   flex-wrap: wrap;
   gap: 6px 8px;
@@ -359,22 +349,9 @@ html:not([data-pointer]) .thread-title__button:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }
-.thread-title__input {
+/* The title renamed where it stands (the kit's InlineName): the header's room, the title's words. */
+.ac-inlinename.thread-title__input {
   flex: 1;
-  min-width: 0;
-  height: var(--control-h-sm);
-  padding: 0 8px;
-  border: 0;
-  border-radius: var(--control-r-sm);
-  background: var(--sunken);
-  box-shadow: inset 0 0 0 1.5px var(--line2);
-  font: inherit;
-  line-height: normal;
-  color: var(--ink);
-  outline: none;
-}
-.thread-title__input:focus {
-  box-shadow: inset 0 0 0 1.5px var(--ink);
 }
 .thread-origin {
   margin: 0;
@@ -841,6 +818,28 @@ html:not([data-pointer]) .thsel-cap__handle:focus-visible,
   }
 }
 
+/* The message a thread belongs to, while that thread is open beside it and 700ms after it closes (a color fade, kept
+   under reduced motion), never a mark on its edge. In bubbles the bubble is the plate, as on hover: it goes a step
+   deeper (an ink veil over whatever its color) and the row stays clear, no box around the bubble. In the other looks
+   the row takes the soft plate. */
+.channel__messages .ac-msg:has(.thread-line) {
+  transition:
+    background-color 0.12s,
+    box-shadow var(--dur-base) ease 520ms;
+}
+.channel__messages .ac-msg:not([data-look="bubbles"]):has(.thread-line[aria-pressed="true"]) {
+  box-shadow: inset 0 0 0 100vmax var(--plate-soft);
+  transition-delay: 0s;
+}
+.channel__messages .ac-msg[data-look="bubbles"]:has(.thread-line) .ac-msg__text {
+  transition:
+    filter 0.12s,
+    box-shadow var(--dur-base) ease 520ms;
+}
+.channel__messages .ac-msg[data-look="bubbles"]:has(.thread-line[aria-pressed="true"]) .ac-msg__text {
+  box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--ink) 7%, transparent);
+  transition-delay: 0s;
+}
 /*
  * A "Responder" thread under its message: no card, one
  * line that lights on hover: who is in it, "N respostas", what it needs, when. Pressed while the
@@ -961,7 +960,7 @@ html:not([data-pointer]) .thread-line:focus-visible {
 .thread-panel {
   position: fixed;
   z-index: var(--z-dialog);
-  top: 10px;
+  top: calc(10px + var(--window-top));
   right: 10px;
   bottom: 10px;
   width: min(640px, calc(100vw - 20px));
@@ -1008,7 +1007,7 @@ html:not([data-pointer]) .thread-line:focus-visible {
 }
 @media (max-width: 860px) {
   .thread-panel {
-    inset: 0;
+    inset: var(--window-top) 0 0;
     width: auto;
     border-radius: 0;
     box-shadow: none;
@@ -1115,6 +1114,74 @@ html:not([data-pointer]) .thread-line:focus-visible {
 .thread-panel[data-leaving],
 .thread-panel__scrim[data-leaving] {
   pointer-events: none;
+}
+/* Landing (`data-landing`, SidePanel): its header, its last rows top to bottom and its composer rise 6px in turn, 35ms
+   apart, and rows that load meanwhile (a thread's replies) rise in too instead of popping. A list in any pane the same.
+   Reduced motion: they fade in. */
+@media (prefers-reduced-motion: no-preference) {
+  .thread-panel[data-landing] > .thread-panel__chat > :first-child,
+  .thread-panel[data-landing] .channel__messages > *,
+  .thread-panel[data-landing] .channel__composer,
+  .thread-panel[data-landing] .ac-list > * {
+    animation: ac-msg-enter var(--dur-base) var(--out) backwards;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(8) {
+    animation-delay: 35ms;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(7) {
+    animation-delay: 70ms;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(6) {
+    animation-delay: 105ms;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(5) {
+    animation-delay: 140ms;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(4) {
+    animation-delay: 175ms;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(3) {
+    animation-delay: 210ms;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(2) {
+    animation-delay: 245ms;
+  }
+  .thread-panel[data-landing] .channel__messages > :nth-last-child(1) {
+    animation-delay: 280ms;
+  }
+  .thread-panel[data-landing] .channel__composer {
+    animation-delay: 140ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(2) {
+    animation-delay: 35ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(3) {
+    animation-delay: 70ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(4) {
+    animation-delay: 105ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(5) {
+    animation-delay: 140ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(6) {
+    animation-delay: 175ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(7) {
+    animation-delay: 210ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(8) {
+    animation-delay: 245ms;
+  }
+  .thread-panel[data-landing] .ac-list > :nth-child(n + 9) {
+    animation-delay: 280ms;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread-panel[data-landing] .channel__messages > *,
+  .thread-panel[data-landing] .ac-list > * {
+    animation: ac-fade-in 120ms ease-out;
+  }
 }
 @keyframes thread-panel-in {
   from {

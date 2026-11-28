@@ -68,6 +68,8 @@ describe("the options", () => {
     expect(option("errors", catalog)?.needs).toBe("routines.presets.needsApp Sentry");
     expect(option("leads", catalog)?.needs).toBe("routines.presets.needsApps HubSpot, Attio");
     expect(option("newEmail", catalog)?.needs).toBe("routines.presets.needsMailbox");
+    // A schedule that reads a mailbox says so too (ADR 0242).
+    expect(option("inbox", catalog)?.needs).toBe("routines.presets.needsMailbox");
     expect(option("digest", catalog)?.needs).toBeNull();
   });
 

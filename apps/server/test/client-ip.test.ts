@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { limitIp } from "@agenteschat/adapters";
 import { loadConfig } from "@agenteschat/config";
-import { clientIp } from "../src/http/client-ip";
+import { clientIp, requestIp, trustPeer } from "../src/http/client-ip";
 
 test("a public client behind a proxy that appends its own internal hop", () => {
   expect(clientIp("203.0.113.7, 100.64.0.2", undefined, undefined)).toBe("203.0.113.7");
@@ -56,4 +56,43 @@ test("limitIp: IPv4 whole, IPv6 by its /64, however the address is written", () 
   expect(limitIp("64:ff9b::192.0.2.1")).toBe("64:ff9b:0:0::/64");
   expect(limitIp("fe80::1%eth0")).toBe("fe80:0:0:0::/64");
   expect(limitIp("unknown")).toBe("unknown");
+});
+
+const forwarded = () => new Headers({ "x-forwarded-for": "198.51.100.77", "x-real-ip": "198.51.100.78" });
+
+test("trustPeer: forwarding headers a public peer wrote are replaced by its own address", () => {
+  for (const peer of ["203.0.113.40", "::ffff:203.0.113.40"]) {
+    const headers = forwarded();
+    trustPeer(headers, peer, undefined);
+    expect(requestIp(headers, undefined)).toBe("203.0.113.40");
+    expect(headers.get("x-real-ip")).toBeNull();
+  }
+  const v6 = forwarded();
+  trustPeer(v6, "2001:db8::40", undefined);
+  expect(requestIp(v6, undefined)).toBe("2001:db8::40");
+  // A peer that isn't one of TRUSTED_PROXIES is a client too.
+  const other = forwarded();
+  trustPeer(other, "203.0.113.40", ["173.245.48.0/20"]);
+  expect(requestIp(other, ["173.245.48.0/20"])).toBe("203.0.113.40");
+});
+
+test("trustPeer: a proxy on loopback or a private network keeps what it forwarded", () => {
+  for (const peer of ["127.0.0.1", "::1", "::ffff:172.18.0.1", "10.0.0.5", "fd00::5"]) {
+    const headers = forwarded();
+    trustPeer(headers, peer, undefined);
+    expect(requestIp(headers, undefined)).toBe("198.51.100.77");
+  }
+  // No peer known (a request made in-process): left as it is.
+  const headers = forwarded();
+  trustPeer(headers, undefined, undefined);
+  expect(requestIp(headers, undefined)).toBe("198.51.100.77");
+});
+
+test("trustPeer: a public proxy of TRUSTED_PROXIES keeps its chain, read past it as before", () => {
+  const proxies = ["173.245.48.0/20", "2400:cb00::/32"];
+  for (const peer of ["173.245.48.9", "2400:cb00:2049::1"]) {
+    const headers = new Headers({ "x-forwarded-for": "203.0.113.1, 198.51.100.9" });
+    trustPeer(headers, peer, proxies);
+    expect(requestIp(headers, proxies)).toBe("198.51.100.9");
+  }
 });

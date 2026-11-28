@@ -582,6 +582,58 @@ export async function stopRun(
   return { id: run.id, status: run.status, previousStatus: previous, ...(joined.length ? { joined } : {}) };
 }
 
+/** The run a follow-up to another agent took over (`rerouteBurst`): it stops with nothing said. */
+export const REROUTED = "rerouted";
+
+/**
+ * A person's follow-up went to another agent (it @mentions it, or the router gave it to it) within `quietMs` of their
+ * message the router gave to this one: that run, while it has shown nothing (no message of its own) and the follow-up
+ * isn't in its inbox too, stops quietly (`REROUTED`), and the agent the follow-up went to answers, reading both
+ * (ADR 0112). A run a person started by name (a mention, a DM) is theirs to keep.
+ */
+export async function rerouteBurst(
+  deps: { db: Database; pubsub?: PubSub },
+  run: { id: string; agentId: string },
+  followUp: Pick<Message, "id" | "orgId" | "channelId" | "threadId" | "authorUserId" | "createdAt">,
+  quietMs: number,
+) {
+  if (!followUp.authorUserId) return [];
+  const { db } = deps;
+  const since = new Date(followUp.createdAt.getTime() - quietMs);
+  const taken = await db
+    .select({ run: agentRuns, channelKind: channels.kind })
+    .from(agentRuns)
+    .innerJoin(messages, and(eq(messages.orgId, agentRuns.orgId), eq(messages.id, agentRuns.triggerMessageId)))
+    .leftJoin(channels, eq(channels.id, agentRuns.channelId))
+    .where(
+      and(
+        eq(agentRuns.orgId, followUp.orgId),
+        eq(agentRuns.channelId, followUp.channelId),
+        eq(agentRuns.trigger, "router"),
+        inArray(agentRuns.status, ["queued", "running"]),
+        eq(agentRuns.background, false),
+        sql`${agentRuns.agentId} <> ${run.agentId}::uuid`,
+        sql`not (${followUp.id}::uuid = any(${agentRuns.pendingMessageIds}))`,
+        sql`${agentRuns.replyMessageId} is null`,
+        eq(messages.authorUserId, followUp.authorUserId),
+        sql`${messages.threadId} is not distinct from ${followUp.threadId ?? null}::uuid`,
+        gte(messages.createdAt, since),
+        sql`${messages.createdAt} <= ${followUp.createdAt.toISOString()}::timestamptz`,
+        sql`${messages.id} <> ${followUp.id}::uuid`,
+        sql`not exists (select 1 from ${messages} said where said.org_id = ${agentRuns.orgId}
+          and said.agent_run_id = ${agentRuns.id} and said.created_at >= ${since.toISOString()}::timestamptz)`,
+      ),
+    );
+  const stopped: string[] = [];
+  for (const { run: before, channelKind } of taken) {
+    const done = await stopRun(deps, followUp.orgId, before, channelKind, { type: "system", reason: REROUTED }).catch(
+      () => null,
+    );
+    if (done) stopped.push(done.id);
+  }
+  return stopped;
+}
+
 /**
  * Ends what a closed workspace's agents (or, with `agentId`, an agent being deleted) still have going: every run
  * not finished stops with `reason` (the refusal's text, or `agent_archived`) and hands nothing on, a routine's run

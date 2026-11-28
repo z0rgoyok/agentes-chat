@@ -1,5 +1,5 @@
 import type { Approval } from "../api/types";
-import { approveAlwaysOffered } from "./approval-kind";
+import { aheadPhase, approveAlwaysOffered } from "./approval-kind";
 import { approvalOriginShort, approvalWhy } from "./approval-origin";
 
 /** The longest reason a person gives with a decision. Mirror: `APPROVAL_REASON_MAX` in packages/engine approvals.ts. */
@@ -29,6 +29,18 @@ export function approveAllScope(items: readonly Approval[], now = Date.now()) {
   const waiting = items.filter((a) => a.status === "pending" && new Date(a.expiresAt).getTime() > now);
   const ids = waiting.filter((a) => a.canDecide).map((a) => a.id);
   return { ids, waiting: waiting.length, blocked: waiting.length - ids.length };
+}
+
+/**
+ * "Aprovar todos" / "Recusar todos" per agent, over every card (the inbox, the phone's list): each agent with at least
+ * two waiting requests this person may decide, its own requests in the order asked (what `approveAllScope` covers).
+ */
+export function approveAllByAgent(list: readonly Approval[], now = Date.now()) {
+  const byAgent = new Map<string, Approval[]>();
+  for (const a of [...list].sort(byAsked)) byAgent.set(a.agentId, [...(byAgent.get(a.agentId) ?? []), a]);
+  return [...byAgent.entries()]
+    .map(([agentId, items]) => ({ agentId, items, ids: approveAllScope(items, now).ids }))
+    .filter((g) => g.ids.length > 1);
 }
 
 /** A request past its deadline reads as expired, before the server's event says so. */
@@ -62,14 +74,20 @@ export function approvalCards(list: readonly Approval[]): Approval[][] {
  */
 export const RUNNING_FOR_MS = 15 * 60_000;
 
+/**
+ * How long a request waiting for a person may hold another run's approved action.
+ * Mirror: `STALE_HOLD_MS` in packages/engine approval-order.ts.
+ */
+export const STALE_HOLD_MS = 30 * 60_000;
+
 /** Where a request stands in its card's line (`approvalLine`). */
 export interface LinePlace {
   /** Its place among the card's requests in the order asked (1 = the first), and how many the card holds. */
   position: number;
   count: number;
-  /** Approved and not done yet: the request it still waits for (asked before it, or its own run's other one). */
+  /** Approved and not done yet: the request it still waits for (its own run's, or one its run was told about). */
   waitsOn: Approval | null;
-  /** `waitsOn`'s own place on the card (1 = the first): two requests of one kind tell apart by it ("1 de 2"). */
+  /** `waitsOn`'s own place on this card (1 = the first), null when it is on another card. */
   waitsOnAt: number | null;
   /** Approved and free to run since then: its decision, or the last request it waited for settling. */
   freeSince: string | null;
@@ -83,49 +101,48 @@ function settledAt(a: Approval): string | null {
 }
 
 /**
- * The order on one card (ADR 0182, the server's `approval-order.ts`): the agent's actions run in the order it asked,
- * whatever the order they were decided in. An approved action still to do waits for its own run's requests still
- * waiting for a person (the run goes on once all of them are decided), and for every request of another run asked
- * before its run's place (its earliest action still to do) that isn't settled: waiting for a person, or approved with
- * no result yet. Actions approved ahead and a mission's requests stand outside the line.
+ * The order of a card's requests (ADR 0182 and its addendum, the server's `approval-order.ts`): the agent's actions run
+ * in the order it asked, whatever the order they were decided in. An approved action still to do waits for its own
+ * run's requests still waiting for a person (the run goes on once all of them are decided), and for the other runs'
+ * requests its run was told already waited (`afterIds`) that aren't settled: waiting for a person (for less than
+ * `STALE_HOLD_MS`), or approved with no result yet. `known`: every request at hand (the org's list), where those may be;
+ * the card's own by default. Actions approved ahead and a mission's requests stand outside the line.
  */
-export function approvalLine(card: readonly Approval[]): Map<string, LinePlace> {
+export function approvalLine(
+  card: readonly Approval[],
+  known: readonly Approval[] = card,
+  now = Date.now(),
+): Map<string, LinePlace> {
   const items = [...card].sort(byAsked);
+  const all = [...new Map([...known, ...items].map((a) => [a.id, a])).values()].sort(byAsked);
   const lined = (a: Approval) => Boolean(a.runId) && !a.runAt;
   const toDo = (a: Approval) => a.status === "approved" && !a.executedAt && !a.result && lined(a);
+  const holds = (b: Approval) =>
+    (b.status === "pending" && now - Date.parse(b.createdAt) < STALE_HOLD_MS) || (b.status === "approved" && !b.result);
   const out = new Map<string, LinePlace>();
   items.forEach((a, i) => {
     let waitsOn: Approval | null = null;
     let freeSince: string | null = null;
     if (toDo(a)) {
-      const place = items.findIndex((x) => x.runId === a.runId && toDo(x));
-      // The first in the line it waits for: its own run's request still waiting, or another run's asked before it.
-      waitsOn =
-        items.find(
-          (b, j) =>
-            b.id !== a.id &&
-            lined(b) &&
-            (b.runId === a.runId
-              ? b.status === "pending"
-              : j < place && (b.status === "pending" || (b.status === "approved" && !b.result))),
-        ) ?? null;
+      const own = all.filter((b) => b.id !== a.id && lined(b) && b.runId === a.runId);
+      const after = new Set(all.filter((x) => x.runId === a.runId && toDo(x)).flatMap((x) => x.afterIds ?? []));
+      const before = all.filter((b) => after.has(b.id) && lined(b) && b.runId !== a.runId);
+      // The first in the line it waits for: its own run's request still waiting, or one its run was told about.
+      waitsOn = own.find((b) => b.status === "pending") ?? before.find(holds) ?? null;
       if (!waitsOn) {
-        const times = items
-          .filter((b, j) => b.id !== a.id && lined(b) && (j < place || b.runId === a.runId))
-          .map(settledAt)
-          .filter((x): x is string => x !== null);
+        const times = [...own, ...before].map(settledAt).filter((x): x is string => x !== null);
         freeSince = [a.decidedAt ?? a.createdAt, ...times].reduce((x, y) => (x > y ? x : y));
       }
     }
-    const waitsOnAt = waitsOn ? items.indexOf(waitsOn) + 1 : null;
-    out.set(a.id, { position: i + 1, count: items.length, waitsOn, waitsOnAt, freeSince });
+    const at = waitsOn ? items.indexOf(waitsOn) : -1;
+    out.set(a.id, { position: i + 1, count: items.length, waitsOn, waitsOnAt: at < 0 ? null : at + 1, freeSince });
   });
   return out;
 }
 
 /** `approvalLine` of every card in a list, by request id. */
-export function approvalLines(list: readonly Approval[]): Map<string, LinePlace> {
-  return new Map(approvalCards(list).flatMap((card) => [...approvalLine(card)]));
+export function approvalLines(list: readonly Approval[], now = Date.now()): Map<string, LinePlace> {
+  return new Map(approvalCards(list).flatMap((card) => [...approvalLine(card, list, now)]));
 }
 
 /**
@@ -263,3 +280,52 @@ export function digestRows(
   const shown = all || !folds ? rows : rows.slice(0, DIGEST_ROWS);
   return { rows: shown, hidden: rows.slice(shown.length).reduce((n, r) => n + r.count, 0), folds };
 }
+
+/**
+ * Where a request stands, for its review on the web and the phone. `queued`: approved, its turn not come yet (a
+ * request the agent asked before it on its card still waits or runs); `notRun`: approved, but one asked before it was
+ * refused or expired after that.
+ */
+export type ApprovalPhase =
+  | "waiting"
+  | "queued"
+  | "running"
+  | "scheduled"
+  | "done"
+  | "failed"
+  | "notRun"
+  | "refused"
+  | "expired"
+  | "canceled";
+
+/** `place`: where it stands on its card (`approvalLine`); without it, an approved one runs from its decision. */
+export function approvalPhase(a: Approval, now = Date.now(), place?: LinePlace): ApprovalPhase {
+  if (a.status === "pending") return "waiting";
+  if (a.status === "approved") {
+    if (a.result?.notRunAfter) return "notRun";
+    if (a.result) return a.result.ok ? "done" : "failed";
+    if (a.executedAt) return "done";
+    // Approved ahead: it waits for its time, when its routine's run does it.
+    if (aheadPhase(a) === "scheduled") return "scheduled";
+    if (place?.waitsOn) return "queued";
+    const since = place?.freeSince ?? a.decidedAt;
+    return now - (since ? new Date(since).getTime() : 0) < RUNNING_FOR_MS ? "running" : "done";
+  }
+  return a.status;
+}
+
+/** The `approvals.status.*` word of each phase. */
+export const PHASE_STATUS: Record<
+  Exclude<ApprovalPhase, "waiting">,
+  "approved" | "failed" | "refused" | "expired" | "running" | "canceled" | "scheduled" | "queued" | "notRun"
+> = {
+  queued: "queued",
+  notRun: "notRun",
+  running: "running",
+  scheduled: "scheduled",
+  done: "approved",
+  failed: "failed",
+  refused: "refused",
+  expired: "expired",
+  canceled: "canceled",
+};

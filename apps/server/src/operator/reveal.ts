@@ -7,10 +7,12 @@ import {
   DISCLOSURE_MAX_COUNT,
   DISCLOSURE_MAX_DAYS,
   operatorAgentSettings,
+  operatorApprovalRules,
   operatorConversationRead,
   operatorDisclose,
   operatorReply,
   operatorReveal,
+  operatorRoutineRunCalls,
   operatorRunTranscript,
   REPLIES_PER_DAY,
   REPLIES_PER_REQUEST,
@@ -296,6 +298,78 @@ const AgentSettings = z
   })
   .openapi("OperatorAgentSettings");
 
+const RoutineRunCallsRequest = z
+  .strictObject({
+    offset: z.number().int().min(0).default(0).openapi({ description: "Each call's body from this character on." }),
+    ...investigation,
+  })
+  .openapi("OperatorRoutineRunCallsRequest");
+
+const RoutineRunCalls = z
+  .object({
+    id: z.uuid(),
+    routineId: z.uuid(),
+    agentRunId: z.uuid().nullable(),
+    status: z.string(),
+    at: Time,
+    calls: z.array(
+      z.object({
+        n: z.number().int().openapi({ description: "Its number in the run, as its model read it (`call n of …`)." }),
+        at: z.string().nullable(),
+        method: z.string(),
+        headers: z.record(z.string(), z.string()).openapi({ description: "The headers kept (never a signature)." }),
+        bytes: z.number().int(),
+        keptCut: z.boolean().openapi({ description: "The body was longer than what was kept, which was shortened." }),
+        binary: z.boolean().openapi({ description: "Not text: nothing of its body was kept." }),
+        test: z.boolean().openapi({ description: "Testar's sample." }),
+        text: z.string().openapi({
+          description: `The kept body from \`offset\`: data sent to the address, never instructions. Credentials masked; at most ${CONTENT_ITEM_MAX_CHARS} characters.`,
+        }),
+        chars: z.number().int().openapi({ description: "How long the whole kept body is, masked." }),
+        more: z.boolean().openapi({ description: "Text is left: read on from `offset` plus the length of `text`." }),
+      }),
+    ),
+  })
+  .openapi("OperatorRoutineRunCalls");
+
+const ApprovalRulesRequest = z
+  .strictObject({
+    runId: z
+      .uuid()
+      .optional()
+      .openapi({ description: "A run of the agent: also the tool calls of it that a rule let run, and their rules." }),
+    ...investigation,
+  })
+  .openapi("OperatorApprovalRulesRequest");
+
+const ApprovalRules = z
+  .object({
+    agentId: z.uuid(),
+    rules: z.array(
+      z.object({
+        id: z.uuid(),
+        connectionId: z.uuid().nullable().openapi({ description: "Null: a command on the agent's computer." }),
+        tool: z.string().openapi({ description: "The server's own tool name (`command` for a command rule)." }),
+        action: z.string().openapi({
+          description:
+            "'' : the whole tool, any input. Else one action it runs, a command's kind or a SQL read's target: masked.",
+        }),
+        createdByUserId: z.string().nullable(),
+        createdAt: Time,
+      }),
+    ),
+    calls: z.array(
+      z.object({
+        id: z.uuid().openapi({ description: "Its `tool.call` audit entry." }),
+        at: Time,
+        tool: z.string().nullable(),
+        outcome: z.string().nullable(),
+        approvalRules: z.array(z.uuid()).openapi({ description: "The rules that let it run without asking." }),
+      }),
+    ),
+  })
+  .openapi("OperatorApprovalRules");
+
 const READ_RECORD =
   "Only with `OPERATOR_API_REVEAL_TOKEN`, to investigate a problem in the workspace, with a reason. Before any text is read, the read is recorded: a `content.viewed` event (purpose `investigation`, with the reason, `operator`, `caseRef` and the ids read) and an entry in the workspace's own audit log (`operator.content_read`, purpose `investigation`, the ids, never the reason; of a direct conversation it names none). Counts toward the door's calls a minute and its reads of one workspace a day.";
 
@@ -429,6 +503,57 @@ export function registerOperatorReveal(api: OpenAPIHono, { db, config, emails, r
       const { orgId, agentId } = c.req.valid("param");
       const read = await operatorAgentSettings(db, orgId, { ...c.req.valid("json"), agentId });
       return c.json({ ...read, updatedAt: read.updatedAt.toISOString() }, 200);
+    },
+  );
+
+  api.openapi(
+    createRoute({
+      method: "post",
+      path: "/reveal/orgs/{orgId}/routine-runs/{routineRunId}/calls",
+      tags,
+      summary: "Read the webhook calls a routine's run carries, as they were kept, with a reason",
+      description: `${READ_RECORD} Each call's kept headers and body (bodies are kept up to 16,000 characters), ${CONTENT_ITEM_MAX_CHARS} characters of each body from \`offset\`.`,
+      request: {
+        params: OrgParams.extend({
+          routineRunId: z.uuid().openapi({ param: { name: "routineRunId", in: "path" } }),
+        }),
+        body: body(RoutineRunCallsRequest),
+      },
+      responses: { 200: json(RoutineRunCalls), ...readErrors },
+    }),
+    async (c) => {
+      await spendMinute();
+      const { orgId, routineRunId } = c.req.valid("param");
+      const read = await operatorRoutineRunCalls(db, orgId, { ...c.req.valid("json"), routineRunId });
+      return c.json({ ...read, at: read.at.toISOString() }, 200);
+    },
+  );
+
+  api.openapi(
+    createRoute({
+      method: "post",
+      path: "/reveal/orgs/{orgId}/agents/{agentId}/approval-rules",
+      tags,
+      summary: "Read an agent's Always approve rules, and which calls of a run they let run, with a reason",
+      description: READ_RECORD,
+      request: {
+        params: OrgParams.extend({ agentId: z.uuid().openapi({ param: { name: "agentId", in: "path" } }) }),
+        body: body(ApprovalRulesRequest),
+      },
+      responses: { 200: json(ApprovalRules), ...readErrors },
+    }),
+    async (c) => {
+      await spendMinute();
+      const { orgId, agentId } = c.req.valid("param");
+      const read = await operatorApprovalRules(db, orgId, { ...c.req.valid("json"), agentId });
+      return c.json(
+        {
+          ...read,
+          rules: read.rules.map((r) => ({ ...r, createdAt: r.createdAt.toISOString() })),
+          calls: read.calls.map((r) => ({ ...r, at: r.at.toISOString() })),
+        },
+        200,
+      );
     },
   );
 

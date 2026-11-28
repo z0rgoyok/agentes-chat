@@ -9,7 +9,8 @@ import {
   SECRET_NAME,
 } from "@agenteschat/adapters/secret-box";
 import { originOf } from "./browser";
-import { coAuthorEnv, coAuthorHooks, coAuthorLines } from "./co-authors";
+import { coAuthorEnv, coAuthorHooks, coAuthorLines, commitAuthorEnv } from "./co-authors";
+import { egressProxyEnv } from "./egress-relay";
 import { errnoCode, RunnerError } from "./errors";
 import { touchesGitInternals } from "./git-guard";
 import { agentFolderName, isInside, normalizeRequestPath, resolveInWorkspace } from "./paths";
@@ -297,13 +298,11 @@ async function handleSecretLocked(
       // value to commands, browser use, or files in the workspace.
       const staged = stagedFile(dir, req.requestId);
       await ensureDir(path.dirname(staged));
-      const payload = JSON.stringify(req);
-      try {
-        await writeFile(staged, payload, { flag: "wx", mode: 0o600 });
-      } catch (err) {
-        if (errnoCode(err) !== "EEXIST" || (await readFile(staged, "utf8")) !== payload) throw err;
-        // A lost stage reply may be retried with the same sealed box.
-      }
+      // The person's latest Send replaces what an earlier try staged: each try seals a new box, and a try whose reply
+      // was lost left its box here while the request stayed open.
+      const tmp = `${staged}.${process.pid}.${crypto.randomUUID()}.tmp`;
+      await writeFile(tmp, JSON.stringify(req), { mode: 0o600 });
+      await rename(tmp, staged);
       return { size: Buffer.byteLength(value) };
     }
     case "activate": {
@@ -559,8 +558,8 @@ export function handedSiteSecret(root: string, agent: AgentScope, requestId: str
 
 /**
  * What commands of this agent get: env values (never a site's password: that one only its browser types) and the git
- * settings that end its commits with the request's `Co-authored-by` lines (`co-authors.ts`, in `<runner
- * home>/git-hooks`), and a redactor for everything that leaves the machine: every value kept, a site's password in
+ * settings that end its commits with the request's `Co-Authored-By` lines (`co-authors.ts`, in `<runner
+ * home>/git-hooks`) and author them as the person the request names (`commitAuthorEnv`), and a redactor for everything that leaves the machine: every value kept, a site's password in
  * memory, and every Vault value opened here in the last 10 minutes (ADR 0144).
  */
 export async function agentSecrets(root: string | undefined, agent: AgentScope | undefined) {
@@ -575,11 +574,16 @@ export async function agentSecrets(root: string | undefined, agent: AgentScope |
   ];
   const lines = coAuthorLines(agent);
   const hooks = root && lines.length > 0 ? coAuthorHooks(path.join(path.dirname(root), "git-hooks")) : null;
-  if (values.length === 0 && !hooks) return null;
-  const env: Record<string, string> = {};
+  const author = commitAuthorEnv(agent);
+  // ADR 0237: while this computer borrows a person's internet, the agent's programs go out through its proxy.
+  const proxy = egressProxyEnv();
+  if (values.length === 0 && !hooks && Object.keys(author).length === 0 && Object.keys(proxy).length === 0) return null;
+  const env: Record<string, string> = { ...proxy };
   // One kept before its name was reserved still never reaches the env.
   for (const s of secrets) if (s.target.kind === "env" && !isReservedSecretName(s.name)) env[s.name] = s.value;
   if (hooks) Object.assign(env, coAuthorEnv(lines, hooks, { ...process.env, ...env }));
+  // After the agent's own values: a kept `GIT_AUTHOR_NAME` never replaces who the request says the commits are by.
+  Object.assign(env, author);
   return {
     env,
     files: secrets.flatMap((s) => (s.target.kind === "file" ? [s.target.path] : [])),

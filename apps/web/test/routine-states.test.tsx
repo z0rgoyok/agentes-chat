@@ -541,6 +541,27 @@ describe("Rotinas: a routine's details", () => {
     expect(panel.textContent).not.toContain("Roda 24 vezes");
   });
 
+  test("in line behind another routine of its agent: its line says which one it waits for", async () => {
+    const queued = {
+      ...busy,
+      recentRuns: [
+        {
+          id: "rr-q",
+          at: new Date().toISOString(),
+          status: "queued" as const,
+          code: "waiting_routine",
+          codeParams: { routine: "Fechamento" },
+          summary: "",
+          brain: null,
+          link: null,
+          finishedAt: null,
+        },
+      ],
+    };
+    await open([queued], runs);
+    expect(card("Revisar PRs").textContent).toContain("Na fila: espera a rotina Fechamento terminar");
+  });
+
   test("running: Parar stops it quietly", async () => {
     const { calls } = await open([busy], runs);
     await click(within(card("Revisar PRs")).getByRole("button", { name: "Parar Revisar PRs" }));

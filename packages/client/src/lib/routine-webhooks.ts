@@ -1,4 +1,12 @@
-import type { WebhookSetup } from "../api/types";
+import type { RoutineRunCall, WebhookSetup } from "../api/types";
+import { formatJson } from "./code";
+
+/** A webhook run's call as people read it: its kept headers, a blank line, then its body (JSON one value a line). */
+export function runCallText(call: Pick<RoutineRunCall, "headers" | "body" | "binary">): string {
+  const head = Object.entries(call.headers).map(([k, v]) => `${k}: ${v}`);
+  const body = call.binary ? "" : (formatJson(call.body) ?? call.body);
+  return [head.join("\n"), body].filter(Boolean).join("\n\n");
+}
 
 /** Where a Sentry organization makes an internal integration (Sentry sends any signed-in person to their own). */
 export const SENTRY_NEW_INTEGRATION =

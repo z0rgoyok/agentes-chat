@@ -6,6 +6,7 @@ import type { ChatPrefs } from "../lib/chat-look";
 import type { OnboardingStepId } from "../lib/onboarding";
 import type { LegacyPrefsPatch, LodiPrefs, LodiPrefsPatch } from "../lib/right-hand-prefs";
 import type { Seat } from "../lib/seat";
+import type { ServerRelease } from "../lib/server-release";
 import type { TeamWeekAct } from "../lib/team-week";
 import type { Wallpaper } from "../lib/wallpaper";
 import type { AudienceChoice } from "../lib/who-sees";
@@ -15,9 +16,11 @@ import type { LiveApi } from "../live/api";
 import type { LiveRefInput } from "../live/types";
 import type {
   SecretToVaultInput,
+  VaultAccess,
   VaultConnectInput,
   VaultConnection,
   VaultConnectionPatch,
+  VaultImportInput,
   VaultImportResult,
   VaultItem,
   VaultItemDetail,
@@ -106,12 +109,12 @@ import type {
   CalendarRange,
   Channel,
   ChannelCard,
-  ChannelCategory,
   ChannelInput,
   ChannelMember,
   ChannelOverride,
   Choices,
   ClientVitalsReport,
+  CliFetch,
   CliInstall,
   CodeSent,
   CommandApproval,
@@ -156,6 +159,7 @@ import type {
   FeedbackInput,
   FeedbackOffer,
   FileConversationRef,
+  FileWave,
   ForeignMailbox,
   FormerAgent,
   GifKey,
@@ -176,6 +180,9 @@ import type {
   ImportPlan,
   InstallableCli,
   Instance,
+  IntegrationApp,
+  IntegrationAppInput,
+  IntegrationAppSecrets,
   Invitation,
   InvitationPreview,
   InvitationState,
@@ -204,6 +211,7 @@ import type {
   JoinRequest,
   LearnedSkill,
   LiveActivityInput,
+  LocalSpeech,
   Machine,
   MachineAccess,
   MachineAccessReduce,
@@ -223,6 +231,7 @@ import type {
   Memory,
   Message,
   MessageCard,
+  MessageCards,
   MessagePin,
   Mission,
   MissionBrain,
@@ -297,6 +306,7 @@ import type {
   RoutineInput,
   RoutinePatch,
   RoutineRun,
+  RoutineRunCall,
   RowHolders,
   RuleInfo,
   Run,
@@ -324,11 +334,14 @@ import type {
   SignInOptions,
   Skill,
   SkillDetail,
+  SkillDraft,
+  SkillDraftInput,
   SkillInput,
   SkillPatch,
   SkillPick,
   SkillSettings,
   SkillSourceUpdate,
+  SkillSuggestion,
   SpeechKey,
   SpeechKeyInput,
   StartChoice,
@@ -341,6 +354,8 @@ import type {
   SurfaceLink,
   SurfaceLinkCode,
   SurfaceLinks,
+  SurfaceNudge,
+  SurfacePage,
   TaskManagerView,
   TaskOutput,
   TaskSteps,
@@ -402,6 +417,8 @@ export interface ApiClient {
   system: {
     health(): Promise<Health>;
     instance(): Promise<Instance>;
+    /** The newest server release on GitHub, asked from this device, never the server (Settings › About). */
+    serverRelease(): Promise<ServerRelease | null>;
     /** `null` unless I am the installation's owner (and not on agentes.chat itself). */
     telemetry(): Promise<ServerTelemetry | null>;
     setTelemetry(enabled: boolean): Promise<ServerTelemetry>;
@@ -440,11 +457,18 @@ export interface ApiClient {
     /** Tried with the provider first: `speech_key_invalid` (422) when it refuses. */
     saveSpeechKey(input: SpeechKeyInput): Promise<SpeechKey>;
     removeSpeechKey(): Promise<SpeechKey>;
+    /** The speech model on this server's computer: `null` unless I am its owner on a self-hosted server. */
+    speechLocal(): Promise<LocalSpeech | null>;
+    /** Starts (or goes on with) its download; answers at once. */
+    installSpeechLocal(): Promise<LocalSpeech>;
+    /** Stops it and removes its files. */
+    removeSpeechLocal(): Promise<LocalSpeech>;
   };
   /** Voice messages (ADR 0100). */
   voice: {
     /** Whether I may record now: fair use, on agentes.chat's own servers. */
-    allowed(orgId: string): Promise<{ allowed: boolean }>;
+    /** `reason: "plan"`: the workspace has no plan in force, and voice comes with one. */
+    allowed(orgId: string): Promise<{ allowed: boolean; reason?: "plan" }>;
     /** Stores a recording; its message arrives over the socket with this `clientId`. */
     send(
       orgId: string,
@@ -545,8 +569,27 @@ export interface ApiClient {
     confirm(linkId: string): Promise<SurfaceLink>;
     /** Cancels a pending link or unlinks an active one. `surface.link_gone` (404). */
     remove(linkId: string): Promise<void>;
+    /** My unread nudge on an active link. `surface.link_gone` (404). */
+    setNudge(linkId: string, input: Partial<SurfaceNudge>): Promise<SurfaceNudge>;
+    /** Chooses my PIN (ADR 0226), replacing any. `surface.pin_shape` (400), `surface.link_gone` (404), `rate_limited`. */
+    setPin(linkId: string, pin: string): Promise<void>;
     /** "Not you? Unlink it" from the "linked" email: no session needed. `surface.undo_gone` (404), `rate_limited` (429). */
     undo(token: string): Promise<{ unlinked: boolean; surface: string; display: string | null }>;
+    /**
+     * A page the surface linked to (ADR 0226), no session needed: the first open binds it to this browser.
+     * `surface.page_gone` (404), `surface.page_elsewhere` (403), `rate_limited` (429).
+     */
+    openPage(token: string): Promise<SurfacePage>;
+    /**
+     * Approve (with the PIN; choosing it only where `pin.canChoose`) or refuse the page's action. `surface.pin_unset`
+     * (409), `surface.pin_wrong` (403, `left`), `surface.pin_locked` (429, `until`), `surface.pin_shape` (400), and
+     * `openPage`'s.
+     */
+    decidePage(token: string, decision: "approve" | "refuse", pin?: string): Promise<SurfacePage>;
+    /** Emails a link to choose the PIN. `surface.email_unverified` (403), `rate_limited` (429). */
+    emailPin(token: string): Promise<void>;
+    /** The emailed link chooses the PIN. `surface.pin_shape` (400), `surface.pin_reset_gone` (404). */
+    pinFromEmail(token: string, pin: string): Promise<{ surface: string }>;
   };
   /** Where my pushes go: phones (ADR 0035) and browsers (ADR 0071). Per person, not per organization. */
   push: {
@@ -783,10 +826,10 @@ export interface ApiClient {
   /** Groups of agents (ADR 0083): everyone reads them, owners and admins change them; each change answers with all. */
   agentGroups: {
     list(orgId: string): Promise<AgentGroup[]>;
-    /** After the other groups, with `agentIds` in it in that order (out of any group they were in). */
+    /** After the other groups, with `agentIds` in it in that order (out of any group they were in), and `channelIds`. */
     create(
       orgId: string,
-      input: { name: string; agentIds?: string[]; color?: string; icon?: string },
+      input: { name: string; agentIds?: string[]; channelIds?: string[]; color?: string; icon?: string },
     ): Promise<AgentGroup[]>;
     /** Renames it, or moves it among the groups (`index`). */
     update(orgId: string, groupId: string, patch: AgentGroupPatch): Promise<AgentGroup[]>;
@@ -861,6 +904,8 @@ export interface ApiClient {
     update(orgId: string, agentId: string, input: Partial<AgentInput>): Promise<Agent>;
     /** Confirms a step of a new agent's setup checklist (ADR 0155 §2): its owner or whoever manages agents. */
     confirmSetup(orgId: string, agentId: string, step: SetupStep): Promise<Agent>;
+    /** Closes its setup checklist on its page (its ×), whatever is left; its chat keeps its own. */
+    closeSetup(orgId: string, agentId: string): Promise<Agent>;
     /** The mailboxes saving `audience` would take from it (others gave them), taking nothing: ask before widening. */
     mailLoss(orgId: string, agentId: string, audience: AgentAudience): Promise<ForeignMailbox[]>;
     archive(orgId: string, agentId: string): Promise<void>;
@@ -1004,21 +1049,20 @@ export interface ApiClient {
   };
   chat: {
     channels(orgId: string): Promise<Channel[]>;
-    createChannel(orgId: string, input: ChannelInput & { name: string; categoryId?: string | null }): Promise<Channel>;
-    /** The sidebar's categories, in order (ADR 0080). */
-    categories(orgId: string): Promise<ChannelCategory[]>;
-    /** Admins: a category at the end, optionally taking `channelIds` along. */
-    createCategory(orgId: string, input: { name: string; channelIds?: string[] }): Promise<ChannelCategory>;
-    renameCategory(orgId: string, categoryId: string, name: string): Promise<ChannelCategory>;
-    /** Its channels go on top, with no category. */
-    deleteCategory(orgId: string, categoryId: string): Promise<void>;
-    /** Before `beforeCategoryId`, or to the end (null). */
-    placeCategory(orgId: string, categoryId: string, beforeCategoryId: string | null): Promise<void>;
-    /** Into `categoryId` (null: none), before `beforeChannelId` or at the end. */
+    /** `members` join right after you; another person among them has its agents answer in threads (ADR 0214). */
+    createChannel(
+      orgId: string,
+      input: ChannelInput & {
+        name: string;
+        groupId?: string | null;
+        members?: ({ userId: string } | { agentId: string })[];
+      },
+    ): Promise<Channel>;
+    /** Into sector `groupId` (null: none, ADR 0240), before `beforeChannelId` or at the end. */
     place(
       orgId: string,
       channelId: string,
-      input: { categoryId: string | null; beforeChannelId?: string | null },
+      input: { groupId: string | null; beforeChannelId?: string | null },
     ): Promise<void>;
     join(orgId: string, channelId: string): Promise<void>;
     /** Out of a channel I'm in. The last person out of a private channel archives it. Never #general. */
@@ -1052,7 +1096,15 @@ export interface ApiClient {
     messages(
       orgId: string,
       channelId: string,
-      options?: { threadId?: string; before?: string; after?: string; around?: string; limit?: number },
+      options?: {
+        threadId?: string;
+        before?: string;
+        after?: string;
+        around?: string;
+        limit?: number;
+        /** Also what the page's cards show (`include=cards`), handed here before the messages return. */
+        onCards?: (cards: MessageCards) => void;
+      },
     ): Promise<Message[]>;
     post(
       orgId: string,
@@ -1118,6 +1170,8 @@ export interface ApiClient {
     refuse(orgId: string, approvalId: string, reason?: string, via?: string): Promise<Approval>;
     /** Withdraws an action approved ahead before its time: its routine's run won't do it. */
     cancel(orgId: string, approvalId: string): Promise<Approval>;
+    /** "Rodar este agora": an approved action waiting for other runs' requests runs at once. */
+    runNow(orgId: string, approvalId: string): Promise<Approval>;
     /**
      * A card's "Aprovar tudo" / "Agora não para todos": exactly these ids; `skipped` the ones not decided. With
      * `only: "routine"` the server decides the ones it calls routine (`Approval.routine`) and skips the rest.
@@ -1144,12 +1198,17 @@ export interface ApiClient {
   connectors: {
     /** Connectors agentes.chat knows, with their scopes, plus the built-in scopes. */
     catalog(): Promise<ConnectorCatalog>;
+    /** Connector tools' names in `locale` by their catalog keys (`toolKey`); a key left out keeps its English words. */
+    toolLabels(orgId: string, locale: string, keys: string[]): Promise<Record<string, string>>;
     /** The team's connections and the person's own (no secrets). `others`: also everyone else's personal ones (who manages connectors gets them, as read-only rows). */
     list(orgId: string, options?: { others?: boolean }): Promise<Connection[]>;
-    /** `personal`: the person's own connection, which any member adds (GitHub connects for the team only). */
+    /**
+     * `personal`: the person's own connection, which any member adds. `serverUrl`: a git host at an address of one's
+     * own (a company's GitLab, a git server).
+     */
     connectWithKey(
       orgId: string,
-      input: { connector: string; apiKey: string; label?: string; personal?: boolean },
+      input: { connector: string; apiKey: string; label?: string; personal?: boolean; serverUrl?: string },
     ): Promise<Connection>;
     /** Returns the provider URL to open; the server redirects back to `returnTo`. `personal`: the person's own. */
     startOAuth(orgId: string, connector: string, input: { returnTo: string; personal?: boolean }): Promise<string>;
@@ -1223,12 +1282,16 @@ export interface ApiClient {
   devices: {
     list(orgId: string): Promise<DevicesList>;
     updateComputer(orgId: string, machineId: string, input: ComputerDeviceInput): Promise<ComputerDevice>;
+    /** Admins: people's computers may help when the workspace's is full or away, or none may. */
+    setHelp(orgId: string, on: boolean): Promise<{ on: boolean }>;
     removeComputer(orgId: string, machineId: string): Promise<void>;
     updatePhone(orgId: string, phoneId: string, input: PhoneDeviceInput): Promise<PhoneDevice>;
     /** Forgets it; it comes back if its host sees it again. */
     forgetPhone(orgId: string, phoneId: string): Promise<void>;
     /** Takes the phone back from the agent using it. */
     stopPhone(orgId: string, phoneId: string): Promise<void>;
+    /** Starts (`on`) or shuts down a simulator or an emulator on its computer. */
+    powerPhone(orgId: string, phoneId: string, on: boolean): Promise<void>;
     createLink(orgId: string, kind: "server" | "computer"): Promise<ConnectLink>;
     link(orgId: string, linkId: string): Promise<ConnectLinkState>;
     approveRequest(
@@ -1292,8 +1355,17 @@ export interface ApiClient {
     allowTool(orgId: string, machineId: string, tool: MachineTool): Promise<MachineAccess>;
     /** Anyone else: asks whoever paired it to turn `tool` on (an inbox row with the same button). */
     askTool(orgId: string, machineId: string, tool: MachineTool): Promise<void>;
+    /** Admins or whoever paired it: no to a folder an agent waits for there (never a yes). The request's outcome. */
+    refuseFolder(orgId: string, machineId: string, requestId: string): Promise<{ status: string }>;
+    /**
+     * Admins or whoever paired it: asks the agentes.chat app there for a folder, picked by the person at the computer,
+     * for one agent or all (`agentId` absent); with `requestId`, an agent's pending request is shown there again.
+     */
+    askFolder(orgId: string, machineId: string, input: { agentId?: string; requestId?: string }): Promise<void>;
     /** Its PATH read again and its coding CLIs looked for now ("Já instalei, verificar de novo"). */
     checkClis(orgId: string, machineId: string): Promise<void>;
+    /** ADR 0228 §6: "Try again" on a CLI's fetch; where it stands now. */
+    fetchCli(orgId: string, machineId: string, cli: string): Promise<{ fetch: CliFetch | null }>;
     /** Only the person who paired it: installs `tool` there, or where that install stands, or stops it. */
     cliInstall(
       orgId: string,
@@ -1380,15 +1452,19 @@ export interface ApiClient {
     create(orgId: string, input: SkillInput): Promise<SkillDetail>;
     /**
      * A GitHub link (a skill's folder or a file in it) or the folder as a zip in base64 (writes are JSON only). A link
-     * holding several skills (or any, with `list`) installs nothing and answers with them to pick from
-     * (`importPicked`), those that can't be installed apart. A private repository is read through the workspace's
+     * or a zip holding several skills (a link: or any, with `list`) installs nothing and answers with them to pick from
+     * (`importPicked`, `importPickedZip`), those that can't be installed apart. A private repository is read through the workspace's
      * GitHub, on the server. `forAgentId`: the agent whose card opened the install, which gets what installs turned on
      * when the installer may change its skills. `personal`: the person's own skill, which any member installs (from a
      * public repository unless they manage agents). `upload`: a zip's Cancel and how much of it has been sent.
      */
     import(
       orgId: string,
-      input: ({ url: string; list?: boolean; forAgentId?: string } | { zipBase64: string }) & { personal?: boolean },
+      input: (
+        | { url: string; list?: boolean; forAgentId?: string }
+        | { zipBase64: string }
+        | { fileId: string; list?: boolean; forAgentId?: string }
+      ) & { personal?: boolean },
       upload?: UploadOptions,
     ): Promise<SkillDetail | SkillPick>;
     /** Installs the skills picked among a link's choices (their `path`), on for `forAgentId` as `import` does. */
@@ -1398,6 +1474,25 @@ export interface ApiClient {
       paths: string[],
       forAgentId?: string,
       personal?: boolean,
+    ): Promise<SkillDetail[]>;
+    /**
+     * Installs the skills picked among the choices of a .zip sent in a conversation (`fileId`, a Drive file the card
+     * of `offer_install_skill` names), on for `forAgentId` as `import` does.
+     */
+    importPickedFile(
+      orgId: string,
+      fileId: string,
+      paths: string[],
+      forAgentId?: string,
+      personal?: boolean,
+    ): Promise<SkillDetail[]>;
+    /** Installs the skills picked among a .zip's choices (their `path`): the .zip is sent again, as `import` sent it. */
+    importPickedZip(
+      orgId: string,
+      zipBase64: string,
+      paths: string[],
+      personal?: boolean,
+      upload?: UploadOptions,
     ): Promise<SkillDetail[]>;
     update(orgId: string, id: string, patch: SkillPatch): Promise<SkillDetail>;
     /** Fetch the link again (`url` skills). */
@@ -1425,6 +1520,22 @@ export interface ApiClient {
     /** The workspace's skill settings (older servers: absent). */
     settings?(orgId: string): Promise<SkillSettings>;
     saveSettings?(orgId: string, input: SkillSettings): Promise<SkillSettings>;
+    /** A skill written from a person's words (nothing saved), or that draft with a change. */
+    draft?(orgId: string, input: SkillDraftInput): Promise<SkillDraft>;
+    /** Saves a written skill and turns it on for the agents chosen. */
+    saveDraft?(
+      orgId: string,
+      input: Omit<SkillDraft, "apps"> & { agentIds: string[]; personal?: boolean; defaultForNewAgents?: boolean },
+    ): Promise<SkillDetail>;
+    /** A change asked in words: a new version, with undo. */
+    rewrite?(orgId: string, id: string, words: string): Promise<SkillDetail>;
+    /** The library's skills that would help an agent, from its last week. */
+    suggestions?(orgId: string, agentId: string): Promise<SkillSuggestion[]>;
+    /** Whether the agent learns skills on its own. */
+    learns?(orgId: string, agentId: string): Promise<boolean>;
+    setLearns?(orgId: string, agentId: string, on: boolean): Promise<void>;
+    /** Where the browser downloads the skill's folder as a .zip. */
+    zipUrl?(orgId: string, id: string): string;
   };
   access: {
     /**
@@ -1456,6 +1567,8 @@ export interface ApiClient {
     listTeam(orgId: string): Promise<Memory[]>;
     /** Tornar do time (ADR 0167): an agent's memory becomes the team's; its copies are archived. */
     makeTeam(orgId: string, memoryId: string): Promise<Memory>;
+    /** "Forget all" on the right hand's Memory tab: what it learned from me on its own, for me alone. */
+    forgetRightHandLearned(orgId: string): Promise<{ forgotten: number }>;
     edit(orgId: string, memoryId: string, text: string): Promise<Memory>;
     setPinned(orgId: string, memoryId: string, pinned: boolean): Promise<Memory>;
     setArchived(orgId: string, memoryId: string, archived: boolean): Promise<Memory>;
@@ -1502,16 +1615,24 @@ export interface ApiClient {
     ): Promise<CustomConnectStart>;
     /** Lists the server's tools again; new ones come back unclassified. */
     refresh(orgId: string, serverId: string): Promise<CustomServer>;
-    /** Saves the classification; only classified tools become available to agents. */
+    /**
+     * Saves the classification; only classified tools become available to agents. `useInstructions`, when given:
+     * whether agents get the server's own instructions.
+     */
     saveTools(
       orgId: string,
       serverId: string,
-      input: { label: string; tools: { name: string; access: ToolDecision; label: string; confirmed?: boolean }[] },
+      input: {
+        label: string;
+        tools: { name: string; access: ToolDecision; label: string; confirmed?: boolean }[];
+        useInstructions?: boolean;
+      },
     ): Promise<CustomServer>;
     disconnect(orgId: string, serverId: string): Promise<void>;
     /**
      * The workspace's own OAuth client for the server at this address, and the redirect URI to register (who manages
-     * connectors). A 400 `connector.no_oauth` when the server doesn't sign in with OAuth.
+     * connectors). A 400 `connector.no_oauth` when the server doesn't sign in with OAuth, `connector.oauth_discovery`
+     * when its OAuth details can't be read.
      */
     ownClient(orgId: string, serverUrl: string): Promise<OwnOAuthClient>;
     /**
@@ -1775,6 +1896,8 @@ export interface ApiClient {
     /** Continuar agora on a run paused near its plan's or budget's limit (`usagePause`): it goes on now. */
     continueUsage(orgId: string, id: string): Promise<Routine>;
     runs(orgId: string, id: string): Promise<RoutineRun[]>;
+    /** The calls a webhook routine's run carried, as kept (who manages it). */
+    runCalls(orgId: string, id: string, runId: string): Promise<RoutineRunCall[]>;
     /** A phrase → rule, its description, cron and next 5 runs. */
     parseRule(orgId: string, phrase: string, timezone?: string): Promise<RuleInfo>;
     /** A rule → its description, cron and next 5 runs (the picker's sentence). */
@@ -1789,8 +1912,8 @@ export interface ApiClient {
     hook(orgId: string, id: string): Promise<RoutineHook>;
     /** A new address: the old one stops at once. */
     newHookAddress(orgId: string, id: string): Promise<RoutineHook>;
-    /** A new signing secret, shown this once. */
-    newHookSecret(orgId: string, id: string): Promise<{ secret: string; hook: RoutineHook }>;
+    /** A new signing secret, shown this once; `pasted`: the service's own (Linear's) instead. */
+    newHookSecret(orgId: string, id: string, pasted?: string): Promise<{ secret: string; hook: RoutineHook }>;
     removeHookSecret(orgId: string, id: string): Promise<RoutineHook>;
     /** "Testar": a sample call; the agent is told it is a test. */
     testHook(orgId: string, id: string): Promise<{ runId: string | null; hook: RoutineHook }>;
@@ -1932,6 +2055,8 @@ export interface ApiClient {
     keep(orgId: string, id: string): Promise<Artifact>;
     /** Sends what a person picked in a block to the agent that made it, as their own message. */
     reply(orgId: string, id: string, text: string, clientId: string): Promise<{ id: string }>;
+    /** Keeps an audio file's wave and length, measured here; the server keeps the first one measured (and returns it). */
+    setWave(orgId: string, id: string, version: number, wave: FileWave): Promise<FileWave>;
     /** A block's state, the same for everyone (ADR 0113). */
     blockState(orgId: string, id: string, version: number): Promise<BlockState>;
     /** Sets values in a block for everyone. */
@@ -2271,8 +2396,15 @@ export interface ApiClient {
     create(orgId: string, input: VaultItemInput): Promise<VaultItem>;
     update(orgId: string, itemId: string, patch: VaultItemPatch): Promise<VaultItem>;
     remove(orgId: string, itemId: string): Promise<void>;
-    /** A passwords file's text; `dryRun` only counts. 413 `vault.csv_too_large` past 2 MB. */
-    importCsv(orgId: string, input: { csv: string; scope: VaultScope; dryRun: boolean }): Promise<VaultImportResult>;
+    /** Many items at once: what this person may not change is left and counted in `kept`. */
+    setAccessMany(orgId: string, ids: string[], access: VaultAccess): Promise<{ changed: number; kept: number }>;
+    /** A password manager's items still in it are left too. */
+    removeMany(orgId: string, ids: string[]): Promise<{ deleted: number; kept: number }>;
+    /**
+     * A passwords file's text; `dryRun` only counts. `access` is the new logins' (absent: the scope's default). 413
+     * `vault.csv_too_large` past 2 MB.
+     */
+    importCsv(orgId: string, input: VaultImportInput): Promise<VaultImportResult>;
     /** Several keys in one save (an imported .env). 403 `vault.team_needs_permission` for the team's without it. */
     importKeys(orgId: string, input: VaultKeysImportInput): Promise<VaultKeysImportResult>;
     /**
@@ -2322,6 +2454,19 @@ export interface ApiClient {
     /** 409 `token_limit` past 10 live tokens per person here. */
     createToken(orgId: string, input: PersonalTokenInput): Promise<CreatedPersonalToken>;
     revokeToken(orgId: string, grantId: string): Promise<void>;
+  };
+  /**
+   * Integration apps (ADR 0251), for who may manage connectors: programs that post in chosen channels as themselves.
+   * A token (`agi_…`) and a webhook's signing secret show once, in the answer that made them.
+   */
+  integrationApps: {
+    list(orgId: string): Promise<IntegrationApp[]>;
+    create(orgId: string, input: IntegrationAppInput): Promise<IntegrationAppSecrets>;
+    update(orgId: string, appId: string, input: Partial<IntegrationAppInput>): Promise<IntegrationAppSecrets>;
+    newToken(orgId: string, appId: string): Promise<IntegrationAppSecrets>;
+    revokeToken(orgId: string, appId: string): Promise<IntegrationApp>;
+    newWebhookSecret(orgId: string, appId: string): Promise<IntegrationAppSecrets>;
+    remove(orgId: string, appId: string): Promise<void>;
   };
   /** "Lembrar": one-off reminders in conversations (also routines in Rotinas). */
   reminders?: {

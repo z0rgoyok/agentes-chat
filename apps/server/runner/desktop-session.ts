@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createCipheriv, createHash, randomBytes, randomInt } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import {
@@ -23,6 +23,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import {
   type AgentScope,
   DESKTOP_SIZE,
+  type DesktopStart,
   type MachineReplies,
   type RunnerDesktopInfo,
 } from "@agenteschat/adapters/machine-protocol";
@@ -74,11 +75,13 @@ import { KeyedQueue } from "./queue";
  *   most 3 times in 10 minutes) when it ends by itself. It stops when its
  *   agent leaves this computer, or its workspace is suspended.
  * - Parked only when room runs short (`makeRoom`, before a desktop or a
- *   headed Chrome starts): the least recently used ones nobody watches or
- *   uses, untouched for `PARK_AFTER_MS`, until `MIN_FREE_BYTES` are free and,
- *   for a new desktop, a display. Or all such ones at once when the server
+ *   headed Chrome starts, and at each sweep while memory is short): the least
+ *   recently used ones nobody watches or uses, untouched for `PARK_AFTER_MS`
+ *   (`STALE_WORK_MS` with work running on it), until `MIN_FREE_BYTES` are free
+ *   and, for a new desktop, a display. Or all such ones at once when the server
  *   hosting the computer runs short (`parkIdle`, an operator's `park`). One
- *   parked keeps what was open on it and opens it again at its next start.
+ *   parked keeps what was open on it and opens it again at its next start;
+ *   its Terminals and other apps end with its session and screen server.
  * - Desktops outlive the runner (their own sessions; the service has
  *   `KillMode=process`): the next runner takes them back from
  *   `<runner home>/desktop/<id8>.json` once the pid there is still that
@@ -99,6 +102,11 @@ import { KeyedQueue } from "./queue";
 export const MIN_FREE_BYTES = 1.5 * 1024 ** 3;
 /** A desktop untouched this long, unwatched and unused, may be parked (an open request keeps it touched). */
 export const PARK_AFTER_MS = 60 * 60_000;
+/**
+ * One untouched this long may be parked when room runs short even with a command running in a Terminal or an app
+ * open (`holdsWork`): a dev server or a watcher nobody came back to for a day holds memory the computer needs.
+ */
+export const STALE_WORK_MS = 24 * 60 * 60_000;
 const SWEEP_MS = 60_000;
 /** Xvnc listens within a few hundred ms. */
 const XVNC_START_MS = 5000;
@@ -303,6 +311,34 @@ export function hostMemAvailable(): number | null {
     return null;
   }
 }
+
+/** `kern.memorystatus_level` (the share of memory macOS can hand out now, in percent) in bytes; null when unreadable. */
+export function pressureLevelBytes(level: string, totalBytes: number): number | null {
+  const text = level.trim();
+  const n = Number(text);
+  return text !== "" && Number.isInteger(n) && n >= 0 && n <= 100 ? (n / 100) * totalBytes : null;
+}
+
+/**
+ * Free memory now, for background tasks' room: Linux `MemAvailable`, macOS its memory-pressure level (`os.freemem()`
+ * reads near zero on a healthy Mac, whose free memory sits in caches it hands back; the level counts them, and reads
+ * more than vm_stat's free + inactive + speculative + purgeable), Windows its available physical memory (`os.freemem()`
+ * there is libuv's `uv_get_available_memory`, `MEMORYSTATUSEX.ullAvailPhys`, standby list included; Bun 1.4 and
+ * libuv source, 2026-11). Null where none can be read.
+ */
+export function freeMemoryNow(): number | null {
+  if (process.platform === "linux") return hostMemAvailable();
+  if (process.platform === "win32") return os.freemem();
+  if (process.platform !== "darwin") return null;
+  const r = spawnSync("sysctl", ["-n", "kern.memorystatus_level"], { encoding: "utf8", timeout: 2000 });
+  return r.status === 0 ? pressureLevelBytes(r.stdout, os.totalmem()) : null;
+}
+
+/** The processor has stayed over 90% busy for the last minute: the 1-minute load average against its CPUs (0 on Windows). */
+export const cpuBusyNow = (load = os.loadavg()[0] ?? 0, cpus = os.availableParallelism()) => load >= 0.9 * cpus;
+
+/** What a background task's start reads (`TaskManagerOptions.room`). */
+export const taskRoomNow = () => ({ free: freeMemoryNow(), cpuBusy: cpuBusyNow() });
 
 /** Where and as whom an agent's desktop runs. */
 export interface DesktopUser {
@@ -587,6 +623,8 @@ export interface DesktopSessionsOptions {
   inUse?: (agentId: string) => boolean;
   /** A viewer of the agent's desktop came or went (`status().streams`). */
   onViewers?: (agentId: string) => void;
+  /** A start ended: where its time went, or the code it failed with (the server's `desktop.started`). */
+  onStarted?: (agent: AgentScope, start: DesktopStart) => void;
   /** Browser on the agent's desktop was clicked (`desktop-browser.ts`); without it the desktop has no socket for it. */
   openBrowser?: (agent: AgentScope, installing: () => void) => Promise<void>;
   /** How this runner starts itself, which Browser runs (default: this process). */
@@ -613,6 +651,8 @@ interface Saved {
   look?: string;
   /** Its Xtigervnc has these `LIVE_PARAMS`, from its flags or a `refresh`; none from an earlier runner. */
   params?: string[];
+  /** When it was last used, as of the last sweep, so a runner that takes it back keeps its idle time. */
+  usedAt?: number;
 }
 
 interface Desktop extends Saved {
@@ -725,7 +765,8 @@ function parseSaved(v: unknown): Saved | null {
   }
   // A look or flags that can't be read are taken as not there: a refresh sets them again.
   const params = Array.isArray(v.params) && v.params.every((p) => typeof p === "string") ? v.params : undefined;
-  return { ...(v as unknown as Saved), look: typeof v.look === "string" ? v.look : undefined, params };
+  const usedAt = Number.isFinite(v.usedAt) ? (v.usedAt as number) : undefined;
+  return { ...(v as unknown as Saved), look: typeof v.look === "string" ? v.look : undefined, params, usedAt };
 }
 
 /** What `<id8>.json` keeps of a desktop: its `Saved` part alone. */
@@ -742,6 +783,7 @@ const savedOf = (d: Desktop): Saved => ({
   startedAt: d.startedAt,
   look: d.look,
   params: d.params,
+  usedAt: d.lastUsed,
 });
 
 const iso = (ms: number) => new Date(ms).toISOString();
@@ -754,11 +796,15 @@ export class DesktopSessions {
   private readonly operations = new Map<string, number>();
   /** When each agent's desktop was started again after ending by itself. */
   private readonly restarts = new Map<string, number[]>();
+  /** Each agent's desktop start under way for `ensure`: another `ensure` meanwhile gets its outcome. */
+  private readonly starting = new Map<string, Promise<MachineReplies["desktop.session.start"]>>();
   /** Displays of desktops being started. */
   private readonly claimed = new Set<number>();
   /** Refreshes run one after another: each starts dozens of short processes on the computer. */
   private refreshes: Promise<void> = Promise.resolve();
   private sweepTimer: ReturnType<typeof setInterval> | null = null;
+  /** A sweep's `makeRoom` still parking. */
+  private relieving = false;
   /** The runner is stopping (`close`). */
   private stopping = false;
   private readonly sys: DesktopSystem;
@@ -805,7 +851,10 @@ export class DesktopSessions {
    * `chrome`: the agent's Chrome is about to start on it, so there must be room for that too.
    */
   ensure(agent: AgentScope, opts: { chrome?: boolean } = {}): Promise<MachineReplies["desktop.session.start"]> {
-    return this.serial(agent.id, async () => {
+    // A viewer's retry while its first open still starts the desktop: the same start, never a second one after it.
+    const under = this.starting.get(agent.id);
+    if (under && !opts.chrome) return under;
+    const run = this.serial(agent.id, async () => {
       let d = this.desktops.get(agent.id);
       const running = d !== undefined && this.alive(d);
       if (d && running) {
@@ -815,7 +864,14 @@ export class DesktopSessions {
         if (d) await this.end(d);
         const info = this.info();
         if (!info.available) throw new RunnerError("desktop_unavailable", info.reason ?? "Desktops can't run here");
-        d = await this.start(agent);
+        const began = this.now();
+        try {
+          d = await this.start(agent);
+        } catch (err) {
+          const error = err instanceof RunnerError ? err.code : "internal";
+          this.opts.onStarted?.(agent, { ms: this.now() - began, error });
+          throw err;
+        }
       }
       if (opts.chrome && !(await this.makeRoom(agent.id))) {
         throw new RunnerError(
@@ -825,6 +881,14 @@ export class DesktopSessions {
       }
       return this.started(d, !running);
     });
+    if (!opts.chrome && this.processId(agent.id) === null) {
+      this.starting.set(agent.id, run);
+      const done = () => {
+        if (this.starting.get(agent.id) === run) this.starting.delete(agent.id);
+      };
+      run.then(done, done);
+    }
+    return run;
   }
 
   /**
@@ -870,7 +934,7 @@ export class DesktopSessions {
 
   /**
    * Nobody watches it, its agent doesn't use it, nothing touched it for `PARK_AFTER_MS`, and parking loses nothing
-   * (`holdsWork`).
+   * (`holdsWork`) or nothing touched it for `STALE_WORK_MS`.
    * ponytail: parking closes what was left open on the least-used desktops, which on 8 GB happens only with many
    * agents browsing at once; a per-agent memory measure replaces the hour rule if that ever bites.
    */
@@ -880,7 +944,7 @@ export class DesktopSessions {
       d.streams === 0 &&
       this.now() - d.lastUsed >= PARK_AFTER_MS &&
       !this.opts.inUse?.(d.agent.id) &&
-      !this.holdsWork(d)
+      (this.now() - d.lastUsed >= STALE_WORK_MS || !this.holdsWork(d))
     );
   }
 
@@ -986,7 +1050,7 @@ export class DesktopSessions {
   /**
    * Desktops a previous run of the runner left running are taken back when
    * the pid it saved is still that display's Xtigervnc (a pid can be
-   * reused); the others' files go.
+   * reused), last used when the file says; the others' files go.
    */
   restore() {
     let names: string[];
@@ -1003,7 +1067,7 @@ export class DesktopSessions {
         const d: Desktop = {
           ...saved,
           file,
-          lastUsed: this.now(),
+          lastUsed: Math.min(saved.usedAt ?? this.now(), this.now()),
           streams: 0,
           refresh: { current: false, queued: false, params: false, look: false },
         };
@@ -1020,7 +1084,9 @@ export class DesktopSessions {
    * Desktops that ended by themselves start again (one taken back from an earlier runner has no exit to wait
    * on). The agent's Chrome in use on one touches it, so it isn't parked as soon as that Chrome closes. A running
    * one gets what changed since it started (`refresh`); the promise settles once those refreshes are over. One this
-   * runner started says how its session's start went (`sessionStart`), once that is over.
+   * runner started says how its session's start went (`sessionStart`), once that is over. Its last use goes in its
+   * file. While the computer is short of memory, the desktops `parkable` says are parked (`makeRoom`), so an idle one
+   * doesn't wait for the next desktop or Chrome to start.
    */
   sweep(): Promise<void> {
     let procs: ProcessStat[] | undefined;
@@ -1034,6 +1100,13 @@ export class DesktopSessions {
         continue;
       }
       if (this.opts.inUse?.(d.agent.id)) d.lastUsed = this.now();
+      if (d.usedAt !== d.lastUsed) {
+        try {
+          this.persist(d);
+        } catch {
+          // A full disk: a runner that takes it back counts it as just used, as before.
+        }
+      }
       const settled = this.now() - d.startedAt >= SESSION_SETTLED_MS;
       if (d.untold && settled) this.sessionStart(d, processes());
       const open = d.reopen;
@@ -1052,6 +1125,12 @@ export class DesktopSessions {
         // sweep.
         this.refreshes = this.refreshes.then(() => this.serial(d.agent.id, () => this.refresh(d)).catch(() => {}));
       }
+    }
+    if (!this.relieving) {
+      this.relieving = true;
+      void this.makeRoom("").finally(() => {
+        this.relieving = false;
+      });
     }
     return this.refreshes;
   }
@@ -1372,6 +1451,16 @@ export class DesktopSessions {
         this.opts.log(
           `the desktop of ${agent.handle} started on :${display} in ${seconds(now - began)}: room and its user ${seconds(userAt - began)}, prepared in ${seconds(preparedAt - userAt)}, its screen in ${seconds(screenAt - preparedAt)} (the look in ${seconds(lookMs)} meanwhile), its session in ${seconds(now - sessionAt)}`,
         );
+        this.opts.onStarted?.(agent, {
+          ms: now - began,
+          steps: {
+            room: userAt - began,
+            prepared: preparedAt - userAt,
+            screen: screenAt - preparedAt,
+            look: lookMs,
+            session: now - sessionAt,
+          },
+        });
         return d;
       } finally {
         closeSync(log);
@@ -1513,6 +1602,7 @@ export class DesktopSessions {
   }
 
   private persist(d: Desktop) {
+    d.usedAt = d.lastUsed;
     writeJson(d.file, savedOf(d));
   }
 

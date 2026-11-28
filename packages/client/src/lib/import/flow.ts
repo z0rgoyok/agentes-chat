@@ -431,6 +431,13 @@ export function agentsArrived(
   return out;
 }
 
+/** The channels and agents an apply made (not those it updated or left), in order: where Lodi's cursor shows them land. */
+export function madeByImport(applied: readonly ImportItemResult[]): { channelIds: string[]; agentIds: string[] } {
+  const made = (kind: ImportItemResult["kind"]) =>
+    applied.flatMap((i) => (i.kind === kind && i.action === "create" && i.targetId ? [i.targetId] : []));
+  return { channelIds: made("channel"), agentIds: made("agent") };
+}
+
 /** The line each agent keeps in its memory about where its files are: a note the import brings (once). */
 export const filesNotes = (folders: ReadonlyMap<string, string>, line: (folder: string) => string): BundleNote[] =>
   [...folders].map(([agent, folder]) => ({

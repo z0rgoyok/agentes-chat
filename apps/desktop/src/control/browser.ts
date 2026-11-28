@@ -1,4 +1,4 @@
-import type { ControlBrowser, ControlStatus } from "@agenteschat/adapters/runner-control";
+import type { ControlAppUse, ControlBrowser, ControlStatus } from "@agenteschat/adapters/runner-control";
 
 /** Preference: a macOS notification when an agent asks for help in its browser (off by default). */
 export const BROWSER_NOTIFY_PREF = "notifyBrowser";
@@ -35,11 +35,22 @@ export function browsersOf(status: ControlStatus | null | undefined): ControlBro
   return (status?.browsers ?? []).filter((b) => b.open || b.handoff);
 }
 
-/** The tray's badge: a dot when an agent needs a person, a ring while one is in its browser. */
-export function browserBadgeOf(statuses: readonly (ControlStatus | null | undefined)[]): "needs" | "browsing" | null {
+/** An app counts as in use this long after the agent's last command in it (it thinks between steps). */
+export const APP_BUSY_MS = 90_000;
+
+/** The agents using the person's apps now (ADR 0258): "<Agent> is using <App>" with Stop. */
+export function appUsesOf(status: ControlStatus | null | undefined, now = Date.now()): ControlAppUse[] {
+  return (status?.apps ?? []).filter((u) => now - Date.parse(u.actedAt) < APP_BUSY_MS);
+}
+
+/** The tray's badge: a dot when an agent needs a person, a ring while one is in its browser or the person's apps. */
+export function browserBadgeOf(
+  statuses: readonly (ControlStatus | null | undefined)[],
+  now = Date.now(),
+): "needs" | "browsing" | null {
   const all = statuses.flatMap(browsersOf);
   if (all.some((b) => b.handoff?.status === "pending")) return "needs";
-  return all.length > 0 ? "browsing" : null;
+  return all.length > 0 || statuses.some((s) => appUsesOf(s, now).length > 0) ? "browsing" : null;
 }
 
 /**

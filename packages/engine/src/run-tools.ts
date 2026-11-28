@@ -32,6 +32,7 @@ import {
 } from "./questions";
 import { PASS_TOOL } from "./reply-policy";
 import { routineBriefOf } from "./routine-brief";
+import { heldHereIds } from "./run-inbox";
 import { type RunRow, runColumns } from "./run-state";
 import type { BridgeIdentity } from "./run-tool-tokens";
 import { type AgentRun, replyThreadOf } from "./runs";
@@ -997,6 +998,8 @@ export async function postPauseCards(tx: Executor, run: RunRow, requests: PauseR
     }
   }
 
+  // What its requests wait for once approved: what it was told already waited here when it started (ADR 0182).
+  const afterIds = requests.approvals.length > 0 ? await heldHereIds(tx, run) : [];
   for (const approval of requests.approvals) {
     const meta = {
       ...bodyCode("approval_request", { title: approval.title }),
@@ -1016,8 +1019,8 @@ export async function postPauseCards(tx: Executor, run: RunRow, requests: PauseR
       orgId: run.orgId,
       agentId: run.agentId,
       channelId: to.channelId,
-      threadId: to.threadId,
       threadRootId: approval.threadRootId,
+      runId: run.id,
       exceptId: approval.id,
     });
     if (joined && (await linkRunActions(tx, run.orgId, run.id, joined)) > 0) out.withReceipts.push(joined);
@@ -1026,6 +1029,7 @@ export async function postPauseCards(tx: Executor, run: RunRow, requests: PauseR
       .update(approvals)
       .set({
         messageId,
+        afterIds,
         // A routine's approval lives where its card is: decided, announced and listed there.
         ...(brief ? { channelId: home.channelId, threadRootId: home.threadId ?? messageId } : {}),
       })

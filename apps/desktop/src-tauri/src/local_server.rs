@@ -2295,28 +2295,26 @@ const KEEP_BACKUPS: usize = 2;
 const NIGHTLY_HOUR: &str = "030000";
 
 /// Now on this computer's clock as `YYYY-MM-DD-HHMMSS` (backups' names), read from the system's time zone without
-/// starting a program (the nightly check asks every minute); None on Windows, whose builds don't carry the server.
+/// starting a program (the nightly check asks every minute). None only when the clock can't be read; the nightly
+/// backup never runs without it.
 fn local_stamp() -> Option<String> {
     #[cfg(unix)]
-    {
+    let (year, month, day, hour, minute, second) = {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() as libc::time_t;
         // SAFETY: `localtime_r` fills `tm` from `now`; both live on this stack frame for the call.
         let mut tm: libc::tm = unsafe { std::mem::zeroed() };
         if unsafe { libc::localtime_r(&now, &mut tm) }.is_null() {
             return None;
         }
-        Some(format!(
-            "{:04}-{:02}-{:02}-{:02}{:02}{:02}",
-            tm.tm_year + 1900,
-            tm.tm_mon + 1,
-            tm.tm_mday,
-            tm.tm_hour,
-            tm.tm_min,
-            tm.tm_sec
-        ))
-    }
-    #[cfg(not(unix))]
-    None
+        (tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec)
+    };
+    #[cfg(windows)]
+    let (year, month, day, hour, minute, second) = {
+        // SAFETY: `GetLocalTime` takes nothing and returns the local time by value.
+        let t = unsafe { windows::Win32::System::SystemInformation::GetLocalTime() };
+        (t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond)
+    };
+    Some(format!("{year:04}-{month:02}-{day:02}-{hour:02}{minute:02}{second:02}"))
 }
 
 /// The backups `backup` wrote in `dir` (`agentes-*.tar.gz`), newest first. Only those: the "Copy to" folder is the
@@ -2388,8 +2386,9 @@ pub fn nightly(app: &AppHandle) {
         let server = app.state::<LocalServer>();
         let Ok(_busy) = server.busy.try_lock() else { continue };
         state(&app).nightly_tried = now.get(..10).map(str::to_string);
-        if let Err(err) = backup(&app) {
-            note(&app, format!("nightly backup: {err}"));
+        match backup(&app) {
+            Ok(_) => note(&app, format!("nightly backup: done {now}")),
+            Err(err) => note(&app, format!("nightly backup: {err}")),
         }
     });
 }
@@ -3153,6 +3152,13 @@ mod tests {
         assert_eq!(owner_refusal(401, &says("OWNER_GONE")), None, "only the server's conflict carries it");
         assert_eq!(owner_refusal(400, "{\"message\":\"The owner's name and email are needed\"}"), None, "an older server");
         assert_eq!(owner_refusal(409, "not json"), None);
+    }
+
+    #[test]
+    fn the_backups_clock_reads_on_every_platform() {
+        let stamp = local_stamp().expect("the nightly backup needs this computer's clock");
+        let shape = |(i, c): (usize, char)| if [4, 7, 10].contains(&i) { c == '-' } else { c.is_ascii_digit() };
+        assert!(stamp.len() == 17 && stamp.char_indices().all(shape), "{stamp}");
     }
 
     #[cfg(unix)]

@@ -157,6 +157,11 @@ function sendWithProgress(
   });
 }
 
+let writing = 0;
+
+/** Writes on their way now (a message sent, an upload), from every requester: a page reloading would cut them. */
+export const writesInFlight = () => writing;
+
 export function createRequester(options: TransportOptions = {}) {
   const t = transport(options);
   const readTimeoutMs = options.readTimeoutMs ?? READ_TIMEOUT_MS;
@@ -181,6 +186,7 @@ export function createRequester(options: TransportOptions = {}) {
     const deadline = method === "GET" ? new AbortController() : null;
     const timer = deadline ? setTimeout(() => deadline.abort(), readTimeoutMs) : null;
     const signal = deadline?.signal ?? options.signal;
+    if (!deadline) writing++;
     try {
       const progress = options.onUploadProgress;
       const xhr = progress && method === "POST" && !t.ownFetch ? platformXhr() : undefined;
@@ -206,6 +212,7 @@ export function createRequester(options: TransportOptions = {}) {
       throw error;
     } finally {
       if (timer) clearTimeout(timer);
+      if (!deadline) writing--;
     }
   };
 }
@@ -249,24 +256,29 @@ export function createFileRequester(options: TransportOptions = {}) {
   return {
     /** `POST` a form; the platform sets the multipart boundary. With `onProgress`, by `XMLHttpRequest` where there is one. */
     async upload<T>(path: string, form: FormData, upload?: UploadOptions): Promise<T> {
-      const headers = { ...(t.headers ? await t.headers() : {}), accept: "application/json" };
-      const Xhr = upload?.onProgress && !t.ownFetch ? platformXhr() : undefined;
-      const res =
-        Xhr && upload?.onProgress
-          ? await sendWithProgress(
-              Xhr,
-              t.base + path,
-              { headers, body: form, credentials: t.credentials, signal: upload.signal },
-              upload.onProgress,
-            )
-          : await t.fetch(t.base + path, {
-              method: "POST",
-              headers,
-              credentials: t.credentials,
-              body: form,
-              ...(upload?.signal ? { signal: upload.signal } : {}),
-            });
-      return parseResponse<T>(res);
+      writing++;
+      try {
+        const headers = { ...(t.headers ? await t.headers() : {}), accept: "application/json" };
+        const Xhr = upload?.onProgress && !t.ownFetch ? platformXhr() : undefined;
+        const res =
+          Xhr && upload?.onProgress
+            ? await sendWithProgress(
+                Xhr,
+                t.base + path,
+                { headers, body: form, credentials: t.credentials, signal: upload.signal },
+                upload.onProgress,
+              )
+            : await t.fetch(t.base + path, {
+                method: "POST",
+                headers,
+                credentials: t.credentials,
+                body: form,
+                ...(upload?.signal ? { signal: upload.signal } : {}),
+              });
+        return await parseResponse<T>(res);
+      } finally {
+        writing--;
+      }
     },
     /** The bytes of a download. */
     async blob(path: string): Promise<Blob> {

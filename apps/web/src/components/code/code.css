@@ -1228,7 +1228,7 @@ html:not([data-pointer]) .code-tabs :is(.code-tabs__tab, .code-tabs__open, .code
 }
 .code-sstage.is-full {
   position: fixed;
-  inset: 0;
+  inset: var(--window-top) 0 0;
   z-index: 60;
   background: var(--sunken);
 }

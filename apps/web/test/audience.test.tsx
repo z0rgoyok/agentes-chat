@@ -84,6 +84,11 @@ describe("Quem pode falar com a Ada", () => {
         .closest("label")?.textContent,
     ).toMatch(/^Suporte\d+ pessoas?$/);
     expect(results.querySelector(".ac-rolemark")).toBeTruthy();
+    // A role's mark is a person's face's size, so both lists' names start on one edge.
+    const mark = results.querySelector<HTMLElement>(".scope-row .ac-rolemark");
+    const face = results.querySelector<HTMLElement>(".scope-row .ac-avatar");
+    expect(mark?.style.width).toBe("24px");
+    expect(face?.classList.contains("ac-avatar--sm")).toBe(true);
     const search = within(section).getByRole("searchbox", { name: "Buscar cargos e pessoas" });
     await act(async () => fireEvent.change(search, { target: { value: "sup" } }));
     expect(results.textContent).toContain("Suporte");
@@ -148,9 +153,9 @@ describe("Quem pode falar com a Ada", () => {
     await go(`c/${ENG_ID}`, withDm);
     const nav = screen().getByRole("navigation", { name: "Navegação do workspace" });
     const sidebarAda = within(nav).getByRole("link", { name: /^Ada/ });
-    // In the sidebar: who she talks to in place of her role, and a lock that says it whole. The chip is in the DM's
+    // In the sidebar: one line, who she talks to in its title and a lock that says it whole. The chip is in the DM's
     // header.
-    expect(sidebarAda.textContent).toContain("só fala com João");
+    expect(sidebarAda.getAttribute("title")).toContain("só fala com João");
     expect(within(sidebarAda).getByRole("img", { name: "Pessoal" }).getAttribute("title")).toBe(
       "A Ada só responde a João.",
     );

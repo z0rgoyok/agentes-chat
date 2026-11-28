@@ -1,7 +1,7 @@
 import type { Message, MessageVoice } from "@agenteschat/client";
 import { VOICE_WAITING, voiceLocalUrl } from "@agenteschat/client";
 import { voiceAudioGone, voiceAudioUrl, voiceExpired, voiceParts } from "@agenteschat/client/lib/voice";
-import { Icon, VoicePlayer } from "@agenteschat/ui";
+import { Icon, VoicePlayer, type VoicePlayerLabels } from "@agenteschat/ui";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useOrg } from "@/components/org-context";
@@ -17,6 +17,7 @@ export function ChatVoice({ message, voice }: { message: Message; voice: Message
   const { org } = useOrg();
   const url = message.local ? voiceLocalUrl(message.clientId) : voiceAudioUrl(org.id, voice.clipId);
   const speed = useVoiceSpeed();
+  const labels = useVoiceLabels();
   const isGone = useCallback(() => (url ? voiceAudioGone(url) : Promise.resolve(false)), [url]);
   if (!url) return null;
   return (
@@ -36,17 +37,23 @@ export function ChatVoice({ message, voice }: { message: Message; voice: Message
           </>
         ) : undefined
       }
-      labels={{
-        play: t("voice.play"),
-        pause: t("voice.pausePlay"),
-        seek: t("voice.seek"),
-        speed: (speed) => t("voice.speedAt", { speed }),
-        expired: t("voice.expired"),
-        showText: t("voice.showText"),
-        hideText: t("voice.hideText"),
-        cantPlay: t("voice.cantPlay"),
-        retry: t("common.retry"),
-      }}
+      labels={labels}
     />
   );
+}
+
+/** The voice-message player's words, shared by every player of a sound (a voice message, an audio file). */
+export function useVoiceLabels(): VoicePlayerLabels {
+  const { t } = useTranslation();
+  return {
+    play: t("voice.play"),
+    pause: t("voice.pausePlay"),
+    seek: t("voice.seek"),
+    speed: (speed) => t("voice.speedAt", { speed }),
+    expired: t("voice.expired"),
+    showText: t("voice.showText"),
+    hideText: t("voice.hideText"),
+    cantPlay: t("voice.cantPlay"),
+    retry: t("common.retry"),
+  };
 }

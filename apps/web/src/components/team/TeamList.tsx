@@ -1,5 +1,6 @@
 import type { AgentGroup, OrgRole, Team, TeamAgent } from "@agenteschat/client";
 import { useApprovals, useRoles } from "@agenteschat/client";
+import { seesFactsOnly } from "@agenteschat/client/lib/agent-facts";
 import { agentSections } from "@agenteschat/client/lib/agent-groups";
 import { hasAgentOwner, ownerValueOf, ownsAgentAs, roleOfOwnerValue } from "@agenteschat/client/lib/agent-owner";
 import { managesAgent } from "@agenteschat/client/lib/audience";
@@ -131,7 +132,18 @@ function AgentsTable({ agents, groups }: { agents: TeamAgent[]; groups: AgentGro
             <AgentAvatar agentId={a.id} name={a.name} size="sm" />
             <span className="team-who__text">
               <b>{a.name}</b>
-              <span className="muted">@{a.handle}</span>
+              <span className="muted">
+                @{a.handle}
+                {seesFactsOnly(a) && (
+                  <>
+                    {" · "}
+                    <span className="team-private ac-iconline">
+                      <Icon name="lock" size={14} />
+                      {t("agentPage.facts.private")}
+                    </span>
+                  </>
+                )}
+              </span>
             </span>
           </Link>
         </td>

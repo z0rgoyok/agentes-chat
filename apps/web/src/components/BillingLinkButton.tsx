@@ -1,8 +1,11 @@
-import { type BillingFrom, useApi } from "@agenteschat/client";
+import { type BillingFrom, useApi, useAuthConfig } from "@agenteschat/client";
+import { billingHoldOf } from "@agenteschat/client/lib/billing";
+import { can } from "@agenteschat/client/lib/permissions";
 import { Button, type ButtonProps } from "@agenteschat/ui";
 import { useMutation } from "@tanstack/react-query";
 import { useRouterState } from "@tanstack/react-router";
 import { useTranslation } from "react-i18next";
+import { useOrg } from "@/components/org-context";
 import { navigateAway } from "@/lib/navigate";
 import { useToast } from "@/lib/toast";
 
@@ -53,4 +56,22 @@ export function BillingLinkButton({
       {children}
     </Button>
   );
+}
+
+/**
+ * A toast for something only an agentes.chat plan opens: its words, with the way to the plan for whoever pays here,
+ * or who can sort it out for anyone else.
+ */
+export function usePlanToast() {
+  const { t } = useTranslation();
+  const { org } = useOrg();
+  const toast = useToast();
+  const open = useOpenBilling(org.id, "hold");
+  const billingUrl = useAuthConfig().data?.billingUrl;
+  const canPay = can(org, "manage_billing") && Boolean(billingUrl);
+  const hold = billingHoldOf(org.standing) ?? "payment";
+  return (text: string) =>
+    canPay
+      ? toast.show(text, "info", { label: t(`standing.billing.cta.${hold}`), run: () => open.mutate() })
+      : toast.show(text, "info", undefined, t("standing.billing.askAdmin"));
 }

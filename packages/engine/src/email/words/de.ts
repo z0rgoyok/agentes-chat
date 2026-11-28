@@ -641,6 +641,28 @@ export const words: EmailWords = {
       why: (surface) => `Du erhältst diese E-Mail, weil ${surface} mit deinem agentes.chat-Konto verknüpft war.`,
       picture: "Dein Assistent, nicht mehr auf deinem Handy",
     },
+    pinReset: {
+      subject: (surface) => `Wähle deine ${surface}-PIN`,
+      preheader: "Wähle die PIN, mit der du Aktionen über deine Chat-App genehmigst.",
+      headline: (surface) => `Wähle deine ${surface}-PIN`,
+      body: (surface) =>
+        `Jemand hat einen Link angefordert, um die PIN zu wählen, mit der du Aktionen über ${surface} genehmigst. Wenn du das warst, wähle sie auf der Seite, die dieser Button öffnet.`,
+      button: "Meine PIN wählen",
+      small:
+        "Der Link funktioniert einmal, eine Stunde lang. Wenn du das nicht warst, ignoriere diese E-Mail. Es ändert sich nichts.",
+      why: (surface) => `Du erhältst diese E-Mail, weil ${surface} mit deinem agentes.chat-Konto verknüpft ist.`,
+    },
+    pinLocked: {
+      subject: (surface) => `Deine ${surface}-PIN ist gesperrt`,
+      preheader: "Dreimal hintereinander eine falsche PIN. Genehmigen über deine Chat-App ist vorerst pausiert.",
+      headline: (surface) => `Deine ${surface}-PIN ist gesperrt`,
+      body: (surface, time) =>
+        `Jemand hat dreimal hintereinander eine falsche PIN eingegeben, um eine Aktion über ${surface} zu genehmigen. Genehmigen über ${surface} ist für ${time} pausiert.`,
+      lockedFor: ["15 Minuten", "1 Stunde", "24 Stunden"],
+      small: (surface) =>
+        `Wenn du das warst, versuch es später noch einmal. Wenn nicht, heb die Verknüpfung mit ${surface} in deinen Benachrichtigungseinstellungen auf, damit niemand darüber genehmigen kann.`,
+      button: "Benachrichtigungseinstellungen öffnen",
+    },
   },
   supportReply: {
     subject: "Eine Antwort auf deine Hilfeanfrage",

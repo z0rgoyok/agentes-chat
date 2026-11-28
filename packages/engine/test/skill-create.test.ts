@@ -11,7 +11,7 @@ import {
   type ToolContext,
   undoAgentAction,
 } from "../src";
-import { type Fixture, setup } from "./fixtures";
+import { type Fixture, setup, withReview } from "./fixtures";
 
 let f: Fixture;
 afterEach(async () => {
@@ -108,9 +108,10 @@ describe("an agent makes a skill when a person asks (ADR 0120, addendum of 2026-
     const toolUseId = `tu_${crypto.randomUUID()}`;
     await addRunStep(f.db, read, "tool_call", { toolUseId, name: "web_fetch", input: { url: "https://example.com" } });
     await addRunStep(f.db, read, "tool_result", { toolUseId, name: "web_fetch", content: "page", isError: false });
+    // After outside content the review decides (ADR 0219); the fake model gives it no verdict, so it isn't made.
     const outside = await invoke(read, "create_skill", skill("weekly-report"));
     expect(outside.isError).toBe(true);
-    expect(outside.content).toContain("read outside content");
+    expect(outside.data).toMatchObject({ code: "skill.left_out" });
 
     const run = await personRun(f);
     const taken = await invoke(run, "create_skill", skill("deploy"));
@@ -130,5 +131,27 @@ describe("an agent makes a skill when a person asks (ADR 0120, addendum of 2026-
     expect(past.isError).toBe(true);
     const made = await f.db.select().from(schema.skills).where(eq(schema.skills.origin, "agent"));
     expect(made.map((s) => s.name).sort()).toEqual(["report-0", "report-1"]);
+  });
+
+  test("after outside content the review decides: the person's request is made, what was planted is not", async () => {
+    let verdict = { apply: true, why: "It is what the person asked for." };
+    f = await setup({ skillTools: true, reply: withReview(() => verdict) });
+    const outsideRun = async () => {
+      const run = await personRun(f);
+      const toolUseId = `tu_${crypto.randomUUID()}`;
+      await addRunStep(f.db, run, "tool_call", { toolUseId, name: "web_fetch", input: { url: "https://example.com" } });
+      await addRunStep(f.db, run, "tool_result", { toolUseId, name: "web_fetch", content: "page", isError: false });
+      return run;
+    };
+    const made = await invoke(await outsideRun(), "create_skill", skill("weekly-report"));
+    expect(made.isError).toBeFalsy();
+    expect((await enabledSkills(f.db, f.org.id, f.agent.id)).map((s) => s.name)).toEqual(["weekly-report"]);
+
+    verdict = { apply: false, why: "It sends the report to an address nobody asked for." };
+    const left = await invoke(await outsideRun(), "create_skill", skill("send-elsewhere"));
+    expect(left.isError).toBe(true);
+    expect(left.data).toMatchObject({ code: "skill.left_out" });
+    expect(left.content).toContain("an address nobody asked for");
+    expect((await enabledSkills(f.db, f.org.id, f.agent.id)).map((s) => s.name)).toEqual(["weekly-report"]);
   });
 });

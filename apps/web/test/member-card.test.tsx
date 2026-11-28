@@ -171,7 +171,7 @@ describe("a person's card", () => {
       .map((i) => i.textContent);
     expect(items).toEqual([
       "Mensagem direta",
-      "Fixar no topo",
+      "Adicionar aos favoritos",
       "Mencionar",
       "Copiar @joao",
       "Remover do workspace",
@@ -248,7 +248,7 @@ describe("an agent's card", () => {
       "Mensagem direta",
       "Ver perfil",
       "Abrir o computador",
-      "Fixar no topo",
+      "Adicionar aos favoritos",
       "Mencionar",
       "Copiar @ada",
       "Editar agente",

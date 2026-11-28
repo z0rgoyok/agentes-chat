@@ -1,3 +1,4 @@
+import type { DesktopStart } from "@agenteschat/adapters";
 import { and, asc, type Database, type Executor, eq, lt, rowsOf, type SQL, schema, sql } from "@agenteschat/db";
 import { z } from "zod";
 import { decodeCursor, encodeCursor } from "./cursor";
@@ -44,6 +45,7 @@ export type OperatorEventType =
   | "platform_ai.threshold"
   | "account.failure"
   | "machine.wake_wanted"
+  | "desktop.started"
   | "surface.cap_reached"
   | "outside_access.granted"
   | "outside_access.denied"
@@ -227,6 +229,18 @@ export async function recordWakeWanted(
   wakeWantedAt.set(wake.machineId, now);
   const { orgId, ...data } = wake;
   await recordOperatorEvent(db, { type: "machine.wake_wanted", orgId, data });
+}
+
+/**
+ * `desktop.started`: an agent's desktop started on a computer (for a person opening it, the agent's own use or its
+ * browser), with its time in all and per step (ms), or the error code its start failed with.
+ */
+export async function recordDesktopStarted(
+  db: Executor,
+  start: { orgId: string | null; machineId: string; agentId: string } & DesktopStart,
+) {
+  const { orgId, ...data } = start;
+  await recordOperatorEvent(db, { type: "desktop.started", orgId, data });
 }
 
 /** `task.finished`: a task on a computer ended (done, failed, canceled, or interrupted for good). */

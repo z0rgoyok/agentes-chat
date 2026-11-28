@@ -1,0 +1,719 @@
+/*
+ * Skills (its page, a skill's page, an agent's Skills tab, "Teach something new"): rows on hairlines, no card in a
+ * card; a state only as text in its color; the icon on the connector plate, as an app's in Connectors.
+ */
+
+/* ── The skill's icon ── */
+.sk-mark--xl {
+  width: 72px;
+  height: 72px;
+  border-radius: var(--radius-section);
+}
+.sk-mark--xl .ac-icon {
+  width: 32px;
+  height: 32px;
+}
+
+/* ── Faces of who knows it ── */
+.sk-faces {
+  align-items: center;
+}
+.sk-faces__more {
+  margin-left: 6px;
+  font-size: 12.5px;
+  color: var(--ink-muted);
+}
+
+/* ── The Skills page ── */
+.sk-page {
+  gap: 20px;
+}
+.sk-for {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.sk-search {
+  width: 210px;
+}
+.sk-list {
+  --sk-rest: minmax(0, 1fr) 132px 84px 132px;
+  --sk-cols: 44px var(--sk-rest);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+/* For one agent: who knows it, then whether this one does (no week column). */
+.sk-list:has(.sk-row[data-for]) {
+  --sk-rest: minmax(0, 1fr) 132px 132px;
+}
+.sk-colhead,
+.sk-row {
+  display: grid;
+  grid-template-columns: var(--sk-cols);
+  column-gap: 16px;
+  align-items: center;
+}
+.sk-colhead {
+  padding: 4px 0 8px;
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+  border-bottom: 1px solid var(--line);
+}
+.sk-colhead > :first-child {
+  grid-column: 1 / 3;
+}
+.sk-row {
+  position: relative;
+  padding-block: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.sk-row:last-child {
+  border-bottom: 0;
+}
+/* A face line in a grid: the tile and the words start at the row's top, the name rising to the tile's top
+   (`.ac-captop` on its line); the other columns stay on the row's middle. */
+.sk-row > .sk-mark,
+.sk-row > .sk-row__text {
+  align-self: start;
+}
+
+.sk-row__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+/* In the name's own size and line, which its rise (`.ac-captop`) is measured in; who made it goes under the name when
+   both don't fit, so a narrow row never cuts the name to a letter or two. */
+.sk-row__name {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  column-gap: 8px;
+  min-width: 0;
+  font-size: 15.5px;
+  line-height: 21px;
+}
+.sk-row__name > b,
+.sk-row__link {
+  font-size: 15.5px;
+  line-height: 21px;
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The name opens the skill; the whole row answers it, its own buttons above it. */
+.sk-row__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+}
+.sk-row:has(.sk-row__link):hover {
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+html:not([data-pointer]) .sk-row__link:focus-visible {
+  outline: none;
+}
+html:not([data-pointer]) .sk-row__link:focus-visible::after {
+  box-shadow: var(--focus-ring);
+}
+.sk-row__text small {
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.sk-by {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  font-size: 13.5px;
+  line-height: 18px;
+  color: var(--ink-muted);
+  white-space: nowrap;
+}
+.sk-num {
+  font-size: 15px;
+  color: var(--ink2);
+}
+.sk-num[data-zero] {
+  color: var(--faint);
+}
+.sk-row__end {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+}
+.sk-row__end .ac-btn:not(.ac-btn--ghost) {
+  min-width: 84px;
+  justify-content: center;
+}
+.sk-faces,
+.sk-row__end > * {
+  position: relative;
+  z-index: 1;
+}
+.sk-state {
+  font-size: 13.5px;
+  line-height: 18px;
+  white-space: nowrap;
+  color: var(--ink-muted);
+}
+.sk-state[data-s="ok"] {
+  color: var(--ok);
+}
+.sk-state[data-s="wait"] {
+  color: var(--warn);
+}
+/* A repository's line, and its skills under it once open. */
+/* The chevron opens it, and the whole row through it, as a skill's name does (`.sk-row__link`). */
+.sk-group > .sk-row__end,
+.sk-group .sk-group__toggle {
+  position: static;
+}
+.sk-group .sk-group__toggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-md);
+}
+.sk-group:hover {
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+.sk-group .sk-row__end {
+  color: var(--muted);
+}
+/* Indented by a wider first column: the other columns keep their places. */
+.sk-row[data-in-group] {
+  grid-template-columns: 64px var(--sk-rest);
+}
+.sk-row[data-in-group] > .connector-icon {
+  justify-self: end;
+}
+.sk-none {
+  margin: 12px 0 0;
+}
+.sk-foot {
+  margin: 0;
+}
+@media (max-width: 760px) {
+  .sk-list,
+  .sk-list:has(.sk-row[data-for]) {
+    --sk-rest: minmax(0, 1fr) auto;
+  }
+  /* The name beside the tile, when to use it under both at the row's width (as a MediaRow): never three lines
+     squeezed beside the tile. */
+  .sk-row > .sk-row__text {
+    display: contents;
+  }
+  .sk-row > .sk-mark,
+  .sk-row__name {
+    grid-row: 1;
+  }
+  .sk-row__name {
+    grid-column: 2;
+    align-self: start;
+  }
+  .sk-row > .sk-row__end {
+    grid-row: 1;
+    grid-column: -2;
+  }
+  .sk-row__text > small {
+    grid-row: 2;
+    grid-column: 1 / -1;
+    margin-top: 6px;
+  }
+  .sk-colhead,
+  .sk-row > .sk-faces,
+  .sk-row > .sk-num {
+    display: none;
+  }
+  .sk-search {
+    width: 160px;
+  }
+}
+
+/* ── "Teach something new" ── */
+.sk-teach {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.sk-teach__pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.sk-teach__pair .ac-select,
+.sk-who,
+.sk-who .ac-select__trigger {
+  width: 100%;
+}
+.sk-who .ac-select__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow: visible;
+}
+.sk-who .ac-select__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sk-teach__said {
+  margin: 0;
+  gap: 10px;
+  font-size: 15px;
+  line-height: 21px;
+  color: var(--ink2);
+}
+.sk-teach__draft {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.sk-teach__head {
+  --mediarow-face: 44px;
+  column-gap: 14px;
+}
+.sk-teach__head > .ac-mediarow__head {
+  padding-block-start: calc((var(--mediarow-axis) - 25px) / 2);
+}
+.sk-teach__head h3 {
+  margin: 0;
+  font-size: 19px;
+  line-height: 25px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.sk-teach__head > .ac-mediarow__body {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 21px;
+}
+.sk-teach__body {
+  font-size: 15px;
+  line-height: 22px;
+}
+.sk-teach__body > .md > :first-child,
+.sk-one__body > .md > :first-child {
+  margin-top: 0;
+}
+.sk-teach__draft .ac-eyebrow {
+  margin: 4px 0 -4px;
+}
+.sk-teach__check {
+  margin: 0;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-muted);
+}
+.sk-teach__check .ac-icon {
+  color: var(--ok);
+}
+.sk-teach__check--miss .ac-icon {
+  color: var(--warn);
+}
+.sk-teach__other {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--ink-muted);
+}
+.sk-ask {
+  display: flex;
+  gap: 8px;
+}
+.sk-ask .ac-input {
+  flex: 1;
+  min-width: 0;
+}
+/* One way in alone (a GitHub link or a .zip): the install dialog without its tabs. */
+.sk-install-one [role="tablist"] {
+  display: none;
+}
+@media (max-width: 560px) {
+  .sk-teach__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* ── A skill's page ── */
+.sk-one {
+  gap: 20px;
+}
+/* Top-aligned: the icon and the actions sit on the title's first line, whatever the line under it wraps to. */
+.sk-one__head {
+  gap: 20px;
+}
+.sk-one__main {
+  flex: 1 1 0%;
+}
+.sk-one__titles {
+  min-width: 0;
+}
+.sk-one__titles h1 {
+  margin-inline: 0;
+  margin-block-end: 0;
+  font: 650 28px / 34px var(--font-sans);
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+/* When to use it, two lines at most; "See more" under it opens the rest. */
+.sk-one__line {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 16px;
+  line-height: 23px;
+  color: var(--ink-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.sk-one__more {
+  margin-top: 4px;
+}
+.sk-one__about {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  text-wrap: pretty;
+}
+/* A box as tall as the title's first line, in its size, rising with it (`.ac-captop`): the buttons centred on it. */
+.sk-one__acts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  font-size: 28px;
+  line-height: 34px;
+}
+.sk-strip {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: var(--space-1);
+  border-block: 1px solid var(--line);
+}
+.sk-strip > div {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 14px 22px;
+  min-width: 0;
+}
+.sk-strip > div + div {
+  box-shadow: inset 1px 0 0 var(--line);
+}
+.sk-strip > div:first-child {
+  padding-left: 0;
+}
+.sk-strip dt {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.sk-strip dd {
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sk-strip dd .ac-link,
+.sk-strip dd .muted {
+  font-weight: 500;
+  font-size: 14px;
+}
+.sk-strip__names {
+  white-space: nowrap;
+}
+.sk-one__grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 44px;
+  align-items: start;
+}
+.sk-one__grid h2 {
+  margin: 0 0 10px;
+  font-size: 17px;
+  line-height: 24px;
+  font-weight: 650;
+  color: var(--ink);
+}
+.sk-one__body {
+  font-size: 15.5px;
+  line-height: 24px;
+}
+.sk-files {
+  margin: 16px 0 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 14px;
+  line-height: 20px;
+}
+.sk-files__one {
+  gap: 6px;
+  color: var(--ink2);
+}
+.sk-files__one .ac-icon {
+  color: var(--faint);
+}
+.sk-askbox {
+  margin-top: 24px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.sk-askbox__label {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sk-askbox small {
+  font-size: 13.5px;
+  line-height: 19px;
+}
+.sk-one__side {
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.sk-lines {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+/* An icon line (`.ac-iconline`) in its first line's size: the face or glyph on that line's capitals, 10 between. */
+.sk-line {
+  column-gap: 10px;
+  padding: 10px 0;
+  font-size: 14.5px;
+  line-height: 20px;
+  border-bottom: 1px solid var(--line);
+}
+.sk-line:last-child {
+  border-bottom: 0;
+}
+.sk-line[data-undone] .sk-line__text b {
+  color: var(--ink-muted);
+  text-decoration: line-through;
+}
+.sk-line__icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--faint);
+}
+.sk-line__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.sk-line__text b,
+.sk-line__open {
+  font-size: 14.5px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.sk-line__open {
+  all: unset;
+  cursor: pointer;
+  font-size: 14.5px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sk-line__open:hover {
+  text-decoration: underline;
+}
+html:not([data-pointer]) .sk-line__open:focus-visible {
+  border-radius: 4px;
+  box-shadow: var(--focus-ring);
+}
+.sk-line__text small {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 13.5px;
+  line-height: 19px;
+  color: var(--ink-muted);
+}
+.sk-line__text .ac-diff {
+  margin-top: 8px;
+}
+.sk-choice {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.sk-choice__line {
+  padding: 12px 0;
+  border-block: 1px solid var(--line);
+}
+.sk-choice__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sk-choice__text {
+  min-width: 0;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 22px;
+  color: var(--ink);
+}
+.sk-choice__text .ac-icon {
+  color: var(--warn);
+}
+.sk-choice__text small {
+  display: block;
+  font-size: 13.5px;
+  line-height: 19px;
+  color: var(--ink-muted);
+}
+.sk-choice__two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 28px;
+}
+.sk-choice__two h3 {
+  margin: 0 0 8px;
+  font-size: 14.5px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sk-quiet {
+  margin: 0;
+}
+@media (max-width: 900px) {
+  .sk-one__grid,
+  .sk-choice__two {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sk-strip > div {
+    padding: 12px 16px 12px 0;
+  }
+  .sk-strip > div + div {
+    box-shadow: none;
+  }
+}
+
+/* ── An agent's Skills tab ── */
+.sk-arows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+}
+/* As the other lists in an agent's cards (a MediaRow, as Access's): the row's padding and a line between rows; the name
+   over when to use it, both left to the face's middle. */
+.sk-arow {
+  position: relative;
+  align-items: center;
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--line);
+}
+.sk-arows > .sk-arow:first-child {
+  border-top: 0;
+}
+.sk-arow > .ac-mediarow__face {
+  margin-block-start: 0;
+}
+.sk-arow > .ac-mediarow__head {
+  flex-flow: column;
+  align-items: flex-start;
+  padding-block-start: 0;
+}
+.sk-arow__name {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.sk-arow .sk-row__link {
+  font-size: 14px;
+  line-height: 20px;
+}
+.sk-arow > .ac-mediarow__end {
+  height: auto;
+}
+.sk-arow > .ac-mediarow__end > :is(.sk-state, .ac-btn, button) {
+  position: relative;
+  z-index: 1;
+}
+.sk-arow:has(.sk-row__link):hover {
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
+}
+.sk-agent__group {
+  margin-top: 6px;
+}
+.sk-agent__self {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: start;
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.sk-agent__self .ac-switch {
+  margin-top: 1px;
+}
+.sk-agent__self label {
+  display: block;
+  font-size: 15px;
+  line-height: 21px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.sk-agent__self small {
+  display: block;
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--ink-muted);
+}

@@ -41,9 +41,10 @@ import {
   type ToolCaller,
   turnAsks,
 } from "./mcp";
-import { isInside, realOrNearest } from "./paths";
+import { isInside, realOrNearest, runTmpEnv } from "./paths";
 import type { Spawn } from "./scope-gate";
 import { holdsSecretFile } from "./secrets";
+import { turnZoneEnv } from "./turn-zone";
 
 /**
  * Claude Code's own tools, served by the agent's worker, for a sign-in shared by several agents. The CLI holding the
@@ -311,6 +312,8 @@ export interface DelegatedScope {
   task?: "mission" | "local";
   /** The CLI's stdin closes after its prompt, so no notice can reach it. */
   oneShot?: boolean;
+  /** The zone of the turn's "Now": its commands' `TZ` (`turnZoneEnv`), as the CLI's own. */
+  timeZone?: string;
 }
 
 /** `agentSecrets`' answer: what commands get, and what no result may show. */
@@ -472,15 +475,22 @@ function notebookContent(raw: string): McpContent[] {
 
 /** `"3"` or `"1-5"`, or null. */
 function pageRange(pages: string) {
-  const m = /^\s*(\d+)\s*(?:-\s*(\d+))?\s*$/.exec(pages);
+  // The spaces before `-` go with it: two runs of spaces in a row would split a long run every way before failing.
+  const m = /^\s*(\d+)(?:\s*-\s*(\d+))?\s*$/.exec(pages);
   if (!m) return null;
   const first = Number(m[1]);
   const last = m[2] === undefined ? first : Number(m[2]);
   return first >= 1 && last >= first ? { first, last } : null;
 }
 
-/** `glob` split as rg takes it: by spaces and commas outside braces. */
-const grepGlobs = (glob: string) => glob.match(/(?:[^\s,{]|\{[^}]*\})+/g) ?? [];
+/**
+ * `glob` split as rg takes it: by spaces and commas outside braces. A `{` with no `}` after it opens nothing and splits
+ * as a comma does; read as one, so the pattern doesn't read on to the end from each.
+ */
+const grepGlobs = (glob: string) => {
+  const closed = glob.lastIndexOf("}") + 1;
+  return `${glob.slice(0, closed)}${glob.slice(closed).replaceAll("{", ",")}`.match(/(?:[^\s,{]|\{[^}]*\})+/g) ?? [];
+};
 
 const relativeTo = (cwd: string, file: string) => {
   const rel = path.relative(cwd, file);
@@ -815,7 +825,12 @@ export class DelegatedTools {
         ["-c", SHELL_SCRIPT, "bash", command, `${file}.cwd`],
         {
           cwd: s.cwd,
-          env: { ...process.env, ...r.secrets?.env },
+          env: {
+            ...process.env,
+            ...r.secrets?.env,
+            ...turnZoneEnv(s.scope.timeZone),
+            ...runTmpEnv(path.join(s.dir, "tmp")),
+          },
           stdio: ["ignore", fd, fd],
           detached: true,
         },
@@ -1413,6 +1428,8 @@ export interface DelegatedBridge {
   task?: "mission" | "local";
   /** `DelegatedScope.oneShot`. */
   oneShot?: true;
+  /** `DelegatedScope.timeZone`. */
+  timeZone?: string;
 }
 
 const strings = (v: unknown) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined);
@@ -1442,6 +1459,7 @@ export function parseBridge(f: Record<string, unknown>): DelegatedBridge | null 
     ...(f.chat === true ? { chat: true as const } : {}),
     ...(f.task === "mission" || f.task === "local" ? { task: f.task } : {}),
     ...(f.oneShot === true ? { oneShot: true as const } : {}),
+    ...(turnZoneEnv(f.timeZone).TZ ? { timeZone: f.timeZone as string } : {}),
   };
 }
 
@@ -1475,6 +1493,7 @@ export function delegatedTask(
       ...(bridge.chat ? { chat: true } : {}),
       ...(bridge.task ? { task: bridge.task } : {}),
       ...(bridge.oneShot ? { oneShot: true } : {}),
+      ...(bridge.timeZone ? { timeZone: bridge.timeZone } : {}),
     }),
   };
 }

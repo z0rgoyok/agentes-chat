@@ -2,7 +2,7 @@ import * as Y from "yjs";
 import { LIVE_LIMITS } from "../limits";
 import { overwriteXml } from "../restore";
 import { blocksText, clipBlocks, isAssetId } from "./blocks";
-import { documentBody, documentChars, documentSource, documentTableCells } from "./ops";
+import { documentBody, documentChars, documentFonts, documentSource, documentTableCells } from "./ops";
 import { DOC_BODY, isDocBlockName } from "./schema";
 import type { DocumentPreview } from "./types";
 import { readBlocks } from "./yjs";
@@ -44,6 +44,8 @@ export function documentPreview(doc: Y.Doc): DocumentPreview {
   };
   const source = documentSource(doc);
   if (source) preview.source = source;
+  const fonts = documentFonts(doc);
+  if (fonts) preview.fonts = fonts;
   return preview;
 }
 

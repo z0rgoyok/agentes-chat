@@ -590,6 +590,27 @@ describe("Aprovar sempre", () => {
     asked(await invoke(gateway, await runOf(f, other.id), "composio_close_ticket", { id: 3, why: WHY }));
   });
 
+  test("approved for good, the tool is listed as running without asking, in the run's list and in find_tools", async () => {
+    f = await setup();
+    const { gateway } = await world(f);
+    const ctx = await runOf(f);
+    const listed = async (c: ToolContext) => (await gateway.list(c)).find((t) => t.name === "composio_close_ticket");
+    const before = await listed(ctx);
+    expect(before?.sensitive).toBe(true);
+    expect(Object.keys(before?.inputSchema.properties ?? {})).toContain("why");
+    const ask = asked(await invoke(gateway, ctx, "composio_close_ticket", { id: 1, why: WHY }));
+    await decide(f, f.owner.id, ask.id, { decision: "approve", always: true });
+    const after = await listed(ctx);
+    expect(after).toMatchObject({ sensitive: false, alwaysApproved: true });
+    expect(Object.keys(after?.inputSchema.properties ?? {})).not.toContain("why");
+    const found = await invoke(gateway, { ...ctx, loadedGroups: [] }, "find_tools", { query: "close a ticket" });
+    expect(found.type === "result" && found.output.content).toContain(
+      "composio_close_ticket (always approved: runs without asking)",
+    );
+    // The call itself runs without a why.
+    expect((await invoke(gateway, ctx, "composio_close_ticket", { id: 2 })).type).toBe("result");
+  });
+
   test("a custom server's tool that asks is offered, a deploy, a delete and a code runner too", async () => {
     f = await setup();
     const mcp = imageMcp();

@@ -19,6 +19,13 @@ type Tt = (key: string, options?: Record<string, unknown>) => string;
 /** The git tool whose grants "Aprovar sempre" keeps by target (`owner/repo:branch`, engine `git/branches.ts`). */
 const BRANCH_PUSH = "request_branch_push";
 
+/**
+ * A git tool of ours by its plain name, whatever the host it is on: GitHub's are plain (`delete_branches`), another
+ * host's carry it first (`gitlab_delete_branches`; engine `git/hosts/refs.ts` `gitToolName`).
+ */
+const plainGitTool = (tool: string) =>
+  tool.replace(/^(?:gitlab|bitbucket|gitserver)_(?=delete_branches$|request_branch_push$)/, "");
+
 /** The app's own tools whose approval title it says in the person's language (`approval.titles.*`). */
 const OWN_TITLES = new Set([
   "run_code",
@@ -79,8 +86,8 @@ function wordedTitle(t: TFunction, approval: TitledApproval): string | null {
   const inner = innerTool(approval);
   if (inner) return toolName(t, partsOf(inner), inner);
   const p = approval.params ?? {};
-  if (OWN_TITLES.has(approval.tool))
-    return t(`approval.titles.${approval.tool}`, {
+  if (OWN_TITLES.has(plainGitTool(approval.tool)))
+    return t(`approval.titles.${plainGitTool(approval.tool)}`, {
       language: say(p.language),
       path: say(p.path),
       skill: say(p.skill),
@@ -355,7 +362,8 @@ export const ownActionName = (t: TFunction, name: string) => {
 
 /** A remembered push (`owner/repo:branch`) in words: "enviar para ana/fix em acme/app". */
 function pushWords(t: TFunction, target: string) {
-  const at = target.indexOf(":");
+  // The branch comes after the last colon: a repository on another host carries one of its own (`gitlab:group/project`).
+  const at = target.lastIndexOf(":");
   return t("approval.always.pushTo", { repo: target.slice(0, at), branch: target.slice(at + 1) });
 }
 
@@ -368,7 +376,7 @@ export function approveAlwaysWords(t: TFunction, approval: Pick<Approval, "appro
   if (!kind) return "";
   if (kind.routineId) return kind.actions.map((name) => ownActionName(t, name)).join(", ");
   if (kind.tool === COMMAND_RULE_TOOL) return kind.actions.join(", ");
-  if (kind.tool === BRANCH_PUSH) return kind.actions.map((target) => pushWords(t, target)).join(", ");
+  if (plainGitTool(kind.tool) === BRANCH_PUSH) return kind.actions.map((target) => pushWords(t, target)).join(", ");
   const tool = toolName(t, partsOf(kind.tool), kind.tool);
   if (sqlReadsTarget(kind.actions[0]) !== null) return tool;
   return kind.actions.length > 0 ? kind.actions.map((slug) => actionName(t, slug)).join(", ") : tool;
@@ -411,7 +419,7 @@ export function approveAlwaysHint(
       ? target
         ? "approval.always.noteReads"
         : "approval.always.noteReadsAll"
-      : approval.approveAlways?.tool === BRANCH_PUSH
+      : plainGitTool(approval.approveAlways?.tool ?? "") === BRANCH_PUSH
         ? "approval.always.noteTarget"
         : approval.approveAlways?.tool === COMMAND_RULE_TOOL
           ? "approval.always.noteCommand"
@@ -433,7 +441,7 @@ export function approvalRuleWords(
     const words = t("approval.always.readsRule", { tool: rule.toolLabel });
     return target ? `${words} · ${target}` : words;
   }
-  if (rule.tool === BRANCH_PUSH && rule.action) return pushWords(t, rule.action);
+  if (plainGitTool(rule.tool) === BRANCH_PUSH && rule.action) return pushWords(t, rule.action);
   if (rule.tool === COMMAND_RULE_TOOL && !rule.connectionId) return rule.action;
   if (rule.action) return actionName(t, rule.action);
   return labelIsName(rule.toolLabel, rule.tool) ? toolName(t, partsOf(rule.tool), rule.tool) : rule.toolLabel;

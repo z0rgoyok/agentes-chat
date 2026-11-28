@@ -8,12 +8,13 @@
 .ac-msg__body .cn-pill {
   margin-inline: 0;
 }
-/* The text itself, under the pill: a quiet rule on its left. */
+/* The text itself, under the pill: on a soft plate, no bar at its side. */
 .cn-line__body {
   align-self: stretch;
-  margin: 2px 0 2px 10px;
-  padding-left: 10px;
-  border-left: 2px solid var(--line);
+  margin: 2px 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--plate);
   font-size: 13.5px;
   line-height: 20px;
   color: var(--ink2);
@@ -63,8 +64,9 @@ html:not([data-pointer]) .cn-line__toggle:focus-visible {
   font-weight: 500;
 }
 .cn-report {
-  padding-left: 10px;
-  border-left: 2px solid var(--line);
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  background: var(--plate);
   font-size: 13.5px;
   line-height: 20px;
   color: var(--ink2);

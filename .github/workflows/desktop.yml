@@ -12,12 +12,13 @@ name: Desktop
 #   Windows  agentes_<v>_x64-setup.exe, agentes_<v>_arm64-setup.exe (+ .sha256, + .sig: the installer is its own
 #            updater bundle)
 #   Linux    agentes_<v>_{amd64,arm64}.deb (+ .sha256), agentes_<v>_{amd64,arm64}.AppImage (+ .sha256, + .sig)
-# Every app carries the runner and agent-browser (ADR 0040), and the server's own files, built once from the
+# Every app carries the runner, agent-browser (ADR 0040) and agent-desktop (ADR 0258), and the server's own files, built once from the
 # same commit (the `server` job: JavaScript and WebAssembly, the same on every system), for "Run agentes.chat
 # on this computer" (ADR 0066; tauri.native.conf.json adds them to the resources). `none` only builds the
 # current version as artifacts. `platforms` can leave systems out, also from a release: the server gives each
 # system the newest release that has its download. macOS runners cost about 10x
-# Linux minutes: this runs only by hand, never per PR; pushing a tag starts nothing.
+# Linux minutes: this runs only by hand, never per PR; pushing a tag starts nothing. The Desktop bench
+# (desktop-bench.yml) builds through here too, with release = none.
 on:
   workflow_dispatch:
     inputs:
@@ -39,9 +40,24 @@ on:
         description: "macOS build to profile a freeze: Rust symbols kept, the web inspector on (release = none only)"
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      release:
+        type: string
+        default: none
+      notes:
+        type: string
+        required: false
+      platforms:
+        type: string
+        default: all
+      profiling:
+        type: boolean
+        default: false
 
+# Called by another workflow, `github.workflow` is the caller's: the bench's builds never cancel a release's.
 concurrency:
-  group: desktop-${{ github.ref }}
+  group: desktop-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -265,6 +281,9 @@ jobs:
             "$BIN_DIR/agentes-runner-aarch64-apple-darwin" "$BIN_DIR/agentes-runner-x86_64-apple-darwin"
           chmod +x "$BIN_DIR"/agentes-runner-*
           lipo -info "$BIN_DIR/agentes-runner-universal-apple-darwin"
+          # A long script is checked by the runner starting itself (`script-check`): the compiled form answers it.
+          echo '{"text":"git push origin main","how":"ask","code":false}' \
+            | "$BIN_DIR/agentes-runner-universal-apple-darwin" script-check | grep -q '"pushes":\['
 
       # agent-browser ships next to the runner as a second sidecar (ADR 0040): the pinned release, checked
       # against the SHA-256 in machine-protocol.ts (the one source of the version and the hashes), lipo'd
@@ -292,6 +311,19 @@ jobs:
             "$BIN_DIR/agent-browser-aarch64-apple-darwin" "$BIN_DIR/agent-browser-x86_64-apple-darwin"
           chmod +x "$BIN_DIR"/agent-browser-*
           lipo -info "$BIN_DIR/agent-browser-universal-apple-darwin"
+
+      # agent-desktop ships next to the runner too (ADR 0258), with its macOS helper beside it: the pinned
+      # release, checked against machine-protocol.ts's SHA-256, lipo'd for the universal build. Tauri re-signs
+      # both with the Developer ID, so macOS credits Accessibility to the agentes.chat app.
+      - name: Fetch agent-desktop
+        shell: bash
+        run: |
+          bun apps/desktop/scripts/fetch-agent-desktop.ts "$BIN_DIR" aarch64-apple-darwin x86_64-apple-darwin
+          for name in agent-desktop agent-desktop-macos-helper; do
+            lipo -create -output "$BIN_DIR/$name-universal-apple-darwin" \
+              "$BIN_DIR/$name-aarch64-apple-darwin" "$BIN_DIR/$name-x86_64-apple-darwin"
+            lipo -info "$BIN_DIR/$name-universal-apple-darwin"
+          done
 
       # The server's files (the `server` job), among the app's resources (tauri.native.conf.json).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -366,6 +398,10 @@ jobs:
           codesign --verify --strict --verbose=2 "$APP/Contents/MacOS/agentes-runner"
           codesign --verify --strict --verbose=2 "$APP/Contents/MacOS/agent-browser"
           "$APP/Contents/MacOS/agent-browser" --version
+          codesign --verify --strict --verbose=2 "$APP/Contents/MacOS/agent-desktop"
+          codesign --verify --strict --verbose=2 "$APP/Contents/MacOS/agent-desktop-macos-helper"
+          "$APP/Contents/MacOS/agent-desktop" --version
+          test -s "$APP/Contents/Resources/licenses/agent-desktop/LICENSE"
           test -s "$APP/Contents/Resources/licenses/agent-browser/LICENSE"
           test -s "$APP/Contents/Resources/licenses/bun/LICENSE.md"
           test -s "$APP/Contents/Resources/LICENSE"
@@ -463,6 +499,8 @@ jobs:
           bun build --compile --target=${{ matrix.bun }} apps/server/runner/main.ts \
             --outfile "$BIN_DIR/agentes-runner-${{ matrix.triple }}.exe"
           "$BIN_DIR/agentes-runner-${{ matrix.triple }}.exe" --version
+          echo '{"text":"git push origin main","how":"ask","code":false}' \
+            | "$BIN_DIR/agentes-runner-${{ matrix.triple }}.exe" script-check | grep -q '"pushes":\['
 
       - name: Fetch agent-browser
         shell: bash
@@ -476,6 +514,12 @@ jobs:
             "https://github.com/vercel-labs/agent-browser/releases/download/v$AB_VERSION/$ASSET"
           echo "$SHA  $OUT" | sha256sum -c -
           "$OUT" --version
+
+      - name: Fetch agent-desktop
+        shell: bash
+        run: |
+          bun apps/desktop/scripts/fetch-agent-desktop.ts "$BIN_DIR" ${{ matrix.triple }}
+          "$BIN_DIR/agent-desktop-${{ matrix.triple }}.exe" --version
 
       # The server's files (the `server` job), among the app's resources (tauri.native.conf.json).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
@@ -525,6 +569,8 @@ jobs:
           RELEASE=apps/desktop/src-tauri/target/release
           test -s "$RELEASE/agentes-runner.exe"
           test -s "$RELEASE/agent-browser.exe"
+          test -s "$RELEASE/agent-desktop.exe"
+          test -s "$RELEASE/licenses/agent-desktop/LICENSE"
           test -s "$RELEASE/server/native.js"
           test -s "$RELEASE/web/index.html"
           test -s "$RELEASE/licenses/bun/LICENSE.md"
@@ -622,6 +668,10 @@ jobs:
           echo "$SHA  $OUT" | sha256sum -c -
           chmod +x "$OUT"
 
+      - name: Fetch agent-desktop
+        shell: bash
+        run: bun apps/desktop/scripts/fetch-agent-desktop.ts "$BIN_DIR" ${{ matrix.triple }}
+
       # The server's files (the `server` job), among the app's resources (tauri.native.conf.json).
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
@@ -682,7 +732,7 @@ jobs:
         shell: bash
         run: |
           dpkg-deb -c "out/agentes_${VERSION}_${{ matrix.pkg }}.deb" > deb.txt
-          for f in /agentes-runner /agent-browser /server/native.js /web/index.html /licenses/bun/LICENSE.md /licenses/agent-browser/LICENSE; do
+          for f in /agentes-runner /agent-browser /agent-desktop /server/native.js /web/index.html /licenses/bun/LICENSE.md /licenses/agent-browser/LICENSE /licenses/agent-desktop/LICENSE; do
             grep -q -- "$f\$" deb.txt || { echo "::error::$f is not in the deb"; exit 1; }
           done
 
@@ -694,11 +744,13 @@ jobs:
           APPIMAGE="$PWD/out/agentes_${VERSION}_${{ matrix.pkg }}.AppImage"
           dir=$(mktemp -d)
           (cd "$dir" && "$APPIMAGE" --appimage-extract > /dev/null)
-          for name in agentes-runner agent-browser; do
+          for name in agentes-runner agent-browser agent-desktop; do
             cmp "$BIN_DIR/$name-${{ matrix.triple }}" "$dir/squashfs-root/usr/bin/$name" \
               || { echo "::error::The AppImage's $name isn't the one built"; exit 1; }
           done
           "$dir/squashfs-root/usr/bin/agentes-runner" --version
+          echo '{"text":"git push origin main","how":"ask","code":false}' \
+            | "$dir/squashfs-root/usr/bin/agentes-runner" script-check | grep -q '"pushes":\['
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:

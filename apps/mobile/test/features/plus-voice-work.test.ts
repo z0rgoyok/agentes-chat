@@ -42,7 +42,7 @@ describe("a voice message's play button", () => {
     );
     expect(voice).toContain("play: { width: PLAY, height: PLAY, borderRadius: PLAY / 2 },");
     // The words under the wave start past it.
-    expect(voice).toContain("words: { paddingLeft: PLAY + 10, paddingBottom: 2, gap: 2 },");
+    expect(voice).toContain("words: { paddingLeft: PLAY + ROW_GAP, paddingBottom: 2, gap: 2 },");
   });
 });
 

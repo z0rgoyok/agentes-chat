@@ -221,6 +221,33 @@ describe("slides", () => {
     expect(titleOf(doc(), first)).toBe("Um");
   });
 
+  test("the font list and the text style menu change a chosen box whole (ADR 0220 §8)", async () => {
+    const { doc } = await setup();
+    const first = slideIdsOf(doc())[0] as string;
+    const title = () => readSlide(doc(), first)?.elements.find((el) => el.role === "title");
+    const box = document.querySelector<HTMLElement>(`.sl-el[data-el="${title()?.id}"]`);
+    if (!box) throw new Error("no title box");
+    await act(async () => {
+      fireEvent.pointerDown(box, { button: 0 });
+      fireEvent.pointerUp(box, { button: 0 });
+    });
+    const font = await waitFor(() => screen().getByRole("combobox", { name: "Fonte" }));
+    font.focus();
+    await act(async () => fireEvent.keyDown(font, { key: "Enter" }));
+    await act(async () => screen().getByRole("option", { name: "Inter" }).click());
+    expect(title()?.style?.font).toBe("inter");
+
+    const aa = tool("Estilo do texto");
+    if (!aa) throw new Error("no text style menu");
+    aa.focus();
+    await act(async () => {
+      fireEvent.keyDown(aa, { key: "Enter" });
+      fireEvent.keyUp(aa, { key: "Enter" });
+    });
+    await act(async () => screen().getByRole("menuitemradio", { name: "Negrito" }).click());
+    expect(title()?.style?.weight).toBe(700);
+  });
+
   test("a new text box opens to type in; left empty it goes", async () => {
     const { doc } = await setup();
     const first = slideIdsOf(doc())[0] as string;

@@ -2,6 +2,8 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { consoleText } from "../console-text";
+import { lastLine } from "../lines";
 import { Budget, type Collected, type Entry, MigrateError, noCounts, noLeft, walk } from "./collect";
 
 /**
@@ -24,7 +26,6 @@ interface Ran {
 
 function run(command: string, args: string[]): Ran {
   const r = spawnSync(command, args, {
-    encoding: "utf8",
     timeout: 120_000,
     maxBuffer: 64 * 1024 * 1024,
     // A .cmd shim on Windows only starts through the shell; the arguments here are ours or checked ids.
@@ -32,16 +33,11 @@ function run(command: string, args: string[]): Ran {
     stdio: ["ignore", "pipe", "pipe"],
   });
   const missing = (r.error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
-  return { status: r.status, stdout: r.stdout ?? "", stderr: r.stderr ?? "", missing };
+  return { status: r.status, stdout: consoleText(r.stdout ?? ""), stderr: consoleText(r.stderr ?? ""), missing };
 }
 
 /** The last line a command said, for the person: its own words on why it stopped. */
-const lastLine = (r: Ran) =>
-  (r.stderr.trim() || r.stdout.trim())
-    .split("\n")
-    .filter((l) => l.trim())
-    .pop()
-    ?.slice(0, 300) ?? "";
+const lastSaid = (r: Ran) => (lastLine(r.stderr) ?? lastLine(r.stdout) ?? "").slice(0, 300);
 
 /** A temporary folder for the app's export, removed once its files are in the archive (`done`). */
 function staging(): string {
@@ -77,7 +73,7 @@ export function collectOpenMausBot(): Collected {
       throw new MigrateError("not_found", "OpenMausBot isn't running on this computer. Open it, then run this again.");
     }
     if (r.status !== 0) {
-      throw new MigrateError("unreadable", `OpenMausBot's export stopped: ${lastLine(r) || `exit ${r.status}`}`);
+      throw new MigrateError("unreadable", `OpenMausBot's export stopped: ${lastSaid(r) || `exit ${r.status}`}`);
     }
     const found = packed("openmausbot", "the OpenMausBot running on this computer", dir, "openmausbot");
     try {
@@ -104,7 +100,7 @@ export function collectPaperclip(options: { company?: string }): Collected {
   if (listed.status !== 0) {
     throw new MigrateError(
       "not_found",
-      `Paperclip didn't answer on this computer. Start it, then run this again. (${lastLine(listed) || `exit ${listed.status}`})`,
+      `Paperclip didn't answer on this computer. Start it, then run this again. (${lastSaid(listed) || `exit ${listed.status}`})`,
     );
   }
   let companies: { id: string; name: string }[] = [];
@@ -146,7 +142,7 @@ export function collectPaperclip(options: { company?: string }): Collected {
       "company,agents,projects,tasks,skills",
     ]);
     if (r.status !== 0) {
-      throw new MigrateError("unreadable", `Paperclip's export stopped: ${lastLine(r) || `exit ${r.status}`}`);
+      throw new MigrateError("unreadable", `Paperclip's export stopped: ${lastSaid(r) || `exit ${r.status}`}`);
     }
     const found = packed("paperclip", `the Paperclip company "${company.name}"`, dir, "paperclip");
     if (found.entries.length === 0) throw new MigrateError("nothing", "Paperclip exported nothing.");

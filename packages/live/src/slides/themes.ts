@@ -1,5 +1,14 @@
 import { readableOn } from "../colors";
-import { type ElementStyle, type ElementType, isThemeId, type SlideRole, type ThemeId } from "./types";
+import {
+  assetFontFamily,
+  catalogFont,
+  catalogFontNamed,
+  type FontCategory,
+  type FontRef,
+  fontAssetOf,
+  isFontRole,
+} from "../fonts";
+import { type DeckFonts, type ElementStyle, type ElementType, isThemeId, type SlideRole, type ThemeId } from "./types";
 
 /**
  * The six presentation themes (ADR 0196 §2). They use only the app's own fonts (Funnel Display for headings, Source
@@ -142,21 +151,57 @@ export function themeOf(id: unknown): SlideTheme {
 
 /** How a text (or a shape's label) is drawn: the theme's look for its role, under what the element sets itself. */
 export interface TextLook {
+  /** The theme role its font comes from, or the role it would have (headings draw a little tighter). */
   font: "heading" | "body";
-  fontFamily: HeadingFont | BodyFont;
+  /** The font drawn (ADR 0220): a catalog id or one of the file's fonts, never a role. */
+  fontRef: FontRef;
+  /** The family name to draw it with: a catalog family, or a file's font under its `assetFontFamily` name. */
+  fontFamily: string;
+  /** Its kind, for what to fall back to while it loads. */
+  category: FontCategory;
   size: number;
-  weight: 400 | 600 | 700;
+  weight: number;
   color: string;
   align: "left" | "center" | "right";
   valign: "top" | "middle" | "bottom";
   /** Line height as a multiple of the size. */
   lineHeight: number;
+  /** Letter spacing in thousandths of the size (0: none). */
+  tracking: number;
+  caps: boolean;
+  /** Room between the box's edge and the text, in slide units. */
+  padding: number;
 }
 
-type RoleLook = Omit<TextLook, "fontFamily" | "color" | "size"> & {
+type RoleLook = Pick<TextLook, "font" | "weight" | "align" | "valign" | "lineHeight"> & {
   size: keyof SlideTheme["sizes"] | number;
   color: keyof SlideTheme["colors"];
 };
+
+/** A font ref as drawn: its family name and kind. A ref nothing knows draws as the theme's body font. */
+export function fontFace(
+  ref: FontRef,
+  fallback: FontRef = "source-sans-3",
+): {
+  ref: FontRef;
+  family: string;
+  category: FontCategory;
+} {
+  const asset = fontAssetOf(ref);
+  if (asset) return { ref, family: assetFontFamily(asset), category: "sans" };
+  const font = catalogFont(ref) ?? catalogFont(fallback) ?? catalogFont("source-sans-3");
+  return font
+    ? { ref: font.id, family: font.family, category: font.category }
+    : { ref: "source-sans-3", family: "Source Sans 3", category: "sans" };
+}
+
+/** The fonts a deck draws its roles with: its own over its theme's (ADR 0220 §3), as catalog ids or file fonts. */
+export function roleFonts(theme: SlideTheme, fonts?: DeckFonts): Record<"heading" | "body", FontRef> {
+  return {
+    heading: fonts?.heading ?? catalogFontNamed(theme.fonts.heading)?.id ?? "funnel-display",
+    body: fonts?.body ?? catalogFontNamed(theme.fonts.body)?.id ?? "source-sans-3",
+  };
+}
 
 function roleLook(theme: SlideTheme, role: SlideRole | undefined): RoleLook {
   const heading = theme.weights.heading;
@@ -229,18 +274,24 @@ export function shapeFill(theme: SlideTheme, style: ElementStyle | undefined): s
   return style?.fill ?? theme.colors.accent;
 }
 
-/** The look of an element's text: its role's look in the theme, then the element's own style over it. */
+/**
+ * The look of an element's text: its role's look in the theme, then the element's own style over it. `fonts`: the
+ * deck's own fonts (ADR 0220 §3), over the theme's.
+ */
 export function textLook(
   theme: SlideTheme,
   el: { type: ElementType; role?: SlideRole; style?: ElementStyle },
+  fonts?: DeckFonts,
 ): TextLook {
   const base = roleLook(theme, el.role);
   const style = el.style ?? {};
-  const font = style.font ?? base.font;
+  const roles = roleFonts(theme, fonts);
+  const font = isFontRole(style.font) ? style.font : base.font;
+  const face = fontFace(style.font && !isFontRole(style.font) ? style.font : roles[font], roles.body);
   let color = style.color ?? theme.colors[base.color];
   let align = base.align;
   let valign = base.valign;
-  let weight = base.weight;
+  let weight: number = base.weight;
   if (el.type === "shape") {
     // A shape's label sits in its middle, in the color that reads best on its fill.
     align = "center";
@@ -251,13 +302,18 @@ export function textLook(
   }
   return {
     font,
-    fontFamily: font === "heading" ? theme.fonts.heading : theme.fonts.body,
+    fontRef: face.ref,
+    fontFamily: face.family,
+    category: face.category,
     size: style.size ?? (typeof base.size === "number" ? base.size : theme.sizes[base.size]),
     weight: style.weight ?? weight,
     color,
     align: style.align ?? align,
     valign: style.valign ?? valign,
-    lineHeight: base.lineHeight,
+    lineHeight: style.lineHeight ?? base.lineHeight,
+    tracking: style.tracking ?? 0,
+    caps: style.caps === true,
+    padding: style.padding ?? 0,
   };
 }
 

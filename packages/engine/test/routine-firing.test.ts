@@ -2,6 +2,7 @@ import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
 import {
   addChannelMember,
+  archiveAgent,
   closeRoutineRun,
   deleteRoutine,
   executeRoutineRun,
@@ -12,6 +13,8 @@ import {
   setRoutineActive,
   stopRoutineRun,
   takeOverRoutine,
+  unarchiveAgent,
+  updateRoutine,
   wakeAgentUsageWaits,
 } from "../src";
 import * as ledgerModule from "../src/routine-ledger";
@@ -79,6 +82,44 @@ describe("structural checks pause the routine with its reason and one notificati
     const paused = await notificationsOf(f, "routine_paused");
     expect(paused).toHaveLength(1);
     expect(paused[0]).toMatchObject({ userId: f.owner.id, latest: { reason: "agent_archived" } });
+  });
+
+  test("archiving the agent pauses its routines at once; an archived agent's routine can still be paused", async () => {
+    f = await setup();
+    const routine = await channelRoutine(f);
+    await archiveAgent(f.db, f.owner.id, f.org.id, f.agent.id, f.pubsub);
+    expect(await routineRow(f, routine.id)).toMatchObject({
+      active: false,
+      nextRunAt: null,
+      pausedReason: "agent_archived",
+    });
+    expect(await notificationsOf(f, "routine_paused")).toHaveLength(1);
+
+    // One left active from before (its agent archived without pausing it): switching it off works.
+    await f.db
+      .update(schema.routines)
+      .set({ active: true, pausedReason: null })
+      .where(eq(schema.routines.id, routine.id));
+    const off = await updateRoutine(routineDeps(f), f.owner.id, f.org.id, routine.id, { active: false });
+    expect(off.active).toBe(false);
+    // Turning it back on, or changing it, still needs a live agent.
+    await expect(updateRoutine(routineDeps(f), f.owner.id, f.org.id, routine.id, { active: true })).rejects.toThrow(
+      "Agent not found",
+    );
+  });
+
+  test("an archive's Undo brings back the routines the archive paused", async () => {
+    f = await setup();
+    const routine = await channelRoutine(f);
+    const off = await channelRoutine(f, { name: "Relatório" });
+    await setRoutineActive(routineDeps(f), f.owner.id, f.org.id, off.id, false);
+    await archiveAgent(f.db, f.owner.id, f.org.id, f.agent.id, f.pubsub);
+    await unarchiveAgent(f.db, f.owner.id, f.org.id, f.agent.id, { pubsub: f.pubsub });
+    const back = await routineRow(f, routine.id);
+    expect(back).toMatchObject({ active: true, pausedReason: null });
+    expect(back.nextRunAt).not.toBeNull();
+    // One a person had switched off stays off.
+    expect(await routineRow(f, off.id)).toMatchObject({ active: false });
   });
 
   test("agent no longer in the channel; creator no longer able to post there", async () => {

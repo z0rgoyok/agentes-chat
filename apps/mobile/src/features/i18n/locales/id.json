@@ -4,21 +4,17 @@
     "send": "Kirim"
   },
   "categories": {
-    "title": "Kategori",
-    "where": "Tempat #{{channel}} muncul",
-    "whereHelp": "Berubah untuk semua orang. Siapa yang ikut di kanal tetap sama.",
-    "create": "Buat",
-    "endOfList": "Masuk ke akhir daftar untuk semua orang.",
-    "channelCount_other": "{{count}} kanal",
-    "none": "Belum ada kategori.",
-    "manageHint": "Urutan, nama, dan hapus",
-    "deleteTitle": "Hapus {{name}}?",
-    "order": "Posisi di daftar",
     "up": "Naikkan",
     "down": "Turunkan",
-    "position": "{{at}} dari {{count}}.",
-    "channelPosition": "{{at}} dari {{count}}.",
-    "itsChannels": "Kanal"
+    "channelPosition": "{{at}} dari {{count}}."
+  },
+  "sections": {
+    "title": "Bagian",
+    "where": "Tempat #{{channel}} untuk Anda",
+    "whereHelp": "Hanya daftar Anda yang berubah. Setiap orang mengatur bagiannya sendiri.",
+    "none": "Tanpa bagian",
+    "order": "Posisi di bagian",
+    "tooLong": "Gunakan paling banyak 40 karakter."
   },
   "blocks": {
     "send": "Kirim",
@@ -68,6 +64,15 @@
     "raw": "Asli",
     "more": "Lihat semua {{count}} baris",
     "gone": "Kode ini sudah tidak terbuka."
+  },
+  "table": {
+    "label_other": "Tabel · {{count}} baris",
+    "title": "Tabel",
+    "rows_other": "{{count}} baris",
+    "copy": "Salin tabel",
+    "copied": "Tabel disalin",
+    "more": "Lihat semua {{count}} baris",
+    "gone": "Tabel ini sudah tidak terbuka."
   },
   "time": {
     "today": "Hari ini",
@@ -181,11 +186,11 @@
       "text": "Mungkin sedang mati atau di luar jaringanmu. Obrolanmu akan muncul sendiri begitu server kembali.",
       "kept": "Menampilkan yang sudah ada di aplikasi."
     },
-    "pinned": "Disematkan",
+    "favorites": "Favorit",
     "recent": "Terbaru",
     "view": {
       "title": "Tampilkan percakapan",
-      "sectors": "Sektor",
+      "sections": "Bagian",
       "dms": "Pesan langsung",
       "channels": "Kanal"
     },
@@ -822,6 +827,7 @@
   },
   "agent": {
     "talk": "Obrolan",
+    "responsible": "Penanggung jawab",
     "task": "Tugas",
     "owner": "pemilik: {{name}}",
     "cantTalk": "Agen ini tidak bekerja denganmu.",
@@ -883,6 +889,7 @@
       "admin_ask_channel_agent": "{{names}} memintamu menambahkan {{agent}} ke #{{label}}",
       "admin_ask_create_agents": "{{names}} meminta izin membuat agen",
       "admin_ask_webhook": "{{names}} memintamu menyiapkan webhook {{service}} untuk rutinitas",
+      "admin_ask_voice": "{{names}} memintamu menyalakan pesan suara",
       "routine_paused_other": "Rutinitas dijeda",
       "routine_stalled_other": "Rutinitas menunggu komputer",
       "agent_unreached_other": "Rutinitas tidak bisa memanggil agen",
@@ -920,6 +927,8 @@
       "plan_model_dropped_other": "{{model}} keluar dari {{plan}}. {{names}} memakai {{runs}} untuk sementara",
       "computer_disk_full_other": "Disk komputer hampir penuh",
       "computer_no_chrome_other": "Komputer memerlukan Google Chrome. Unduh di google.com/chrome",
+      "computer_down_other": "Sebuah komputer tidak merespons",
+      "computer_back_other": "Sebuah komputer sudah kembali",
       "app_created_other": "Aplikasi AI membuat sesuatu untukmu"
     },
     "markRead": "Tandai sudah dibaca",
@@ -1422,6 +1431,15 @@
     "next": {
       "pr": "Branch sudah dikirim, belum ada pull request",
       "mergeLocal": "Siap di-merge ke {{base}}"
+    },
+    "terminal": {
+      "keys": "Tombol terminal",
+      "keyboard": "Papan ketik",
+      "pasteHint": "Tempel yang Anda salin ke terminal",
+      "key": {
+        "CtrlC": "Control-C, hentikan",
+        "CtrlD": "Control-D, akhir input"
+      }
     }
   },
   "taskManager": {
@@ -1990,6 +2008,7 @@
       "tool_request": "{{names}} memintamu menyalakan {{tool}} di {{device}} milikmu",
       "cli_request": "{{names}} meminta kamu memasang {{tool}} di {{device}} kamu",
       "folder_request": "{{names}} memintamu membuka folder {{path}} di {{device}} milikmu",
+      "internet_shared": "Agen kini membuka situs web lewat internet {{device}}",
       "allowOnce": "Izinkan sekali",
       "always": "Selalu izinkan {{name}}",
       "no": "Tidak",
@@ -2681,11 +2700,12 @@
     },
     "formatAuto": "{{name}} memilih yang terbaik",
     "newWidget": {
-      "alerts": "Peringatan aktif",
       "realData": "Data sungguhan",
       "editAsk": "Ubah permintaan",
       "asked": "“{{ask}}”",
-      "autoFormat": "Bentuk otomatis"
+      "testReal": "Uji dengan data sungguhan",
+      "addHome": "Tambah ke Beranda",
+      "addTo": "Tambah ke {{where}}"
     },
     "agentPick": {
       "search": "Cari agen",
@@ -3111,7 +3131,8 @@
       "workspaceSub": "Kunci API workspace",
       "key": "Kunci API",
       "keyDefault": "default workspace",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} berhenti memakainya."
     },
     "missionAi": "AI",
     "missionLocked": "Siapa yang mengerjakan dipilih sebelum Mulai. Modelnya bisa diubah kapan saja."

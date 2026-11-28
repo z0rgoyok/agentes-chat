@@ -1,10 +1,10 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useDarkTheme } from "../hooks/useDarkTheme";
 import { Icon } from "../icons/Icon";
 import { prefersReducedMotion } from "../sky/engine";
 import { bayerAt, parseColor } from "../sky/math";
-import { DitherLine } from "./ChartPieces";
-import { formatWidgetNumber, formatWithUnit, isMarkUnit, useCountUp, widgetDigits } from "./format";
+import { ChartTip, type ChartTipAt, DitherLine, useChartCursor, useElementWidth } from "./ChartPieces";
+import { formatWidgetNumber, formatWithUnit, isMarkUnit, seriesTip, useCountUp, widgetDigits } from "./format";
 import type {
   BarsWidgetSpec,
   GoalWidgetSpec,
@@ -15,6 +15,7 @@ import type {
   WidgetSpec,
   WidgetStatus,
 } from "./spec";
+import { kpiText } from "./spec";
 import { WIDGET_CELL, widgetTones } from "./tiles";
 
 export interface WidgetBodyProps {
@@ -29,6 +30,8 @@ export interface WidgetBodyProps {
   buildingText?: string;
   /** A number's trend line is drawn by the card, edge to edge at its bottom (`WidgetBleed`), not in the body. */
   sparkApart?: boolean;
+  /** The widget's title: its chart's name for a screen reader. */
+  label?: string;
 }
 
 /**
@@ -37,7 +40,16 @@ export interface WidgetBodyProps {
  * tones); numbers in the app's font, bold, tabular. Being built, the agent's dither moves under the words. A note
  * keeps to two lines and ends in an ellipsis past them (`wk-clamp`), never cut inside a word.
  */
-export function WidgetBody({ spec, status, color, size, locale, buildingText, sparkApart = false }: WidgetBodyProps) {
+export function WidgetBody({
+  spec,
+  status,
+  color,
+  size,
+  locale,
+  buildingText,
+  sparkApart = false,
+  label,
+}: WidgetBodyProps) {
   if (status === "building" || !spec) {
     return (
       <div className="wk-build">
@@ -48,13 +60,13 @@ export function WidgetBody({ spec, status, color, size, locale, buildingText, sp
   }
   switch (spec.kind) {
     case "kpi":
-      return <KpiBody spec={spec} color={color} locale={locale} spark={!sparkApart} />;
+      return <KpiBody spec={spec} color={color} locale={locale} spark={!sparkApart} label={label} />;
     case "goal":
       return <GoalBody spec={spec} locale={locale} />;
     case "bars":
       return <BarsBody spec={spec} size={size} locale={locale} />;
     case "line":
-      return <LineBody spec={spec} color={color} size={size} locale={locale} />;
+      return <LineBody spec={spec} color={color} size={size} locale={locale} label={label} />;
     case "list":
       return <ListBody spec={spec} />;
     case "text":
@@ -67,11 +79,13 @@ function KpiBody({
   color,
   locale,
   spark,
+  label,
 }: {
   spec: KpiWidgetSpec;
   color: string;
   locale: string;
   spark: boolean;
+  label?: string | undefined;
 }) {
   const shown = useCountUp(spec.value);
   return (
@@ -93,7 +107,16 @@ function KpiBody({
         </div>
       )}
       {spark && spec.spark && spec.spark.length > 1 && (
-        <DitherLine className="wk-spark" values={spec.spark} color={color} height={40} bleed dot />
+        <DitherLine
+          className="wk-spark"
+          values={spec.spark}
+          color={color}
+          height={40}
+          bleed
+          dot
+          tip={seriesTip(spec.sparkLabels, spec.spark, (v) => kpiText(spec, formatWidgetNumber(v, locale)))}
+          label={label}
+        />
       )}
     </>
   );
@@ -124,11 +147,26 @@ function BarsBody({ spec, size, locale }: { spec: BarsWidgetSpec; size: { w: 1 |
   // A narrow widget keeps its bars readable: the first ones that fit.
   const room = size.w === 1 ? 5 : 12;
   const labels = spec.labels.slice(0, room);
+  const [box, width] = useElementWidth<HTMLDivElement>();
+  const cursor = useChartCursor(labels.length, (x) =>
+    width > 0 ? Math.max(0, Math.min(labels.length - 1, Math.floor((x / width) * labels.length))) : -1,
+  );
+  const [over, setOver] = useState<{ x: number; y: number } | null>(null);
+  // Over the bar's number: where the bar stands is the layout's to say.
+  useLayoutEffect(() => {
+    const bar = cursor.at === null || width < 1 ? null : (box.current?.children[cursor.at] as HTMLElement | undefined);
+    const value = bar?.querySelector<HTMLElement>(".wk-bar__v");
+    setOver(bar && value ? { x: bar.offsetLeft + bar.offsetWidth / 2, y: value.offsetTop } : null);
+  }, [cursor.at, box, width]);
+  const tip: ChartTipAt =
+    over && cursor.at !== null
+      ? { ...over, text: seriesTip(labels, spec.values, (v) => formatWithUnit(v, spec.unit, locale))(cursor.at) }
+      : null;
   return (
     <>
       {spec.unit && <div className="wk-cap">{spec.unit}</div>}
-      <div className="wk-bars">
-        {labels.map((label, i) => {
+      <div className="wk-bars" ref={box} {...cursor.props}>
+        {labels.map((_, i) => {
           const value = spec.values[i] ?? 0;
           return (
             <div
@@ -136,14 +174,18 @@ function BarsBody({ spec, size, locale }: { spec: BarsWidgetSpec; size: { w: 1 |
               key={i}
               className="wk-bar"
               data-alert={i === spec.alertIndex || undefined}
-              title={`${label}: ${formatWithUnit(value, spec.unit, locale)}`}
+              data-dim={(cursor.at !== null && cursor.at !== i) || undefined}
             >
-              {/* Only the number: the unit is the tag above the bars, said once. */}
+              {/* Only the number: the unit is the tag above the bars, said once (and in the tip). */}
               <span className="wk-bar__v">{formatWidgetNumber(value, locale)}</span>
               <span className="wk-bar__b" style={{ height: `${Math.max(4, (Math.max(0, value) / max) * 100)}%` }} />
             </div>
           );
         })}
+        <ChartTip tip={tip} width={width} />
+        <span className="ac-visually-hidden" aria-live="polite">
+          {tip?.text}
+        </span>
       </div>
       <div className="wk-axis">
         {labels.map((label, i) => (
@@ -161,11 +203,13 @@ function LineBody({
   color,
   size,
   locale,
+  label,
 }: {
   spec: LineWidgetSpec;
   color: string;
   size: { w: 1 | 2; h: 1 | 2 };
   locale: string;
+  label?: string | undefined;
 }) {
   const last = spec.values[spec.values.length - 1];
   // Seven labels at most under the line: the first, the last and evenly between.
@@ -173,7 +217,15 @@ function LineBody({
   return (
     <>
       {spec.unit && <div className="wk-cap">{spec.unit}</div>}
-      <DitherLine className="wk-line" values={spec.values} color={color} height={size.h === 2 ? 210 : 96} dot />
+      <DitherLine
+        className="wk-line"
+        values={spec.values}
+        color={color}
+        height={size.h === 2 ? 210 : 96}
+        dot
+        tip={seriesTip(spec.labels, spec.values, (v) => formatWithUnit(v, spec.unit, locale))}
+        label={label}
+      />
       <div className="wk-axis wk-axis--line">
         {spec.labels.map((label, i) =>
           i % step === 0 || i === spec.labels.length - 1 ? (

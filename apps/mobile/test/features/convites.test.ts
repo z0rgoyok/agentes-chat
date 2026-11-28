@@ -282,7 +282,7 @@ describe("Convites' rows (ADR 0184)", () => {
 });
 
 describe("the choices pushed over a form", () => {
-  test("Canais: the cargo's first, then the categories, #general ticked and fixed; a cargo's private one on offer", async () => {
+  test("Canais: the cargo's first, then the sectors, #general ticked and fixed; a cargo's private one on offer", async () => {
     const pt = await translator("pt-BR");
     const channels = [
       {
@@ -290,7 +290,7 @@ describe("the choices pushed over a form", () => {
         name: "general",
         visibility: "public" as const,
         isMember: true,
-        categoryId: null,
+        groupId: null,
         position: 0,
       },
       {
@@ -299,7 +299,7 @@ describe("the choices pushed over a form", () => {
         visibility: "private" as const,
         isMember: false,
         audienceRoleIds: ["suporte"],
-        categoryId: "k-time",
+        groupId: "k-time",
         position: 0,
       },
       {
@@ -307,15 +307,15 @@ describe("the choices pushed over a form", () => {
         name: "vendas",
         visibility: "public" as const,
         isMember: false,
-        categoryId: "k-time",
+        groupId: "k-time",
         position: 1,
       },
-      { id: "c-dir", name: "diretoria", visibility: "private" as const, isMember: true, categoryId: null, position: 1 },
-      { id: "c-folha", name: "folha", visibility: "private" as const, isMember: false, categoryId: null, position: 2 },
+      { id: "c-dir", name: "diretoria", visibility: "private" as const, isMember: true, groupId: null, position: 1 },
+      { id: "c-folha", name: "folha", visibility: "private" as const, isMember: false, groupId: null, position: 2 },
     ];
     const groups = channelPicks(pt, {
       channels,
-      categories: [{ id: "k-time", name: "Time" }],
+      sectors: [{ id: "k-time", name: "Time" }],
       roles: ROLES,
       draft: draft({ roleIds: ["suporte"] }),
     });
@@ -331,13 +331,13 @@ describe("the choices pushed over a form", () => {
       ["Time", [["vendas", false, false, ""]]],
     ]);
     // Without the cargo, its private channel isn't on offer (the viewer isn't in it).
-    const none = channelPicks(pt, { channels, categories: [], roles: ROLES, draft: draft() });
+    const none = channelPicks(pt, { channels, sectors: [], roles: ROLES, draft: draft() });
     expect(none.flatMap((g) => g.picks.map((p) => p.channel.name))).not.toContain("suporte");
     // A search keeps what it names, with its "#" or not, accents aside; a group left without any goes.
     const found = (query: string) =>
       channelPicks(pt, {
         channels,
-        categories: [{ id: "k-time", name: "Time" }],
+        sectors: [{ id: "k-time", name: "Time" }],
         roles: ROLES,
         draft: draft({ roleIds: ["suporte"] }),
         query,
@@ -467,7 +467,7 @@ describe("the choices pushed over a form", () => {
       expect(picks).toContain(`<NoMatch text={t("${key}", { q: query.trim() })} clear={() => setQuery("")} />`);
     expect(picks).toContain('<GroupedRow icon="x" label={t("filters.clearSearch")} onPress={clear} />');
     // Canais and Agentes filter where their groups are made; the right hand goes too when the search misses it.
-    expect(picks).toContain("channelPicks(t, { channels, categories, roles, draft, query })");
+    expect(picks).toContain("channelPicks(t, { channels, sectors, roles, draft, query })");
     expect(picks).toMatch(/mailboxOwners,\s*query,\s*\}\);/);
     expect(picks).toContain("const rightShown = right && agentMatches(right, query) ? right : undefined;");
   });

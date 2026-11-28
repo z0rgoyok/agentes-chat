@@ -12,7 +12,7 @@ import { missionOfThread } from "./missions";
 import { enqueue } from "./outbox";
 import { holdsMessages } from "./run-hold";
 import { handOnMessages, markTriage, queueAfterRun, releaseFromRun } from "./run-inbox";
-import { type AgentRun, addRunStep, computerWaitOf, replyThreadOf, runAtWork } from "./runs";
+import { type AgentRun, addRunStep, computerWaitOf, outageParkedOf, replyThreadOf, runAtWork } from "./runs";
 import { sayNowApplies } from "./say-now";
 import type { Talker } from "./talker";
 import { onMessageWhileWaiting, type WaitMessageOutcome } from "./waits";
@@ -99,6 +99,11 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
     // would only ask the plan again, early and out of order.
     const usageWait = brainWait?.code === "plan_limit" || brainWait?.code === "budget";
     const computerWait = computerWaitOf(active);
+    // Parked on its computer's own refusal (`outage.machineId`): a message tries it again now, as a wait for that
+    // computer does, and its receipt reads the outage.
+    const ownPark =
+      active.status === "waiting_input" &&
+      Boolean((active.transcript as { outage?: { machineId?: string } } | null)?.outage?.machineId);
     // Gone from its inbox already, the app heard where it went (`agent.run.read`, `agent.run.redispatched`):
     // a late "steered" would move the receipt back onto this run.
     if (active.pendingMessageIds.includes(message.id)) {
@@ -116,6 +121,7 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
           : active.status === "waiting_input" && brainWait?.code === "work_queue"
             ? { computer: "line" as const }
             : {}),
+        ...(outageParkedOf(active) ? { outage: true as const } : {}),
         // On its plan or budget (long work paused near one too, by its `source`), as a reload says (`usageWaitSql`).
         ...(parked?.code === "plan_limit" || parked?.code === "budget" || parked?.code === "usage_pause"
           ? { usage: parked.code === "budget" || parked.source === "budget" ? ("budget" as const) : ("plan" as const) }
@@ -162,7 +168,7 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
     }
     // Parked waiting for its computer: look again now. Back (or never really away): the run resumes and reads this
     // message with the rest; still away: it parks again quietly (one answer later).
-    else if (active.status === "waiting_input" && (active.waitingMachineId || brainWait) && !usageWait) {
+    else if (active.status === "waiting_input" && (active.waitingMachineId || brainWait || ownPark) && !usageWait) {
       const wait = brainWait?.waitId;
       if (brainWait?.code === "busy") await frontOfLine(deps.db, active, message.id).catch(() => undefined);
       else
@@ -178,6 +184,7 @@ export async function afterSteered(deps: SteeringDeps, input: SteeredInput) {
     const waiting =
       !active.waitingMachineId &&
       !brainWait &&
+      !ownPark &&
       (active.status === "waiting_input" || active.status === "waiting_approval");
     // Waiting on something the message can't move (a secret, a mission's decision, a question for someone else; an
     // approval never takes it): the agent doesn't keep it waiting behind that, it answers in a run of its own. Gone from the

@@ -208,6 +208,100 @@ test("an account at its limit before the turn: the next account of its owner ans
   expect(switchOf((await runs(fx))[1])).toBeUndefined();
 });
 
+test("its account thinking for all the runs it takes at once: a fresh run goes on with the next one with a free slot, else waits", async () => {
+  const { fx, machineId, account } = await world();
+  await account(OWN2, fx.owner.id);
+  // Another agent's runs think on the accounts.
+  const ops = await createAgent(
+    fx.db,
+    fx.owner.id,
+    fx.org.id,
+    { name: "Ops", handle: "ops", role: "Infra", instructions: "", credentialId: fx.credential.id },
+    { model: "claude-sonnet-5-5" },
+  );
+  const working = async (key: string) => {
+    const id = Bun.randomUUIDv7();
+    await fx.db.insert(schema.agentRuns).values({
+      id,
+      orgId: fx.org.id,
+      agentId: ops.id,
+      channelId: fx.general.id,
+      threadRootId: id,
+      triggerMessageId: id,
+      trigger: "mention",
+      hop: 2,
+      status: "running",
+      heartbeatAt: new Date(),
+      transcript: { roomAsk: { machineId, at: Date.now() - 60_000, signIn: key } },
+    });
+  };
+  await working(OWN1);
+  const { brain, seen } = scripted(() => answers);
+  const handlers = createJobHandlers({
+    ...fx.jobDeps,
+    signInConcurrency: 1,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await ask(fx);
+  await drainOutbox(fx.db, handlers);
+  expect(seen.map((t) => t.account?.id)).toEqual([OWN2]);
+  const first = (await runs(fx)).find((r) => r.agentId === fx.agent.id);
+  expect(first?.status).toBe("done");
+  expect(switchOf(first)?.cause).toBe("busy");
+  expect(await movedLines(fx)).toHaveLength(0);
+
+  // Both busy: it waits for its own, with no move.
+  await working(OWN2);
+  await ask(fx, "@dev de novo");
+  await drainOutbox(fx.db, handlers);
+  expect(seen).toHaveLength(1);
+  const waiting = (await runs(fx)).find((r) => r.agentId === fx.agent.id && r.id !== first?.id);
+  expect(waiting?.status).toBe("waiting_input");
+  expect(waiting?.transcript).toMatchObject({ waitingForBrain: { code: "busy" }, signInWait: { key: OWN1 } });
+  expect(moveOf(waiting)).toBeUndefined();
+});
+
+test("its account busy, the next one at its pause line: the run waits for its own rather than move there", async () => {
+  const { fx, machineId, account, usage } = await world();
+  await account(OWN2, fx.owner.id);
+  await usage(OWN2, 99);
+  const ops = await createAgent(
+    fx.db,
+    fx.owner.id,
+    fx.org.id,
+    { name: "Ops", handle: "ops", role: "Infra", instructions: "", credentialId: fx.credential.id },
+    { model: "claude-sonnet-5-5" },
+  );
+  const id = Bun.randomUUIDv7();
+  await fx.db.insert(schema.agentRuns).values({
+    id,
+    orgId: fx.org.id,
+    agentId: ops.id,
+    channelId: fx.general.id,
+    threadRootId: id,
+    triggerMessageId: id,
+    trigger: "mention",
+    hop: 2,
+    status: "running",
+    heartbeatAt: new Date(),
+    transcript: { roomAsk: { machineId, at: Date.now() - 60_000, signIn: OWN1 } },
+  });
+  const { brain, seen } = scripted(() => answers);
+  const handlers = createJobHandlers({
+    ...fx.jobDeps,
+    signInConcurrency: 1,
+    brains: { claude_code: () => brain },
+    machines: { status: async (id) => statusOf(id) },
+  });
+  await ask(fx);
+  await drainOutbox(fx.db, handlers);
+  expect(seen).toHaveLength(0);
+  const waiting = (await runs(fx)).find((r) => r.agentId === fx.agent.id);
+  expect(waiting?.transcript).toMatchObject({ waitingForBrain: { code: "busy" }, signInWait: { key: OWN1 } });
+  expect(moveOf(waiting)).toBeUndefined();
+});
+
 test("a run for someone besides the agent's owner goes on only with an account whose Atender todos takes them", async () => {
   const { fx, machineId, walter, account, usage } = await world();
   await account(WALTER_ALL, walter.id, { useOrder: 0 });

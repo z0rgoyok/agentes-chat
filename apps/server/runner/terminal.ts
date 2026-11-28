@@ -14,7 +14,7 @@ import { type DesktopSystem, NOT_AS_ROOT, runnerEnv } from "./desktop-session";
 import { RunnerError } from "./errors";
 import { hasBunTerminal, runtimeName } from "./launch";
 import { agentFolderName, normalizeRequestPath, resolveInWorkspace } from "./paths";
-import { withSharedBin } from "./shared-folder";
+import { applySharedBin } from "./shared-folder";
 import type { DataSocket } from "./streams";
 
 /**
@@ -73,10 +73,10 @@ export const runnerTerminalUser = async (
   shared?: string | null,
 ): Promise<TerminalUser> => {
   const env: Record<string, string> = { ...runnerEnv(os.homedir()), LANG: process.env.LANG || "C.UTF-8" };
-  const PATH = withSharedBin(env.PATH, shared);
+  applySharedBin(env, shared);
   return {
     prefix: [],
-    env: PATH ? { ...env, PATH } : env,
+    env,
     cwd: cwd ? await terminalFolder(agentFolder, cwd) : agentFolder,
   };
 };

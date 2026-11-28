@@ -1,0 +1,1 @@
+ALTER TABLE "messages" ADD COLUMN "origin" text DEFAULT 'unknown' NOT NULL;

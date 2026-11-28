@@ -13,7 +13,7 @@ export const hosts = pgTable(
     name: text().notNull(),
     /** `#rrggbb` in lower case; null: the design system's own. */
     accent: text(),
-    /** The stored file's key in the platform's bucket; null: the name alone. */
+    /** The stored file's key in the platform's bucket, then `#ink=light` when its ink is light; null: the name alone. */
     logo: text(),
     /** The pages before sign-in end with the line naming the software behind them. */
     poweredBy: boolean().notNull().default(true),

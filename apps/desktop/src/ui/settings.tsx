@@ -56,6 +56,7 @@ export function PrefRow({
   htmlFor,
   top,
   under,
+  nested,
 }: {
   lead?: ReactNode;
   /** Omitted: a row of one small line, or of a button alone. */
@@ -71,6 +72,8 @@ export function PrefRow({
   top?: boolean;
   /** A full-width line under the row (a warning). */
   under?: ReactNode;
+  /** A setting that only applies while the row above is on: its words under that row's, no hairline between. */
+  nested?: boolean;
 }) {
   const label =
     title == null ? null : htmlFor ? (
@@ -81,7 +84,7 @@ export function PrefRow({
       <b className="dk-crow__title">{title}</b>
     );
   return (
-    <div className="dk-crow" data-top={top || undefined}>
+    <div className="dk-crow" data-top={top || undefined} data-nested={nested || undefined}>
       {lead}
       <span className="dk-crow__text">
         {/* The ⓘ sits outside the label: the label stays the control's name, and a press on the ⓘ never

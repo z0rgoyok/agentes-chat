@@ -36,6 +36,8 @@ export interface SetupChecklist {
   starter?: string;
   /** The apps it was made to use (catalog connector ids) at their levels (ADR 0164): its checklist suggests them. */
   apps?: Record<string, SetupAppLevel>;
+  /** Closed on its page (its ×, `closeSetup`): the page shows it no more, whatever is left; its chat's stays. */
+  closed?: true;
 }
 
 export type SetupAppLevel = "read" | "write";
@@ -84,33 +86,51 @@ export const FIRST_RUN_SETUP: SetupChecklist = { role: null, done: [] };
 
 /** The stored checklist as the apps read it (unknown steps dropped); null for an agent made before it. */
 export function setupOf(
-  stored: { role?: unknown; done?: unknown; hello?: unknown; starter?: unknown; apps?: unknown } | null | undefined,
+  stored:
+    | { role?: unknown; done?: unknown; hello?: unknown; starter?: unknown; apps?: unknown; closed?: unknown }
+    | null
+    | undefined,
 ): SetupChecklist | null {
   if (!stored) return null;
   const role = typeof stored.role === "string" && ROLE_ID.test(stored.role) ? stored.role : null;
   const done = Array.isArray(stored.done) ? stored.done.filter(isSetupStep) : [];
-  return { role, done: [...new Set(done)], ...setupExtras(stored) };
+  return {
+    role,
+    done: [...new Set(done)],
+    ...setupExtras(stored),
+    ...(stored.closed === true ? { closed: true as const } : {}),
+  };
 }
 
-/**
- * A person confirmed one step of the agent's checklist (they chose in its dialog, or skipped it). Who may change the
- * agent may: its owner or who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17). On the right hand's first
- * run only "Agora não" is stored, on apps (who connects apps) and people (who invites). Confirming twice changes
- * nothing; an agent with no checklist keeps none.
- */
-export async function confirmSetupStep(db: Database, actorId: string, orgId: string, agentId: string, step: SetupStep) {
+/** The agent and the caller's membership, for whoever may set it up; not found for anyone else, as for no agent. */
+async function setupAgent(db: Database, actorId: string, orgId: string, agentId: string) {
   const membership = await requirePermission(db, actorId, orgId, "read");
   const [agent] = await db
     .select()
     .from(agents)
     .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId), isNull(agents.deletedAt)));
-  const allowed = !agent
-    ? false
-    : agent.builtin === "right_hand"
+  if (!agent) throw new NotFoundError("Agent not found");
+  return { agent, membership };
+}
+
+/** Its owner or who manages it (`managesAgent`, ADR 0085 addendum of 2026-11-17): who sets a new agent up. */
+const setsUp = (
+  agent: typeof agents.$inferSelect,
+  actorId: string,
+  membership: Awaited<ReturnType<typeof setupAgent>>["membership"],
+) => !agent.builtin && (ownsAgent(agent, actorId, membership.roleIds) || managesAgent(agent, actorId, membership));
+
+/**
+ * A person confirmed one step of the agent's checklist (they chose in its dialog, or skipped it). Who may change the
+ * agent may: its owner or who manages it (`setsUp`). On the right hand's first run only "Agora não" is stored, on apps
+ * (who connects apps) and people (who invites). Confirming twice changes nothing; an agent with no checklist keeps none.
+ */
+export async function confirmSetupStep(db: Database, actorId: string, orgId: string, agentId: string, step: SetupStep) {
+  const { agent, membership } = await setupAgent(db, actorId, orgId, agentId);
+  const allowed =
+    agent.builtin === "right_hand"
       ? FIRST_RUN_SKIPS.has(step) && can(membership, step === "apps" ? "manage_connectors" : "invite_people")
-      : !agent.builtin &&
-        SETUP_STEPS.includes(step as never) &&
-        (ownsAgent(agent, actorId, membership.roleIds) || managesAgent(agent, actorId, membership));
+      : SETUP_STEPS.includes(step as never) && setsUp(agent, actorId, membership);
   // Not found for whoever may not change it, as for an agent that isn't there.
   if (!allowed) throw new NotFoundError("Agent not found");
   const one = JSON.stringify([step]);
@@ -126,6 +146,21 @@ export async function confirmSetupStep(db: Database, actorId: string, orgId: str
         sql`not (${done} @> ${one}::jsonb)`,
       ),
     );
+  caches.agents.delete(`${orgId}:${agentId}`);
+  caches.agents.delete(`${orgId}:team`);
+}
+
+/**
+ * Who sets the agent up closed its checklist on its page (its ×): the page shows it no more, whatever is left, while
+ * its chat keeps its own (the first message). Closing twice changes nothing; an agent with no checklist keeps none.
+ */
+export async function closeSetup(db: Database, actorId: string, orgId: string, agentId: string) {
+  const { agent, membership } = await setupAgent(db, actorId, orgId, agentId);
+  if (!setsUp(agent, actorId, membership)) throw new NotFoundError("Agent not found");
+  await db
+    .update(agents)
+    .set({ setup: sql`jsonb_set(${agents.setup}, '{closed}', 'true'::jsonb)` })
+    .where(and(eq(agents.id, agentId), eq(agents.orgId, orgId), isNotNull(agents.setup)));
   caches.agents.delete(`${orgId}:${agentId}`);
   caches.agents.delete(`${orgId}:team`);
 }

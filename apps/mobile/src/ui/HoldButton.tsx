@@ -37,6 +37,12 @@ export interface HoldButtonProps {
 const HOLD_EASE = Easing.bezier(0.4, 0, 1, 1);
 /** Light taps while held, closer together as the fill speeds up (shares of the hold: 190 to 620 of its 700 ms). */
 const TICKS = [190, 340, 460, 550, 620].map((ms) => ms / 700);
+/**
+ * The press's mark for iOS: a message's system menu (`MessageMenu`) starts before a hold fills, so a hold inside the
+ * message (an approval's) was cancelled and the menu opened instead. A press that starts on a view with this `testID`
+ * (its accessibilityIdentifier) opens no menu (`patches/expo-router@58.0.23.patch`).
+ */
+export const OWN_HOLD = "own-hold";
 
 /**
  * Hold to confirm (high-risk approvals): the button rests a shade lighter and fills from the left in the ink's own
@@ -113,6 +119,7 @@ export function HoldButton({ label, onConfirm, durationMs = 700, disabled = fals
       <Pressable
         onPressIn={start}
         onPressOut={stop}
+        testID={OWN_HOLD}
         disabled={disabled}
         accessibilityRole="button"
         accessibilityLabel={label}

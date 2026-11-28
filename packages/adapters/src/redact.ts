@@ -367,12 +367,17 @@ export function withoutTokens(value: unknown): unknown {
  * and what it would take is trimmed with the line anyway.
  */
 const STACK_FRAME = /\bat (?:async |new )?(?:[^\s()]+ \([^)]*\)|\/\S+|file:\/\/\S+|node:\S+)|\bNode\.js v[\d.]+/g;
+/** Something named in quotes (`'node'`, `"node"`, `«node»`), as cmd.exe names a program it can't find. */
+const QUOTED = /['"‘“„«][^'"’”»\s][^'"’”»]*['"’”»]/;
 /** A line that names what went wrong (`Error: …`, `TypeError: …`, `ENOSPC: …`, `error: …`). */
 const ERROR_LINE = /(?:\w*Error|\bE[A-Z]{3,}|\berror)\b:/;
 
 /**
  * The line of a command-line tool's output that says what went wrong: its last line naming an error, else its last
- * line, without the stack frames and the Node.js version a crash ends with. Empty when it said nothing else.
+ * line, without the stack frames and the Node.js version a crash ends with. Empty when it said nothing else. A last
+ * line that goes on from one naming something in quotes (a small letter after no full stop) comes with it: cmd.exe
+ * wraps its not found over two lines in every language, and the second alone (`ou externo, um programa operável…`)
+ * doesn't name the program.
  */
 export function errorLineOf(output: string): string {
   const lines = output
@@ -380,7 +385,11 @@ export function errorLineOf(output: string): string {
     .split("\n")
     .map((l) => l.trim())
     .filter(Boolean);
-  return lines.filter((l) => ERROR_LINE.test(l)).at(-1) ?? lines.at(-1) ?? "";
+  const named = lines.filter((l) => ERROR_LINE.test(l)).at(-1);
+  if (named) return named;
+  const [before = "", last = ""] = lines.length > 1 ? lines.slice(-2) : ["", lines[0]];
+  const goesOn = QUOTED.test(before) && /^\p{Ll}/u.test(last) && !/[.!?:;]$/.test(before);
+  return goesOn ? `${before} ${last}` : last;
 }
 
 /** Whether a program's words say its disk is full, or its user's disk quota is (`ENOSPC: no space left on device`). */

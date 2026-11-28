@@ -1,7 +1,9 @@
 import { deflateSync } from "node:zlib";
 import {
+  catalogFont,
   type DeckView,
   type ElementView,
+  fontAssetOf,
   type RichParagraph,
   type SlideTheme,
   type SlideView,
@@ -10,8 +12,9 @@ import {
   textLook,
   themeOf,
 } from "@agenteschat/live";
+import { catalogStaticFont } from "../fonts/library";
 import { brandFonts, embedFont, escapePdfString, HELVETICA, HELVETICA_BOLD } from "../pdf";
-import type { TrueTypeFont } from "../ttf";
+import { parseTrueType, type TrueTypeFont } from "../ttf";
 import { type ChartMark, chartMarks } from "./chart-draw";
 import { type PdfImage, pdfImage } from "./pdf-images";
 import type { DeckMediaReader } from "./pptx-write";
@@ -27,18 +30,79 @@ import type { DeckMediaReader } from "./pptx-write";
 
 const PT_PER_UNIT = 0.5;
 
-type FontKey = "F1" | "F2";
+/** A face of the document: `F1`/`F2` (the engine's own regular and bold), or a catalog face like `inter-700i`. */
+type FontKey = string;
 
-interface Fonts {
-  /** The embedded faces, or null for the standard fonts. */
-  brand: { F1: TrueTypeFont; F2: TrueTypeFont } | null;
-  used: Record<FontKey, Map<number, number>>;
+/**
+ * The faces a PDF sets text in (ADR 0220 §7): each catalog font at the weight a run asks, from the server's static
+ * instances, embedded as subsets; a face the server doesn't have falls back to the engine's own regular or bold, and
+ * with no font files at all to the PDF's standard fonts.
+ */
+class Fonts {
+  readonly faces = new Map<FontKey, TrueTypeFont | null>();
+  readonly used = new Map<FontKey, Map<number, number>>();
+  /** PDF resource names, in the order faces were first used. */
+  readonly names = new Map<FontKey, string>();
+  readonly brand: { F1: TrueTypeFont; F2: TrueTypeFont } | null;
+
+  constructor(private readonly own: ReadonlyMap<string, Uint8Array> = new Map()) {
+    const brand = brandFonts();
+    this.brand = brand ? { F1: brand.F1, F2: brand.F2 } : null;
+    if (this.brand) {
+      this.faces.set("F1", this.brand.F1);
+      this.faces.set("F2", this.brand.F2);
+    }
+  }
+
+  /** The face for a font ref at a weight and slant (its fallback when the server can't embed it). */
+  keyFor(ref: string | undefined, weight: number, italic: boolean): FontKey {
+    const fallback = weight >= 600 ? "F2" : "F1";
+    if (!ref || !this.brand) return fallback;
+    const asset = fontAssetOf(ref);
+    const id = asset ?? catalogFont(ref)?.id;
+    if (!id) return fallback;
+    const key = asset ? `a-${asset}` : `${id}-${weight}${italic ? "i" : ""}`;
+    if (!this.faces.has(key)) {
+      const bytes = asset ? this.own.get(asset) : catalogStaticFont(id, weight, italic);
+      let face: TrueTypeFont | null = null;
+      try {
+        face = bytes ? parseTrueType(bytes, `${id}-${weight}`) : null;
+      } catch {
+        // An OpenType (CFF) font or one this writer can't subset: the fallback sets it.
+        face = null;
+      }
+      this.faces.set(key, face);
+    }
+    return this.faces.get(key) ? key : fallback;
+  }
+
+  face(key: FontKey): TrueTypeFont | null {
+    return this.faces.get(key) ?? null;
+  }
+
+  usedOf(key: FontKey): Map<number, number> {
+    let used = this.used.get(key);
+    if (!used) {
+      used = new Map();
+      this.used.set(key, used);
+    }
+    return used;
+  }
+
+  nameOf(key: FontKey): string {
+    let name = this.names.get(key);
+    if (!name) {
+      name = key === "F1" || key === "F2" ? key : `F${this.names.size + 3}`;
+      this.names.set(key, name);
+    }
+    return name;
+  }
 }
 
 function width(fonts: Fonts, text: string, font: FontKey, size: number): number {
   let w = 0;
-  if (fonts.brand) {
-    const f = fonts.brand[font];
+  const f = fonts.face(font);
+  if (f) {
     for (const ch of text) w += f.advance(f.glyphOf(ch.codePointAt(0) ?? 63)) / f.unitsPerEm;
     return w * size;
   }
@@ -52,9 +116,9 @@ function width(fonts: Fonts, text: string, font: FontKey, size: number): number 
 
 /** Text as the content stream shows it: glyph ids in hex (embedded fonts) or a WinAnsi string. */
 function shown(fonts: Fonts, text: string, font: FontKey): string {
-  if (!fonts.brand) return `(${escapePdfString(text)})`;
-  const f = fonts.brand[font];
-  const used = fonts.used[font];
+  const f = fonts.face(font);
+  if (!f) return `(${escapePdfString(text)})`;
+  const used = fonts.usedOf(font);
   let hex = "";
   for (const ch of text) {
     const cp = ch.codePointAt(0) ?? 63;
@@ -116,14 +180,25 @@ class Page {
   }
 
   /** Text at a baseline, in slide units (the page is flipped: y grows down). */
-  text(text: string, x: number, baseline: number, size: number, font: FontKey, color: string, italic: boolean) {
+  text(
+    text: string,
+    x: number,
+    baseline: number,
+    size: number,
+    font: FontKey,
+    color: string,
+    italic: boolean,
+    spacing = 0,
+  ) {
     if (!text) return;
     this.ops.push("q");
     const a = this.fillColor(color);
     this.alpha(a, 1);
-    const skew = italic ? 0.2 : 0;
+    // A face with its own italic needs no slant; the engine's fallback faces get one.
+    const skew = italic && (font === "F1" || font === "F2") ? 0.2 : 0;
+    const tc = spacing ? `${n(spacing)} Tc ` : "";
     this.ops.push(
-      `BT /${font} ${n(size)} Tf 1 0 ${n(skew)} -1 ${n(x)} ${n(baseline)} Tm ${shown(this.doc.fonts, text, font)} Tj ET`,
+      `BT /${this.doc.fonts.nameOf(font)} ${n(size)} Tf ${tc}1 0 ${n(skew)} -1 ${n(x)} ${n(baseline)} Tm ${shown(this.doc.fonts, text, font)} Tj ET`,
       "Q",
     );
   }
@@ -157,10 +232,11 @@ class PdfDoc {
   private readonly images = new Map<string, { ref: string; image: PdfImage } | null>();
   readonly xobjects = new Map<string, number>();
   readonly fonts: Fonts;
+  /** The deck's own fonts over its theme's. */
+  deckFonts: DeckView["fonts"];
 
-  constructor() {
-    const brand = brandFonts();
-    this.fonts = { brand: brand ? { F1: brand.F1, F2: brand.F2 } : null, used: { F1: new Map(), F2: new Map() } };
+  constructor(own?: ReadonlyMap<string, Uint8Array>) {
+    this.fonts = new Fonts(own);
   }
 
   add(body: string | Uint8Array): number {
@@ -232,15 +308,19 @@ class PdfDoc {
       );
     });
     const add = (body: string) => this.add(body);
-    const fonts = this.fonts.brand
-      ? {
-          F1: embedFont(add, this.fonts.brand.F1, this.fonts.used.F1),
-          F2: embedFont(add, this.fonts.brand.F2, this.fonts.used.F2),
-        }
-      : {
-          F1: this.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>"),
-          F2: this.add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>"),
-        };
+    // F1 and F2 always (the standard fonts without font files), then each face the pages used.
+    this.fonts.nameOf("F1");
+    this.fonts.nameOf("F2");
+    const entries: string[] = [];
+    for (const [key, name] of this.fonts.names) {
+      const face = this.fonts.face(key);
+      const id = face
+        ? embedFont(add, face, this.fonts.usedOf(key))
+        : this.add(
+            `<< /Type /Font /Subtype /Type1 /BaseFont /${key === "F2" ? "Helvetica-Bold" : "Helvetica"} /Encoding /WinAnsiEncoding >>`,
+          );
+      entries.push(`/${name} ${id} 0 R`);
+    }
     const states = [...this.states].map(([key, id]) => {
       const [ca, CA] = key.split("/");
       return `/GS${id} << /Type /ExtGState /ca ${ca} /CA ${CA} >>`;
@@ -248,7 +328,7 @@ class PdfDoc {
     const xobjects = [...this.xobjects].map(([ref, id]) => `/${ref} ${id} 0 R`);
     this.set(
       resources,
-      `<< /Font << /F1 ${fonts.F1} 0 R /F2 ${fonts.F2} 0 R >> /ExtGState << ${states.join(" ")} >> /XObject << ${xobjects.join(" ")} >> >>`,
+      `<< /Font << ${entries.join(" ")} >> /ExtGState << ${states.join(" ")} >> /XObject << ${xobjects.join(" ")} >> >>`,
     );
     this.set(catalog, `<< /Type /Catalog /Pages ${pagesId} 0 R >>`);
     this.set(
@@ -292,23 +372,28 @@ class PdfDoc {
 interface Piece {
   text: string;
   font: FontKey;
+  size: number;
+  /** Letter spacing, in slide units. */
+  spacing: number;
   italic: boolean;
   underline: boolean;
   strike: boolean;
   color: string;
+  highlight: string | null;
   width: number;
 }
 
 interface Line {
   pieces: Piece[];
   width: number;
+  /** The biggest size on the line. */
+  size: number;
 }
 
 /** A paragraph's runs broken into lines no wider than `max` (a word wider than a line broken where it must be). */
 function layoutParagraph(fonts: Fonts, p: RichParagraph, look: TextLook, max: number): Line[] {
   const lines: Line[] = [];
-  const size = look.size;
-  let line: Line = { pieces: [], width: 0 };
+  let line: Line = { pieces: [], width: 0, size: look.size };
   let wrapped = false;
   const push = (byWrap: boolean) => {
     // Spaces at the end of a broken line take no room.
@@ -318,26 +403,37 @@ function layoutParagraph(fonts: Fonts, p: RichParagraph, look: TextLook, max: nu
       line.pieces.pop();
     }
     lines.push(line);
-    line = { pieces: [], width: 0 };
+    line = { pieces: [], width: 0, size: look.size };
     wrapped = byWrap;
   };
   for (const run of p.runs) {
-    const font: FontKey = run.bold || look.weight >= 600 ? "F2" : "F1";
+    const weight = run.weight ?? (run.bold ? 700 : look.weight);
+    const italic = run.italic === true;
+    const font: FontKey = fonts.keyFor(run.font ?? look.fontRef, weight, italic);
+    const size = run.size ?? look.size;
+    const spacing = ((run.tracking ?? look.tracking) / 1000) * size;
+    const caps = run.caps ?? look.caps;
     const style = {
       font,
-      italic: run.italic === true,
+      size,
+      spacing,
+      italic,
       underline: run.underline === true,
       strike: run.strike === true,
       color: run.color ?? look.color,
+      highlight: run.highlight ?? null,
     };
     const add = (text: string, w: number) => {
       line.pieces.push({ ...style, text, width: w });
       line.width += w;
+      line.size = Math.max(line.size, size);
     };
-    run.text.split("\n").forEach((part, k) => {
+    const measure = (text: string) => width(fonts, text, font, size) + spacing * [...text].length;
+    const text = caps ? run.text.toUpperCase() : run.text;
+    text.split("\n").forEach((part, k) => {
       if (k > 0) push(false);
       for (const token of part.match(/\s+|\S+/g) ?? []) {
-        const w = width(fonts, token, font, size);
+        const w = measure(token);
         if (/^\s+$/.test(token)) {
           // A wrapped line starts at its first word.
           if (line.pieces.length === 0 && wrapped) continue;
@@ -357,13 +453,13 @@ function layoutParagraph(fonts: Fonts, p: RichParagraph, look: TextLook, max: nu
         // A word wider than the line: as many characters as fit on each line.
         let chunk = "";
         for (const ch of token) {
-          if (chunk && line.width + width(fonts, chunk + ch, font, size) > max) {
-            add(chunk, width(fonts, chunk, font, size));
+          if (chunk && line.width + measure(chunk + ch) > max) {
+            add(chunk, measure(chunk));
             push(true);
             chunk = ch;
           } else chunk += ch;
         }
-        if (chunk) add(chunk, width(fonts, chunk, font, size));
+        if (chunk) add(chunk, measure(chunk));
       }
     });
   }
@@ -381,9 +477,9 @@ function drawText(
   inset: number,
 ) {
   const size = look.size;
-  const lineH = size * look.lineHeight;
   const indent = size * 1.2;
-  const inner = { x: box.x + inset, y: box.y + inset, w: Math.max(1, box.w - inset * 2), h: box.h - inset * 2 };
+  const pad = look.padding || inset;
+  const inner = { x: box.x + pad, y: box.y + pad, w: Math.max(1, box.w - pad * 2), h: box.h - pad * 2 };
   const counters: number[] = [];
   const laid = rich.map((p) => {
     const level = Math.max(0, Math.min(4, p.level ?? 0));
@@ -394,16 +490,23 @@ function drawText(
     } else counters.length = level;
     const marker = p.list === "bullet" ? "•" : p.list === "ordered" ? `${counters[level]}.` : null;
     const lines = layoutParagraph(fonts, p, look, Math.max(size, inner.w - left));
-    return { p, left, lines, marker };
+    // Each line as tall as its biggest words at the paragraph's line height (ADR 0220 §3).
+    const lh = p.lineHeight ?? look.lineHeight;
+    const heights = lines.map((l) => l.size * lh);
+    return { p, left, lines, marker, heights, after: p.spaceAfter ?? 0, empty: size * lh };
   });
-  const total = laid.reduce((h, l) => h + Math.max(1, l.lines.length) * lineH, 0);
+  const total = laid.reduce(
+    (h, l) => h + (l.lines.length ? l.heights.reduce((a, b) => a + b, 0) : l.empty) + l.after,
+    0,
+  );
   let y = inner.y;
   if (look.valign === "middle") y += (inner.h - total) / 2;
   else if (look.valign === "bottom") y += inner.h - total;
-  for (const { p, left, lines, marker } of laid) {
+  for (const { p, left, lines, marker, heights, after, empty } of laid) {
     const align = p.align ?? look.align;
     lines.forEach((line, k) => {
-      const baseline = y + (lineH - size) / 2 + size * 0.82;
+      const lineH = heights[k] ?? empty;
+      const baseline = y + (lineH - line.size) / 2 + line.size * 0.82;
       const room = inner.w - left;
       const x =
         inner.x + left + (align === "center" ? (room - line.width) / 2 : align === "right" ? room - line.width : 0);
@@ -421,17 +524,21 @@ function drawText(
       }
       let at = x;
       for (const piece of line.pieces) {
-        page.text(piece.text, at, baseline, size, piece.font, piece.color, piece.italic);
+        if (piece.highlight && piece.text.trim()) {
+          page.rect(at, baseline - piece.size * 0.85, piece.width, piece.size * 1.1, piece.highlight);
+        }
+        page.text(piece.text, at, baseline, piece.size, piece.font, piece.color, piece.italic, piece.spacing);
         if (piece.underline || piece.strike) {
-          const thick = Math.max(1, size / 16);
-          if (piece.underline) page.rect(at, baseline + size * 0.1, piece.width, thick, piece.color);
-          if (piece.strike) page.rect(at, baseline - size * 0.3, piece.width, thick, piece.color);
+          const thick = Math.max(1, piece.size / 16);
+          if (piece.underline) page.rect(at, baseline + piece.size * 0.1, piece.width, thick, piece.color);
+          if (piece.strike) page.rect(at, baseline - piece.size * 0.3, piece.width, thick, piece.color);
         }
         at += piece.width;
       }
       y += lineH;
     });
-    if (lines.length === 0) y += lineH;
+    if (lines.length === 0) y += empty;
+    y += after;
   }
 }
 
@@ -532,7 +639,7 @@ async function drawElement(page: Page, doc: PdfDoc, el: ElementView, read: DeckM
   const opacity = el.style?.opacity ?? 1;
   switch (el.type) {
     case "text":
-      if (el.text) drawText(page, fonts, el.text, textLook(theme, el), el, 0);
+      if (el.text) drawText(page, fonts, el.text, textLook(theme, el, doc.deckFonts), el, 0);
       break;
     case "shape": {
       const fill = shapeFill(theme, el.style);
@@ -546,7 +653,7 @@ async function drawElement(page: Page, doc: PdfDoc, el: ElementView, read: DeckM
         stroke,
         opacity,
       );
-      if (el.text) drawText(page, fonts, el.text, textLook(theme, el), el, 12);
+      if (el.text) drawText(page, fonts, el.text, textLook(theme, el, doc.deckFonts), el, 12);
       break;
     }
     case "line": {
@@ -632,8 +739,15 @@ async function drawSlide(doc: PdfDoc, theme: SlideTheme, slide: SlideView, read:
 }
 
 /** A presentation as a PDF; `media` reads its pictures by asset id (a missing one is left out). */
-export async function slidesPdf(deck: DeckView, media: DeckMediaReader, title = "Presentation"): Promise<Uint8Array> {
-  const doc = new PdfDoc();
+export async function slidesPdf(
+  deck: DeckView,
+  media: DeckMediaReader,
+  title = "Presentation",
+  /** The file's own fonts a PDF may embed (their license allows it), by asset id (ADR 0220 §7). */
+  ownFonts?: ReadonlyMap<string, Uint8Array>,
+): Promise<Uint8Array> {
+  const doc = new PdfDoc(ownFonts);
+  doc.deckFonts = deck.fonts;
   const theme = themeOf(deck.theme);
   const pages: string[][] = [];
   // A deck of another size is drawn scaled into the page, centered.

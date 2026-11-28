@@ -54,6 +54,10 @@ export interface PushStrings {
   deviceJoinRequestBody: string;
   waitingTitle: string;
   openBody: string;
+  /** A reply its computer or a restart cut before the agent wrote anything. */
+  cutBody: string;
+  /** Long work the agent moved to the background on its own, in its own words. */
+  movedBody: string;
   sentGif: string;
   sentSticker: string;
   sentVoice: string;
@@ -84,7 +88,7 @@ export interface PushStrings {
    */
   deviceFolderTitle: (a: string, f: string, d: string) => string;
   deviceFolderBody: string;
-  /** `admin_ask`: `a` asks who may do it (`what`: channel_agent, create_agents, webhook; `l` the channel or service). */
+  /** `admin_ask`: `a` asks who may do it (`what`: channel_agent, create_agents, webhook, voice; `l` the channel or service). */
   adminAskTitle: (a: string, what: string, l: string) => string;
   deviceWaitingTitle: (person: string, device: string) => string;
   deviceWaitingBody: string;
@@ -190,6 +194,8 @@ export const en: PushStrings = {
   deviceJoinRequestBody: "Tap to let it join or deny.",
   waitingTitle: "Something is waiting for you",
   openBody: "Tap to open.",
+  cutBody: "Stopped before finishing. Ask again to continue.",
+  movedBody: "This will take a while, so I'll keep going in the background.",
   sentGif: "Sent a GIF",
   sentSticker: "Sent a sticker",
   sentVoice: "Sent a voice message",
@@ -213,11 +219,13 @@ export const en: PushStrings = {
   deviceFolderTitle: (a, f, d) => (f ? `${a} asks for ${f} on your ${d}` : `${a} asks for a folder on your ${d}`),
   deviceFolderBody: "Allow it in the app on that computer.",
   adminAskTitle: (a, what, l) =>
-    what === "channel_agent"
-      ? `${a} asks you to add an agent to #${l}`
-      : what === "create_agents"
-        ? `${a} asks to be able to create agents`
-        : `${a} asks you to set up the ${l} webhook for routines`,
+    what === "voice"
+      ? `${a} asks you to turn on voice messages`
+      : what === "channel_agent"
+        ? `${a} asks you to add an agent to #${l}`
+        : what === "create_agents"
+          ? `${a} asks to be able to create agents`
+          : `${a} asks you to set up the ${l} webhook for routines`,
   deviceWaitingTitle: (p, d) => `${p}'s agent is waiting for your ${d}`,
   deviceWaitingBody: "It starts when it's back.",
   teamWeekReady: "Your team's week is ready",

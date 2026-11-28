@@ -92,6 +92,8 @@ export default function MainStack() {
       // Writing a wiki page: its text and the tools over the keys lay out below an opaque bar (nothing under it).
       "wiki-write": solid,
       "block/[id]": solid,
+      // A message's table in full screen: its header row stands below an opaque bar as the rows scroll under it.
+      table: solid,
       "agent/[id]": cover,
       // The wiki's graph: its night fills the screen behind the bar.
       "wiki-map": cover,
@@ -155,6 +157,8 @@ export default function MainStack() {
       // The computer's screen places its own banner and edges by the side insets (`useSideInsets` would add them twice).
       "computer/[agentId]": { ...solid, contentStyle: { backgroundColor: colors.bg } },
       "browser-profile/[profileId]": solid,
+      // A session's terminal (ADR 0215): the shell's page and its key row lay out below an opaque bar.
+      "coding/[sessionId]/terminal": solid,
     };
     return ({ route }: { route: { name: string; params?: object } }): NativeStackNavigationOptions => {
       const options = own[route.name] ?? page;

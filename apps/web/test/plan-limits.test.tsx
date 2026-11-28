@@ -149,21 +149,23 @@ describe("IA e uso: budget only where the workspace uses the API", () => {
         .map((tab) => tab.textContent),
     ).toEqual(["Contas de IA", "Uso", "Pessoas"]);
     expect(screen().getByRole("region", { name: "Contas" })).toBeTruthy();
-    expect(screen().getByRole("region", { name: "Chaves de provedor" })).toBeTruthy();
+    expect(
+      within(screen().getByRole("region", { name: "Contas" })).getByRole("region", { name: "Chaves de API" }),
+    ).toBeTruthy();
     await usageTab();
     expect(regions()).toEqual([]);
     const body = document.querySelector(".settings__body")?.textContent ?? "";
     expect(body).not.toMatch(/orçamento|US\$/i);
   });
 
-  test("on plans alone with no key: only the accounts, and the first key is added from Conectar uma IA", async () => {
+  test("on plans alone with no key: only the accounts, and the first key is added from Add account", async () => {
     const state = onPlans();
     state.credentials = [];
     await go("settings/usage", state);
     const accounts = screen().getByRole("region", { name: "Contas" });
-    expect(screen().queryByRole("region", { name: "Chaves de provedor" })).toBeNull();
+    expect(screen().queryByRole("region", { name: "Chaves de API" })).toBeNull();
     expect(regions()).toEqual([]);
-    await click(within(accounts).getByRole("button", { name: "Conectar uma IA" }));
+    await click(within(accounts).getByRole("button", { name: "Adicionar conta" }));
     expect(within(screen().getByRole("dialog")).getByRole("radio", { name: "Com chave de API" })).toBeTruthy();
   });
 
@@ -290,6 +292,11 @@ describe("the account card", () => {
     await go("settings", seedState());
     expect(account().classList.contains("ac-faceline")).toBe(true);
     expect(account().querySelector(".sidebar__user-name")?.classList.contains("ac-captop")).toBe(true);
+    // The name keeps one line, cut where it must: the button says it whole, as its label and its title.
+    const name = account().querySelector(".sidebar__user-name")?.textContent ?? "";
+    expect(name).not.toBe("");
+    expect(account().getAttribute("title")?.startsWith(`${name} · `)).toBe(true);
+    expect(account().getAttribute("aria-label")?.startsWith(`Conta: ${name} · `)).toBe(true);
     cleanup();
     // How you appear isn't known yet: no line under the name.
     const api = createFakeApi(seedState());

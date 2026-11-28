@@ -27,6 +27,13 @@
 .bd .bd-glide > .bd-screen:not(:last-child) > .ac-dialog__body.ac-dialog__body {
   padding-bottom: 4px;
 }
+/* On touch a small button's target grows past its plate (the kit's): a sign-in's buttons at the middle's end keep that
+   room, or the middle would scroll by a sliver. */
+@media (pointer: coarse) {
+  .bd .bd-glide > .bd-screen:not(:last-child) > .ac-dialog__body.ac-dialog__body {
+    padding-bottom: calc((var(--touch-target) - var(--control-h-sm)) / 2);
+  }
+}
 /* With none (a sign-in whose actions aren't there yet), it keeps the dialog's edge at its foot. */
 .bd .bd-glide > .bd-screen:last-child > .ac-dialog__body.ac-dialog__body,
 .bd .bd-glide:has(> .arrival-chat__acts:empty) > .bd-screen > .ac-dialog__body.ac-dialog__body {
@@ -260,6 +267,35 @@
 }
 .bd-line:enabled:hover :is(.bd-line__v, .bd-line__chev) {
   color: var(--ink);
+}
+/* "Add account": a mark before each name, and the other plans, folded open, start past the mark of their line. */
+.bd-line__k--mark {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+.bd-line__mark {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--ink);
+}
+.bd-line__mark > :is(.ac-brand, .ac-icon) {
+  width: 20px;
+  height: 20px;
+}
+.bd-line--inner > .bd-line__k--mark {
+  padding-left: 32px;
+}
+/* The folded plans sit in the lines' own grid. */
+.bd-lines__group {
+  display: contents;
+}
+.bd-lines--add > .bd-line:last-child {
+  border-bottom: 1px solid var(--line);
 }
 html:not([data-pointer]) .bd-line:focus-visible {
   outline: none;

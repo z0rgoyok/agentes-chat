@@ -10,6 +10,7 @@ import {
   linkAssistant,
   linkRanOut,
   linkStep,
+  quietHoursText,
   surfaceRowText,
   surfaceSenderText,
   surfaceTagText,
@@ -32,7 +33,9 @@ const link = (over: Partial<SurfaceLink> = {}): SurfaceLink => ({
   orgName: "Acme",
   createdAt: new Date(NOW - 60_000).toISOString(),
   confirmedAt: null,
+  nudge: { on: true, afterHours: 4, quietFrom: 22, quietTo: 8 },
   expiresAt: new Date(NOW + 9 * 60_000).toISOString(),
+  pinSet: false,
   ...over,
 });
 const links = (list: SurfaceLink[], over: Partial<SurfaceLinks> = {}): SurfaceLinks => ({
@@ -275,4 +278,11 @@ describe("the surface's logo beside the line icons", () => {
     expect(mark).toContain("Math.round((size * 16) / 24)");
     expect(mark).toContain("<Icon name={fallback} size={size}");
   });
+});
+
+test("the nudge's quiet hours on the reader's clock, in every language (ADR 0234)", async () => {
+  const nudge = { on: true, afterHours: 4, quietFrom: 22, quietTo: 8 };
+  expect(quietHoursText(await translator("en"), "en-US", nudge)).toBe("10:00 PM to 8:00 AM");
+  expect(quietHoursText(await translator("pt-BR"), "pt-BR", nudge)).toBe("22:00 às 8:00");
+  expect(quietHoursText(await translator("de"), "de", nudge)).toBe("22:00 bis 8:00");
 });

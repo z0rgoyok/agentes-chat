@@ -84,7 +84,55 @@
 .aa-room[data-level="limited"] {
   color: var(--danger);
 }
-.ac-tz__option[aria-disabled="true"]:has(> .aa-opt) > :is(.ac-menu__leading, .aa-opt) {
+/* The open list: each account on two lines (the name over its plan and whose it is), its room and the check at the end. */
+.ac-tz__option:has(> .aa-row) {
+  align-items: center;
+  gap: var(--space-3);
+}
+.aa-row {
+  flex: 1 1 auto;
+  min-width: 7em;
+}
+.aa-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.aa-row__end {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.aa-row__end > .aa-room {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.aa-row__end > .ac-tz__check {
+  margin-left: 0;
+}
+/* The chosen row keeps its plate; only its name is heavier. */
+.ac-search__list .ac-tz__option[aria-selected]:has(> .aa-row) {
+  font-weight: 400;
+}
+.ac-search__list .ac-tz__option[aria-selected="true"] > .aa-row > span:first-child {
+  font-weight: 600;
+}
+/* Its mark on the name's line, as a menu's option with a description has it. */
+.ac-tz__option:has(> .aa-row > .ac-menu__desc) > .ac-menu__leading {
+  align-self: flex-start;
+  translate: 0 calc(10px - var(--cap-mid) - 50%);
+}
+@supports (top: 1lh) {
+  .ac-tz__option:has(> .aa-row > .ac-menu__desc) > .ac-menu__leading {
+    translate: 0 calc(0.5lh - var(--cap-mid) - 50%);
+  }
+}
+.ac-tz__option[aria-disabled="true"]:has(> .aa-opt) > :is(.ac-menu__leading, .aa-opt),
+.ac-tz__option[aria-disabled="true"]:has(> .aa-row) > :is(.ac-menu__leading, .aa-row) {
   opacity: 0.55;
 }
 
@@ -115,6 +163,9 @@
     min-width: 0;
   }
   .aa-meta__plan {
+    display: none;
+  }
+  .aa-row__end .aa-room__bar {
     display: none;
   }
   .aa-pair {

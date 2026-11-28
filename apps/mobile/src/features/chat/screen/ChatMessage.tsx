@@ -108,6 +108,7 @@ export const ChatMessage = memo(function ChatMessage({
       newTurn={item.newTurn}
       run={runPosition(item.grouped, item.continued ?? false)}
       above={item.above}
+      relay={item.relay}
       aboveThread={aboveThread}
       meId={meId}
       thread={thread}

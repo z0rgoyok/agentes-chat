@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { createRequester } from "../src/index";
+import { createRequester, writesInFlight } from "../src/index";
 
 /** The platform's `XMLHttpRequest` as far as an upload uses it: the test sends progress, then answers or fails. */
 class FakeXhr {
@@ -83,4 +83,20 @@ test("with no XMLHttpRequest the write goes by fetch, still stoppable", async ()
   stop.abort();
   expect(await answer.catch((e: Error) => e.name)).toBe("AbortError");
   expect(signal).toBe(stop.signal);
+});
+
+test("a write on its way counts until it answers, a read never does (a reload would cut the write)", async () => {
+  let answer = (_: Response) => {};
+  const fetch = (async () =>
+    new Promise<Response>((resolve) => (answer = resolve))) as unknown as typeof globalThis.fetch;
+  const request = createRequester({ fetch });
+  const read = request("/api/app/me");
+  expect(writesInFlight()).toBe(0);
+  answer(Response.json({}));
+  await read;
+  const write = request("/api/app/x", { json: { a: 1 } });
+  expect(writesInFlight()).toBe(1);
+  answer(Response.json({}));
+  await write;
+  expect(writesInFlight()).toBe(0);
 });

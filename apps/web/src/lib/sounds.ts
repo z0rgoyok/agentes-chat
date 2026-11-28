@@ -37,6 +37,28 @@ let ctx: AudioContext | null = null;
 let out: GainNode | null = null;
 const buffers = new Map<string, AudioBuffer>();
 const lastPlayed = new Map<SoundName, number>();
+/** A click or a key switched audio on once: from then on the app turns it on by itself to play. */
+let unlocked = false;
+/**
+ * Audio goes off this long after the last sound ends. Running, a context holds the output device and plays silence
+ * into it: on a Mac the device shows as playing for as long as the window is open, and its audio service keeps busy.
+ */
+const RELEASE_MS = 1500;
+/** A sound that would start later than this after it was asked for doesn't play (late is worse than none). */
+const LATE_MS = 1000;
+let releaseTimer: ReturnType<typeof setTimeout> | undefined;
+/** When the last sound started ends, on the context's clock (seconds). */
+let playingUntil = 0;
+
+/** Switches audio off once the sounds playing end and nothing new came for `RELEASE_MS`. */
+function releaseLater(c: AudioContext) {
+  clearTimeout(releaseTimer);
+  const left = Math.max(0, playingUntil - c.currentTime) * 1000;
+  releaseTimer = setTimeout(() => {
+    releaseTimer = undefined;
+    if (c.state === "running") c.suspend().catch(() => {});
+  }, left + RELEASE_MS);
+}
 
 function audio(): AudioContext | null {
   if (ctx) return ctx;
@@ -64,14 +86,23 @@ function play(name: SoundName) {
   if (choice === "off") return;
   const c = audio();
   // Before the first click or key the browser keeps audio off: nothing plays (late is worse than none).
-  if (!c || !out || c.state !== "running") return;
+  if (!c || !out || !unlocked) return;
   const now = performance.now();
   if (now - (lastPlayed.get(name) ?? -Infinity) < REPEAT_MS) return;
   lastPlayed.set(name, now);
-  const source = c.createBufferSource();
-  source.buffer = buffer(c, choice, name);
-  source.connect(out);
-  source.start();
+  const sound = buffer(c, choice, name);
+  const start = () => {
+    if (!out || c.state !== "running" || performance.now() - now > LATE_MS) return;
+    const source = c.createBufferSource();
+    source.buffer = sound;
+    source.connect(out);
+    source.start();
+    playingUntil = Math.max(playingUntil, c.currentTime + sound.duration);
+    releaseLater(c);
+  };
+  // Switched off after the last sound (`releaseLater`): on again first, which takes a moment.
+  if (c.state === "running") start();
+  else c.resume().then(start, () => {});
 }
 
 /**
@@ -102,8 +133,11 @@ export function installSounds() {
     c.resume()
       .then(() => {
         if (c.state !== "running") return;
+        unlocked = true;
         window.removeEventListener("pointerdown", unlock, true);
         window.removeEventListener("keydown", unlock, true);
+        // Nothing to play yet: off again until a sound comes.
+        releaseLater(c);
       })
       .catch(() => {});
   };

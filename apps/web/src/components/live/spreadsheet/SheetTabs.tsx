@@ -1,4 +1,4 @@
-import { Button, cx, Popover } from "@agenteschat/ui";
+import { Button, cx, InlineName, Popover } from "@agenteschat/ui";
 import {
   type KeyboardEvent,
   type ReactNode,
@@ -176,17 +176,18 @@ export function SheetTabs(props: SheetTabsProps) {
       <div ref={strip} className="sheet-tabs__strip" role="tablist" aria-label={t("live.sheet.tabs.label")}>
         {props.sheets.map((tab, index) =>
           renaming === tab.id ? (
-            <RenameField
+            <InlineName
               key={tab.id}
-              name={tab.name}
-              label={t("live.sheet.tabs.renameLabel")}
-              onDone={(name) => {
-                if (name === null || name.trim() === tab.name) {
-                  setRenaming(null);
-                  return;
-                }
-                if (props.onRename(tab.id, name)) setRenaming(null);
+              fit
+              className="sheet-tabs__rename"
+              value={tab.name}
+              maxLength={31}
+              aria-label={t("live.sheet.tabs.renameLabel")}
+              onSave={(name) => {
+                // Refused (a name another sheet has): the field stays for another try, the sheet says why.
+                if (!props.onRename(tab.id, name)) throw new Error("refused");
               }}
+              onDone={() => setRenaming(null)}
             />
           ) : (
             <span key={tab.id} className="sheet-tabs__slot">
@@ -275,46 +276,5 @@ export function SheetTabs(props: SheetTabsProps) {
         {props.status}
       </output>
     </div>
-  );
-}
-
-/** A tab's name being edited in place: Enter or leaving keeps it, Esc goes back. */
-function RenameField({ name, label, onDone }: { name: string; label: string; onDone(name: string | null): void }) {
-  const [value, setValue] = useState(name);
-  const field = useRef<HTMLInputElement>(null);
-  const done = useRef(false);
-  useEffect(() => {
-    field.current?.focus();
-    field.current?.select();
-  }, []);
-  const finish = (next: string | null) => {
-    if (done.current) return;
-    done.current = true;
-    onDone(next);
-    // Refused: the field stays for another try.
-    requestAnimationFrame(() => {
-      done.current = false;
-    });
-  };
-  return (
-    <input
-      ref={field}
-      className="ac-input sheet-tabs__rename"
-      aria-label={label}
-      value={value}
-      maxLength={31}
-      size={Math.max(6, value.length + 1)}
-      onChange={(e) => setValue(e.target.value)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") {
-          e.preventDefault();
-          finish(value);
-        } else if (e.key === "Escape") {
-          e.preventDefault();
-          finish(null);
-        }
-      }}
-      onBlur={() => finish(value)}
-    />
   );
 }

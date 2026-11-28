@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { eq, schema } from "@agenteschat/db";
-import { VOICE_MAX_BYTES } from "@agenteschat/engine";
+import { setBillingHold, VOICE_MAX_BYTES } from "@agenteschat/engine";
 import { type Browser, browser, createTestServer, signUp, type TestServer } from "./harness";
 
 /** Voice messages over HTTP (ADR 0100): sending, playing, expiry, the switch and the owner's provider. */
@@ -108,6 +108,37 @@ test("the workspace's switch and the server's engine decide the microphone", asy
   expect(await allowed.json()).toEqual({ allowed: false });
 });
 
+test("a workspace with no plan in force gets no words: voice comes with a plan, and nothing is stored", async () => {
+  const heard: string[] = [];
+  const counting = (async (url: string | URL | Request) => {
+    heard.push(String(url));
+    return Response.json({ text: "Ada, oi" });
+  }) as unknown as typeof fetch;
+  const { server, owner, orgId, channelId } = await start(undefined, counting);
+  for (const hold of ["payment", "unpaid", "ended"] as const) {
+    await setBillingHold({ db: server.db }, orgId, hold);
+    const refused = await send(owner, orgId, channelId);
+    expect(refused.status).toBe(409);
+    expect(await errorCode(refused)).toBe("voice.plan");
+    const allowed = await owner(`/api/app/organizations/${orgId}/voice/allowed`);
+    expect(await allowed.json()).toEqual({ allowed: false, reason: "plan" });
+  }
+  expect(await server.db.select().from(schema.voiceClips).where(eq(schema.voiceClips.orgId, orgId))).toEqual([]);
+  expect(heard).toEqual([]);
+  await setBillingHold({ db: server.db }, orgId, null);
+  expect((await send(owner, orgId, channelId)).status).toBe(202);
+  expect(await (await owner(`/api/app/organizations/${orgId}/voice/allowed`)).json()).toEqual({ allowed: true });
+});
+
+test("with no engine the microphone stays: notes go as audio, and the settings say so and name the owner", async () => {
+  const { owner, orgId, channelId } = await start({ SPEECH_ENGINES: "" });
+  const settings = (await (await owner(`/api/app/organizations/${orgId}/settings`)).json()) as Record<string, unknown>;
+  expect(settings).toMatchObject({ voiceMessages: true, voiceAvailable: false, speechState: "none" });
+  expect(settings.speechOwner).toMatchObject({ name: expect.any(String) });
+  expect((await send(owner, orgId, channelId)).status).toBe(202);
+  expect(await (await owner(`/api/app/organizations/${orgId}/voice/allowed`)).json()).toEqual({ allowed: true });
+});
+
 test("a server of one's own that asked for it hears when someone is about to record, with the workspace", async () => {
   const calls: { url: string; method?: string; headers?: RequestInit["headers"] }[] = [];
   const own = (async (url: string | URL | Request, init?: RequestInit) => {
@@ -155,6 +186,18 @@ test("the provider is only for the installation's owner", async () => {
   expect(JSON.stringify(view)).not.toContain("good-key");
 });
 
+test("the speech model on this computer is only for the installation's owner, and says where it can't go", async () => {
+  const { owner, other } = await start({});
+  expect((await other("/api/app/speech-local")).status).toBe(404);
+  const view = (await (await owner("/api/app/speech-local")).json()) as Record<string, unknown>;
+  // No files folder in this test server: nowhere to keep it.
+  expect(view).toMatchObject({ fit: "platform", status: { state: "off" }, needDiskBytes: 2 * 2 ** 30 });
+  expect(view.sizeBytes).toBe(773369957);
+  const put = await owner("/api/app/speech-local", { method: "PUT", json: {} });
+  expect(put.status).toBe(200);
+  expect(((await put.json()) as { status: unknown }).status).toEqual({ state: "off" });
+});
+
 test("on agentes.chat the provider can't be chosen", async () => {
   const origin = "https://app.agentes.chat";
   const server = await createTestServer({ env: { ALLOW_SIGNUP: "true", PUBLIC_URL: origin }, speechFetch: groq });
@@ -165,6 +208,7 @@ test("on agentes.chat the provider can't be chosen", async () => {
     origin,
   });
   expect((await owner("/api/app/speech-key", { origin })).status).toBe(404);
+  expect((await owner("/api/app/speech-local", { origin })).status).toBe(404);
 });
 
 test("a recording past the size is refused even when the request states no length", async () => {

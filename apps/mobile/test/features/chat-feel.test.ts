@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { ORBIT_LIGHT, ORBIT_RINGS } from "@agenteschat/ui/agent/orbit";
 import { keepSameRows, sameItems } from "../../src/features/chat/logic";
 import { chatScreenSource } from "./chat-screen-source";
 
@@ -128,8 +129,12 @@ describe("the conversation's rows", () => {
     const messages = between(chat, "const messageRows = useMemo<Row[]>(() => {", "const liveRows");
     expect(messages).not.toContain("browsing");
     expect(messages).not.toContain("waits");
-    // Nor the DM and channel lists, read again with each message: only the thread head's words and count.
-    expect(messages).toContain("}, [isThread, threadId, list, startedText, replyCount, superseded, timeLines, t]);");
+    // Nor the DM and channel lists, read again with each message: only the thread head's words and count, and the
+    // consulted agents' words folded into their askers' quotes, kept until a fold changes (`relaysKey`).
+    expect(messages).toContain(
+      "}, [isThread, threadId, list, startedText, replyCount, superseded, timeLines, relays, t]);",
+    );
+    expect(chat).toContain("const relays = useMemo(() => relaysNow, [relaysKey]);");
     expect(chat).toContain("[browsing, held, making, waits],");
     expect(chat).toContain('() => messageRows.flatMap((r) => (r.kind === "message" ? [r.message] : [])),');
     expect(chat).toContain("shownRef.current = keepSameRows(shownRef.current, next);");
@@ -163,9 +168,15 @@ describe("older pages", () => {
   });
 
   test("going to a message reads the page around it at any distance; a failed read says so, a 404 says it's gone", () => {
-    expect(chat).toContain(".messages(orgId, channelId, { around: seek, limit: SEEK_PAGE })");
+    expect(chat).toContain(
+      ".messages(orgId, channelId, { around: seek, limit: SEEK_PAGE, onCards: cardsInto(qc, orgId) })",
+    );
     expect(chat).toContain("const gone = error === undefined || (error instanceof ApiError && error.status === 404);");
     expect(chat).toContain('toast({ title: gone ? t("channel.jumpMissing") : t("common.loadFailed"), icon: "x" });');
+    // In a thread, one of the conversation outside it (a long work's report) opens in the conversation, at it.
+    expect(chat).not.toContain("if (isThread || (around?.id === seek && around.done))");
+    expect(chat).toContain(".messages(orgId, channelId, { around: seek, limit: 1 })");
+    expect(chat).toContain("router.push(chatHref(channelId, null, seek));");
     // Away from the latest page: newer pages as the person scrolls down, never pinned to that end.
     expect(chat).toContain("onEndReached={gap ? loadNewer : undefined}");
     expect(chat).toContain("maintainScrollAtEnd={readHold || gap ? false : GLIDE}");
@@ -261,6 +272,46 @@ describe("the working line", () => {
     expect(pop).toContain("initialValues: { opacity: 0, transform: [{ scale: 0.9 }] },");
   });
 
+  test("whoever does the work leads with its orbit (the web's), what it did so far under the words, paced", () => {
+    // The agent at work, or the one a question or hand-off went to; the stack's small faces are the others, never a
+    // face twice.
+    expect(lines).toContain("const worker = asking ? { id: asking.to, name: asking.toName } : lead;");
+    expect(lines).toContain("<OrbitFace color={agentLook(dir.agentById.get(worker.id)).color} size={ORBIT_FACE}>");
+    expect(lines).toContain("const faces = barFaces(entries).filter((e) => e !== lead);");
+    expect(lines).toContain("usePacedTrail(trailRun ? workTrail(t, trailRun, i18n.language) : NO_TRAIL)");
+    // The folded steps in words ("3 earlier steps"), never a bare "+3".
+    expect(lines).toContain('{t("chat.trail.earlier", { count: trail.earlier })}');
+    expect(lines).not.toContain("+{trail.earlier}");
+    const orbit = src("agent/OrbitFace.tsx");
+    // The web's rings, light and colours, drawn on the UI thread from a clock that runs only while it moves: still
+    // with Reduce Motion and on a screen that isn't showing.
+    expect(orbit).toContain('} from "@agenteschat/ui/agent/orbit";');
+    expect(orbit).toContain("const clock = useDrawingClock(!reduced && !paused);");
+    expect(orbit).not.toMatch(/requestAnimationFrame|setInterval/);
+    // The rings themselves turn round the face on that clock (the web's `ac-orbit__roll`), their light riding them.
+    // With Reduce Motion each rests at its tilt whatever the clock reached before the setting came on.
+    expect(orbit).toContain("{ rotate: still ? (ring.tilt * Math.PI) / 180 : ringAngle(ring, roll, clock.value) },");
+    expect(orbit).toContain("return ((ring.tilt + (360 * (ms / 1000 + roll)) / ring.spin) * Math.PI) / 180;");
+    expect(orbit).toContain("still={reduced}");
+    expect(orbit).not.toContain("{ rotate: (ring.tilt * Math.PI) / 180 }]");
+  });
+
+  test("a ring turned upright is never clipped or into a name: the line and the pinned strip have room", () => {
+    // How far past the face a ring stands upright, in faces: its radius and the dot at its head.
+    const reach = Math.max(...ORBIT_RINGS.map((r) => r.r / 2)) - 0.5 + ORBIT_LIGHT.dot / 100;
+    // The working line clips nothing (its 24-point face in a 28-point line).
+    const pill = between(lines, "  pill: {", "},");
+    expect(pill).not.toContain("overflow");
+    // The pinned strip scrolls (it clips at its top) and its names sit under the faces.
+    const strip = src("features/chats/PinnedStrip.tsx");
+    const num = (re: RegExp) => Number(strip.match(re)?.[1]);
+    const face = num(/const FACE = (\d+);/) - 2;
+    const above = num(/strip: \{[^}]*paddingTop: (\d+)/) + num(/itemIn: \{[^}]*paddingVertical: (\d+)/);
+    expect(above).toBeGreaterThanOrEqual(reach * face);
+    // Under the face: the gap and the footnote's room over its capitals (18-point line, 13-point text) clear the tip.
+    expect(num(/itemIn: \{[^}]*gap: (\d+)/) + 4).toBeGreaterThanOrEqual(reach * face);
+  });
+
   test('"View" reaches 44 points', () => {
     expect(lines).toContain(
       "hitSlop={{ top: (TOUCH - SEE_LINE) / 2, bottom: (TOUCH - SEE_LINE) / 2, left: 12, right: 12 }}",
@@ -320,11 +371,14 @@ describe("an empty conversation's greeting and the keyboard", () => {
 });
 
 describe("a table wider than its message", () => {
-  test("its scroll redraws it only when an edge's fade turns on or off", () => {
+  test("its scroll never redraws it: the standing column, its edge and the fade follow the scroll on the UI thread", () => {
     const spans = src("features/chat/MessageSpans.tsx");
-    expect(spans).not.toContain("onScroll={(e) => setX(e.nativeEvent.contentOffset.x)}");
-    expect(spans).toContain("if (now.left !== hidden.left || now.right !== hidden.right) setX(offset);");
-    expect(spans).toContain("onScroll={(e) => onScroll(e.nativeEvent.contentOffset.x)}");
+    expect(spans).not.toContain("setX(");
+    expect(spans).toContain("const TableScroller = Animated.createAnimatedComponent(GestureScrollView);");
+    expect(spans).toContain("const onScroll = useAnimatedScrollHandler({");
+    expect(spans).toContain("onScroll={onScroll}");
+    expect(spans).toContain("transform: [{ translateX: Math.max(0, x.value) }],");
+    expect(spans).toContain("opacity: Math.min(1, Math.max(0, (total - frame - x.value) / TABLE_FADE)),");
   });
 });
 
@@ -355,7 +409,7 @@ describe("a voice message's row", () => {
     expect(row).toContain("if (id !== clipId || scrubbing.value) return;");
     const pan = between(row, "const pan = usePanGesture({", "const tap =");
     expect(pan).toContain("scrubbing.value = true;");
-    expect(pan).toContain("const at = width > 0 ? waveAt(e.x, width) : progress.value;");
+    expect(pan).toContain("const at = width > 0 ? waveAt(e.x, width, BAR_HANDLE) : progress.value;");
     expect(pan).toContain("scheduleOnRN(endScrub, at);");
   });
 
@@ -363,7 +417,8 @@ describe("a voice message's row", () => {
     expect(row).toContain("const starting = useSyncExternalStore(subscribePlayback, startingId) === clipId;");
     expect(row).toContain('<ActivityIndicator size="small" color={c.bg} />');
     const toggle = between(row, "const toggle = () => {", "const seek =");
-    expect(toggle.indexOf("voiceAudioGone(")).toBeGreaterThan(toggle.indexOf("const failed = () => {"));
+    expect(toggle.indexOf("isGone?.()")).toBeGreaterThan(toggle.indexOf("const failed = () => {"));
+    expect(row).toContain("isGone={() => voiceAudioGone(url, authedFetch as typeof fetch)}");
     expect(toggle).toContain("onError: failed,");
     expect(toggle).toContain("}).catch(failed);");
     // Where it stands is the playback module's: a row drawn again mid-play shows it.

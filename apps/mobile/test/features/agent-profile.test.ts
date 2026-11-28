@@ -473,7 +473,7 @@ describe("Perfil: agora, cada coisa uma vez", () => {
     expect(statusCardShown(line("wait", "waiting_plan"), { working: false, asking: true })).toBe(true);
   });
 
-  test("the screen: three views, the request as the shared card and out of the list, the jobs as rows, no pills", async () => {
+  test("the screen: the web's card, no views; the request as the shared card, the jobs as rows, no pills", async () => {
     // The screens are components the tests can't render: what they wire in, as text.
     const read = (file: string) => Bun.file(new URL(`../../src/features/${file}`, import.meta.url).pathname).text();
     const [screen, mail, computer] = await Promise.all([
@@ -481,9 +481,16 @@ describe("Perfil: agora, cada coisa uma vez", () => {
       read("agents/AgentMailSection.tsx"),
       read("computer/AgentComputerRow.tsx"),
     ]);
-    expect(screen).toContain('{ key: "today", label: t("common.today") }');
-    expect(screen).toContain('{ key: "access", label: t("agentPage.fields.levels") }');
-    expect(screen).toContain('{ key: "memory", label: t("agentPage.tabs.memory") }');
+    // No views: Access, Memory and what it did for you are rows of Details, each on its own pushed screen.
+    expect(screen).not.toContain("<Segmented");
+    expect(screen).toContain('onPress={() => openAgentView(id, "access")}');
+    expect(screen).toContain('onPress={() => openAgentView(id, "memory")}');
+    expect(screen).toContain('onPress={() => openAgentView(id, "did")}');
+    expect(screen).toContain('router.push({ pathname: "/agent-view/[id]", params: { id, v: view } })');
+    // Who may talk to it and who answers for it, as the web's card; then the message field at the foot.
+    expect(screen).toContain("{agent ? <AudienceGroup agent={agent} /> : null}");
+    expect(screen).toContain('label={t("mobile.agent.responsible")}');
+    expect(screen).toContain('label={t("home.ask.label", agentGrammar(name))}');
     expect(screen).toContain('kind={{ icon: "shield", label: t("mobile.intentAgents.asksApproval") }}');
     expect(screen).toContain('!(waitingNow && l.href?.kind === "approval" && l.href.id === waitingNow.id)');
     expect(screen).toContain("statusCardShown(statusLine, { working: busy, asking: asking.length > 0 })");
@@ -491,9 +498,11 @@ describe("Perfil: agora, cada coisa uma vez", () => {
     // One surface level: grouped lists on the gray, no pills, sections or cards of its own.
     expect(screen).not.toContain("NowPill");
     expect(screen).not.toMatch(/<(Section|Card|Row)\b/);
-    // Mailboxes are rows of "Can use"; Chat stands alone under the name, and the computer is the card under it.
+    // Mailboxes are rows of "Can use"; asking for access stands alone under the name, and the computer is the card
+    // right under what it is on.
     expect(mail).toContain("export function useAgentMailboxes(agentId: string, enabled = true): MailboxLine[]");
     expect(screen).not.toContain("AgentComputerButton");
+    expect(screen.indexOf("{nowBlock}\n            {/* Its computer right under what it is on")).toBeGreaterThan(-1);
     expect(screen).toContain(
       'acts: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 8 },',
     );
@@ -501,16 +510,15 @@ describe("Perfil: agora, cada coisa uma vez", () => {
     // One card: the picture when there is one, the row with the status line always, in the lists' own relief.
     expect(computer).toContain("{...(line ? { sub: line, subLines: 2 } : {})}");
     expect(computer).toContain("{ backgroundColor: colors.raised, boxShadow:");
-    // The screen's views are the app's toolbar switch (as the tasks' List · Board), never a page-tall slab.
-    expect(screen).toMatch(/onChange=\{\(k\) => setTab\(k as ProfileTab\)\}\s+wide\s+\/>/);
-    // Its computer above the views, whichever is open; Today opens on what it is on now. The rules people gave on
-    // Memory, under what it learned; where it merges on Access; the right hand's own AI above how it works: each in the
-    // grouped lists, none a section of its own.
+    // Its computer right under what it is on, then who may talk to it. The rules people gave on Memory, under what it
+    // learned; where it merges on Access; the right hand's own AI above how it works: each in the grouped lists, none a
+    // section of its own.
     expect(screen).toContain(
-      "<AgentComputerCard agentId={id} style={styles.computer} />\n              <KeptRunningList agentId={id} />",
+      "<AgentComputerCard agentId={id} style={styles.computer} />\n            <KeptRunningList agentId={id} />",
     );
-    expect(screen.indexOf("<AgentComputerCard")).toBeLessThan(screen.indexOf("<Segmented"));
-    expect(screen).toContain("      {nowBlock}\n      {/* What it thinks with");
+    expect(screen.indexOf("<KeptRunningList agentId={id} />")).toBeLessThan(
+      screen.indexOf("<AudienceGroup agent={agent} />"),
+    );
     expect(computer).toContain("asksPicture(focused, view.desktopQ.data ?? null)");
     expect(screen).toContain(
       "      {knows.data ? memoryKnows : knows.isError ? memoryFailed : null}\n      {/* What people told it to always do, under what it learned, as the web's Memória. */}\n      <GivenRules agentId={id} name={name} rightHand={rightHand} />",
@@ -535,15 +543,16 @@ describe("an agent that doesn't answer me", () => {
   const admin = { permissions: ["manage_agents", "talk_to_agents"] } as unknown as OrgSummary;
   const member = { permissions: ["talk_to_agents"] } as unknown as OrgSummary;
 
-  test("Conversar on its page opens the locked conversation for who manages it, not for a member outside", async () => {
+  test("the message field on its page opens the locked conversation for who manages it, not for a member outside", async () => {
     // What the server's `openDm` takes, as text (the screen is a component the tests can't render): whom it answers or
     // who manages it (its `canManage`) starts one, one already there opens for anyone; editing it alone talks to nobody.
     const screen = await Bun.file(
       new URL("../../src/features/agents/AgentProfileScreen.tsx", import.meta.url).pathname,
     ).text();
     expect(screen).toMatch(
-      /disabled=\{\s*!\(\s*canTalk\(agent\) \|\|\s*managesAgent\(agent\) \|\|\s*dms\.data\?\.some\(\(d\) => d\.with\.type === "agent" && d\.with\.id === id\)\s*\)\s*\}/,
+      /const talkable =\s*canTalk\(agent\) \|\|\s*managesAgent\(agent\) \|\|\s*Boolean\(dms\.data\?\.some\(\(d\) => d\.with\.type === "agent" && d\.with\.id === id\)\);/,
     );
+    expect(screen).toContain("const docked = talksHere && talkable;");
     // The Agents list still names it for who manages it (the server's `canManage`), its lock saying whom it answers, and
     // for who edits it; "Edit agents" alone doesn't reach someone's private agent (ADR 0085 addendum of 2026-11-17).
     expect(listsAgent(admin, { ...kept, canManage: true })).toBe(true);
@@ -614,11 +623,10 @@ describe("Perfil: the Modelo row says how it thinks on the value's line (#44)", 
 describe("Perfil: the page's order and rhythm", () => {
   const read = (file: string) => Bun.file(new URL(`../../src/features/${file}`, import.meta.url).pathname).text();
 
-  test("the head, the computer, the views and the lists 24 apart, at the page's sides; no checklist here", async () => {
+  test("the head, the computer and the lists 24 apart, at the page's sides; no checklist here", async () => {
     const screen = await read("agents/AgentProfileScreen.tsx");
     expect(screen).toContain("prof: { paddingHorizontal: SCREEN_X, gap: 8 },");
     expect(screen).toContain("computer: { marginTop: 24 },");
-    expect(screen).toContain("tabs: { paddingHorizontal: SCREEN_X, paddingTop: 24 },");
     expect(screen).toContain("page: { paddingHorizontal: SCREEN_X },");
     expect(screen).not.toMatch(/paddingHorizontal: (16|24)\b/);
     // A new agent's checklist is its DM's (ADR 0155 §2): never on its page.

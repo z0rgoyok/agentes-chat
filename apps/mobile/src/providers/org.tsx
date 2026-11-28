@@ -1,5 +1,6 @@
 import { type OrgSummary, useApi, useMe } from "@agenteschat/client";
 import { useLocaleSync } from "@agenteschat/client/lib/locale-sync";
+import { useToolLabelSource } from "@agenteschat/client/lib/tool-labels";
 import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { accountFailed, chooseOrg, openOrgs } from "@/lib/org-choice";
 import { orgValueName, usePlace } from "@/lib/server";
@@ -121,6 +122,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
   const orgs = useMemo(() => openOrgs(organizations ?? []), [organizations]);
   const orgId = remembered === undefined ? null : chooseOrg(orgs, remembered);
   const unreachable = accountFailed(me.isError, me.data);
+  // Connector tools' names in the person's language on the work lines, written for this workspace.
+  useToolLabelSource(i18n, orgId, api.connectors.toolLabels);
   // From the top: one still null reads the session again at the end of its tries.
   const retry = useCallback(() => {
     tries.current = 0;

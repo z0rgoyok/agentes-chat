@@ -151,17 +151,32 @@ describe("the members column", () => {
     const ada = row(column() as HTMLElement, "Ada") as HTMLElement;
     // Named "Perfil de Ada", described by all it shows (presence, line, chips).
     expect(ada.getAttribute("aria-label")).toBe("Perfil de Ada");
-    // What it does here: the pixel orbit beside its name, labelled, and the row's title; the row keeps its height.
-    expect(ada.querySelector(".members-side__name .ac-pixspin")?.getAttribute("aria-label")).toBe("pensando");
+    // What it does here: its face wears the orbit, labelled, and the row's title; the row keeps its height.
+    expect(ada.querySelector(".ac-orbit > .ac-avatar")).not.toBeNull();
+    expect(ada.querySelector(".members-side__text .ac-visually-hidden")?.textContent).toBe("pensando");
+    expect(ada.querySelector(".ac-pixspin")).toBeNull();
     expect(document.getElementById(ada.getAttribute("aria-describedby") ?? "")?.getAttribute("title")).toContain(
       "pensando",
     );
-    expect(ada.querySelector("[data-busy] .sidebar__trail")).toBeTruthy();
+    // Only its face says it works (ADR 0260 §7): no light behind the row, which read as the row chosen.
+    expect(ada.querySelector(".sidebar__trail")).toBeNull();
     // ↑/↓ between the rows.
     const rows = [...(column() as HTMLElement).querySelectorAll<HTMLElement>(".members-side__row")];
     rows[0]?.focus();
     await act(async () => fireEvent.keyDown(rows[0] as HTMLElement, { key: "ArrowDown" }));
     expect(document.activeElement === (rows[1] as HTMLElement)).toBe(true);
+  });
+
+  test("you, read offline before your connection counts, stay in your own group: the rows don't move when it does", async () => {
+    widthIs(DESKTOP_QUERY);
+    const state = seedState();
+    state.online.delete("u-walter");
+    await open(state);
+    const side = column() as HTMLElement;
+    const owner = within(side).getByRole("region", { name: "Dono" });
+    expect(owner.textContent).toContain("você");
+    expect(owner.querySelector(".members-side__inner")?.getAttribute("data-presence")).toBe("online");
+    expect(within(side).getByRole("region", { name: "Offline" }).textContent).not.toContain("você");
   });
 
   test("someone offline sits under Offline, drawn quieter", async () => {

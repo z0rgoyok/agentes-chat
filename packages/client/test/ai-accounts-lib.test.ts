@@ -458,6 +458,12 @@ describe("the computers' own sign-ins", () => {
     // To an admin on the computer its owner connected, always: only that person sees what its CLIs report.
     expect(ownSignInListed({ ...theirs, canUsePlans: false }, undefined, "codex")).toBe(true);
     expect(ownSignInListed({ ...nobodys, canUsePlans: false }, undefined, "codex")).toBe(false);
+    // Account-only brains (Antigravity / Gemini, Grok) never offer a computer's own sign-in (web and mobile).
+    for (const kind of ["antigravity", "grok"] as const) {
+      expect(ownSignInReady(theirs, computer({ own: { [kind]: { plan: "pro" } } }), kind)).toBe(false);
+      expect(ownSignInListed({ ...theirs, canUsePlans: false }, undefined, kind)).toBe(false);
+      expect(ownSignInListed({ ...theirs, brain: kind, account: null }, undefined, kind)).toBe(false);
+    }
   });
 
   test("the plan's word", () => {

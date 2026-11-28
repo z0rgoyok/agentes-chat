@@ -18,6 +18,7 @@ import { publishDelivery } from "./delivery";
 import { ConflictError, ForbiddenError, NotFoundError } from "./errors";
 import { publishChannelEvent } from "./events";
 import { agentRepositoryList, parseRepo, repoInList } from "./git/repos";
+import { ownTyped } from "./message-origin";
 import { getMessage, type Message } from "./messages";
 import type { Notice } from "./notices";
 import { deliverNoticeToRun } from "./run-resume";
@@ -99,7 +100,8 @@ const REFUSED = {
   nobody: "Only a person's request in a conversation gets a session suggested: just answer.",
   inSession: "You are in a code session already: do the work here.",
   ownWork: "This is a task's or a mission's conversation, already the place for its work: do the change here.",
-  notPerson: "The message you answer isn't a person's request: suggest a session only when a person asks for a change.",
+  notPerson:
+    "The message you answer isn't a request a person typed in agentes.chat: suggest a session only when a person asks for a change here.",
   empty: "The message you answer has no words to start a session with: ask them what to change.",
   noComputer: "You can't work on a computer, so there's no session to suggest: just answer.",
   project:
@@ -186,15 +188,17 @@ export function createCodeSuggestionToolSource(): ToolSource {
     },
     describe: () => ({ title: "Suggest a code session" }),
     async execute(input, ctx) {
+      // A run that moved itself to the background still answers the person's request: its report carries the card.
       const run = await runOf(ctx);
-      if (!run || run.workId) return refused(REFUSED.nobody);
+      if (!run) return refused(REFUSED.nobody);
       const elsewhere = await workPlace(ctx.db, run);
       if (elsewhere) return refused(elsewhere);
       if ((await runAuthority(ctx.db, run)).kind !== "person") return refused(REFUSED.nobody);
       const agent = await getAgentCached(ctx.db, run.orgId, run.agentId);
       if (!agent || !(await worksInSessions(ctx.db, agent))) return refused(REFUSED.noComputer);
       const asked = await getMessage(ctx.db, run.orgId, run.triggerMessageId);
-      if (asked?.authorType !== "person" || !asked.authorUserId) return refused(REFUSED.notPerson);
+      // Only a request the person typed in our apps opens a coding session (ADR 0250).
+      if (!asked || !ownTyped(asked) || !asked.authorUserId) return refused(REFUSED.notPerson);
       const request = asked.body.trim().slice(0, REQUEST_MAX_CHARS);
       if (!request) return refused(REFUSED.empty);
       const raw = str((input as { project?: unknown }).project).trim();

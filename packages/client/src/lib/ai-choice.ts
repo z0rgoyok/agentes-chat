@@ -1,5 +1,6 @@
 import { compareInOrder } from "@agenteschat/providers/plans";
 import type { TFunction } from "i18next";
+import type { ApiClient } from "../api/client";
 import type {
   AccountUseReason,
   AgentBrainInput,
@@ -15,7 +16,7 @@ import type {
   ModelTier,
 } from "../api/types";
 import { ACCOUNT_KINDS, accountTitle, orderAccounts } from "./ai-accounts";
-import { type EffortLevel, effortLevelsOf } from "./brain-advanced";
+import { type EffortLevel, effortLevelsFor } from "./brain-advanced";
 import { type ModelRow, modelRows } from "./brain-picker";
 import { firstName } from "./format";
 import { isPlanId, planOf } from "./plans";
@@ -46,11 +47,18 @@ export interface AiChoice {
   account?: string | null;
   /** The API's key; null: the workspace's default. */
   key?: string | null;
+  /**
+   * The key an agent's calls take now with no `key` picked (`AgentBrain.keyId`: its own, else its provider's, which
+   * may be no default): the row shown chosen. Never saved.
+   */
+  usesKey?: string;
   /** Where a plan thinks (its account's computer). */
   machineId?: string | null;
   /** null: the brain's default. */
   model?: string | null;
   effort?: BrainEffortSetting | null;
+  /** Takes the account from the agent that thinks with it (a login made for one agent, `aiChoiceTakesFrom`). */
+  moveAccount?: true;
 }
 
 /** The picker's sections, in order: Lodi's "A do workspace", the viewer's accounts, others' accounts, API keys. */
@@ -65,6 +73,7 @@ export interface AiChoiceRow {
   group: AiChoiceGroup;
   brain: BrainKind;
   account?: AiHubAccount;
+  /** A key's row: the key. "A do workspace": the workspace's default key, which it thinks with. */
   apiKey?: AiHubKey;
   /** Picking it works; else it shows dimmed with `reason`. */
   usable: boolean;
@@ -101,6 +110,13 @@ export function hubAccountsInOrder<A extends AiHubAccount>(accounts: readonly A[
   );
 }
 
+/**
+ * Whether a choice on the API stands for this key: the one picked, else the one its calls take now (`usesKey`), else
+ * the workspace's default.
+ */
+export const keyChosen = (c: AiChoice, k: AiHubKey): boolean =>
+  c.key ? c.key === k.id : c.usesKey ? c.usesKey === k.id : k.isDefault;
+
 /** The target thinks with keys too: not Lodi's own AI (its "A do workspace" is the workspace's key). */
 const takesKeys = (t: AiChoiceTarget) => t.kind !== "mission" && !(t.kind === "lodi" && t.scope === "mine");
 
@@ -136,11 +152,14 @@ export function aiChoiceRows(hub: AiHub | null | undefined, ctx: AiChoiceContext
     return rows;
   }
   if (target.kind === "lodi" && target.scope === "mine") {
+    // "A do workspace" thinks with the workspace's default key: the row names it.
+    const defaultKey = hub?.keys.find((k) => k.isDefault);
     rows.push({
       key: "workspace",
       type: "workspace",
       group: "workspace",
       brain: "model",
+      ...(defaultKey ? { apiKey: defaultKey } : {}),
       usable: true,
       selected: !current || current.brain === "model",
     });
@@ -186,7 +205,7 @@ export function aiChoiceRows(hub: AiHub | null | undefined, ctx: AiChoiceContext
         brain: "model",
         apiKey: k,
         usable: true,
-        selected: current?.brain === "model" && (current.key ? current.key === k.id : k.isDefault),
+        selected: current?.brain === "model" && keyChosen(current, k),
       });
     }
   }
@@ -228,15 +247,21 @@ export function aiChoiceModels(
   );
 }
 
-/** The "Esforço" select for a row: the plan's levels or the API's; none for Lodi's "A do workspace". */
-export const aiChoiceEfforts = (row: AiChoiceRow): readonly EffortLevel[] =>
-  row.type === "workspace" ? [] : effortLevelsOf(row.brain);
+/**
+ * The "Esforço" select for a row: the levels its model takes (`effortLevelsOf`), `model` as the choice stores it (null:
+ * the brain's default, an alias resolved through `options`); none for Lodi's "A do workspace".
+ */
+export const aiChoiceEfforts = (
+  row: AiChoiceRow,
+  model: string | null | undefined,
+  options: readonly BrainOption[],
+): readonly EffortLevel[] => (row.type === "workspace" ? [] : effortLevelsFor(row.brain, model, options));
 
 /** The choice a row makes, keeping the model and effort on the same API key or plan kind. */
 export function aiChoiceOf(row: AiChoiceRow, current: AiChoice | null): AiChoice {
   // Lodi's "A do workspace": the workspace's own AI, nothing of the person's to carry.
   if (row.type === "workspace") return { brain: "model" };
-  const sameKey = current?.key ? current.key === row.apiKey?.id : row.apiKey?.isDefault === true;
+  const sameKey = current && row.apiKey && keyChosen(current, row.apiKey);
   const keep = current?.brain === row.brain && (row.type !== "key" || sameKey);
   const rest = keep
     ? { model: current?.model ?? null, effort: current?.effort ?? null }
@@ -256,7 +281,21 @@ export function aiChoiceBrainInput(choice: AiChoice, scope?: BrainScope): AgentB
     ...(choice.brain !== "model" ? { account: choice.account ?? null } : {}),
     ...(choice.model !== undefined ? { model: choice.model } : {}),
     ...(choice.effort !== undefined ? { effort: choice.effort } : {}),
+    ...(choice.moveAccount ? { moveAccount: true } : {}),
   };
+}
+
+/**
+ * A pick that asks first, in a line under the select with one button: someone else's plan (its use counts on their
+ * plan), or a login made for one agent that another agent thinks with (`takesFrom`: it moves here).
+ */
+export function aiChoiceAsks(row: AiChoiceRow, agentId: string): { owner?: string; takesFrom?: string } | null {
+  const a = row.type === "plan" ? row.account : undefined;
+  if (!a) return null;
+  const others = a.shared === true ? [] : a.usedBy.filter((_, i) => a.usedByIds?.[i] !== agentId);
+  const owner = !a.mine && a.ownerName ? firstName(a.ownerName) : undefined;
+  if (!owner && others.length === 0) return null;
+  return { ...(owner ? { owner } : {}), ...(others[0] ? { takesFrom: others[0] } : {}) };
 }
 
 /** The setup "Usar em outros agentes" applies for a choice (`POST …/agent-setup`). */
@@ -283,3 +322,31 @@ export const accountShortName = (
 /** Why a row is dimmed, in words: its owner by name. */
 export const reasonText = (t: TFunction, row: Pick<AiChoiceRow, "reason" | "account">) =>
   row.reason ? t(`aiAccounts.useReason.${row.reason}`, { owner: firstName(row.account?.ownerName ?? "") }) : "";
+
+/** The agents a login made for one agent is taken from when `agentId` picks it (`moveAccount`). */
+export const loginHolders = (account: { shared?: boolean; usedByIds?: string[] }, agentId: string) =>
+  account.shared === true ? [] : (account.usedByIds ?? []).filter((id) => id !== agentId);
+
+/**
+ * A login taken from other agents, given back by Desfazer: what each of them thinks with is read before the move, and
+ * the returned function puts it back, once this agent's own Desfazer has let go of the login. An agent whose AI can't be
+ * read (not the person's to change) is left as the move left it.
+ */
+export async function giveBackLogin(
+  agents: Pick<ApiClient["agents"], "brain" | "setBrain">,
+  orgId: string,
+  holderIds: readonly string[],
+): Promise<() => Promise<void>> {
+  const before = await Promise.all(
+    holderIds.map((id) =>
+      agents.brain(orgId, id).then(
+        (b) => ({ id, brain: b.brain, account: b.account, model: b.model }),
+        () => null,
+      ),
+    ),
+  );
+  return async () => {
+    for (const b of before)
+      if (b) await agents.setBrain(orgId, b.id, { brain: b.brain, account: b.account, model: b.model });
+  };
+}

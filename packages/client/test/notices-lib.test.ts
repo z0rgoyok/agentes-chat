@@ -13,6 +13,7 @@ import {
   isAgentOnlyNotice,
   isReturnLine,
   isTalkerReply,
+  joinLineOf,
   NOTICE_KINDS,
   noticeAgentHandle,
   noticeOf,
@@ -322,8 +323,11 @@ describe("what people read of a notice", () => {
         }
         expect(view.key).not.toBe("chat.notice.other");
         const keys = [view.key, ...(view.detail && "words" in view.detail ? [view.detail.words.key] : [])];
+        // A plural line (who joined) has its forms instead: `_other` is in every language.
         for (const code of LOCALES.map((l) => l.code))
-          for (const key of keys) if (typeof leaf(code, key) !== "string") missing.push(`${kind}: ${key} in ${code}`);
+          for (const key of keys)
+            if (typeof (leaf(code, key) ?? leaf(code, `${key}_other`)) !== "string")
+              missing.push(`${kind}: ${key} in ${code}`);
         // What "Show" opens is the app's words or what people wrote, never the agent's English.
         if (view.detail && "content" in view.detail) {
           expect(view.detail.content).not.toContain("github_actions_list");
@@ -439,5 +443,42 @@ describe("what lists a GitHub event (previews, notifications)", () => {
     expect(previewBody(t, "drive-by merged PR #12 (acme/app) on GitHub", merged)).toBe(
       "drive-by fez o merge do PR #12 (acme/app) no GitHub",
     );
+  });
+});
+
+describe("who joined or left a channel", () => {
+  const meta = (kind: string, refs: Record<string, string>) => ({
+    notice: { kind, text: "Iara and Bento joined this channel, added by Ana", refs },
+  });
+  const names = {
+    author: "Iara",
+    agentByHandle: () => null,
+    nameOf: (m: { type: string; id: string }) => ({ a1: "Iara", a2: "Bento", u1: "Ana" })[m.id] ?? null,
+    list: (all: string[]) => all.join(" e "),
+  };
+
+  test("the line names everyone who came and who added them, in the reader's words", () => {
+    const m = { body: "", meta: meta("joined", { members: "agent:a1,agent:a2", by: "u1" }) };
+    expect(joinLineOf(m.meta)).toEqual({
+      kind: "joined",
+      members: [
+        { type: "agent", id: "a1" },
+        { type: "agent", id: "a2" },
+      ],
+      byUserId: "u1",
+    });
+    expect(noticeView(m, names)).toMatchObject({
+      key: "chat.notice.joinedBy",
+      values: { who: "Iara e Bento", by: "Ana", count: "2" },
+      detail: null,
+    });
+  });
+
+  test("joined by themself, no adder; leaving, its own line", () => {
+    expect(noticeView({ body: "", meta: meta("joined", { members: "person:u1" }) }, names)).toMatchObject({
+      key: "chat.notice.joined",
+      values: { who: "Ana", count: "1" },
+    });
+    expect(noticeView({ body: "", meta: meta("left", { members: "agent:a1" }) }, names)?.key).toBe("chat.notice.left");
   });
 });

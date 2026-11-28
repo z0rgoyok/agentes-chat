@@ -1,6 +1,7 @@
 import type { TFunction } from "i18next";
 import type { AgentAudience } from "../api/types";
 import type { Level } from "./access-levels";
+import { formatBudgetUsd } from "./format";
 import { handleFrom, parseAmount } from "./text";
 
 /**
@@ -372,3 +373,9 @@ export async function savePart(failures: unknown[], save: () => Promise<unknown>
     return false;
   }
 }
+
+/** An agent's budget left empty: the workspace's default, with its amount once the settings say it. */
+export const workspaceBudgetText = (t: TFunction, locale: string, amount: number | undefined) =>
+  amount === undefined
+    ? t("agentPage.budgetDefault")
+    : t("agentPage.budgetDefaultAmount", { amount: formatBudgetUsd(locale, amount) });

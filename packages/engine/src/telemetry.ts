@@ -1,7 +1,8 @@
-import type { BrowserTraffic, MachineLoad, MachineSize } from "@agenteschat/adapters";
+import { type BrowserTraffic, type MachineLoad, type MachineSize, versionNumbers } from "@agenteschat/adapters";
 import { type CombinedTraffic, combineLoads, combineTraffic, type LoadSample } from "@agenteschat/adapters/host-stats";
 import { type Database, eq, rowsOf, schema, sql } from "@agenteschat/db";
 import { catalogModelOf } from "@agenteschat/providers";
+import { percentile } from "./format";
 import { WEB_USAGE_PROVIDER } from "./web-tools";
 
 const { instanceTelemetry } = schema;
@@ -18,6 +19,8 @@ export interface TelemetryReport {
   edition: "selfhost" | "cloud";
   install: "docker" | "native" | "desktop";
   os: string;
+  /** The system's version as numbers alone: Windows' build (`10.0.19045`), Darwin's or Linux's kernel (`6.8.0`). */
+  osVersion: string;
   arch: string;
   uptimeHours: number;
   host: { size: MachineSize; container: boolean; load: MachineLoad | null };
@@ -32,8 +35,18 @@ export interface TelemetryReport {
     desktopMinutes: number;
     terminalMinutes: number;
     models: { provider: string; model: string; calls: number; inputTokens: number; outputTokens: number }[];
+    /**
+     * How fast the apps ran since the last report, per platform (`ios`, `android`, `web`, `macos`, `windows`,
+     * `linux`): how many speed reports, and per measure how many values with their median and 95th percentile.
+     */
+    clientVitals: TelemetryClientVitals;
   };
 }
+
+export type TelemetryClientVitals = Record<
+  string,
+  { reports: number } & Partial<Record<schema.ClientVitalMeasure, { n: number; p50: number; p95: number }>>
+>;
 
 /** Computers of one kind, system and size, seen in the last 30 days (the Cloud has hundreds alike). */
 export interface TelemetryComputer {
@@ -53,8 +66,8 @@ export interface TelemetryComputer {
   browserTraffic: CombinedTraffic | null;
 }
 
-/** What only the server process knows about itself. */
-export type TelemetryFacts = Pick<TelemetryReport, "version" | "edition" | "install" | "os" | "arch"> & {
+/** What only the server process knows about itself (`osVersion`: as the system says it, `os.release()`). */
+export type TelemetryFacts = Pick<TelemetryReport, "version" | "edition" | "install" | "os" | "osVersion" | "arch"> & {
   host: { size: MachineSize; container: boolean };
 };
 
@@ -109,6 +122,35 @@ export async function setTelemetryEnabled(db: Database, enabled: boolean) {
     .insert(instanceTelemetry)
     .values({ enabled })
     .onConflictDoUpdate({ target: instanceTelemetry.id, set: { enabled } });
+}
+
+/** The apps' speed reports since the last usage report (`client-vitals.ts`); null: a new day, empty. */
+export async function saveClientVitals(db: Database, day: schema.ClientVitalsDay | null) {
+  await db
+    .insert(instanceTelemetry)
+    .values({ clientVitals: day })
+    .onConflictDoUpdate({ target: instanceTelemetry.id, set: { clientVitals: day } });
+}
+
+/** The day's sample summed up per platform: how many reports, and per measure the count, median and 95th percentile. */
+function clientVitalsOf(day: schema.ClientVitalsDay | null): TelemetryClientVitals {
+  const out: TelemetryClientVitals = {};
+  const platforms = new Set<string>(schema.CLIENT_PLATFORMS);
+  for (const [platform, { reports, values }] of Object.entries(day ?? {})) {
+    if (!platforms.has(platform)) continue;
+    const line: TelemetryClientVitals[string] = { reports: int(reports) };
+    for (const measure of schema.CLIENT_VITAL_MEASURES) {
+      const kept = values[measure];
+      if (!kept?.sample.length) continue;
+      line[measure] = {
+        n: int(kept.n),
+        p50: Math.round(percentile(kept.sample, 0.5)),
+        p95: Math.round(percentile(kept.sample, 0.95)),
+      };
+    }
+    out[platform] = line;
+  }
+  return out;
 }
 
 /**
@@ -281,6 +323,7 @@ export async function buildTelemetryReport(
     edition: facts.edition,
     install: facts.install,
     os: facts.os,
+    osVersion: versionNumbers(facts.osVersion) ?? "other",
     arch: archOf(facts.arch),
     uptimeHours: Math.max(0, Math.round((now.getTime() - state.startedAt.getTime()) / 360_000) / 10),
     host: { size: facts.host.size, container: facts.host.container, load: fresh(state.hostLoad, now) },
@@ -299,6 +342,7 @@ export async function buildTelemetryReport(
       desktopMinutes: int(Number(counts?.desktop_seconds) / 60),
       terminalMinutes: int(Number(counts?.terminal_seconds) / 60),
       models,
+      clientVitals: clientVitalsOf(state.clientVitals),
     },
   };
 }

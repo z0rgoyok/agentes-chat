@@ -3,6 +3,7 @@ import type { KeyWrapper } from "@agenteschat/adapters";
 import { and, type Database, desc, eq, isNull, schema } from "@agenteschat/db";
 import { recordAudit } from "./audit";
 import { activeConnections, type ConnectorDeps } from "./connectors/connections";
+import { teamGitHub } from "./connectors/own-github";
 import { openSecret, randomToken, sealSecret } from "./crypto";
 import { NotFoundError, ValidationError } from "./errors";
 import { connectionToken } from "./git/branches";
@@ -152,7 +153,7 @@ export async function webhookSetup(
 
 async function githubReaches(deps: WebhookDeps, orgId: string) {
   if (!deps.github) return false;
-  if ((await activeConnections(deps.db, orgId)).some((c) => c.connector === "github")) return true;
+  if (teamGitHub(await activeConnections(deps.db, orgId))) return true;
   return Boolean(deps.github.app) && (await boundInstallations(deps.db, orgId)).length > 0;
 }
 
@@ -238,7 +239,7 @@ export async function addGitHubRepoHook(
           }).catch(() => null)
         : null,
     async () => {
-      const connection = (await activeConnections(deps.db, orgId)).find((c) => c.connector === "github");
+      const connection = teamGitHub(await activeConnections(deps.db, orgId));
       return connection ? connectionToken(github.connectors, connection).catch(() => null) : null;
     },
   ];

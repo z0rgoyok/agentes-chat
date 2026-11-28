@@ -12,9 +12,12 @@ import {
   type ConsultWithDetails,
   facesOf,
   listNames,
+  markFaced,
   peopleGroups,
   someoneTypes,
 } from "@agenteschat/client/lib/activity";
+import { agentGrammar } from "@agenteschat/client/lib/grammar";
+import { type TrailLine, usePacedTrail, workTrail } from "@agenteschat/client/lib/trail";
 import { barStep } from "@agenteschat/client/lib/work";
 import { type AgentColorName, gradientOf } from "@agenteschat/ui/agent/engine";
 import { type ReactNode, useEffect, useState } from "react";
@@ -43,6 +46,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useLivePaused } from "@/agent/live";
 import { loopStyle } from "@/agent/loop";
+import { OrbitFace } from "@/agent/OrbitFace";
 import { CHROME_MAX_SCALE, haptics, Icon, PixelStop, Text, TOUCH, useReducedMotion, useTheme } from "@/ui";
 import { AgentFace, AgentWho, Face } from "../shared/Face";
 import { useNow } from "../shared/hooks";
@@ -132,6 +136,10 @@ export function WorkingLine({
   // phrase turning, an event) reads the same second, so both step evenly; narrowing to one agent changes the pace, and a
   // new pace reads the clock afresh (`useNow`).
   const now = useNow(asking || solo ? 1000 : 60_000);
+  // What it did so far, under the line (`workTrail`): the same lines its reply's work block shows once posted. One
+  // agent's, at work (a question it asks keeps its own phrase).
+  const trailRun = solo && !solo.consult ? runs.find((r) => r.agentId === solo.id) : undefined;
+  const trail = usePacedTrail(trailRun ? workTrail(t, trailRun, i18n.language) : NO_TRAIL);
   if (entries.length === 0) return rest;
   // The one agent it speaks for; a question it asks keeps its own phrase.
   const away = awayRun(entries, runs);
@@ -150,7 +158,8 @@ export function WorkingLine({
     doing: `${activityVerb(t, { kind: g.kind })}${i === groups.length - 1 ? "…" : ""}`,
   }));
   const awayWords = [`${markName(lead?.name ?? "")} ${step}`, took, ...also.map((a) => `${a.names} ${a.doing}`)];
-  const sentence = step !== null ? awayWords.filter(Boolean).join(" · ") : activitySentence(t, entries, markName);
+  const sentence =
+    step !== null ? awayWords.filter(Boolean).join(" · ") : activitySentence(t, entries, markName, markFaced);
   const label = markedParts(sentence)
     .map((p) => p.text)
     .join("");
@@ -190,7 +199,11 @@ export function WorkingLine({
   const plate = [styles.tok, { backgroundColor: c.bg }];
   // The agents at work open the pill with their faces. Who records shows after the words with their mark, and so does
   // who types beside them: their faces come and go with the phrase as it turns, so they don't pop in again at each turn.
-  const faces = barFaces(entries);
+  // Whoever does the work leads, with its orbit while it works: the agent at work, or the one a question or hand-off
+  // went to (its own wait holds it still). The words name both and no face repeats: the stack's faces are the others.
+  const worker = asking ? { id: asking.to, name: asking.toName } : lead;
+  const atWork = asking ? !asking.yours && !asking.wait : Boolean(lead);
+  const faces = barFaces(entries).filter((e) => e !== lead);
   const groupFaces = (kind: "typing" | "recordingVoice") => {
     const who = facesOf(entries, kind);
     return who.length > 0 ? (
@@ -217,6 +230,19 @@ export function WorkingLine({
         accessibilityLiveRegion="polite"
       >
         {lead || !someoneTypes(entries) || bothAtIt(entries) ? null : <TypingDots color={c.muted} />}
+        {/* The agent at work leads, a little larger, its rings orbiting it (`OrbitFace`); the stack's faces are the
+            others. */}
+        {worker && atWork ? (
+          <Animated.View key={`o:${worker.id}`} entering={pop} style={styles.orbit}>
+            <OrbitFace color={agentLook(dir.agentById.get(worker.id)).color} size={ORBIT_FACE}>
+              <AgentFace agentId={worker.id} size={ORBIT_FACE} framed mode={asking ? "think" : "run"} />
+            </OrbitFace>
+          </Animated.View>
+        ) : worker ? (
+          <Animated.View key={`w:${worker.id}`} entering={pop} style={styles.orbit}>
+            <AgentFace agentId={worker.id} size={ORBIT_FACE} framed mode="idle" />
+          </Animated.View>
+        ) : null}
         {faces.length > 0 ? (
           <View style={styles.stack} importantForAccessibility="no-hide-descendants">
             {/* Agents in their sky tile, standing in its middle: bare, a body sits at its box's foot under the room kept
@@ -331,9 +357,32 @@ export function WorkingLine({
             while it shows; the composer keeps only its send). */}
         {stop && stopHere.length > 0 ? <LineStop runs={stopHere} onStop={stop.onStop} place="word" /> : null}
       </Animated.View>
+      {trail.lines.length > 0 ? (
+        <View
+          style={[styles.trail, worker ? styles.trailUnderWords : undefined]}
+          accessibilityLabel={t("chat.trail.label", agentGrammar(lead?.name ?? ""))}
+        >
+          {trail.earlier > 0 ? (
+            <Text variant="caption" tone="faint" maxFontSizeMultiplier={CHROME_MAX_SCALE} style={styles.took}>
+              {t("chat.trail.earlier", { count: trail.earlier })}
+            </Text>
+          ) : null}
+          {trail.lines.map((l) => (
+            <Animated.View key={l.key} entering={reduced ? undefined : LINE_IN}>
+              <Text variant="caption" tone="muted" maxFontSizeMultiplier={CHROME_MAX_SCALE}>
+                {l.text}
+              </Text>
+            </Animated.View>
+          ))}
+        </View>
+      ) : null}
     </View>
   );
 }
+
+/** The agent at work's face on the line, in points: a little larger than the stack's, its rings around it. */
+const ORBIT_FACE = 24;
+const NO_TRAIL: TrailLine[] = [];
 
 const LINE_EASE = Easing.bezier(0.23, 1, 0.32, 1);
 const LINE_IN = FadeIn.duration(160).easing(LINE_EASE);
@@ -479,15 +528,21 @@ type LinePiece = (text: string, style?: StyleProp<TextStyle>, onTextLayout?: (e:
 type GroupFaces = { typing: ReactNode; voice: ReactNode };
 
 /**
- * One agent at work, as the web's `BarStep`: its name in ink, never cut (it wraps onto a second line when the line is
- * that narrow), and its step ("Nina consultando o Email · …"), which gives way first when the line is short of room,
- * its time right after it; each new step fades in (a plain swap with Reduce Motion). The line's label says the whole
- * step.
+ * One agent at work, as the web's `BarStep`: its name in ink on one line, its width whatever the step says (up to half
+ * the line, past which it ends in "…"), and its step ("Nina consultando o Email · …"), which gives way first when the
+ * line is short of room, its time right after it; each new step fades in (a plain swap with Reduce Motion). The line's
+ * label says the whole step.
  */
 function AwayStep({ name, step, reduced }: { name: string; step: string; reduced: boolean }) {
   return (
     <View style={styles.awayStep}>
-      <Text variant="caption" tone="ink" maxFontSizeMultiplier={CHROME_MAX_SCALE} style={[styles.ink, styles.awayName]}>
+      <Text
+        variant="caption"
+        tone="ink"
+        numberOfLines={1}
+        maxFontSizeMultiplier={CHROME_MAX_SCALE}
+        style={[styles.ink, styles.awayName]}
+      >
         {name}
       </Text>
       <Animated.View key={step} entering={reduced ? undefined : FadeIn.duration(160)} style={styles.barStep}>
@@ -522,7 +577,7 @@ function TurningWords({
   faces: GroupFaces;
 }) {
   const { t } = useTranslation();
-  const words = barWords(t, entries, markName);
+  const words = barWords(t, entries, markName, markFaced);
   const [shown, setShown] = useState<PhraseTurn>(() => ({ now: words, was: null, n: 0, since: Date.now() }));
   const [, wake] = useState(0);
   const next = turnPhrase(shown, words, Date.now());
@@ -703,10 +758,15 @@ const styles = StyleSheet.create({
     minHeight: 28,
     paddingVertical: 2,
     paddingHorizontal: 8,
-    borderRadius: 999,
-    overflow: "hidden",
+    // Nothing clips: the orbit's rings, turned upright, reach past the line's 28 points (the dock's padding takes them).
   },
   stack: { flexDirection: "row", alignItems: "center", flexShrink: 0 },
+  // The rings reach past the face into the gap on each side.
+  orbit: { marginHorizontal: 6, flexShrink: 0 },
+  // What it did so far, under the line's words: the newest last.
+  trail: { gap: 2, paddingHorizontal: 8, paddingTop: 2 },
+  // Under the words when the orbiting face leads the line: its padding, the face, its margins and the line's gap.
+  trailUnderWords: { paddingLeft: 8 + 6 + ORBIT_FACE + 6 + 6 },
   tok: { padding: 1.5, borderRadius: 7 },
   pair: { flexDirection: "row", alignItems: "center", gap: 1 },
   overlap: { marginLeft: -6 },
@@ -732,7 +792,8 @@ const styles = StyleSheet.create({
   shrink: { flexShrink: 1 },
   // One agent: its name, then its step, which gives way first (cut with "…", the line's label says it whole).
   awayStep: { flexDirection: "row", alignItems: "center", gap: 4, flexShrink: 1, minWidth: 0 },
-  awayName: { flexShrink: 1 },
+  // Never a share of the step's shrinking: that wrapped it onto a second line and back as the step turned.
+  awayName: { flexShrink: 0, maxWidth: "50%" },
   // Its own width, so the time follows the words instead of floating after a fixed gap.
   barStep: { flexShrink: 1000, minWidth: 0 },
   // Who types beside it, after its time: it gives way before the step does, its names first.

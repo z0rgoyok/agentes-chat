@@ -626,6 +626,27 @@ export const words: EmailWords = {
       why: (surface) => `Recibiste este correo porque ${surface} estaba vinculado a tu cuenta de agentes.chat.`,
       picture: "Tu asistente, ya no en tu teléfono",
     },
+    pinReset: {
+      subject: (surface) => `Elige tu PIN de ${surface}`,
+      preheader: "Elige el PIN que aprueba acciones desde tu app de chat.",
+      headline: (surface) => `Elige tu PIN de ${surface}`,
+      body: (surface) =>
+        `Alguien pidió un enlace para elegir el PIN que usas para aprobar acciones desde ${surface}. Si fuiste tú, elígelo en la página que abre este botón.`,
+      button: "Elegir mi PIN",
+      small: "El enlace funciona una vez, durante una hora. Si no fuiste tú, ignora este correo. No cambia nada.",
+      why: (surface) => `Recibiste este correo porque ${surface} está vinculado a tu cuenta de agentes.chat.`,
+    },
+    pinLocked: {
+      subject: (surface) => `Tu PIN de ${surface} está bloqueado`,
+      preheader: "Tres PIN incorrectos seguidos. Aprobar desde tu app de chat está en pausa por ahora.",
+      headline: (surface) => `Tu PIN de ${surface} está bloqueado`,
+      body: (surface, time) =>
+        `Alguien escribió un PIN incorrecto tres veces seguidas para aprobar una acción desde ${surface}. Aprobar desde ${surface} queda en pausa durante ${time}.`,
+      lockedFor: ["15 minutos", "1 hora", "24 horas"],
+      small: (surface) =>
+        `Si fuiste tú, vuelve a intentarlo más tarde. Si no, desvincula ${surface} en tus ajustes de notificaciones para que nadie pueda aprobar desde ahí.`,
+      button: "Abrir ajustes de notificaciones",
+    },
   },
   supportReply: {
     subject: "Una respuesta a tu solicitud de ayuda",

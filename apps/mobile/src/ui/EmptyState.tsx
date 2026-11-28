@@ -24,6 +24,11 @@ export interface EmptyStateProps {
    * compact and never with a picture. Without it, the loose block a list stands in for.
    */
   size?: "page" | "panel" | "inline";
+  /**
+   * `start`: the words on the left, at the start of their column, for a block standing among grouped lists whose
+   * headers and footers start there (a centered block under them reads as out of line). Centered by default.
+   */
+  align?: "center" | "start";
   /** The agent standing over the words: a place's own agent's look, or `true` for the default one. */
   agent?: StickerLook | true;
   /** What the agent does. A wave plays once and holds, the other moods loop. */
@@ -56,13 +61,15 @@ export function EmptyState({
   icon,
   action,
   size,
+  align = "center",
   agent,
   mood = "wave",
 }: EmptyStateProps) {
   const { colors } = useTheme();
   const inline = size === "inline";
+  const start = align === "start";
   return (
-    <View style={[styles.wrap, size === "page" && styles.page, inline && styles.inline]}>
+    <View style={[styles.wrap, size === "page" && styles.page, inline && styles.inline, start && styles.start]}>
       {agent && !inline ? (
         <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants">
           <StickerCanvas
@@ -88,18 +95,22 @@ export function EmptyState({
           <Icon name={icon} size={24} color={colors.muted} />
         </View>
       ) : null}
-      <Text variant={inline ? "subhead" : "title"} accessibilityRole="header" style={styles.title}>
+      <Text
+        variant={inline ? "subhead" : "title"}
+        accessibilityRole="header"
+        style={[styles.title, start && styles.startTitle]}
+      >
         {title}
       </Text>
       {subtitle ? (
-        <Text variant="subhead" tone="muted" style={styles.subtitle}>
+        <Text variant="subhead" tone="muted" style={[styles.subtitle, start && styles.startSubtitle]}>
           {subtitle}
         </Text>
       ) : null}
       {action ? (
         // A row sized to its content: the button keeps its own width and height (in a column it could take
         // the flex space it sits in, and its own `alignSelf` would pin it to the left edge).
-        <View style={[styles.action, inline && styles.actionInline]}>{action}</View>
+        <View style={[styles.action, inline && styles.actionInline, start && styles.startAction]}>{action}</View>
       ) : null}
     </View>
   );
@@ -135,4 +146,9 @@ const styles = StyleSheet.create({
   subtitle: { textAlign: "center", marginTop: 6, maxWidth: 300 },
   action: { flexDirection: "row", alignSelf: "center", marginTop: 20 },
   actionInline: { marginTop: 12 },
+  start: { alignItems: "flex-start" },
+  startTitle: { textAlign: "left", fontWeight: "600" },
+  // The column's whole width: a capped measure only made sense centered.
+  startSubtitle: { textAlign: "left", maxWidth: "100%" },
+  startAction: { alignSelf: "flex-start" },
 });

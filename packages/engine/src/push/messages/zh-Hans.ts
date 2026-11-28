@@ -65,6 +65,8 @@ export const strings: Partial<PushStrings> = {
   deviceJoinRequestBody: "点按允许它加入或拒绝。",
   waitingTitle: "有事等你处理",
   openBody: "点按打开。",
+  cutBody: "在完成前停止了。请再问一次以继续。",
+  movedBody: "这需要一些时间，所以我会在后台继续。",
   sentGif: "发送了一个 GIF",
   sentSticker: "发送了一个贴纸",
   sentVoice: "发送了一条语音消息",
@@ -88,11 +90,13 @@ export const strings: Partial<PushStrings> = {
   deviceFolderTitle: (a, f, d) => (f ? `${a} 请你在你的 ${d} 上开放 ${f}` : `${a} 请你在你的 ${d} 上开放一个文件夹`),
   deviceFolderBody: "在那台电脑的 App 里允许它。",
   adminAskTitle: (a, what, l) =>
-    what === "channel_agent"
-      ? `${a} 请你把一个智能体加入 #${l}`
-      : what === "create_agents"
-        ? `${a} 请求获得创建智能体的权限`
-        : `${a} 请你为例行任务设置 ${l} webhook`,
+    what === "voice"
+      ? `${a} 请你开启语音消息`
+      : what === "channel_agent"
+        ? `${a} 请你把一个智能体加入 #${l}`
+        : what === "create_agents"
+          ? `${a} 请求获得创建智能体的权限`
+          : `${a} 请你为例行任务设置 ${l} webhook`,
   deviceWaitingTitle: (p, d) => `${p} 的智能体正在等待你的 ${d}`,
   deviceWaitingBody: "它回来后就会开始。",
   teamWeekReady: "你的团队周报已准备好",

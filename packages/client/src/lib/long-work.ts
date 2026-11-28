@@ -159,7 +159,7 @@ export function handedLine(t: TFunction, w: WorkView, c: WorkLineContext): Hande
     workDuration(t, (w.finishedAt ? Date.parse(w.finishedAt) : now.getTime()) - Date.parse(w.startedAt)),
   );
   const out = { tone: base.tone, stop: base.stop, result: base.result, question: base.question };
-  if (w.status === "done") return { ...out, state: say("work.handed.done", { duration: took }), facts: [] };
+  if (w.status === "done") return { ...out, state: say("work.handed.ready"), facts: [took] };
   if (w.status === "failed") return { ...out, state: say("work.handed.failed"), facts: [] };
   if (w.status === "canceled") return { ...out, state: say("work.handed.stopped"), facts: [took] };
   if (base.tone === "queued") return { ...out, state: say("work.handed.queued"), facts: [] };

@@ -1,3 +1,4 @@
+import { dirname, join } from "node:path";
 import {
   type Adapters,
   type BrainTurnRequest,
@@ -49,6 +50,8 @@ import {
   createDesktopPointers,
   createDesktopToolSource,
   createDeviceToolSource,
+  createEgressFetch,
+  createEgressRelay,
   createFeedbackToolSource,
   createFindAgentToolSource,
   createFollowUpToolSource,
@@ -64,6 +67,7 @@ import {
   createLiveImages,
   createLlmIntentWriter,
   createLlmJudge,
+  createLocalSpeech,
   createMachineHub,
   createMailToolSource,
   createMediaToolSource,
@@ -74,6 +78,7 @@ import {
   createNativeConnectorToolSource,
   createPassToolSource,
   createPermissionToolSource,
+  createPersonAppsToolSource,
   createReactToolSource,
   createReleaseAsksToolSource,
   createSandboxToolSource,
@@ -90,11 +95,14 @@ import {
   createToolGateway,
   createUsageToolSource,
   createVaultToolSource,
+  createWebhookCallToolSource,
   createWebToolSource,
   createWikiToolSource,
   createWithdrawRequestToolSource,
   createWorkspaceToolSource,
   createWorkToolSource,
+  DevinBrain,
+  deliverToApp,
   deviceWaitHooks,
   type EmailArt,
   emailArtAt,
@@ -106,12 +114,13 @@ import {
   GrokBrain,
   getAgentCached,
   hubBrainLink,
+  INTEGRATION_DELIVERY_JOB,
   type IntentWriter,
   isAgentesCloud,
-  isRightHand,
   type JobDeps,
   type Judge,
   type LiveDeps,
+  locksTurn,
   type MailDeps,
   type McpConnect,
   messageRouter,
@@ -119,6 +128,7 @@ import {
   notifyOwnerOnBudget,
   OpencodeBrain,
   officeLiveExporter,
+  outboundFetch,
   platformCapJudge,
   prepareAgentCode,
   publishUserEvent,
@@ -140,12 +150,14 @@ import {
   setWorkOrgCap,
   shareSavedFile,
   smallModelFor,
+  speechOwnerIn,
   standingJudge,
   streamClosed,
   type ToolSource,
   type VaultDeps,
   type VoiceDeps,
   warmAgentBrowser,
+  warmWhileTyping,
   withComposio,
   withJudgeFallback,
 } from "@agenteschat/engine";
@@ -175,8 +187,8 @@ export interface EngineOptions {
   /** Tests: fake TypeSafe transport. */
   jevFetch?: typeof fetch;
   /**
-   * Tests: how long a person's message waits for their next one before the router decides, or before the run it
-   * started makes its first model call (`ROUTER_QUIET_MS`).
+   * Tests: how close a person's messages are to be one request for the router, and the unit of how long a run holds
+   * its first model call while they type (`ROUTER_QUIET_MS`).
    */
   routerQuietMs?: number;
   /** Tests: a fake judge (no model calls for "is this a stop?" and the like). */
@@ -207,6 +219,8 @@ export interface EngineOptions {
   };
   /** Error reports (ADR 0104) for failures nothing logs: learning's (`reportLearnFailure`). */
   errors?: ErrorReporter;
+  /** Tests: where integration apps' webhooks are sent (default: `outboundFetch`). */
+  integrationFetch?: typeof fetch;
 }
 
 /**
@@ -498,6 +512,8 @@ export function buildEngine(o: EngineOptions) {
         tools: () => tools,
         gif: createAgentGifPoster(adapters.gifs),
       }),
+      // A webhook routine's run reads one of its calls whole: its text shortens long calls to fit.
+      createWebhookCallToolSource(),
       // Runs nobody called by name may stay quiet (reply-policy.ts): listed only for them.
       createPassToolSource(),
       createArtifactToolSource(artifacts),
@@ -525,6 +541,7 @@ export function buildEngine(o: EngineOptions) {
         ...skillDeps,
         judge: context.judge,
         computer: sandbox,
+        context,
       }),
       createCalendarToolSource({ db, pubsub: adapters.pubsub, publicUrl: config.PUBLIC_URL }),
       createScheduleToolSource({
@@ -597,6 +614,8 @@ export function buildEngine(o: EngineOptions) {
         searxngUrl: config.SEARXNG_URL,
         browser: browserTools.readPage,
         resolveHost: o.resolveHost,
+        // ADR 0237 on a self-hosted server: pages through the computer that lends the workspace its internet.
+        lent: (orgId) => egressFetch.lentFetch(orgId),
         usage: gateway,
         // `show_image` (ADR 0217): pictures from the web saved where the run posts.
         artifacts,
@@ -609,6 +628,8 @@ export function buildEngine(o: EngineOptions) {
         vision,
         publicUrl: config.PUBLIC_URL,
       }),
+      // The person's own apps on their connected computer (ADR 0258): with Run code, when its runner serves them.
+      createPersonAppsToolSource({ machines: { hub: machineHub } }),
       // Git through our proxy (ADR 0024): connected machines clone and push through the runner's `git.sync`
       // (only our credential reaches the machine; nothing global changes there).
       createGitToolSource({
@@ -665,6 +686,7 @@ export function buildEngine(o: EngineOptions) {
     ...browserLive.hubHooks,
     desktopPointer: desktopPointers.report,
     desktopStopped: desktopPointers.stopped,
+    streamStarting: (machineId, streamId) => streams.starting(machineId, streamId),
     closed(machineId) {
       browserLive.hubHooks.closed(machineId);
       desktopPointers.closed(machineId);
@@ -675,6 +697,8 @@ export function buildEngine(o: EngineOptions) {
   // Agents' desktops and terminals (ADR 0058): each person's stream paired with the runner's data socket for it,
   // its access checked again while open; control changing hands closes the views it hides. Where sessions are
   // screened no terminal opens: a shell nobody screens would be the way around it.
+  const egressRelay = createEgressRelay({ db, hub: machineHub, log: o.log });
+  const egressFetch = createEgressFetch(egressRelay);
   const streams = createStreamBroker({
     db,
     hub: machineHub,
@@ -694,7 +718,9 @@ export function buildEngine(o: EngineOptions) {
     recheck: (stream) => recheckStream(db, stream),
     reauthorize: (stream, mode) => reauthorizeStream(db, stream, mode),
     // An agent browser's live view has a data socket of its own too (ADR 0040 §7.1).
-    claim: (streamId, machineId, socket) => browserLive.claimView(streamId, machineId, socket),
+    // So does a lent connection's either side (ADR 0237).
+    claim: (streamId, machineId, socket, hello) =>
+      egressRelay.claim(hello, machineId, socket) ?? browserLive.claimView(streamId, machineId, socket),
     onReady: (stream) => {
       desktopPointers.opened(stream);
       return sessions?.ready(stream);
@@ -715,8 +741,9 @@ export function buildEngine(o: EngineOptions) {
    * (ADR 0173); a mission's turn follows the mission's own setting.
    */
   const turnPermissions = async (turn: BrainTurn): Promise<BrainTurnRequest["permissions"]> =>
-    // The team's right hand on a plan: our tools and nothing else (ADR 0137 §4).
-    isRightHand(await getAgentCached(db, turn.orgId, turn.agentId))
+    // The team's right hand on a plan, and a run an app's message started: our tools and nothing else (ADR 0137 §4,
+    // ADR 0252).
+    (await locksTurn(db, await getAgentCached(db, turn.orgId, turn.agentId), turn))
       ? RIGHT_HAND_TURN
       : ((await missionTurnPermissions(db, turn)) ?? {
           mode: "work",
@@ -725,7 +752,7 @@ export function buildEngine(o: EngineOptions) {
         });
   // Before a chat turn on a connected machine: the agent's checkouts updated through the git proxy, the turn
   // started in the repository it is about, and the "# Your code" block (ADR 0024 addendum).
-  const prepareCode = (turn: Parameters<typeof prepareAgentCode>[1], signal: AbortSignal) => {
+  const prepareCode = (turn: Parameters<typeof prepareAgentCode>[1]) => {
     const app = githubApp.current();
     return prepareAgentCode(
       {
@@ -735,9 +762,6 @@ export function buildEngine(o: EngineOptions) {
         github: app ? { app, http: githubAppAccess.http } : null,
       },
       turn,
-      {
-        signal,
-      },
     );
   };
   // A background run (a routine's) keeps no computer process alive after its turn.
@@ -797,9 +821,27 @@ export function buildEngine(o: EngineOptions) {
         permissions: turnPermissions,
         prepare: prepareCode,
       }),
+    // ADR 0253: Cognition's Devin CLI over ACP, one process per turn like OpenCode's.
+    devin: (_agent, _run, setup) =>
+      new DevinBrain({
+        link: brainLink,
+        mcp: async () => ({ token: setup.mcpToken() }),
+        agent: agentScope,
+        permissions: turnPermissions,
+        prepare: prepareCode,
+      }),
   };
-  // Voice messages (ADR 0100): engines from the environment, and on any other server the one its owner sets.
+  // Voice messages (ADR 0100): engines from the environment, and on any other server the one its owner sets, or the
+  // helper on this computer they set up (`speech-local.ts`), kept beside the files folder.
+  const speechLocal = isAgentesCloud(config.PUBLIC_URL)
+    ? null
+    : createLocalSpeech({
+        dir: config.FILES_DIR ? join(dirname(config.FILES_DIR), "speech") : null,
+        fetch: o.speechFetch,
+        log: (message, fields) => o.log?.info(message, fields),
+      });
   const speech = createSpeechSettings({
+    local: speechLocal,
     db,
     keyWrapper: adapters.keyWrapper,
     keyWrappers,
@@ -880,10 +922,9 @@ export function buildEngine(o: EngineOptions) {
     log: o.log,
     maxToolTurns: config.AGENT_MAX_TOOL_TURNS,
     signInConcurrency: config.CLAUDE_PLAN_CONCURRENCY,
-    // A run started on a person's message reads what they add in the next seconds with it (ADR 0112).
+    // A run started on a person's message holds its first model call while they are still typing (ADR 0112), and
+    // Claude's API reads the prompt into its cache meanwhile.
     quietMs: o.routerQuietMs ?? ROUTER_QUIET_MS,
-    // It ends early when the person isn't typing, and Claude's API reads the prompt into its cache meanwhile.
-    quietByTyping: true,
     prewarm: true,
     // Tools on demand (ADR 0043): each run lists what the judge expects it to need; the rest behind `find_tools`.
     toolsOnDemand: o.toolsOnDemand ?? true,
@@ -901,6 +942,15 @@ export function buildEngine(o: EngineOptions) {
       ),
     machines: machineHub,
     workspaceComputer,
+    // agentes.chat's servers always have their engines: nothing to say there.
+    ...(isAgentesCloud(config.PUBLIC_URL)
+      ? {}
+      : {
+          voiceStatus: async (orgId: string) => ({
+            state: speech.state(),
+            owner: (await speechOwnerIn(db, orgId))?.name ?? null,
+          }),
+        }),
     releaseRunPhones: (run) => releaseRunPhones({ db, hub: machineHub }, run),
     maxOutputTokens: config.AGENT_MAX_OUTPUT_TOKENS,
     contextMessages: config.AGENT_CONTEXT_MESSAGES,
@@ -917,7 +967,6 @@ export function buildEngine(o: EngineOptions) {
       minScore: config.ROUTER_MIN_SCORE,
       mentionThreshold: config.ROUTER_MENTION_THRESHOLD,
       quietMs: o.routerQuietMs ?? ROUTER_QUIET_MS,
-      quietByTyping: true,
       // Jev first whenever the installation has its key, unless ROUTER_STRATEGY=llm.
       ...((config.ROUTER_STRATEGY ?? "jev") === "jev"
         ? { jev: { key: jevKey, timeoutMs: config.JEV_TIMEOUT_MS, fetch: o.jevFetch } }
@@ -925,6 +974,12 @@ export function buildEngine(o: EngineOptions) {
     },
   };
   const handlers = createJobHandlers(jobDeps);
+  // An agent's reply where an integration app reads, to the app's webhook (ADR 0251), through the address-checking fetch.
+  const integrationDelivery = { db, keyWrappers, fetch: o.integrationFetch ?? outboundFetch() };
+  handlers[INTEGRATION_DELIVERY_JOB] = async (job) => {
+    if (!job.orgId) return;
+    await deliverToApp(integrationDelivery, job.orgId, String(job.payload.appId), String(job.payload.messageId));
+  };
   // A failing block of one of the right hand's lanes is left out of its prompt: it shows here.
   reportLodiLaneErrors((lane, error) => {
     o.log?.warn("right hand lane failed", { lane, error: String(error) });
@@ -974,7 +1029,11 @@ export function buildEngine(o: EngineOptions) {
     githubApp,
     /** Likewise: the speech engines, read before the first voice message. */
     speech,
+    /** The helper on this computer (null on agentes.chat's servers). */
+    speechLocal,
     voice,
+    /** A person typing where an agent on Claude Code answers: its CLI starts now (`warmWhileTyping`). */
+    warmWhileTyping: (where: Parameters<typeof warmWhileTyping>[1]) => warmWhileTyping(jobDeps, where),
   };
 }
 

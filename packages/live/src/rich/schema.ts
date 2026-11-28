@@ -10,7 +10,20 @@
 
 export const RICH_MAX_LEVEL = 4;
 
-export const RICH_MARKS = ["bold", "italic", "underline", "strike", "color", "link"] as const;
+export const RICH_MARKS = [
+  "bold",
+  "italic",
+  "underline",
+  "strike",
+  "color",
+  "link",
+  "font",
+  "size",
+  "weight",
+  "highlight",
+  "tracking",
+  "caps",
+] as const;
 export type RichMarkName = (typeof RICH_MARKS)[number];
 
 export interface RichAttrSpec {
@@ -46,7 +59,13 @@ export const RICH_SCHEMA_SPEC: RichSchemaSpec = {
     paragraph: {
       content: "inline*",
       group: "block",
-      attrs: { align: { default: null }, level: { default: 0 }, list: { default: null } },
+      attrs: {
+        align: { default: null },
+        level: { default: 0 },
+        list: { default: null },
+        lineHeight: { default: null },
+        spaceAfter: { default: null },
+      },
     },
     text: { group: "inline" },
     hard_break: { inline: true, group: "inline", selectable: false },
@@ -58,5 +77,11 @@ export const RICH_SCHEMA_SPEC: RichSchemaSpec = {
     strike: {},
     color: { attrs: { color: {} } },
     link: { attrs: { href: {} }, inclusive: false },
+    font: { attrs: { font: {} } },
+    size: { attrs: { size: {} } },
+    weight: { attrs: { weight: {} } },
+    highlight: { attrs: { color: {} } },
+    tracking: { attrs: { tracking: {} } },
+    caps: {},
   },
 };

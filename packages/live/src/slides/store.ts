@@ -1,8 +1,12 @@
 import * as Y from "yjs";
+import { cleanGradient, cleanLineHeight, cleanPadding, cleanShadow, cleanTracking, isDash } from "../effects";
+import { cleanFileFonts, isFontRef, isFontWeight } from "../fonts";
 import { compareStack } from "../fractional";
+import { readGroupMap } from "../groups";
 import { readRich } from "../rich/yjs";
 import { SLIDE_H, SLIDE_W, themeOf } from "./themes";
 import {
+  type DeckFonts,
   type DeckView,
   type ElementStyle,
   type ElementView,
@@ -11,6 +15,7 @@ import {
   isSlideRole,
   type SlideBackground,
   type SlideChart,
+  type SlideGroup,
   type SlideLayout,
   type SlideTable,
   type SlideView,
@@ -18,8 +23,9 @@ import {
 
 /**
  * Where a presentation lives in its document and how its values are read and checked (ADR 0196 §2): `deck` (a map:
- * `theme`, `w`, `h`), `slideOrder` (slide ids in order) and `slides` (a map of slide id to a `Y.Map` with `layout`,
- * `bg`, `hidden`, `notes` (`Y.Text`) and `elements`, a map of element id to a `Y.Map` per element).
+ * `theme`, `w`, `h`, and the deck's own `fonts`, ADR 0220), `slideOrder` (slide ids in order) and `slides` (a map of
+ * slide id to a `Y.Map` with `layout`, `bg`, `hidden`, `notes` (`Y.Text`), `elements`, a map of element id to a
+ * `Y.Map` per element, and `groups`, a map of group id to `{ name?, parent? }`).
  *
  * Reading is lenient (a value an app doesn't know is left out, never a crash): the document is shared state, and what
  * a newer app or a broken client wrote must not stop the others from opening it. Writing goes through the `clean*`
@@ -112,9 +118,23 @@ export function cleanStyleValue<K extends keyof ElementStyle>(key: K, value: unk
       case "color":
         return isColor(value) ? value : undefined;
       case "font":
-        return value === "heading" || value === "body" ? value : undefined;
+        return isFontRef(value) ? value : undefined;
       case "weight":
-        return value === 400 || value === 600 || value === 700 ? value : undefined;
+        return isFontWeight(value) ? value : undefined;
+      case "lineHeight":
+        return cleanLineHeight(value);
+      case "tracking":
+        return cleanTracking(value);
+      case "caps":
+        return value === true ? true : undefined;
+      case "padding":
+        return cleanPadding(value);
+      case "gradient":
+        return cleanGradient(value);
+      case "shadow":
+        return cleanShadow(value);
+      case "dash":
+        return isDash(value) ? value : undefined;
       case "align":
         return value === "left" || value === "center" || value === "right" ? value : undefined;
       case "valign":
@@ -146,10 +166,17 @@ const STYLE_KEYS: readonly (keyof ElementStyle)[] = [
   "weight",
   "align",
   "valign",
+  "lineHeight",
+  "tracking",
+  "caps",
+  "padding",
   "fill",
+  "gradient",
   "stroke",
   "strokeWidth",
+  "dash",
   "radius",
+  "shadow",
   "shape",
   "opacity",
   "lineEnd",
@@ -273,6 +300,8 @@ export function readElement(id: string, map: Y.Map<unknown>): ElementView | null
   if ((type === "text" || type === "shape") && text instanceof Y.XmlFragment) view.text = readRich(text);
   const style = cleanStyle(map.get("style"));
   if (style) view.style = style;
+  const group = map.get("group");
+  if (isRefId(group)) view.group = group;
   if (type === "image") {
     const asset = map.get("asset");
     if (isRefId(asset)) view.asset = asset;
@@ -313,6 +342,16 @@ function notesOf(slide: Y.Map<unknown>): string {
   return notes instanceof Y.Text ? notes.toString() : typeof notes === "string" ? notes : "";
 }
 
+export function groupsMapOf(slide: Y.Map<unknown>): Y.Map<unknown> | null {
+  const value = slide.get("groups");
+  return value instanceof Y.Map ? (value as Y.Map<unknown>) : null;
+}
+
+/** A slide's groups (ADR 0220 §3). */
+export function readGroups(slide: Y.Map<unknown>): SlideGroup[] {
+  return readGroupMap(groupsMapOf(slide));
+}
+
 function slideView(id: string, index: number, slide: Y.Map<unknown>): SlideView {
   const view: SlideView = {
     id,
@@ -324,7 +363,26 @@ function slideView(id: string, index: number, slide: Y.Map<unknown>): SlideView 
   const bg = cleanBackground(slide.get("bg"));
   if (bg) view.bg = bg;
   if (slide.get("hidden") === true) view.hidden = true;
+  const groups = readGroups(slide);
+  if (groups.length) {
+    view.groups = groups;
+    // An element in a group that isn't there reads as ungrouped.
+    const ids = new Set(groups.map((g) => g.id));
+    for (const el of view.elements) if (el.group && !ids.has(el.group)) delete el.group;
+  } else {
+    for (const el of view.elements) delete el.group;
+  }
   return view;
+}
+
+/** The deck's own fonts as stored, or undefined when it has none. */
+export function cleanDeckFonts(value: unknown): DeckFonts | undefined {
+  return cleanFileFonts(value);
+}
+
+/** The deck's own fonts, or undefined. */
+export function deckFonts(doc: Y.Doc): DeckFonts | undefined {
+  return cleanDeckFonts(deckMapOf(doc).get("fonts"));
 }
 
 /** One slide as plain data (with its position), or null when there is no such slide. */
@@ -343,8 +401,10 @@ export function deckTheme(doc: Y.Doc): DeckView["theme"] {
 export function readDeck(doc: Y.Doc): DeckView {
   const slides = slidesMapOf(doc);
   const deck = deckMapOf(doc);
+  const fonts = deckFonts(doc);
   return {
     theme: deckTheme(doc),
+    ...(fonts ? { fonts } : {}),
     w: num(deck.get("w"), 1, COORD_MAX) ?? SLIDE_W,
     h: num(deck.get("h"), 1, COORD_MAX) ?? SLIDE_H,
     slides: slideIdsOf(doc).map((id, index) => slideView(id, index, slides.get(id) as Y.Map<unknown>)),

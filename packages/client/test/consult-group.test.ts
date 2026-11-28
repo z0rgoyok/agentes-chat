@@ -21,7 +21,9 @@ import {
   firstOfRun,
   foldsNotice,
   groupsByRun,
+  handOffOf,
   pairItemOf,
+  relayedAnswers,
   shownConsultations,
 } from "../src/lib/consult-group";
 import { consultTimeText } from "../src/lib/consultations";
@@ -468,4 +470,111 @@ test("a row's time: its clock while it's out, how long it took once it's back, i
   const t = ((key: string, values: { time: string }) => `${key} ${values.time}`) as unknown as TFunction;
   expect(consultTimeText(t, "en", true, 42)).toBe("42 s");
   expect(consultTimeText(t, "en", false, 1446 * 60)).toBe("chat.consultPair.took 24 h");
+});
+
+describe("another agent's request in the DM of the agent it went to", () => {
+  const meta = (refs: Record<string, string>) => ({ notice: { kind: "hand_off", text: '"x"', from: "@atlas", refs } });
+  const refs = {
+    consultationId: "c1",
+    askerAgentId: "atlas",
+    agentId: "ada",
+    kind: "note",
+    question: "Relatório de vendas de outubro",
+    createdAt: "2026-11-14T13:35:00.000Z",
+  };
+
+  test("while it is out the row says no state; once it ends, how long it took", () => {
+    const open = handOffOf(meta({ ...refs, status: "open" }));
+    expect(open?.askerId).toBe("atlas");
+    const now = Date.parse("2026-11-14T13:40:00.000Z");
+    expect(
+      consultPair(
+        [open?.item].filter((i) => i !== undefined),
+        now,
+      )?.tone,
+    ).toBe("live");
+    const done = handOffOf(meta({ ...refs, status: "answered", answeredAt: "2026-11-14T13:38:00.000Z" }));
+    expect(
+      consultPair(
+        [done?.item].filter((i) => i !== undefined),
+        now,
+      ),
+    ).toMatchObject({
+      word: null,
+      tone: null,
+      seconds: 180,
+    });
+    const failed = handOffOf(meta({ ...refs, status: "failed", answeredAt: "2026-11-14T13:38:00.000Z" }));
+    expect(
+      consultPair(
+        [failed?.item].filter((i) => i !== undefined),
+        now,
+      )?.word?.key,
+    ).toBe("chat.consultPair.notFinished");
+  });
+
+  test("any other notice, or one missing who asked, is not one", () => {
+    expect(handOffOf(meta({ ...refs, askerAgentId: "" }))).toBeNull();
+    expect(handOffOf({ notice: { kind: "consult_reply", text: "x", refs } })).toBeNull();
+  });
+});
+
+describe("a consulted agent's words its asker passes on (relayedAnswers)", () => {
+  const asked = {
+    id: "q1",
+    runId: "theo-run",
+    agentId: "theo",
+    consultedAgentId: "atlas",
+    consultedRunId: "atlas-run",
+  } as RunConsultation;
+  const row = (id: string, who: string, runId: string | null, body = "words", meta?: Record<string, unknown>) => ({
+    id,
+    author: { type: who === "ana" ? "person" : "agent", id: who },
+    agentRunId: runId,
+    body,
+    ...(meta ? { meta } : {}),
+  });
+  const relayOf = (rows: ReturnType<typeof row>[], list = [asked]) => {
+    const { relays, relayed } = relayedAnswers(rows, list);
+    return { relayed: [...relayed], relays: [...relays].map(([id, r]) => [id, r.message.id, r.consultation.id]) };
+  };
+
+  test("the asker's next message quotes them, and they take no row", () => {
+    expect(relayOf([row("p", "ana", null), row("a", "atlas", "atlas-run"), row("t", "theo", "theo-run-2")])).toEqual({
+      relayed: ["a"],
+      relays: [["t", "a", "q1"]],
+    });
+  });
+
+  test("until the asker writes, or with it farther than a few rows, they keep their row", () => {
+    expect(relayOf([row("p", "ana", null), row("a", "atlas", "atlas-run")]).relayed).toEqual([]);
+    const far = [
+      row("a", "atlas", "atlas-run"),
+      row("p1", "ana", null),
+      row("p2", "ana", null),
+      row("p3", "ana", null),
+    ];
+    expect(relayOf([...far, row("t", "theo", "theo-run")]).relayed).toEqual([]);
+  });
+
+  test("what the consulted run posts for the person stays: a request, a file, a card", () => {
+    for (const meta of [
+      { approvalId: "ap1" },
+      { question: {} },
+      { secretRequest: {} },
+      { files: [] },
+      { actionCard: {} },
+    ])
+      expect(relayOf([row("a", "atlas", "atlas-run", "words", meta), row("t", "theo", "r")]).relayed).toEqual([]);
+    // Another agent's message, or a run that answers no question here, is no relay either.
+    expect(relayOf([row("o", "iris", "iris-run"), row("t", "theo", "r")]).relayed).toEqual([]);
+    expect(relayOf([row("a", "atlas", "other-run"), row("t", "theo", "r")]).relayed).toEqual([]);
+  });
+
+  test("two in a row before the same message: both fold, it quotes the later one", () => {
+    expect(relayOf([row("a1", "atlas", "atlas-run"), row("a2", "atlas", "atlas-run"), row("t", "theo", "r")])).toEqual({
+      relayed: ["a1", "a2"],
+      relays: [["t", "a2", "q1"]],
+    });
+  });
 });

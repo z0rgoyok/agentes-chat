@@ -24,7 +24,7 @@ describe("Outro provedor in Settings › Chaves de IA", () => {
     });
     await renderApp(`/org/${ORG_ID}/settings/keys`, { api: createFakeApi(state) });
     await settle(5);
-    const keys = screen().getByRole("region", { name: "Chaves de provedor" });
+    const keys = screen().getByRole("region", { name: "Chaves de API" });
     await click(within(keys).getByRole("button", { name: "Adicionar chave" }));
     const add = screen().getByRole("dialog", { name: "Adicionar chave de API" });
     await pick(within(add).getByRole("combobox", { name: "Provedor" }), /Outro provedor/);
@@ -72,7 +72,7 @@ describe("Outro provedor in Settings › Chaves de IA", () => {
     const api = createFakeApi(state);
     await renderApp(`/org/${ORG_ID}/settings/keys`, { api });
     await settle(5);
-    const keys = screen().getByRole("region", { name: "Chaves de provedor" });
+    const keys = screen().getByRole("region", { name: "Chaves de API" });
     await click(within(keys).getByRole("button", { name: "Adicionar chave" }));
     const add = screen().getByRole("dialog", { name: "Adicionar chave de API" });
     await pick(within(add).getByRole("combobox", { name: "Provedor" }), /Outro provedor/);

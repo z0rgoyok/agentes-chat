@@ -11,6 +11,13 @@ export const PRIORITIES: IssuePriority[] = ["low", "normal", "high"];
 /** Columns a stage of the board holds at most (mirror of packages/engine/src/issue-columns.ts). */
 export const STAGE_COLUMNS_MAX = 10;
 
+/**
+ * A handed work that finished the task: its run ended done with every criterion met. A turn that ends with criteria
+ * open ended, nothing more (the server leaves the task in review, mirror of `setWorkIssueState`).
+ */
+export const handedFinished = (i: Pick<Issue, "criteria" | "backgroundWork">) =>
+  i.backgroundWork?.how === "handed" && i.backgroundWork.status === "done" && i.criteria.every((c) => c.done);
+
 /** A circle that fills as the work goes. */
 export const STATUS_ICON: Record<IssueStatus, "stageTodo" | "stageProgress" | "stageReview" | "stageDone" | "close"> = {
   todo: "stageTodo",

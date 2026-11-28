@@ -55,17 +55,17 @@ function inbox(): AppNotification[] {
 }
 
 const nav = () => document.getElementById("app-nav") as HTMLElement;
-/** The inbox's entry in the sidebar: what was "Esperando você" (ADR 0218). */
-const entry = () => within(nav()).getByRole("link", { name: /Caixa de entrada/ });
+/** The sidebar's entry for what waits: Não lidas, the list's first row (ADR 0218, ADR 0260). */
+const entry = () => within(nav()).getByRole("link", { name: /^Não lidas/ });
 const rowIds = () => [...document.querySelectorAll<HTMLElement>(".ib-list [data-n]")].map((r) => r.dataset.n);
 
 describe("Esperando você", () => {
-  test("the sidebar's entry is the inbox, with the count of what waits: the notifications", async () => {
+  test("the sidebar's entry is Não lidas, with the count of what waits: the notifications", async () => {
     // Two notifications wait; the seed's two proposals add nothing, as nobody decides them (ADR 0219).
     await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(seedState({ notifications: inbox() })) });
     await settle(8);
     const row = entry();
-    expect(row.getAttribute("href")).toBe(`/org/${ORG_ID}/notifications`);
+    expect(row.getAttribute("href")).toBe(`/org/${ORG_ID}/unreads`);
     expect(row.closest(".sidebar__tools")).toBeTruthy();
     const count = row.querySelector(".ac-count") as HTMLElement;
     expect(count.textContent).toBe("2");
@@ -99,8 +99,8 @@ describe("Esperando você", () => {
     await settle(8);
     const title = screen().getByRole("heading", { level: 1, name: "Caixa de entrada" });
     // What waits is the line under the title.
-    expect(title.nextElementSibling?.className).toBe("ac-pagehead__meta");
-    expect(title.nextElementSibling?.textContent).toContain("2 coisas esperando você");
+    const meta = title.closest(".ib-head")?.querySelector(".ac-pagehead__metaline > .ac-pagehead__meta");
+    expect(meta?.textContent).toContain("2 coisas esperando você");
     expect(document.querySelector(".ib-filter")?.textContent).toBe("Esperando você");
     const list = screen().getByRole("region", { name: "Esperando você" });
     expect(list.querySelector(".ac-grouphead")?.textContent).toBe("Esperando você2");

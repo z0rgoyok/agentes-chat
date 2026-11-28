@@ -19,6 +19,7 @@ import { clockAt, formatInt, formatPercent, relativeTime } from "@agenteschat/cl
 import { folderName, hostDescKey, isPaused } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
 import { type ModeSwitchLine, personalSettingsHost, personalSettingsNav } from "@agenteschat/client/lib/personal-view";
+import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { zoneDisplayName } from "@agenteschat/client/lib/routines";
 import { skillWaitingChip } from "@agenteschat/client/lib/skills";
 import type { TFunction } from "i18next";
@@ -34,6 +35,7 @@ import type { IconName } from "@/ui";
 
 export type SettingsSection =
   | "apps"
+  | "integrations"
   | "general"
   | "members"
   | "invites"
@@ -108,6 +110,14 @@ export const SETTINGS_SECTIONS: readonly SettingsEntry[] = [
   },
   // AI apps (ADR 0119): each person's own connections in this workspace; connecting one happens on the web.
   { id: "apps", group: "connectors", icon: "share", href: "/settings/apps", allowed: () => true },
+  // Integration apps (ADR 0251): who manages connectors, as on the web.
+  {
+    id: "integrations",
+    group: "connectors",
+    icon: "bolt",
+    href: "/settings/integrations",
+    allowed: (o) => can(o, "manage_connectors"),
+  },
   // Dispositivos: every member sees the computers and the phones they reach, and connects their own (ADR 0025).
   { id: "computers", group: "advanced", icon: "laptop", href: "/settings/devices", allowed: (o) => can(o, "read") },
   { id: "storage", group: "advanced", icon: "archive", href: "/settings/storage", allowed: (o) => can(o, "configure") },
@@ -365,7 +375,7 @@ export interface AgentComputerPick {
  * While the workspace's own computer is on its way, "no computer" stands for it.
  */
 export function agentComputerPick(input: {
-  agent: Pick<Agent, "id" | "ownerUserId" | "ownerRoleId">;
+  agent: Pick<Agent, "id" | "ownerUserId" | "ownerRoleId" | "builtin">;
   meId: string | null;
   myRoleIds?: readonly string[];
   admin: boolean;
@@ -381,7 +391,9 @@ export function agentComputerPick(input: {
     value,
     noComputer: noComputerChoice(input.setup, value === NO_COMPUTER),
     choices,
+    // The right hand always uses the workspace's own computer (ADR 0175): its row only says which.
     canPick:
+      !isRightHand(input.agent) &&
       (input.admin || (input.meId !== null && ownsAgentAs(input.agent, input.meId, input.myRoleIds ?? []))) &&
       choices.length > 0,
   };

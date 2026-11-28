@@ -2,6 +2,7 @@ import type {
   VaultConnectInput,
   VaultConnection,
   VaultConnectionPatch,
+  VaultImportInput,
   VaultImportResult,
   VaultItem,
   VaultItemInput,
@@ -80,8 +81,7 @@ export function useVaultImport(orgId: string) {
   const failed = useErrorToast();
   const run = useImportVault(orgId);
   return {
-    run: (input: { csv: string; scope: VaultScope; dryRun: boolean }): Promise<VaultImportResult | null> =>
-      attempt(() => run.mutateAsync(input), failed),
+    run: (input: VaultImportInput): Promise<VaultImportResult | null> => attempt(() => run.mutateAsync(input), failed),
     busy: run.isPending,
   };
 }

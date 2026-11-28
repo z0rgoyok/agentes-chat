@@ -5,7 +5,7 @@ import { ConflictError, NotFoundError, ValidationError } from "../errors";
 import { assertPublicHttpsUrl } from "../net-guard";
 import { requirePermission } from "../organizations";
 import { oauthRedirectUri } from "./connections";
-import { authServerMetadata, clientAad, type McpOAuthDeps, probeMcpServer } from "./oauth-mcp";
+import { authServerMetadata, clientAad, discoveryFailed, type McpOAuthDeps, probeMcpServer } from "./oauth-mcp";
 
 const { oauthClients, connectorConnections } = schema;
 
@@ -26,10 +26,9 @@ export interface OwnOAuthClient {
 async function issuerOf(deps: McpOAuthDeps, serverUrl: string) {
   const url = await assertPublicHttpsUrl(serverUrl.trim(), deps.resolveHost);
   const probe = await probeMcpServer(deps, url.toString());
-  const meta = probe.kind === "oauth" ? await authServerMetadata(deps, probe.issuer) : null;
-  if (probe.kind !== "oauth" || !meta) {
-    throw new ValidationError("This server doesn't sign in with OAuth", "connector.no_oauth");
-  }
+  if (probe.kind !== "oauth") throw new ValidationError("This server doesn't sign in with OAuth", "connector.no_oauth");
+  const meta = await authServerMetadata(deps, probe.issuer);
+  if (!meta) throw discoveryFailed(probe.issuer);
   return { issuer: probe.issuer, meta };
 }
 

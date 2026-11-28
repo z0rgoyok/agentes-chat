@@ -27,6 +27,7 @@ import {
   connectCustomServer,
   connectorListing,
   createConnectorToolSource,
+  createFileArtifact,
   createToolGateway,
   ForbiddenError,
   handleComposioWebhook,
@@ -71,6 +72,24 @@ async function world(options: { cap?: number } = {}) {
     tool("GOOGLEDRIVE_DOWNLOAD_FILE", ["readOnlyHint"]),
     tool("GOOGLEDRIVE_EXPORT_GOOGLE_WORKSPACE_FILE", ["readOnlyHint"]),
     tool("GOOGLEDRIVE_CREATE_FILE_FROM_TEXT"),
+    {
+      slug: "GOOGLEDRIVE_UPLOAD_FILE",
+      description: "GOOGLEDRIVE_UPLOAD_FILE (fake)",
+      inputSchema: {
+        type: "object",
+        properties: {
+          file_to_upload: {
+            type: "object",
+            file_uploadable: true,
+            properties: { name: { type: "string" }, mimetype: { type: "string" }, s3key: { type: "string" } },
+            required: ["name", "mimetype", "s3key"],
+          },
+          folder_to_upload_to: { type: "string" },
+        },
+        required: ["file_to_upload"],
+      },
+      tags: [],
+    },
     tool("GOOGLEDRIVE_CREATE_FOLDER"),
     tool("GOOGLEDRIVE_MOVE_FILE"),
     tool("GOOGLEDRIVE_CREATE_COMMENT"),
@@ -562,6 +581,54 @@ describe("tools through Composio", () => {
     expect(inside.output.content).toContain("couldn't be downloaded");
     expect(inside.output.content).not.toContain("intranet.corp");
     expect(w.fake.state.fetched).toEqual(["https://files.example/r1", "https://files.example/n1"]);
+  });
+
+  test("an .xlsx from the Drive uploads as it is: the agent names the Drive file, Composio gets its bytes", async () => {
+    const w = await world();
+    await w.connect("ana@acme.com");
+    const gateway = createToolGateway({
+      sources: [createConnectorToolSource({ ...w.deps, artifacts: f.artifactDeps })],
+    });
+    const ctx = await runOf(f);
+    // What agents see: a Drive file's id, never Composio's storage key.
+    const listed = (await gateway.list(ctx)).find((t) => t.name === "google_drive_upload_file");
+    expect(listed?.inputSchema.properties).toMatchObject({ file_to_upload: { type: "string" } });
+    const data = new Uint8Array([0x50, 0x4b, 0x03, 0x04, 1, 2, 3]);
+    const xlsx = await createFileArtifact(f.artifactDeps, { type: "person", userId: f.owner.id }, f.org.id, {
+      title: "Consolidado",
+      name: "consolidado.xlsx",
+      bytes: data,
+      channelId: f.general.id,
+    });
+    const out = await call(gateway, ctx, "google_drive_upload_file", { file_to_upload: `file ${xlsx.id}` });
+    if (out.type !== "result") throw new Error(`expected a result, got ${out.type}`);
+    expect(out.output.isError).toBe(false);
+    expect(w.fake.state.uploads).toMatchObject([
+      {
+        toolkit: "googledrive",
+        slug: "GOOGLEDRIVE_UPLOAD_FILE",
+        name: "consolidado.xlsx",
+        mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      },
+    ]);
+    expect(w.fake.state.uploads[0]?.data).toEqual(data);
+    expect(w.fake.state.executions.at(-1)).toMatchObject({
+      slug: "GOOGLEDRIVE_UPLOAD_FILE",
+      args: {
+        file_to_upload: {
+          name: "consolidado.xlsx",
+          mimetype: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          s3key: "uploads/1/consolidado.xlsx",
+        },
+      },
+    });
+    // A path on the computer, or anything that isn't a Drive file: said plainly, nothing sent.
+    const path = await call(gateway, ctx, "google_drive_upload_file", {
+      file_to_upload: "/workspace/out/relatorio.docx",
+    });
+    if (path.type !== "result") throw new Error(`expected a result, got ${path.type}`);
+    expect(path.output).toMatchObject({ isError: true, content: expect.stringContaining("upload_file") });
+    expect(w.fake.state.uploads).toHaveLength(1);
   });
 
   test("a link anywhere in a file, under any key, is fetched only off our own network", async () => {

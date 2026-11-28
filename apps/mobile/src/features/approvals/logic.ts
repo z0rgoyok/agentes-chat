@@ -1,9 +1,13 @@
 import type { Approval } from "@agenteschat/client";
 import { approvalCards } from "@agenteschat/client/lib/approval-card";
 import { approvalWhy } from "@agenteschat/client/lib/approval-origin";
+import { type ApprovalEffect, approvalEffects, approvalTarget } from "@agenteschat/client/lib/approval-review";
 import { approvalValues } from "@agenteschat/client/lib/approval-words";
 import { plainLine } from "@agenteschat/client/lib/markdown";
 import type { TFunction } from "i18next";
+import type { ReactNode } from "react";
+import type { Fact } from "@/ui/FactStrip";
+import type { IconName } from "@/ui/Icon";
 import { genderOf } from "../shared/logic";
 
 /**
@@ -64,4 +68,54 @@ export function approvalTable(
 export function approvalSaid(a: Pick<Approval, "why" | "trail">): string | null {
   const last = a.trail?.at(-1)?.text;
   return approvalWhy(a) || (last ? plainLine(last) : "") || null;
+}
+
+const EFFECT_ICON: Record<ApprovalEffect, IconName> = {
+  external: "send",
+  production: "cloud",
+  unsent: "archive",
+  readsOnly: "eye",
+};
+
+/**
+ * A request's facts strip, as the web's review (ADR 0218, addendum 2026-11-24): where it acts (the app, then the repository, channel or account),
+ * what it does to the outside, and the role that answers for it. Its deadline is the fuse's line above the title, and
+ * who decides it or how it ended is the line at the screen's foot: each said once.
+ */
+export function requestFacts(
+  t: TFunction,
+  a: Approval,
+  o: { source: string; mark: ReactNode; role?: string | undefined; personal?: boolean },
+): Fact[] {
+  const { effect } = approvalEffects(a);
+  const account = a.email ? a.email.provider : (a.connectorAccount ?? null);
+  const where = [o.source, approvalTarget(a) ?? account].filter(Boolean).join(" · ");
+  return [
+    { key: "where", icon: o.mark, label: t("approvals.review.where"), value: where },
+    ...(effect
+      ? [
+          {
+            key: "effect",
+            icon: EFFECT_ICON[effect],
+            label: t("approvals.review.effect"),
+            // What leaves a personal workspace (ADR 0159) leaves its person's workspace, not a company.
+            value:
+              effect === "external" && o.personal
+                ? t("mobile.approval.trait.externalPersonal")
+                : t(`approvals.review.effects.${effect}`),
+            ...(effect === "production" ? { tone: "waiting" as const } : {}),
+          },
+        ]
+      : []),
+    ...(a.status === "pending" && o.role
+      ? [
+          {
+            key: "decides",
+            icon: "person",
+            label: t("approvals.review.decides"),
+            value: t("approvals.review.decidesRole", { role: o.role }),
+          },
+        ]
+      : []),
+  ];
 }

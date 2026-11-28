@@ -402,6 +402,10 @@ export function createFakeLive(
         const { fileId: _f, ...view } = asset;
         return view;
       },
+      fileFonts: async (orgId, fileId) => {
+        record("live.fileFonts", orgId, fileId);
+        return [];
+      },
       assetUrl: (orgId, fileId, assetId) => `/api/app/organizations/${orgId}/artifacts/${fileId}/assets/${assetId}`,
       // A comment's pictures on a picture, a video or a PDF (ADR 0208): stored nowhere, an id back.
       uploadMark: async (orgId, fileId, picture) => {

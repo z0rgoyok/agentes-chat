@@ -46,3 +46,20 @@ export async function* fileLines(stream: AsyncIterable<string>): AsyncGenerator<
   }
   if (rest) yield line(rest);
 }
+
+/** The last line of a program's output with words on it, its terminal colors taken out. */
+export const lastLine = (text: string) =>
+  text
+    // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal colors
+    .replace(/\u001b\[[0-9;]*[A-Za-z]/g, "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .at(-1);
+
+/** Where two texts first differ (the shorter one's length when it is the other's start). */
+export function firstDifference(a: string, b: string) {
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  return i;
+}

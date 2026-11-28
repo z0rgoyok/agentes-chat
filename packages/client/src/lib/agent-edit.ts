@@ -39,20 +39,32 @@ export const AGENT_SECTIONS = [
 export type AgentSection = (typeof AGENT_SECTIONS)[number];
 export const isAgentSection = (v: unknown): v is AgentSection => AGENT_SECTIONS.includes(v as AgentSection);
 
-/** The screens "Quem pensa" can open on from a link, past its first one (ADR 0032 §5, addendum 2026-11-10). */
-export const BRAIN_SCREENS = ["model", "more", "switch"] as const;
+/**
+ * The screens "Quem pensa" can open on from a link (ADR 0032 §5, addendum 2026-11-10): `switch` is its first screen
+ * with the account list open, `add` its "Add account" screen (Back leads to the first one).
+ */
+export const BRAIN_SCREENS = ["model", "more", "switch", "add"] as const;
 export type BrainScreen = (typeof BRAIN_SCREENS)[number];
 export const isBrainScreen = (v: unknown): v is BrainScreen => BRAIN_SCREENS.includes(v as BrainScreen);
 
 /*
  * A personal workspace's agent page (ADR 0159 §3): the same page, simpler. Its bar keeps what one person uses
- * (Overview, Instructions, Memory, the apps it can use, its name and look) and an Advanced tab holds the rest: who owns
- * it and talks to it, its conversations, computer, brakes and danger zone, its built-in areas, databases, skills and
- * rules, with Activity, Files and Usage a click away. Every tab and section keeps its address.
+ * (Overview, Instructions, Skills, Memory, the apps it can use, its name and look) and an Advanced tab holds the rest:
+ * who owns it and talks to it, its conversations, computer, brakes and danger zone, its built-in areas, databases and
+ * rules, with Activity, Files and Usage a click away. Every tab and section keeps its address. Skills is a tab as in a
+ * team's page: what the agent knows is something one person looks for, not a setting to dig for in Advanced.
  */
 
 /** The bar in a personal workspace; Activity, Files or Usage join it while open. */
-export const PERSONAL_AGENT_TABS = ["overview", "instructions", "memory", "access", "settings", "advanced"] as const;
+export const PERSONAL_AGENT_TABS = [
+  "overview",
+  "instructions",
+  "skills",
+  "memory",
+  "access",
+  "settings",
+  "advanced",
+] as const;
 
 /** Configurações' sections that a personal workspace shows in Advanced. */
 export const ADVANCED_SECTIONS: readonly AgentSection[] = [
@@ -67,8 +79,6 @@ export const ADVANCED_SECTIONS: readonly AgentSection[] = [
 /** The tab that shows for an address: a personal workspace's advanced sections in Advanced; a team's has no Advanced. */
 export function shownAgentTab(tab: AgentTab, sec: AgentSection | undefined, personal: boolean): AgentTab {
   if (!personal) return tab === "advanced" ? "settings" : tab;
-  // A personal workspace keeps the skills in Advanced.
-  if (tab === "skills") return "advanced";
   return tab === "settings" && sec && ADVANCED_SECTIONS.includes(sec) ? "advanced" : tab;
 }
 

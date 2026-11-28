@@ -66,4 +66,16 @@ describe("offline computers", () => {
     const busy = brainUnavailableOf(note("busy"));
     expect(busy && isOfflineNotice(busy)).toBe(false);
   });
+
+  test("no internet: the computer its agents use only the internet of is offline, said with its name (ADR 0237)", () => {
+    const t = ((key: string, o?: Record<string, unknown>) => `${key} ${o?.computer ?? ""}`) as unknown as TFunction;
+    const meta = {
+      bodyCode: "brain_unavailable",
+      bodyParams: { brain: "Claude Code", computer: "Ana's laptop" },
+      brainUnavailable: { brain: "claude_code", code: "lent_offline", machineId: "m-ana" },
+    };
+    expect(serverBody(t, "…", meta)).toBe("chat.body.brain_unavailable_lent_offline Ana's laptop");
+    const n = brainUnavailableOf(meta);
+    expect(n && isOfflineNotice(n)).toBe(false);
+  });
 });

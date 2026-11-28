@@ -27,10 +27,15 @@ async function emailDialog() {
 }
 
 /** Signed in as Walter at `email`, in no workspace (`required`) or in Acme (`reminder`), at `path`. */
-async function open(path: string, confirmation: "required" | "reminder", email = "walter@example.com") {
+async function open(
+  path: string,
+  confirmation: "required" | "reminder",
+  email = "walter@example.com",
+  emailUndelivered: "suppressed" | "rejected" | null = null,
+) {
   const state = seedState();
   if (!state.me) throw new Error("signed in");
-  state.me.user = { ...state.me.user, email, emailVerified: false, emailConfirmation: confirmation };
+  state.me.user = { ...state.me.user, email, emailVerified: false, emailConfirmation: confirmation, emailUndelivered };
   if (confirmation === "required") state.me.organizations = [];
   const fake = createFakeAuth();
   const r = await renderApp(path, { api: createFakeApi(state), auth: fake.auth });
@@ -55,6 +60,21 @@ describe("a new account's address never confirmed (ADR 0006, addendum 2026-11-22
     await click(button("Endereço errado? Trocar"));
     const dialog = await emailDialog();
     expect(within(dialog).getByLabelText("Novo e-mail")).toBeTruthy();
+  });
+
+  test("a link that could never be delivered: the screen and the line say why, the new link and address stay", async () => {
+    await open("/onboarding", "required", "walter@example.com", "suppressed");
+    const said = screen().getByRole("alert");
+    expect(said.textContent).toBe(
+      "O e-mail não chegou: o provedor de e-mail bloqueou walter@example.com depois de uma devolução. Confira se o endereço está certo e peça um link novo.",
+    );
+    expect(button("Mandar outro link")).toBeTruthy();
+    expect(button("Endereço errado? Trocar")).toBeTruthy();
+    cleanup();
+    await open(`/org/${ORG_ID}`, "reminder", "walter@example.com", "rejected");
+    expect(screen().getByRole("region", { name: "Confirme seu e-mail" }).textContent).toContain(
+      "O e-mail não chegou: walter@example.com foi recusado. Confira se o endereço está certo ou troque por outro.",
+    );
   });
 
   test("once the link is opened, elsewhere too, the onboarding takes over", async () => {

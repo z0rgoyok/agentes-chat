@@ -42,7 +42,7 @@ describe("receipt on the right of the header line", () => {
 });
 
 describe("sidebar: no agent twice", () => {
-  test("an agent's DM is its row under Agentes, with its unread; 'Mensagens diretas' lists the people", async () => {
+  test("an agent's DM is its one row, with its unread; 'Mensagens diretas' lists people and agents together", async () => {
     const state = seedState();
     seedDm(state, { type: "agent", id: ADA_ID }, { ago: 1, unread: 3 });
     seedDm(state, { type: "person", id: "u-joao" }, { ago: 5, unread: 1 });
@@ -55,13 +55,17 @@ describe("sidebar: no agent twice", () => {
     expect(adaLinks[0]?.getAttribute("href")).toBe(`/org/${ORG_ID}/dm/agent/${ADA_ID}`);
     expect(within(adaLinks[0] as HTMLElement).getByLabelText("3 mensagens não lidas").textContent).toBe("3");
     const dmsGroup = within(nav()).getByText("Mensagens diretas").closest(".sidebar__group") as HTMLElement;
-    expect([...dmsGroup.querySelectorAll("a .sidebar__item-label")].map((l) => l.textContent)).toEqual(["João"]);
+    expect([...dmsGroup.querySelectorAll("a .sidebar__item-label")].map((l) => l.textContent)).toEqual([
+      "Ada",
+      "João",
+      "Atlas",
+    ]);
   });
 });
 
 /** Canais' + → Novo canal. */
 const newChannel = async () => {
-  const plus = within(nav()).getByRole("button", { name: "Novo canal ou categoria" });
+  const plus = within(nav()).getByRole("button", { name: "Novo canal" });
   await act(async () => {
     fireEvent.keyDown(plus, { key: "Enter" });
     fireEvent.keyUp(plus, { key: "Enter" });
@@ -165,13 +169,11 @@ describe("Criar canal", () => {
       topic: "Leads e propostas",
       visibility: "private",
       audienceRoleIds: [],
+      // Who it starts with goes with it: the server decides from them whether its agents answer in threads.
+      members: [{ agentId: ADA_ID }],
     });
     const created = state.channels.find((c) => c.name === "vendas-sul");
-    expect(state.calls.find((c) => c.method === "chat.addMember")?.args).toEqual([
-      ORG_ID,
-      created?.id,
-      { agentId: ADA_ID },
-    ]);
+    expect(state.calls.some((c) => c.method === "chat.addMember")).toBe(false);
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${created?.id}`);
   });
 });

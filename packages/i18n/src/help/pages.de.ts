@@ -443,6 +443,44 @@ export const helpDe: Partial<Record<HelpSlug, HelpDocument>> = {
         ],
       },
       {
+        id: "tool-levels",
+        heading: "Jedes Tool einer verbundenen App",
+        blocks: [
+          "Jedes Tool einer per Adresse verbundenen App hat eine eigene Stufe, die du in **Einstellungen\u00a0›\u00a0Konnektoren** bei den Tools dieser Verbindung wählst. Auf der Seite des Agenten zeigt **Tools und Zugriff**, welche Apps und Tools er nutzen darf.",
+          {
+            list: [
+              "**Schaut nur**: liest und ändert nichts. Fragt nie.",
+              "**Ändert Dinge**: erstellt und ändert, ohne zu fragen. Ein Agent auf **Immer fragen** fragt trotzdem.",
+              "**Fragt nach deiner Freigabe**: fragt in der Unterhaltung vor jedem Aufruf.",
+              "**Aus**: Agenten bekommen es nicht.",
+            ],
+          },
+          "**Nie fragen** auf der Seite des Agenten geht all dem vor: Ein Agent auf dieser Stufe fragt nichts, auch nicht bei einem Tool auf **Fragt nach deiner Freigabe**. Ändert sich eine Stufe, während Anfragen warten, werden die abgebrochen, die nicht mehr fragen würden, und der Agent führt sie ohne Karte erneut aus.",
+        ],
+      },
+      {
+        id: "sensitive",
+        heading: "Heikle Tools",
+        blocks: [
+          "Ein Tool, das der Server der App als löschend, sendend oder zahlend markiert, kann nur auf **Fragt nach deiner Freigabe** oder **Aus** stehen.",
+        ],
+      },
+      {
+        id: "order",
+        heading: "In welcher Reihenfolge freigegebene Aktionen laufen",
+        blocks: [
+          "In einem Durchgang führt ein Agent seine Aktionen in der Reihenfolge aus, in der er gefragt hat, egal in welcher Reihenfolge du sie freigibst. Eine Nachricht, die du schickst, während der Agent wartet, startet einen neuen Durchgang, und dessen Aktionen laufen nach den Anfragen, von denen der Agent wusste, dass sie schon warten. Anfragen aus verschiedenen Unterhaltungen warten nie aufeinander.",
+          "Eine Anfrage, die seit mehr als 30 Minuten auf einen Menschen wartet, hält nichts auf. Eine freigegebene Aktion, die wartet, sagt worauf, mit **Freigeben** und **Ablehnen** für diese Anfrage und **Jetzt ausführen**, um ohne sie weiterzumachen.",
+        ],
+      },
+      {
+        id: "many",
+        heading: "Mehrere auf einmal",
+        blocks: [
+          "Wo Anfragen auf dich warten, im Web und auf dem Handy, entscheiden **Alle freigeben** und **Alle ablehnen** alle Anfragen eines Agenten auf einmal.",
+        ],
+      },
+      {
         id: "who",
         heading: "Wer freigibt",
         blocks: [
@@ -848,7 +886,7 @@ export const helpDe: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "data",
         heading: "Was er sendet",
         blocks: [
-          "Einmal am Tag sendet der Server agentes.chat anonyme Nutzungsstatistiken: Zahlen wie Personen, Agenten, Größe der Rechner, verbrauchte KI-Tokens und wie viele Daten die Browser der Agenten senden und empfangen. Nie Nachrichten, Dateien, Namen oder Websites. `docker compose run --rm agentes telemetry` zeigt genau, was gesendet würde. Der Inhaber schaltet das unter **Einstellungen\u00a0›\u00a0Allgemein** aus, oder mit `TELEMETRY=off` in `.env`.",
+          "Einmal am Tag sendet der Server agentes.chat anonyme Nutzungsstatistiken: Zahlen wie Personen, Agenten, Größe der Rechner, verbrauchte KI-Tokens, wie viele Daten die Browser der Agenten senden und empfangen, und wie schnell die Apps starten und laufen. Nie Nachrichten, Dateien, Namen oder Websites. `docker compose run --rm agentes telemetry` zeigt genau, was gesendet würde. Der Inhaber schaltet das unter **Einstellungen\u00a0›\u00a0Allgemein** aus, oder mit `TELEMETRY=off` in `.env`.",
           "Fehlerberichte gehen nirgendwohin, außer du setzt `SENTRY_DSN` auf einen Sentry-kompatiblen Server deiner Wahl. Ein Bericht enthält den Fehler und wo er passiert ist, nie Nachrichten, E-Mails, IP-Adressen, Cookies oder Tokens.",
         ],
       },
@@ -857,6 +895,57 @@ export const helpDe: Partial<Record<HelpSlug, HelpDocument>> = {
         heading: "Die vollständige Anleitung",
         blocks: [
           "Alle Einstellungen, ein eigener Proxy wie nginx, der Betrieb ohne Docker, ein Ablauf für KI-Agenten, die ihn selbst installieren, und was zu tun ist, wenn etwas fehlschlägt, stehen in `SELF_HOSTING.md` im Repository von agentes.chat.",
+        ],
+      },
+    ],
+  },
+  "integration-apps": {
+    title: "Integrations-Apps",
+    summary:
+      "Verbinde einen Support-Bot, ein Formular oder ein Monitoring, das in deinen Kanälen als es selbst postet, nie als eine Person.",
+    sections: [
+      {
+        id: "what",
+        heading: "So funktioniert es",
+        blocks: [
+          "Eine Integrations-App hat ihren eigenen Token. Sie postet in den Kanälen, die du ihr gibst, unter ihrem eigenen Namen mit dem Etikett **App**, und kann den Namen der Person von außen mitgeben. Agenten antworten ihr wie einer Person: wenn sie sie erwähnt oder wenn der Router sie auswählt.",
+          "Hole Gespräche von außen so herein, nie mit dem persönlichen Token einer Person: Diese Nachrichten würden als ihre erscheinen.",
+        ],
+      },
+      {
+        id: "connect",
+        heading: "Einen Support-Bot verbinden",
+        blocks: [
+          {
+            list: [
+              "Klicke in **Einstellungen › Konnektoren › Integrationen** auf **App verbinden**, gib ihr einen Namen und wähle ihre Kanäle.",
+              "Füge bei Bedarf eine Webhook-Adresse hinzu: Jede Antwort eines Agenten in ihren Kanälen geht dorthin, signiert mit [Standard Webhooks](https://www.standardwebhooks.com).",
+              "Kopiere den Token und das Webhook-Secret. Sie werden nur einmal angezeigt.",
+              "Poste die erste Nachricht jedes Gesprächs von außen ohne `thread_id` und den Rest mit ihrer `id` als `thread_id`. Schicke die Antworten in diesem Thread an die Person zurück.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "api",
+        heading: "Die API",
+        blocks: [
+          "Sende den Token als `Authorization: Bearer agi_…`.",
+          {
+            list: [
+              "`GET /api/v1/channels`: die Kanäle der App.",
+              "`POST /api/v1/messages`: `channel_id`, `text` und optional `thread_id`, `sender` und `idempotency_key`.",
+              "`GET /api/v1/messages?after=<id>`: was seitdem geschrieben wurde, mit `in_reply_to` an jeder Antwort eines Agenten.",
+            ],
+          },
+          "Dieselben Aufrufe sind MCP-Tools unter `/mcp`. Die vollständige Referenz ist `/api/openapi.json`.",
+        ],
+      },
+      {
+        id: "safety",
+        heading: "Was eine App nicht kann",
+        blocks: [
+          "Eine App ist nie ein Mitglied und nie eine Person. Agenten beantworten, was sie postet, übernehmen daraus aber keine Regel, keine Erinnerung, keine Änderung der Anweisungen, keine Routine, keine Freigabe und keine Berechtigung. Ihren Token zu widerrufen stoppt sie sofort. Wenn ein Agent einer App antwortet, liest er von sich aus nur diese Unterhaltung und das Web: alles andere aus deinem Workspace wartet auf die Freigabe einer Person.",
         ],
       },
     ],

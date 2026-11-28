@@ -10,11 +10,13 @@ import {
   createAskAgentToolSource,
   createChannel,
   createContextToolSource,
+  createDashboard,
   createFollowUpToolSource,
   createIssue,
   createIssueToolSource,
   createTeamStatusToolSource,
   createToolGateway,
+  ensureHomeBoard,
   getIssue,
   indexSource,
   insertMessage,
@@ -23,8 +25,10 @@ import {
   postPersonMessage,
   RIGHT_HAND,
   RIGHT_HAND_AUTO,
+  type RoutineBrief,
   retrieveForRun,
   rightHandPrompt,
+  rightHandReader,
   rulesForPerson,
   setAgentAudience,
   type ToolContext,
@@ -33,6 +37,7 @@ import {
   undoAgentAction,
   updateOrgSettings,
 } from "../src";
+import { openRoutineRoom } from "../src/routine-room";
 import { addMember, type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -761,7 +766,137 @@ describe("team_status", () => {
   test("only in the person's own DM", async () => {
     f = await setup({ rightHand: true });
     const out = await status(await lodiRun(f.owner.id, "@lodi como vai?", f.general.id));
-    expect(out).toMatchObject({ isError: true, content: "Only in your private conversation with a person." });
+    expect(out.isError).toBe(true);
+    expect(out.content).toStartWith("Only where one person alone reads you");
+  });
+});
+
+describe("a routine or widget of a person's reads for them where only they read it", () => {
+  /** Lodi's run of a routine `creator` made, in the routine's own room (ADR 0053 §4), as a firing starts it. */
+  async function routineRun(creator: string, brief: Partial<RoutineBrief>): Promise<ToolContext> {
+    const lodi = await lodiOf();
+    const routineId = crypto.randomUUID();
+    const room = await openRoutineRoom(f.db, f.org.id, lodi.id, routineId);
+    const full: RoutineBrief = {
+      routineId,
+      routineRunId: crypto.randomUUID(),
+      name: "Tarefas abertas",
+      creatorUserId: creator,
+      deliverTo: { channelId: f.general.id, threadId: null },
+      access: "read",
+      report: "when_new",
+      trigger: "schedule",
+      dueAt: new Date().toISOString(),
+      ...brief,
+    };
+    const trigger = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: room.id,
+      author: { type: "person", userId: creator },
+      body: "Liste as tarefas abertas.",
+      meta: { routineBrief: full, background: true },
+    });
+    const [run] = await f.db
+      .insert(schema.agentRuns)
+      .values({
+        orgId: f.org.id,
+        agentId: lodi.id,
+        channelId: room.id,
+        threadRootId: trigger.id,
+        triggerMessageId: trigger.id,
+        trigger: "mention",
+        background: true,
+        hop: 1,
+        status: "running",
+      })
+      .returning();
+    if (!run) throw new Error("no run");
+    return {
+      db: f.db,
+      orgId: f.org.id,
+      agentId: lodi.id,
+      runId: run.id,
+      channelId: room.id,
+      threadRootId: trigger.id,
+      triggerMessageId: trigger.id,
+    };
+  }
+  async function widgetOn(boardId: string, creator: string, draft = false) {
+    const [widget] = await f.db
+      .insert(schema.dashboardWidgets)
+      .values({
+        orgId: f.org.id,
+        dashboardId: boardId,
+        agentId: (await lodiOf()).id,
+        title: "Tarefas abertas",
+        createdByUserId: creator,
+        draft,
+      })
+      .returning();
+    if (!widget) throw new Error("no widget");
+    return { widget: { widgetId: widget.id, dashboardId: boardId } };
+  }
+  const dash = () => ({ db: f.db, pubsub: f.pubsub });
+  const issueTools = () => [createIssueToolSource(f.artifactDeps)];
+  const task = () =>
+    createIssue({ db: f.db, pubsub: f.pubsub }, { type: "person", userId: f.owner.id }, f.org.id, {
+      title: "Fechar o mês",
+      audience: { mode: "everyone" },
+    });
+
+  test("a widget on its person's Home lists their tasks and checks on the team", async () => {
+    f = await setup({ rightHand: true });
+    await task();
+    const home = await ensureHomeBoard(dash(), f.org.id, f.owner.id);
+    const ctx = await routineRun(f.owner.id, await widgetOn(home.id, f.owner.id));
+    expect(await rightHandReader(ctx)).toBe(f.owner.id);
+    const out = await use(issueTools(), ctx, "list_issues");
+    expect(out.isError).toBeUndefined();
+    expect(out.content).toContain("Fechar o mês");
+    expect((await use([createTeamStatusToolSource()], ctx, "team_status")).isError).toBeUndefined();
+  });
+
+  test("a private board of theirs reads for them, a draft's test too; a board others see, or another's, doesn't", async () => {
+    f = await setup({ rightHand: true });
+    const bia = await addMember(f.db, f.org.id, "member", "Bia");
+    const board = (audience: "private" | "workspace", owner = f.owner.id) =>
+      createDashboard(dash(), owner, f.org.id, { title: "Mês", audience, editPolicy: "owner" });
+    const mine = await board("private");
+    const shared = await board("workspace");
+    const hers = await board("private", bia.id);
+    const reader = async (boardId: string, draft = false) =>
+      rightHandReader(await routineRun(f.owner.id, await widgetOn(boardId, f.owner.id, draft)));
+    expect(await reader(mine.id)).toBe(f.owner.id);
+    expect(await reader(mine.id, true)).toBe(f.owner.id);
+    expect(await reader(shared.id)).toBeNull();
+    // Confirmed onto that board, a draft keeps what its test showed.
+    expect(await reader(shared.id, true)).toBeNull();
+    expect(await reader(hers.id)).toBeNull();
+    const out = await use(
+      issueTools(),
+      await routineRun(f.owner.id, await widgetOn(shared.id, f.owner.id)),
+      "list_issues",
+    );
+    expect(out.isError).toBe(true);
+    expect(out.content).toContain("a widget on their Home or a private board of theirs");
+  });
+
+  test("a routine reads for its creator when it reports to their own DM with it, never to a channel or the Drive", async () => {
+    f = await setup({ rightHand: true });
+    const dm = await openPersonAgentDm(f.db, f.org.id, f.owner.id, (await lodiOf()).id);
+    const to = { channelId: dm.id, threadId: null };
+    expect(await rightHandReader(await routineRun(f.owner.id, { deliverTo: to }))).toBe(f.owner.id);
+    expect(await rightHandReader(await routineRun(f.owner.id, { deliverTo: to, toDrive: true }))).toBeNull();
+    expect(await rightHandReader(await routineRun(f.owner.id, {}))).toBeNull();
+  });
+
+  test("what it remembers stays kept from the person's own DM, not from a routine's room", async () => {
+    f = await setup({ rightHand: true });
+    const dm = await openPersonAgentDm(f.db, f.org.id, f.owner.id, (await lodiOf()).id);
+    const ctx = await routineRun(f.owner.id, { deliverTo: { channelId: dm.id, threadId: null } });
+    const out = await use(contextTools(), ctx, "remember", { content: "O fechamento é no dia 5", everywhere: true });
+    expect(out.isError).toBe(true);
+    expect(out.content).toContain("only in a person's own private conversation");
   });
 });
 

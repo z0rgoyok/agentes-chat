@@ -11,7 +11,7 @@ import { avatarSkyCell, avatarSkyCells, avatarSkyTones } from "@agenteschat/ui/s
 import { Canvas, createPicture, Picture, type SkPicture } from "@shopify/react-native-skia";
 import { memo, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { StyleSheet, View } from "react-native";
+import { PixelRatio, StyleSheet, View } from "react-native";
 import { useReducedMotion, useTheme } from "@/ui/theme";
 import { useFrameTime } from "./live";
 import type { AgentLookInput } from "./looks";
@@ -55,7 +55,12 @@ const GAZE: Record<Gaze, { look: [number, number]; turn: [number, number] }> = {
   down: { look: [0, 0.14], turn: [0, 0.35] },
 };
 
-/** One frame of an agent as drawing commands (the engine draws, the recorder keeps the commands). */
+/**
+ * One frame of an agent as drawing commands (the engine draws, the recorder keeps the commands). `extra.px`: screen
+ * pixels per unit of `size` (the screen's scale when `size` is in points). The engine's thinnest line, its pixel
+ * snapping and its overlaps are in canvas pixels, as on the web's canvas, so it draws at that scale: in points, the
+ * eyes' 1.4 floor came out three times as thick, and on a 13pt face the two arcs of happy or closed eyes met in one bar.
+ */
 export function agentFrame(
   agent: AgentLookInput,
   size: number,
@@ -66,7 +71,7 @@ export function agentFrame(
   frame?: { dark: boolean },
   expression?: Expression,
   dark = frame?.dark ?? false,
-  extra?: { gaze?: Gaze | undefined; bodyless?: boolean | undefined; sky?: boolean | undefined },
+  extra?: { gaze?: Gaze | undefined; bodyless?: boolean | undefined; sky?: boolean | undefined; px?: number },
 ) {
   const accessory = agent.accessory && agent.accessory !== "none" ? agent.accessory : undefined;
   const box = frame ? framedLayout(size, Boolean(accessory)) : agentLayout(size, Boolean(accessory));
@@ -76,7 +81,10 @@ export function agentFrame(
   if (frame && extra?.bodyless) return compile(rec.commands);
   const base = poseFor(mode, t, seed, reduced);
   const looked = extra?.gaze ? { ...base, ...GAZE[extra.gaze] } : base;
-  drawAgent(asCtx(rec), box.x, box.y, box.inner, {
+  const px = extra?.px ?? 1;
+  rec.save();
+  rec.scale(1 / px, 1 / px);
+  drawAgent(asCtx(rec), box.x * px, box.y * px, box.inner * px, {
     color: agent.color,
     eyes: agent.eyes,
     cells: box.cells,
@@ -95,6 +103,7 @@ export function agentFrame(
         );
     },
   });
+  rec.restore();
   return compile(rec.commands);
 }
 
@@ -163,6 +172,8 @@ function AgentAvatarView({
       return createPicture((canvas) => replay(canvas, ops), { width: size, height: size });
     });
   }, [color, drawn, size, dark, tile]);
+  // Drawn in the screen's pixels, as the web draws its canvas (see `agentFrame`).
+  const px = PixelRatio.get();
   const picture = useMemo(() => {
     const draw = () => {
       const frame = agentFrame(
@@ -175,7 +186,7 @@ function AgentAvatarView({
         tile ? { dark } : undefined,
         expression,
         dark,
-        { gaze, bodyless, sky: false },
+        { gaze, bodyless, sky: false, px },
       );
       return createPicture((canvas) => replay(canvas, frame), { width: size, height: size });
     };
@@ -194,9 +205,10 @@ function AgentAvatarView({
       expression ?? "",
       gaze ?? "",
       bodyless,
+      px,
     ];
     return kept(stills, key.join("|"), draw);
-  }, [color, drawn, eyes, accessory, size, mode, t, seed, reduced, tile, dark, expression, gaze, bodyless]);
+  }, [color, drawn, eyes, accessory, size, mode, t, seed, reduced, tile, dark, expression, gaze, bodyless, px]);
   const label = name
     ? tr(mode === "run" ? "mobile.a11y.agentWorking" : "mobile.a11y.agent", { name })
     : tr("mobile.a11y.agentPlain");

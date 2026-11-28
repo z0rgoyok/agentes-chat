@@ -1,5 +1,5 @@
 import type { Channel, OrgRole, OrgRoles, Person } from "@agenteschat/client";
-import { channelMembersQuery, keys, useApi, useChannelCategories, useChannels } from "@agenteschat/client";
+import { channelMembersQuery, keys, useAgentGroups, useApi, useChannels } from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { edit, optimistic, patchIn } from "@agenteschat/client/lib/optimistic";
 import { managesChannel } from "@agenteschat/client/lib/permissions";
@@ -57,7 +57,7 @@ export function RoleChannels({ role, data, people }: { role: OrgRole; data: OrgR
   const qc = useQueryClient();
   const toast = useToast();
   const channels = useChannels(org.id).data ?? [];
-  const categories = useChannelCategories(org.id).data ?? [];
+  const sectors = useAgentGroups(org.id).data ?? [];
   const [query, setQuery] = useState("");
   const [saved, setSaved] = useState(false);
   const [sees, setSees] = useState<{ channel: Channel; start: Set<string> } | null>(null);
@@ -101,8 +101,8 @@ export function RoleChannels({ role, data, people }: { role: OrgRole; data: OrgR
   const general = (c: Channel) => c.name === "general";
   const q = fold(query.trim());
   const shown = channels.filter((c) => !q || fold(c.name).includes(q));
-  const known = new Set(categories.map((c) => c.id));
-  const loose = shown.filter((c) => !c.categoryId || !known.has(c.categoryId));
+  const known = new Set(sectors.map((g) => g.id));
+  const loose = shown.filter((c) => !c.groupId || !known.has(c.groupId));
   const order = (list: Channel[]) =>
     [...list].sort(
       (a, b) =>
@@ -112,9 +112,7 @@ export function RoleChannels({ role, data, people }: { role: OrgRole; data: OrgR
     );
   const groups = [
     { id: "loose", name: t("shell.channels"), list: order(loose) },
-    ...[...categories]
-      .sort((a, b) => a.position - b.position)
-      .map((g) => ({ id: g.id, name: g.name, list: order(shown.filter((c) => c.categoryId === g.id)) })),
+    ...sectors.map((g) => ({ id: g.id, name: g.name, list: order(shown.filter((c) => c.groupId === g.id)) })),
   ].filter((g) => g.list.length > 0);
   const membersOf = async (c: Channel) =>
     (await qc.fetchQuery(channelMembersQuery(api, org.id, c.id))).filter((m) => m.type === "person").map((m) => m.id);

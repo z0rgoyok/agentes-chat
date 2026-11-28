@@ -6,6 +6,9 @@ import {
   cgroupCounters,
   combineLoads,
   combineTraffic,
+  coresInCpuinfo,
+  cpuAndSystem,
+  cpuName,
   diskFigures,
   diskSpace,
   LoadWindow,
@@ -128,7 +131,11 @@ describe("the load sampler", () => {
   });
 
   test("the disk's latest figures and the shared folder's size ride on the summary as they are (ADR 0115)", () => {
-    expect(diskFigures({ sizeBytes: 100 * GIB, freeBytes: 12.34 * GIB })).toEqual({ diskFreeGb: 12.3, diskUse: 0.88 });
+    expect(diskFigures({ sizeBytes: 100 * GIB, freeBytes: 12.34 * GIB })).toEqual({
+      diskFreeGb: 12.3,
+      diskGb: 100,
+      diskUse: 0.88,
+    });
     expect(diskFigures(null)).toEqual({});
     expect(diskFigures({ sizeBytes: 0, freeBytes: 0 })).toEqual({});
     const w = new LoadWindow();
@@ -145,6 +152,24 @@ describe("the load sampler", () => {
       load: { ...base, diskFreeGb: 10, diskUse: 0.9, sharedGb: 33 },
     });
     expect(pong({ ...base, diskFreeGb: -1, diskUse: 2, sharedGb: "x" })).toEqual({ type: "pong", at: 1, load: base });
+    // The disk's size and what takes it by kind: every kind sane, else no parts at all.
+    const parts = { projects: 12.5, apps: 8, agents: 30.1, caches: 4.2, system: 6 };
+    expect(pong({ ...base, diskGb: 196.7, diskParts: { ...parts, extra: 1 } })).toEqual({
+      type: "pong",
+      at: 1,
+      load: { ...base, diskGb: 196.7, diskParts: parts },
+    });
+    expect(pong({ ...base, diskParts: { ...parts, caches: -1 } })).toEqual({ type: "pong", at: 1, load: base });
+    expect(pong({ ...base, diskParts: { projects: 1 } })).toEqual({ type: "pong", at: 1, load: base });
+    // What the agents' temporary folders hold in memory (ADR 0243), as the disk's figures are.
+    w.add({ load: 0.4, memory: 0.3 }, t0 + 2 * LOAD_SAMPLE_MS, { agentTmpRamGb: 2.3 });
+    expect(w.summary()).toMatchObject({ agentTmpRamGb: 2.3 });
+    expect(pong({ ...base, agentTmpRamGb: 2.3 })).toEqual({
+      type: "pong",
+      at: 1,
+      load: { ...base, agentTmpRamGb: 2.3 },
+    });
+    expect(pong({ ...base, agentTmpRamGb: -1 })).toEqual({ type: "pong", at: 1, load: base });
   });
 
   test("in a container with limits: the machine's size with the limit beside it, the load per machine CPU", async () => {
@@ -219,6 +244,43 @@ describe("protocol 22 on the wire", () => {
     expect(hello({})).not.toHaveProperty("size");
     expect(hello({ size: { cpus: 0, memoryGb: 4, diskGb: 80 } })).not.toHaveProperty("size");
     expect(hello({ size: { cpus: 2, memoryGb: "4", diskGb: 80 } })).not.toHaveProperty("size");
+  });
+
+  test("hello's size names the processor and the system; an older runner's names neither, nonsense is left out", () => {
+    const size = { cpus: 14, memoryGb: 48, diskGb: 926 };
+    expect(
+      (hello({ size: { ...size, cpuModel: "Apple M4 Pro", system: "macOS 26.1" } }) as { size: object }).size,
+    ).toEqual({ ...size, cpuModel: "Apple M4 Pro", system: "macOS 26.1" });
+    expect((hello({ size }) as { size: object }).size).toEqual(size);
+    const odd = { ...size, cpuModel: "x\u0000<script>", system: 7 };
+    expect((hello({ size: odd }) as { size: object }).size).toEqual(size);
+    const long = hello({ size: { ...size, cpuModel: "A".repeat(200) } }) as { size: { cpuModel: string } };
+    expect(long.size.cpuModel).toHaveLength(80);
+    // Physical cores: a whole number, no more than the logical CPUs.
+    expect((hello({ size: { ...size, cores: 10 } }) as { size: object }).size).toEqual({ ...size, cores: 10 });
+    for (const cores of [0, 15, 2.5, "10"])
+      expect((hello({ size: { ...size, cores } }) as { size: object }).size).toEqual(size);
+  });
+
+  test("physical cores from /proc/cpuinfo: one per (socket, core id); none where it names no core ids", () => {
+    const cpu = (n: number, socket: number, core: number) =>
+      `processor\t: ${n}\nmodel name\t: AMD EPYC 7763\nphysical id\t: ${socket}\ncore id\t\t: ${core}\n`;
+    // Two sockets of 2 cores, 2 threads each: 8 logical CPUs, 4 cores.
+    const smt = [0, 1, 2, 3, 4, 5, 6, 7].map((n) => cpu(n, n >> 2, (n >> 1) & 1)).join("\n");
+    expect(coresInCpuinfo(smt)).toBe(4);
+    expect(coresInCpuinfo("processor\t: 0\nBogoMIPS\t: 50.00\n\nprocessor\t: 1\nBogoMIPS\t: 50.00\n")).toBeUndefined();
+    const here = cpuAndSystem();
+    if (here.cores) expect(here.cores).toBeLessThanOrEqual(os.cpus().length);
+  });
+
+  test("this computer's processor and system, as the runner reports them", () => {
+    const model = cpuAndSystem();
+    expect(model.system).toBeTruthy();
+    if (model.cpuModel) expect(model.cpuModel).not.toMatch(/\((R|TM)\)|@/);
+    expect(cpuName("12th Gen Intel(R) Core(TM) i7-12700H")).toBe("Intel Core i7-12700H");
+    expect(cpuName("AMD EPYC 7763 64-Core Processor")).toBe("AMD EPYC 7763");
+    expect(cpuName("AMD Ryzen Threadripper PRO 7995WX 96-Cores")).toBe("AMD Ryzen Threadripper PRO 7995WX");
+    expect(cpuName("Apple M4 Pro")).toBe("Apple M4 Pro");
   });
 
   test("a pong carries the load; without one, or a bad one, it is a plain pong", () => {

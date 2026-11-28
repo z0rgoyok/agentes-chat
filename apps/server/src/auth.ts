@@ -336,7 +336,7 @@ export function createAuth(deps: {
               const locale = emailLocale(user.locale ?? requestLocale(request?.headers.get("accept-language")));
               // A new address (`changeAccountEmail`): the account still has its old one until this link is opened.
               const [stored] = await db
-                .select({ email: schema.users.email })
+                .select({ email: schema.users.email, undelivered: schema.users.emailUndelivered })
                 .from(schema.users)
                 .where(eq(schema.users.id, user.id));
               const change = stored !== undefined && stored.email !== user.email.toLowerCase();
@@ -349,6 +349,10 @@ export function createAuth(deps: {
                 orgId: null,
                 key: `verify-email:${sha256(token)}`,
                 to: [user.email],
+                // A new link the signed-in person asked for after the provider stopped mailing their own address: it
+                // is asked to mail it again first (at most `EMAILS_PER_ADDRESS` an hour, as every link).
+                unsuppress:
+                  !change && stored?.undelivered === "suppressed" && authRequest.getStore()?.signedIn === true,
                 template: change
                   ? { kind: "email_change_link", locale, url: confirmationLanding(url, base) }
                   : { kind: "verify_email", locale, url: confirmationLanding(url, base) },
@@ -493,6 +497,13 @@ export function createAuth(deps: {
           const seen = authRequest.getStore();
           if (seen) seen.giveBack = giveBack;
         }
+        if (ctx.path === "/send-verification-email") {
+          // Anyone may ask Better Auth for a new link to an unconfirmed address: only a signed-in ask lifts a
+          // suppression (`sendVerificationEmail`).
+          const seen = authRequest.getStore();
+          if (seen) seen.signedIn = (await getSessionFromCtx(ctx)) !== null;
+          return;
+        }
         if (ctx.path !== "/sign-up/email") return;
         // Better Auth's own limit is the main address's; here, where no bot check runs, fewer, since each can email.
         if (ctx.headers && (await hostLook(db, ctx.headers.get("host")))) {
@@ -635,7 +646,13 @@ export type Auth = ReturnType<typeof createAuth>;
  * This request to Better Auth (`authHandler`): when it began, the address a provider gave its sign-in
  * (`noteProviderEmail`), and the password tries its sign-in took that no after hook has settled yet.
  */
-const authRequest = new AsyncLocalStorage<{ startedAt: number; email?: string; giveBack?: () => Promise<void> }>();
+const authRequest = new AsyncLocalStorage<{
+  startedAt: number;
+  email?: string;
+  giveBack?: () => Promise<void>;
+  /** A `/send-verification-email` with a session. */
+  signedIn?: boolean;
+}>();
 
 /** Every provider's `mapProfileToUser`: notes the address, changes nothing. */
 function noteProviderEmail(profile: { email?: unknown }) {

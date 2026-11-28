@@ -16,6 +16,7 @@ import {
   type DeviceStartInput,
   normalizeUserCode,
   startDeviceCode,
+  suggestedName,
   USER_CODE_ALPHABET,
 } from "./machine-device";
 import { sha256Hex } from "./machines";
@@ -167,6 +168,9 @@ export async function startLinkedDeviceCode(
     .from(machineDeviceCodes)
     .where(eq(machineDeviceCodes.deviceCodeHash, sha256Hex(started.deviceCode)));
   if (!request) throw new Error("device code insert not found");
+  // Only the link's maker lets it join, and connects it: it is named for them.
+  request.name = await suggestedName(deps.db, request, link.createdByUserId);
+  await deps.db.update(machineDeviceCodes).set({ name: request.name }).where(eq(machineDeviceCodes.id, request.id));
   const [claimed] = await deps.db
     .update(machineConnectLinks)
     .set({ usedAt: now, deviceCodeId: request.id })

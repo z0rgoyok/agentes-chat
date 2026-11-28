@@ -33,7 +33,7 @@ import { CardTitle, hintFor, PrefCard, PrefHead, PrefRow } from "../../ui/settin
 import { useToast } from "../../ui/Toast";
 import { ToolAccounts } from "./Accounts";
 
-type Cli = "claude" | "codex" | "cursor" | "opencode" | "grok" | "antigravity";
+type Cli = "claude" | "codex" | "cursor" | "opencode" | "grok" | "antigravity" | "devin";
 
 /** The coding programs agents think with, each with a switch of its own; the first two have a portrait. */
 const CLIS: { tool: Cli; kind: string; portrait?: "claude_code" | "codex" }[] = [
@@ -43,6 +43,7 @@ const CLIS: { tool: Cli; kind: string; portrait?: "claude_code" | "codex" }[] = 
   { tool: "opencode", kind: "opencode" },
   { tool: "grok", kind: "grok" },
   { tool: "antigravity", kind: "antigravity" },
+  { tool: "devin", kind: "devin" },
 ];
 
 /** A program's switch; one a runner stored no switch for follows Codex's, as the runner and the server read it. */
@@ -158,24 +159,28 @@ export function Tools() {
     const said = executors.broken?.[cli];
     const name = t(`desktop.tools.${cli}Name`);
     const installable = isInstallableCli(cli) && !(cli === "codex" && host.platform === "windows") && installHome;
+    // No Devin on Windows yet (ADR 0253): its row says why in place of an install line.
+    const devinOff = cli === "devin" && host.platform === "windows";
     const command =
-      !installable && cli in CLI_INSTALL && !(cli === "antigravity" && host.platform === "windows")
+      !installable && cli in CLI_INSTALL && !(cli === "antigravity" && host.platform === "windows") && !devinOff
         ? CLI_INSTALL[cli as keyof typeof CLI_INSTALL]
         : undefined;
     const ran = installs[cli];
     const gitMissing =
       (ran?.state === "failed" && ran.cause === "git_missing") || (said === CLI_GIT_MISSING && ran?.state !== "failed");
-    const note = gitMissing
-      ? t("desktop.tools.gitMissing", { tool: name })
-      : ran?.state === "running"
-        ? t("desktop.tools.installing", { tool: name })
-        : ran?.state === "failed"
-          ? ran.cause === "still_missing"
-            ? t("desktop.tools.installedNotFound", { tool: name })
-            : t("desktop.tools.installFailed", { message: ran.message ?? "" })
-          : said
-            ? t("desktop.tools.cantStart", { message: said })
-            : null;
+    const note = devinOff
+      ? t("desktop.tools.devinWindows")
+      : gitMissing
+        ? t("desktop.tools.gitMissing", { tool: name })
+        : ran?.state === "running"
+          ? t("desktop.tools.installing", { tool: name })
+          : ran?.state === "failed"
+            ? ran.cause === "still_missing"
+              ? t("desktop.tools.installedNotFound", { tool: name })
+              : t("desktop.tools.installFailed", { message: ran.message ?? "" })
+            : said
+              ? t("desktop.tools.cantStart", { message: said })
+              : null;
     const checkLabel = t("desktop.tools.checkAgain");
     return (
       <PrefRow
@@ -211,7 +216,7 @@ export function Tools() {
           />
         }
         under={
-          (!info || cli === "codex") && (
+          (!info || cli === "codex" || devinOff) && (
             <>
               {!info && command && <CommandCopy command={command} />}
               {note && (
@@ -219,42 +224,44 @@ export function Tools() {
                   {note}
                 </p>
               )}
-              <div className="dk-ver__acts">
-                {gitMissing && (
+              {!devinOff && (
+                <div className="dk-ver__acts">
+                  {gitMissing && (
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon="external"
+                      onClick={() => void host.openExternal(GIT_FOR_WINDOWS_URL).catch(() => {})}
+                    >
+                      {t("desktop.tools.getGit")}
+                    </Button>
+                  )}
+                  {!info && installable && !said && (
+                    <Button
+                      variant={gitMissing ? "default" : "primary"}
+                      size="sm"
+                      loading={pending === `install:${cli}`}
+                      disabled={pending !== null}
+                      onClick={() => void install(cli)}
+                    >
+                      {t("desktop.tools.install")}
+                    </Button>
+                  )}
                   <Button
-                    variant="primary"
+                    variant="ghost"
                     size="sm"
-                    icon="external"
-                    onClick={() => void host.openExternal(GIT_FOR_WINDOWS_URL).catch(() => {})}
+                    icon="refresh"
+                    loading={pending === `check:${cli}`}
+                    disabled={homes.length === 0 || pending !== null}
+                    onClick={() => void checkAgain(cli, name, !info && Boolean(command))}
                   >
-                    {t("desktop.tools.getGit")}
+                    {checkLabel}
                   </Button>
-                )}
-                {!info && installable && !said && (
-                  <Button
-                    variant={gitMissing ? "default" : "primary"}
-                    size="sm"
-                    loading={pending === `install:${cli}`}
-                    disabled={pending !== null}
-                    onClick={() => void install(cli)}
-                  >
-                    {t("desktop.tools.install")}
-                  </Button>
-                )}
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  icon="refresh"
-                  loading={pending === `check:${cli}`}
-                  disabled={homes.length === 0 || pending !== null}
-                  onClick={() => void checkAgain(cli, name, !info && Boolean(command))}
-                >
-                  {checkLabel}
-                </Button>
-                <InfoHint name={t("common.about", { label: checkLabel })}>
-                  {t(host.platform === "windows" ? "desktop.tools.lookPathWindows" : "desktop.tools.lookPath")}
-                </InfoHint>
-              </div>
+                  <InfoHint name={t("common.about", { label: checkLabel })}>
+                    {t(host.platform === "windows" ? "desktop.tools.lookPathWindows" : "desktop.tools.lookPath")}
+                  </InfoHint>
+                </div>
+              )}
             </>
           )
         }

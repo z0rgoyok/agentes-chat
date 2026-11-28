@@ -281,7 +281,12 @@ function LiveCrumbs({ artifact }: { artifact: Artifact | null }) {
     else if (aud.kind === "channel") folder = `#${aud.name}`;
     else if (aud.kind === "dm")
       folder = aud.between
-        ? t("drive.dmBetween", { names: joinNames(aud.between.map(dir.authorName), t) })
+        ? t("drive.dmBetween", {
+            names: joinNames(
+              aud.between.map((a) => dir.authorName(a)),
+              t,
+            ),
+          })
         : aud.with
           ? t("drive.dmWith", { name: dir.authorName(aud.with) })
           : t("drive.dm");

@@ -117,13 +117,14 @@ async function world(fx: Fixture) {
   return { mcp, gateway: gatewayAt(), gatewayAt };
 }
 
-/** A run a person asked for in #general (or `channelId`). */
-async function personRun(fx: Fixture, channelId = fx.general.id): Promise<ToolContext> {
+/** A run a person asked for in #general (or `channelId`); `relayed`: posted with their token (ADR 0250). */
+async function personRun(fx: Fixture, channelId = fx.general.id, relayed = false): Promise<ToolContext> {
   const msg = await insertMessage(fx.db, {
     orgId: fx.org.id,
     channelId,
     author: { type: "person", userId: fx.owner.id },
     body: "@dev posta isso amanhã às 10h",
+    ...(relayed ? { origin: "mcp" as const, meta: { readOutside: true } } : {}),
   });
   const [run] = await fx.db
     .insert(schema.agentRuns)
@@ -501,6 +502,26 @@ describe("an action approved ahead", () => {
     const out = answered(await invoke(gateway, run, RUN_APPROVED_ACTION, { id: later.id }));
     expect(out).toMatchObject({ isError: true, content: AHEAD_REFUSED });
     expect(mcp.calls).toHaveLength(1);
+  });
+
+  test("a request posted with a token can't have an action approved ahead: nothing is asked or set", async () => {
+    f = await setup();
+    const { mcp, gateway } = await world(f);
+    const ctx = await personRun(f, f.general.id, true);
+    const out = answered(
+      await invoke(gateway, ctx, "schedule_action", {
+        tool: EXEC,
+        arguments: post("Lançamos hoje!"),
+        when: inTwoHours(),
+        title: "Post de lançamento no LinkedIn",
+        why: WHY,
+      }),
+    );
+    expect(out.isError).toBe(true);
+    expect(out.content).toContain("not typed in agentes.chat");
+    expect(await f.db.select().from(schema.approvals)).toEqual([]);
+    expect(await f.db.select().from(schema.routines)).toEqual([]);
+    expect(mcp.calls).toEqual([]);
   });
 
   test("never-for-good actions and tools that run anything can't be approved ahead", async () => {

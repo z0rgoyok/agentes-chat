@@ -76,7 +76,9 @@ agent can't be read (the database is away), nothing is sent.
 - **Asking is not opening.** The screen's state and picture never make a seat (`viewerScope` with `make` off): a
   person who only opens its conversation or its page leaves nothing on the computer. Opening a stream, taking
   control or a run's first request makes it.
-- **Where.** Only on the workspace's own computer (managed, else the server's own: `workspaceHomeId`), and only when
+- **Where.** Only on the workspace's own computer (managed, else the server's own, else a connected one an admin
+  paired, marked "Belongs to the workspace" and opened to everyone, amended 2026-11-25; whoever runs that computer
+  reads every seat on it, so its pairer must still be an admin: `workspaceHomeId`), and only when
   it says `mode: "system"`. Anywhere else a seat would be a folder, not a user, so there is none: a computer a person
   brought, a phone's host and a computer that runs every agent as one user are refused with their own lines.
 

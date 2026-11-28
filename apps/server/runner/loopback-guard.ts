@@ -120,6 +120,11 @@ export interface RulesetInput {
   uidRange: [number, number];
   /** What agents may reach of the computer's own listeners besides DNS (`tcp/11434`). */
   services: string[];
+  /**
+   * The server's own computer (one guard for every organization's agents): a port only one organization's agents
+   * reach, by its block of uids (ADR 0237: its runner's web proxy).
+   */
+  ownServices?: { uids: [number, number]; port: number }[];
   networkMark?: number;
   /** Interfaces with a default route (`defaultRouteInterfaces`). */
   uplinks: string[];
@@ -191,6 +196,9 @@ export function renderRuleset(i: RulesetInput): string {
     ),
     '\t\tsocket cgroupv2 level 1 "agents.slice" goto refuse',
     `\t\tct mark != { ${agentMarks}, ${hex(NO_OWNER_MARK)} } accept`,
+    ...(i.ownServices ?? []).map(
+      (o) => `\t\tct mark ${span(hex(agentMark(o.uids[0])), hex(agentMark(o.uids[1])))} tcp dport ${o.port} accept`,
+    ),
     "\t\tmeta l4proto . th dport @services accept",
     "\t\tgoto refuse",
     "\t}",
@@ -211,6 +219,8 @@ export interface LoopbackGuardOptions {
   uidRange: [number, number];
   /** What else of the computer agents may reach (`tcp/11434`), read at every check. */
   services?: () => string[];
+  /** `RulesetInput.ownServices`, read at every check. */
+  ownServices?: () => { uids: [number, number]; port: number }[];
   networkMark?: number;
   log: (line: string) => void;
   run?: RunCommand;
@@ -372,12 +382,19 @@ export class LoopbackGuard {
       // An unreadable config.json opens nothing more than DNS.
     }
     const services = listed.filter((s) => serviceElement(s) !== null).sort();
+    let ownServices: { uids: [number, number]; port: number }[] = [];
+    try {
+      ownServices = this.opts.ownServices?.() ?? [];
+    } catch {
+      // An unreadable home opens nothing more.
+    }
     const uplinks = defaultRouteInterfaces(...(this.opts.routes ?? procRoutes)());
     const loopbacks = loopbackInterfaces((this.opts.devices ?? procDevices)());
     const input = {
       agents,
       uidRange: this.opts.uidRange,
       services,
+      ...(ownServices.length ? { ownServices } : {}),
       uplinks,
       loopbacks,
       networkMark: this.opts.networkMark,

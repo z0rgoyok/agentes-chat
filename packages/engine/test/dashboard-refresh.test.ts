@@ -723,9 +723,9 @@ describe("a refresh that waits (ADR 0135 §6)", () => {
     });
   });
 
-  /** A refresh that grows long (eight reads before its data), so it pauses near the budget's limit. */
-  const growsLong = () =>
-    setupWidgets(
+  test("a refresh that grows long near its budget's limit never pauses: it updates (ADR 0118, 2026-11-23)", async () => {
+    // Eight reads before its data: any other run would be long work by then.
+    await setupWidgets(
       (req, call) => {
         if (seen(req).includes("Updated:")) return { chunks: ["Pronto."] };
         if (call < 8) return { chunks: [], toolUses: [{ name: "search_context", input: { query: `vendas ${call}` } }] };
@@ -733,49 +733,12 @@ describe("a refresh that waits (ADR 0135 §6)", () => {
       },
       { budgetNanoUsd: BUDGET, contextTools: true },
     );
-
-  test("paused near its budget's limit, Update now lets it go on now, and it updates", async () => {
-    await growsLong();
     await spend(99);
     const b = await board();
     const w = await createWidget(dash(), f.owner.id, f.org.id, b.id, ask());
     await drainOutbox(f.db, f.handlers);
-    const paused = await getWidget(dash(), f.owner.id, f.org.id, w.id);
-    expect(paused.wait).toMatchObject({ code: "usage_pause", source: "budget", canContinue: true });
-
-    const asked = await refreshWidgetNow(dash(), f.owner.id, f.org.id, w.id);
-    expect(asked.wait).toBeNull();
-    await drainOutbox(f.db, f.handlers);
+    expect((await getWidget(dash(), f.owner.id, f.org.id, w.id)).wait).toBeNull();
     expect(await widgetOf(w.id)).toMatchObject({ status: "ok", title: "Vendas de hoje" });
-    const continued = await f.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, "usage.continued"));
-    expect(continued).toHaveLength(1);
-  });
-
-  test("Continue now is Continuar agora's: another editor of the board reads it greyed, and is refused", async () => {
-    await growsLong();
-    await spend(99);
-    const bia = await addMember(f.db, f.org.id, "member", "bia");
-    const b = await createDashboard(dash(), f.owner.id, f.org.id, {
-      title: "Vendas",
-      audience: "workspace",
-      editPolicy: "viewers",
-    });
-    const w = await createWidget(dash(), f.owner.id, f.org.id, b.id, ask());
-    await drainOutbox(f.db, f.handlers);
-    expect((await getWidget(dash(), f.owner.id, f.org.id, w.id)).wait).toMatchObject({
-      code: "usage_pause",
-      canContinue: true,
-    });
-    const hers = await getWidget(dash(), bia.id, f.org.id, w.id);
-    expect(hers.canEdit).toBe(true);
-    expect(hers.wait).toMatchObject({ code: "usage_pause", canContinue: false });
-    await expect(refreshWidgetNow(dash(), bia.id, f.org.id, w.id)).rejects.toMatchObject({
-      code: "run.continue_forbidden",
-    });
-    // It still waits: nothing let it go on.
-    expect((await getWidget(dash(), f.owner.id, f.org.id, w.id)).wait?.code).toBe("usage_pause");
-    const continued = await f.db.select().from(schema.auditLog).where(eq(schema.auditLog.action, "usage.continued"));
-    expect(continued).toEqual([]);
   });
 
   test("its AI provider down: the park stores its next try, and tells the widget", async () => {

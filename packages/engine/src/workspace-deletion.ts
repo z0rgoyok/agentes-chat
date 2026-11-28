@@ -15,7 +15,7 @@ import {
   schema,
   sql,
 } from "@agenteschat/db";
-import { enqueueAccountContact } from "./account-contacts";
+import { enqueueAccountContact, enqueueMemberContacts } from "./account-contacts";
 import { recordAudit } from "./audit";
 import { orgMessageCount } from "./billing-link";
 import { caches } from "./cache";
@@ -577,6 +577,7 @@ export async function purgeWorkspace(deps: PurgeDeps, orgId: string, options: { 
       .select({ id: githubAppInstallations.installationId })
       .from(githubAppInstallations)
       .where(eq(githubAppInstallations.orgId, orgId));
+    await enqueueMemberContacts(tx, orgId);
     // ponytail: one cascading delete; batch it by table if a workspace's delete ever outlives the job's renewed lease.
     await tx.delete(organizations).where(eq(organizations.id, orgId));
     return { computers, installs, requestedBy: row.requestedBy, via };

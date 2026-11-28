@@ -20,13 +20,17 @@ import {
   finishWhatYouStart,
   insertMessage,
   isSayNow,
+  linesSaid,
   loadReplyPolicy,
   type MachineStatus,
   mergeToolEffects,
   moveToBackground,
   openAgentDm,
   openDm,
+  PROGRESS_GAP_MS,
+  PROGRESS_MAX,
   postPersonMessage,
+  progressDue,
   queueOnRun,
   quietForPeople,
   runAtWork,
@@ -403,6 +407,75 @@ describe("the tool", () => {
     expect((await lines()).map((m) => m.body)).toEqual([LINE, "Bora! Vou abrir o navegador."]);
   });
 
+  test("long work: a progress line once a minute or more passed since the last one, three at most", async () => {
+    f = await setup({ sayNow: true });
+    const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
+    const run = await runOver(dm.id);
+    // At work for ten minutes now.
+    const before = new Date(Date.now() - 600_000);
+    await f.db
+      .update(schema.agentRuns)
+      .set({ createdAt: before, startedAt: before, workingSince: before })
+      .where(eq(schema.agentRuns.id, run.id));
+    const working = await runById(run.id);
+    expect((await sayNow(working, LINE)).isError).toBeFalsy();
+    // Right after its line: too soon.
+    expect((await sayNow(working, "Já li os e-mails, agora a planilha.")).content).toStartWith("Already told them");
+    const updates = ["Já li os e-mails, agora a planilha.", "Planilha pronta, montando o gráfico.", "Quase lá."];
+    for (const update of updates) {
+      // Its last line went out longer ago than the gap.
+      const [last] = (await lines()).slice(-1);
+      if (!last) throw new Error("no line");
+      await f.db
+        .update(schema.messages)
+        .set({ createdAt: new Date(last.createdAt.getTime() - PROGRESS_GAP_MS - 1000) })
+        .where(eq(schema.messages.id, last.id));
+      expect((await sayNow(working, update)).data).toBeDefined();
+    }
+    const said = await lines();
+    expect(said.map((m) => m.body)).toEqual([LINE, ...updates]);
+    expect(said.map((m) => (m.meta.sayNow as { progress?: boolean }).progress ?? false)).toEqual([
+      false,
+      true,
+      true,
+      true,
+    ]);
+    // Quiet as the first: nobody is mentioned or woken.
+    expect(said.every((m) => m.mentionedUserIds.length === 0)).toBe(true);
+    const [last] = said.slice(-1);
+    if (!last) throw new Error("no line");
+    await f.db
+      .update(schema.messages)
+      .set({ createdAt: new Date(last.createdAt.getTime() - PROGRESS_GAP_MS - 1000) })
+      .where(eq(schema.messages.id, last.id));
+    expect((await sayNow(working, "Mais uma.")).content).toStartWith("Already told them");
+    expect((await lines()).length).toBe(1 + PROGRESS_MAX);
+    // Two more for messages taken in: the paths that leave its lines out of a reply still read the newest one.
+    for (const body of ["Ah, e o relatório de março também.", "Certo, sem o anexo."])
+      await insertMessage(f.db, {
+        orgId: f.org.id,
+        channelId: dm.id,
+        author: { type: "agent", agentId: f.agent.id, runId: null, hop: 0, stretchId: null },
+        body,
+        meta: { sayNow: { runId: run.id, took: ["m"] } },
+      });
+    expect((await linesSaid(f.db, working)).map((l) => l.text).at(-1)).toBe("Certo, sem o anexo.");
+  });
+
+  test("progressDue: long work only, a gap after the last line, three at most", () => {
+    const now = Date.UTC(2026, 10, 24, 12);
+    const run = { createdAt: new Date(now - 30_000), startedAt: new Date(now - 30_000), workingSince: null };
+    const line = (ago: number, progress = false) => ({ at: new Date(now - ago), progress });
+    // Short work: never.
+    expect(progressDue(run, [line(100_000)], now)).toBe(false);
+    const long = { ...run, workingSince: new Date(now - 300_000) };
+    expect(progressDue(long, [line(100_000)], now)).toBe(true);
+    expect(progressDue(long, [line(PROGRESS_GAP_MS - 1)], now)).toBe(false);
+    expect(progressDue(long, [line(400_000), line(300_000, true), line(200_000, true), line(100_000, true)], now)).toBe(
+      false,
+    );
+  });
+
   test("one more line for a message they send meanwhile that corrects or adds to the task, then none", async () => {
     f = await setup({ sayNow: true });
     const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
@@ -732,7 +805,7 @@ describe("in a run", () => {
     expect(saidNowOf(run)).toHaveLength(1);
   });
 
-  test('after its line, a turn that ends without a word closes with "Done." for the work beside the line', async () => {
+  test('after its line, a turn that ends without a word is asked for its answer and fails if none comes, never "Done."', async () => {
     const first = workThenLine("build", LINE, ["Primeiro compilo, depois testo."]);
     f = await setup({
       sayNow: true,
@@ -743,13 +816,13 @@ describe("in a run", () => {
     const events = f.listen(f.general.id);
     // Brought in by the router: it could have stayed quiet, until it told them it was on it.
     const run = await routed("alguém roda o build?");
-    expect(await runById(run.id)).toMatchObject({ status: "done" });
-    // The build it called beside its line is work: no nudge, the run closes as any run that worked and wrote nothing.
+    // Its line promised work: the turn that ends without a word is asked for its answer, and with none the run fails
+    // saying so. No closing line is made up for it, nor taken from the words beside its line.
+    expect(await runById(run.id)).toMatchObject({ status: "failed", error: "empty_reply" });
     const nudged = f.provider.calls.map((c) => JSON.stringify(c.request.messages).includes(ANSWER_NUDGE));
-    expect(nudged).toEqual([false, false]);
-    // No closing line taken from the words beside its line; the build it called beside it is work, so the run closes
-    // with "Done." as any run that worked and wrote nothing after.
-    expect(await agentSaid(f.general.id)).toEqual([LINE, "Done."]);
+    expect(nudged[0]).toBe(false);
+    expect(nudged.slice(1)).toContain(true);
+    expect(await agentSaid(f.general.id)).toEqual([LINE]);
     const steps = await f.db.select().from(schema.agentRunSteps).where(eq(schema.agentRunSteps.runId, run.id));
     expect(steps.filter((s) => s.data.passed !== undefined)).toEqual([]);
     expect(events.some((e) => e.type === "agent.passed")).toBe(false);

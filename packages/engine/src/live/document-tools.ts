@@ -24,6 +24,8 @@ import type { CallCheck, ToolContext, ToolDefinition, ToolOutput } from "../tool
 import { neutralizeUntrusted, untrustedBlock } from "../untrusted";
 import { originOfActor } from "./access";
 import { copyAssetFrom } from "./assets";
+import { type BlockPictures, htmlToBlocks, parseHtml } from "./layout/html";
+import { resolveHtmlPictures } from "./layout/place";
 import {
   bringMadePicture,
   madePictureKey,
@@ -97,6 +99,7 @@ const OP_SCHEMA: JsonSchema = {
     after: { type: "string", maxLength: 42, description: "insert: after this block (`start`: at the top)." },
     before: { ...BLOCK_INPUT, description: "insert: before this block." },
     markdown: { type: "string", maxLength: DOCUMENT_TOOL_LIMITS.markdownChars },
+    html: { type: "string", maxLength: 200_000 },
     find: { type: "string", minLength: 1, maxLength: 2000 },
     replace: { type: "string", maxLength: 20_000 },
     all: { type: "boolean" },
@@ -116,18 +119,18 @@ const OP_SCHEMA: JsonSchema = {
 function opProblem(op: Json): string | null {
   const name = str(op.op) as OpName;
   if (!OPS.includes(name)) return `op must be one of ${OPS.join(", ")}`;
-  const markdown = typeof op.markdown === "string" ? op.markdown : null;
+  const markdown = typeof op.markdown === "string" ? op.markdown : typeof op.html === "string" ? op.html : null;
   if (markdown !== null && markdown.length > DOCUMENT_TOOL_LIMITS.markdownChars) return "markdown is too long";
   switch (name) {
     case "insert":
     case "append":
     case "rewrite":
-      if (!markdown?.trim()) return `${name} needs markdown`;
+      if (!markdown?.trim()) return `${name} needs markdown or html`;
       if (name === "insert" && op.after !== undefined && op.before !== undefined) return "insert takes after or before";
       return null;
     case "replace":
       if (!blockRef(op.block)) return "replace needs block";
-      return markdown?.trim() ? null : "replace needs markdown (delete removes a block)";
+      return markdown?.trim() ? null : "replace needs markdown or html (delete removes a block)";
     case "delete":
       return blockRef(op.block) ? null : "delete needs block";
     case "replace_text":
@@ -269,8 +272,16 @@ async function ownAssets(db: Database, orgId: string, fileId: string, ids: strin
   return rows.map((r) => r.id);
 }
 
-/** An op's Markdown as blocks, its pictures named by this document's asset ids. */
-function blocksOf(op: Json, images: ReadonlyMap<string, string>): DocBlock[] {
+/**
+ * An op's content as blocks: its Markdown, its pictures named by this document's asset ids, or its HTML (ADR 0220
+ * §4: styles become the words' marks), its pictures brought in ahead (`html`, by op index).
+ */
+function blocksOf(op: Json, images: ReadonlyMap<string, string>, html?: BlockPictures): DocBlock[] {
+  if (typeof op.html === "string") {
+    const blocks = htmlToBlocks(parseHtml(op.html), html ?? new Map());
+    if (blocks.length === 0) throw new ValidationError("the html has no blocks");
+    return blocks;
+  }
   const blocks = markdownToBlocks(str(op.markdown), { images: (address) => images.get(address) ?? null });
   if (blocks.length === 0) throw new ValidationError("the markdown has no blocks");
   return blocks;
@@ -279,6 +290,8 @@ function blocksOf(op: Json, images: ReadonlyMap<string, string>): DocBlock[] {
 interface Batch {
   origin: LiveOrigin;
   images: Pictures;
+  /** The pictures of each op's HTML, by the op's index. */
+  html?: Map<number, BlockPictures>;
   /** Stores what is done so far (people watch a big batch land), or null. */
   step: (() => Promise<void>) | null;
   /** The blocks an op works on, for the agent's presence. */
@@ -304,7 +317,7 @@ async function applyOps(doc: Y.Doc, ops: readonly Json[], batch: Batch): Promise
                 : name === "insert" && op.before !== undefined
                   ? { before: blockRef(op.before) }
                   : {};
-          const ids = insertBlocks(doc, blocksOf(op, batch.images.ids), where, origin);
+          const ids = insertBlocks(doc, blocksOf(op, batch.images.ids, batch.html?.get(i)), where, origin);
           await batch.onWork?.(ids);
           done.push(`added ${plural(ids.length, "block")} (${ids.join(", ")})`);
           break;
@@ -313,7 +326,7 @@ async function applyOps(doc: Y.Doc, ops: readonly Json[], batch: Batch): Promise
           const block = blockRef(op.block);
           const to = op.to === undefined ? undefined : blockRef(op.to);
           await batch.onWork?.([block]);
-          const ids = replaceBlocks(doc, block, to, blocksOf(op, batch.images.ids), origin);
+          const ids = replaceBlocks(doc, block, to, blocksOf(op, batch.images.ids, batch.html?.get(i)), origin);
           done.push(`replaced ${to && to !== block ? `${block}…${to}` : block} with ${ids.join(", ")}`);
           break;
         }
@@ -338,7 +351,7 @@ async function applyOps(doc: Y.Doc, ops: readonly Json[], batch: Batch): Promise
           break;
         }
         case "rewrite": {
-          const ids = rewriteDocument(doc, blocksOf(op, batch.images.ids), origin);
+          const ids = rewriteDocument(doc, blocksOf(op, batch.images.ids, batch.html?.get(i)), origin);
           done.push(`rewrote the document (${plural(ids.length, "block")})`);
           break;
         }
@@ -493,6 +506,7 @@ export function documentTools(deps: LiveFileToolDeps): ToolDefinition[] {
       "- replace {block, to?, markdown}: the block (or the span from block to `to`) becomes the markdown's blocks; the first keeps the block's id.",
       "- delete {block, to?}; replace_text {find, replace, block?, all?, ignore_case?}: text found in place, keeping its formatting.",
       "- rewrite {markdown}: the whole document; blocks that stay the same keep their place (prefer the ops above for a few changes).",
+      "- insert, append, replace and rewrite take html in place of markdown: HTML and CSS whose looks become the words' own (a font from the catalog, size, weight, color, highlight, letter spacing, capitals; <img src=\"file:<id>|asset:<id>|https://…|icon:<name>\"> and inline <svg> as pictures; tables, lists, quotes, code). Use it for a document in a brand's type.",
       "- add_image {image | svg | url, alt?, after? (a block id, or `start`), before?}: a picture as a block of its own (at the end when neither). `image`: a picture's Drive file id, or one of the document's. " +
         PICTURE_OP_WORDS,
       "In Markdown, a picture on a line of its own: ![description](file:<a Drive image's id>), ![description](asset:<one of the document's pictures>) or ![description](https://…) for a picture on the web, downloaded into the document.",
@@ -536,6 +550,7 @@ export function documentTools(deps: LiveFileToolDeps): ToolDefinition[] {
         const origin = originOfActor(actorOf(ctx));
         const brought: Brought = { notes: [], looks: [] };
         const images = await pictures(deps, ctx, fileId, ops, brought);
+        const html = await htmlBlockPictures(deps, ctx, fileId, ops);
         const progressive = ops.length >= DOCUMENT_TOOL_LIMITS.progressiveOps;
         const working = (blocks: string[]): Partial<PeerState> => ({
           mode: "editing",
@@ -547,10 +562,11 @@ export function documentTools(deps: LiveFileToolDeps): ToolDefinition[] {
           fileId,
           origin,
           async (doc, step) => {
-            await tryOnCopy(doc, (copy) => applyOps(copy, ops, { origin, images, step: null }));
+            await tryOnCopy(doc, (copy) => applyOps(copy, ops, { origin, images, html, step: null }));
             return applyOps(doc, ops, {
               origin,
               images,
+              html,
               step: progressive ? step : null,
               onWork: (blocks) => present(deps, ctx, fileId, working(blocks)),
             });
@@ -571,4 +587,24 @@ export function documentTools(deps: LiveFileToolDeps): ToolDefinition[] {
   };
 
   return [readDocumentTool, editDocumentTool];
+}
+
+/** The pictures each HTML op names, brought into the document ahead of the batch (ADR 0220 §4), by op index. */
+async function htmlBlockPictures(
+  deps: LiveFileToolDeps,
+  ctx: ToolContext,
+  fileId: string,
+  ops: readonly Json[],
+): Promise<Map<number, BlockPictures>> {
+  const out = new Map<number, BlockPictures>();
+  for (const [index, op] of ops.entries()) {
+    if (typeof op.html !== "string") continue;
+    const parsed = parseHtml(op.html);
+    if (!parsed.pictures.length) continue;
+    const brought = await resolveHtmlPictures(deps, ctx, actorOf(ctx), fileId, parsed);
+    const map = new Map<string, { asset: string; w: number }>();
+    for (const [key, asset] of brought.assets) map.set(key, { asset: asset.id, w: brought.sizes.get(key)?.w ?? 720 });
+    out.set(index, map);
+  }
+  return out;
 }

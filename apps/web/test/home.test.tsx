@@ -222,7 +222,11 @@ describe("Início", () => {
     expect(document.querySelector(".ac-pagehead__meta")?.textContent).toBe(
       "4 coisas esperando você · 1 agente trabalhando",
     );
-    expect(screen().getByRole("navigation", { name: "Navegação do workspace" }).textContent).toContain("Início");
+    expect(
+      within(screen().getByRole("navigation", { name: "Navegação do workspace" })).getByRole("link", {
+        name: "Início",
+      }),
+    ).toBeTruthy();
 
     // Each waiting thing: who and what, the exact request, and its one button. The read mention isn't here.
     const waiting = rows("Esperando você").map((r) => r.textContent ?? "");

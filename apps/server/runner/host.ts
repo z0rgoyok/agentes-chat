@@ -15,6 +15,7 @@ import {
 } from "./config";
 import { backoffDelay, TOKEN_REFUSED_EXIT } from "./connection";
 import { machineOs } from "./daemon";
+import { storedEgressPort } from "./egress-relay";
 import { RUNNER_VERSION } from "./errors";
 import { readLines } from "./lines";
 import { uniqueWorkspace } from "./pairing";
@@ -186,6 +187,14 @@ export class HostComputer {
   /** Every persisted agent, including those of organizations not currently running. */
   agentUsers(): AgentUser[] {
     return this.homes().flatMap((h) => readAgentUsers(h.dir));
+  }
+
+  /** Each organization's agents reach only their own runner's web proxy (ADR 0237), by their block of uids. */
+  egressProxies(): { uids: [number, number]; port: number }[] {
+    return this.homes().flatMap((h) => {
+      const port = h.config.agentUidRange ? storedEgressPort(h.dir) : null;
+      return h.config.agentUidRange && port ? [{ uids: h.config.agentUidRange, port }] : [];
+    });
   }
 
   /** The uids of every organization's agents here (the loopback guard's). */

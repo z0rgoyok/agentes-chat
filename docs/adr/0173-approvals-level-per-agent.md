@@ -223,3 +223,32 @@ Consequences:
   choice. Widening who sets an agent's level is a separate decision.
 - Desfazer after "Para todos os agentes" sets the workspace's level back and saves each cleared own choice again,
   one request per agent that had one.
+
+## Addendum 2026-11-26: changing it from the chat
+
+People say it in words ("pode aprovar tudo daqui pra frente", "always ask me first") and were sent to Settings. An
+agent now proposes the change where it was asked, as a card a person confirms. What each level means is unchanged.
+
+1. **Two catalog actions** (`workspace-actions.ts`), both `mode: "card"`: nothing applies at once, even for an owner
+   asking in their own words, because the level decides how much every agent acts unasked.
+   - `set_approvals_level`: the workspace's level (`setWorkspaceApprovalsLevel`), `every_agent` for "Para todos os
+     agentes do workspace". Needs `administrator`, as the screen. Desfazer puts back the workspace's level and each
+     own choice "every agent" cleared.
+   - `set_agent_approvals_level`: one agent's own choice, or `workspace` to follow the workspace again (`updateAgent`).
+     Needs `manage_agents`, as the agent's page.
+2. **Who proposes it.** The right hand through `workspace_action`. Every agent through `request_settings_change`
+   (its own level) and an agent that may set the team up through `propose_settings_change` (a teammate's), with the
+   field `approvals`: that field never becomes a settings row (ADR 0219 would review and apply it with nobody asked),
+   it posts the same confirm card beside the settings card.
+3. **Only the person's own words** (ADR 0250). The card is posted only when the run answers the person's own typed
+   message and read nothing anyone else wrote (`ownWords`). A relayed request (a token, an AI app, a bridged chat)
+   gets `relayedRefusal`. Text an agent read can't put this card in front of a person.
+4. **Who confirms it** is the person's role: who holds the key sees Aplicar; anyone else sends it to whoever does
+   ("Pedir a quem pode"), whose click applies it as them.
+5. **The card** names the level by its title on the agent's page ("Nunca perguntar") and says under it what the level
+   means, in the same line as its choice there (`approvalsLevel.{level}.text`). Web and phone render it as every
+   catalog card.
+
+The other settings people ask for in words already had a way: who may use a computer (`set_permission_holders`, the
+computers row), an agent's model and AI account (`propose_settings_change`), a routine on or off (`update_routine`
+`active`), their own notifications (`set_notifications`).

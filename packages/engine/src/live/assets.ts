@@ -13,6 +13,7 @@ import { recordAudit } from "../audit";
 import { UUID } from "../authority";
 import { sniffImage, sniffModelImage } from "../avatars";
 import { NotFoundError, ValidationError } from "../errors";
+import { FontError, fontMediaType, readFont, sniffFont } from "../fonts/sfnt";
 import { imageSize } from "../image-size";
 import { looksLikeSvg, SVG_TYPE, sanitizeSvg } from "./svg";
 
@@ -39,6 +40,15 @@ export interface LiveAssetOrigin {
 }
 
 /** A picture as the apps and tools see it. */
+/** A font of the file (ADR 0220 §2), as its own file says. */
+export interface LiveAssetFont {
+  family: string;
+  style: string;
+  weight: number;
+  italic: boolean;
+  embedding: "installable" | "editable" | "preview" | "restricted";
+}
+
 export interface LiveAsset {
   id: string;
   contentType: string;
@@ -47,6 +57,8 @@ export interface LiveAsset {
   height: number | null;
   /** A picture from the web: where it came from. */
   origin?: LiveAssetOrigin | null;
+  /** A font: what it is (null for a picture). */
+  font?: LiveAssetFont | null;
 }
 
 /** The largest picture a live file takes. */
@@ -62,6 +74,7 @@ const viewOf = (row: typeof liveAssets.$inferSelect): LiveAsset => ({
   width: row.width,
   height: row.height,
   origin: row.origin ?? null,
+  font: (row.font as LiveAssetFont | null) ?? null,
 });
 
 const actorRef = (actor: ArtifactActor) =>
@@ -139,8 +152,32 @@ async function storeAsset(
     contentType = SVG_TYPE;
     size = { width: clean.width, height: clean.height };
   }
+  // A font (ADR 0220 §2): read by the safe reader, which refuses what isn't one; what it is stays with it.
+  let font: LiveAssetFont | null = null;
+  const fontFormat = contentType ? null : sniffFont(bytes);
+  if (fontFormat) {
+    try {
+      const info = readFont(bytes);
+      font = {
+        family: info.family,
+        style: info.style,
+        weight: info.weight,
+        italic: info.italic,
+        embedding: info.embedding,
+      };
+      contentType = fontMediaType(fontFormat);
+    } catch (error) {
+      throw new ValidationError(
+        `This font can't be used: ${error instanceof FontError ? error.message : "it couldn't be read"}`,
+        "live.font_invalid",
+      );
+    }
+  }
   if (!contentType) {
-    throw new ValidationError("Only pictures go in a live file: PNG, JPEG, WebP, GIF or SVG", "live.asset_type");
+    throw new ValidationError(
+      "Only pictures and fonts go in a live file: PNG, JPEG, WebP, GIF, SVG, or a TTF, OTF or WOFF font",
+      "live.asset_type",
+    );
   }
   const sha256 = sha256Hex(bytes);
   const [same] = await deps.db
@@ -173,6 +210,7 @@ async function storeAsset(
           height: size?.height ?? null,
           source: input.source,
           origin,
+          font,
           createdByType: by.type,
           createdById: by.id,
           runId,
@@ -273,8 +311,14 @@ export async function readPictureFile(
   return { bytes: object.body, contentType, width: size?.width ?? null, height: size?.height ?? null };
 }
 
-/** A picture's row and bytes, for whoever reads its file (null otherwise, as for none). */
-async function readAsset(deps: ArtifactDeps, actor: ArtifactActor, orgId: string, fileId: string, assetId: string) {
+/** One of a live file's assets with its bytes, under the reader's check (null when it can't be read). */
+export async function readAsset(
+  deps: ArtifactDeps,
+  actor: ArtifactActor,
+  orgId: string,
+  fileId: string,
+  assetId: string,
+) {
   if (!UUID.test(assetId)) return null;
   if (!(await liveFileAccess(deps, actor, orgId, fileId))) return null;
   const [row] = await deps.db

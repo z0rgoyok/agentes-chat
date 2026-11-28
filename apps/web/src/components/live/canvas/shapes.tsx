@@ -1,6 +1,14 @@
 import type { ImageFailure } from "@agenteschat/client";
 import { useArtifact } from "@agenteschat/client";
-import { arrowHeadPoints, type Point, routeArrow, type ShapeView, strokePath } from "@agenteschat/live/canvas";
+import { type Gradient, shadowCss } from "@agenteschat/live";
+import {
+  arrowHeadPoints,
+  type CanvasTextStyle,
+  type Point,
+  routeArrow,
+  type ShapeView,
+  strokePath,
+} from "@agenteschat/live/canvas";
 import { Button, Icon, PixelSpinner, Tip } from "@agenteschat/ui";
 import { type CSSProperties, memo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +18,7 @@ import { HtmlFrame } from "@/components/artifacts/HtmlFrame";
 import { useOrg } from "@/components/org-context";
 import { colorOf, ImageSky } from "@/components/Sky";
 import { useDirectory } from "@/hooks/useDirectory";
+import { fontFamilyCss, fontsOfRich, useLiveFonts } from "../fonts";
 import { useCanvasEnv } from "./context";
 import { fillStyle, strokeStyle } from "./palette";
 import { CanvasRich } from "./text";
@@ -32,6 +41,38 @@ export interface ShapeBodyProps {
   fresh: boolean;
 }
 
+/** A shape's text look as CSS (ADR 0220 §3): font, size, weight, color, alignment, spacing, capitals, padding. */
+export function canvasTextCss(style: CanvasTextStyle | undefined): CSSProperties {
+  if (!style) return {};
+  return {
+    ...(style.font ? { fontFamily: fontFamilyCss(style.font) } : {}),
+    ...(style.size ? { fontSize: style.size } : {}),
+    ...(style.color ? { color: style.color } : {}),
+    ...(style.weight ? { fontWeight: style.weight } : {}),
+    ...(style.align ? { textAlign: style.align } : {}),
+    ...(style.lineHeight ? { lineHeight: style.lineHeight } : {}),
+    ...(style.tracking ? { letterSpacing: `${style.tracking / 1000}em` } : {}),
+    ...(style.caps ? { textTransform: "uppercase" } : {}),
+    ...(style.padding !== undefined ? { padding: style.padding } : {}),
+  };
+}
+
+const VALIGN = { top: "flex-start", middle: "center", bottom: "flex-end" } as const;
+
+/** A gradient's ends in the box's own units, from its CSS angle. */
+function gradientEnds(g: Gradient) {
+  const a = (g.angle * Math.PI) / 180;
+  const dx = Math.sin(a) / 2;
+  const dy = -Math.cos(a) / 2;
+  return { x1: 0.5 - dx, y1: 0.5 - dy, x2: 0.5 + dx, y2: 0.5 + dy };
+}
+
+function dashCss(dash: string | undefined, width: number): CSSProperties {
+  if (dash === "dashed") return { strokeDasharray: `${width * 3} ${width * 2}` };
+  if (dash === "dotted") return { strokeDasharray: `0 ${width * 2}`, strokeLinecap: "round" };
+  return {};
+}
+
 /** The box a shape takes in the world, turned around its center. */
 function boxStyle(s: ShapeView): CSSProperties {
   return {
@@ -44,6 +85,7 @@ function boxStyle(s: ShapeView): CSSProperties {
 }
 
 export const ShapeBody = memo(function ShapeBody({ shape, editing, interacting, fresh }: ShapeBodyProps) {
+  useLiveFonts([shape.style?.font, ...fontsOfRich(shape.text)]);
   if (shape.hidden) return null;
   return (
     <div
@@ -66,23 +108,11 @@ function ShapeInside({ shape, editing, interacting, fresh }: ShapeBodyProps) {
     case "note":
       return (
         <div className="cnv-note" data-color={shape.color ?? "yellow"}>
-          <CanvasRich shape={shape} editing={editing} className="cnv-note__text" />
+          <CanvasRich shape={shape} editing={editing} className="cnv-note__text" style={canvasTextCss(shape.style)} />
         </div>
       );
     case "text":
-      return (
-        <CanvasRich
-          shape={shape}
-          editing={editing}
-          className="cnv-text"
-          style={{
-            ...(shape.style?.size ? { fontSize: shape.style.size } : {}),
-            ...(shape.style?.color ? { color: shape.style.color } : {}),
-            ...(shape.style?.weight ? { fontWeight: shape.style.weight } : {}),
-            ...(shape.style?.align ? { textAlign: shape.style.align } : {}),
-          }}
-        />
-      );
+      return <CanvasRich shape={shape} editing={editing} className="cnv-text" style={canvasTextCss(shape.style)} />;
     case "frame":
       return <div className="cnv-frame" style={shape.fill ? fillStyle(shape.fill) : undefined} />;
     case "shape":
@@ -117,7 +147,15 @@ function ImageShape({ shape, fresh }: { shape: ShapeView; fresh: boolean }) {
       }
     : undefined;
   return (
-    <div className="cnv-img" data-state={state} data-crop={crop ? true : undefined}>
+    <div
+      className="cnv-img"
+      data-state={state}
+      data-crop={crop ? true : undefined}
+      style={{
+        ...(shape.radius ? { borderRadius: shape.radius, overflow: "hidden" } : {}),
+        ...(shape.shadow ? { filter: `drop-shadow(${shadowCss(shape.shadow)})` } : {}),
+      }}
+    >
       {state === "failed" ? (
         <span className="cnv-img__failed small muted ac-iconline">
           <Icon name="image" size={16} />
@@ -157,19 +195,19 @@ const STAR = [
 const RECT_RADIUS = 8;
 
 /** A form's outline in its box (world units, `w` × `h`), a unit in from the edge so its border isn't cut. */
-function geoOutline(kind: string, w: number, h: number, radius: number | undefined) {
+function geoOutline(kind: string, w: number, h: number, radius: number | undefined, style?: CSSProperties) {
   switch (kind) {
     case "ellipse":
-      return <ellipse cx={w / 2} cy={h / 2} rx={Math.max(0, w / 2 - 1)} ry={Math.max(0, h / 2 - 1)} />;
+      return <ellipse cx={w / 2} cy={h / 2} rx={Math.max(0, w / 2 - 1)} ry={Math.max(0, h / 2 - 1)} style={style} />;
     case "diamond":
-      return <polygon points={`${w / 2},1 ${w - 1},${h / 2} ${w / 2},${h - 1} 1,${h / 2}`} />;
+      return <polygon points={`${w / 2},1 ${w - 1},${h / 2} ${w / 2},${h - 1} 1,${h / 2}`} style={style} />;
     case "triangle":
-      return <polygon points={`${w / 2},1 ${w - 1},${h - 1} 1,${h - 1}`} />;
+      return <polygon points={`${w / 2},1 ${w - 1},${h - 1} 1,${h - 1}`} style={style} />;
     case "star":
-      return <polygon points={STAR.map(([x, y]) => `${(x / 100) * w},${(y / 100) * h}`).join(" ")} />;
+      return <polygon points={STAR.map(([x, y]) => `${(x / 100) * w},${(y / 100) * h}`).join(" ")} style={style} />;
     default: {
       const r = Math.max(0, Math.min(radius ?? RECT_RADIUS, w / 2 - 1, h / 2 - 1));
-      return <rect x={1} y={1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={r} />;
+      return <rect x={1} y={1} width={Math.max(0, w - 2)} height={Math.max(0, h - 2)} rx={r} style={style} />;
     }
   }
 }
@@ -181,6 +219,12 @@ function GeometricShape({ shape, editing }: { shape: ShapeView; editing: boolean
   const stroke = strokeStyle(shape.stroke, shape.strokeWidth);
   const w = Math.max(1, shape.w);
   const h = Math.max(1, shape.h);
+  const gradient = shape.gradient ? { id: `cnv-g-${shape.id}`, ...gradientEnds(shape.gradient) } : null;
+  const outline: CSSProperties = {
+    ...(gradient ? { fill: `url(#${gradient.id})` } : {}),
+    ...dashCss(shape.dash, shape.strokeWidth ?? 2),
+  };
+  const valign = shape.style?.valign;
   return (
     <div
       className="cnv-geo"
@@ -188,12 +232,36 @@ function GeometricShape({ shape, editing }: { shape: ShapeView; editing: boolean
       data-fill={shape.fill ? (shape.fill === "none" ? "none" : "custom") : undefined}
       data-stroke={shape.stroke ? (shape.stroke === "none" ? "none" : "custom") : undefined}
       data-stroke-width={shape.strokeWidth ? true : undefined}
-      style={fill || stroke ? { ...fill, ...stroke } : undefined}
+      style={{
+        ...fill,
+        ...stroke,
+        ...(valign ? { alignItems: VALIGN[valign] } : {}),
+        ...(shape.style?.padding !== undefined ? { padding: shape.style.padding } : {}),
+      }}
     >
-      <svg className="cnv-geo__svg" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" aria-hidden="true">
-        {geoOutline(kind, w, h, shape.radius)}
+      <svg
+        className="cnv-geo__svg"
+        viewBox={`0 0 ${w} ${h}`}
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        style={shape.shadow ? { filter: `drop-shadow(${shadowCss(shape.shadow)})` } : undefined}
+      >
+        {gradient && shape.gradient && (
+          <defs>
+            <linearGradient id={gradient.id} x1={gradient.x1} y1={gradient.y1} x2={gradient.x2} y2={gradient.y2}>
+              <stop offset="0" stopColor={shape.gradient.from} />
+              <stop offset="1" stopColor={shape.gradient.to} />
+            </linearGradient>
+          </defs>
+        )}
+        {geoOutline(kind, w, h, shape.radius, outline)}
       </svg>
-      <CanvasRich shape={shape} editing={editing} className="cnv-geo__text" />
+      <CanvasRich
+        shape={shape}
+        editing={editing}
+        className="cnv-geo__text"
+        style={{ ...canvasTextCss(shape.style), padding: undefined, ...(valign ? { width: "100%" } : {}) }}
+      />
     </div>
   );
 }

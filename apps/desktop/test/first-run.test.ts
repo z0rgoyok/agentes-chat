@@ -243,4 +243,19 @@ describe("the menu bar and the labels Rust shows", () => {
       }
     }
   });
+
+  // The first close's notification (background.rs): every language has its own words, the Mac's and the tray's.
+  test("the notice that the app keeps running, in every language", async () => {
+    const en = menuLabels((await loadDesktopI18n("en", "mac")).t);
+    expect(en.backgroundTitle).toBe("agentes.chat is still running");
+    expect(en.backgroundBodyMac).toContain("menu bar");
+    expect(en.backgroundBodyTray).toContain("system tray");
+    for (const { code: lng } of LOCALES.filter((l) => l.code !== "en")) {
+      const labels = menuLabels((await loadDesktopI18n(lng, "windows")).t);
+      for (const key of ["backgroundTitle", "backgroundBodyMac", "backgroundBodyTray"] as const) {
+        expect({ lng, key, translated: labels[key] !== en[key] }).toEqual({ lng, key, translated: true });
+      }
+      expect(labels.backgroundBodyMac).not.toBe(labels.backgroundBodyTray);
+    }
+  });
 });

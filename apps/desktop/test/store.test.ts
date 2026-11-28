@@ -235,3 +235,20 @@ test("a tool its owner turned on from the apps: kept on the home for the popover
   store.dismissAllowed("h1");
   expect(store.home("h1")?.allowed).toBeNull();
 });
+
+test("a folder asked for from the apps: kept on the home for the popover until picked; an agent's request only shown again", async () => {
+  const told: { byName: string; requestId?: string }[] = [];
+  const { store, event } = setup({ onPickAsked: (_home, pick) => told.push(pick) });
+  store.start();
+  await settle();
+  const pick = { byName: "Bia Rocha", agentId: "a1", agentName: "Ada", at: "2026-11-26T12:00:00.000Z" };
+  event({ kind: "access.pick", pick });
+  await settle();
+  expect(store.home("h1")?.pick).toEqual(pick);
+  store.dismissPick("h1");
+  expect(store.home("h1")?.pick).toBeNull();
+  event({ kind: "access.pick", pick: { byName: "Bia Rocha", requestId: "r1", at: pick.at } });
+  await settle();
+  expect(store.home("h1")?.pick).toBeNull();
+  expect(told.map((p) => p.requestId ?? null)).toEqual([null, "r1"]);
+});

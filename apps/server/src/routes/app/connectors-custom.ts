@@ -119,6 +119,20 @@ const CustomServer = z
         firstSeenAt: z.string(),
       }),
     ),
+    instructions: z
+      .object({
+        text: z.string(),
+        cut: z.boolean().openapi({ description: "The server said more than agents read: `text` ends at `maxChars`." }),
+        maxChars: z.number().int(),
+      })
+      .nullable()
+      .openapi({
+        description:
+          "What the server said in `initialize` on how to use it (MCP's `instructions`), as agents read it. Null when it said nothing, and for a reader who doesn't manage connectors.",
+      }),
+    useInstructions: z.boolean().openapi({
+      description: "Agents granted its tools get `instructions`, after their own (on unless turned off).",
+    }),
     reviewedAt: z.string().nullable(),
     createdAt: z.string(),
     ownerUserId: z.string().nullable().openapi({
@@ -352,12 +366,13 @@ export function customConnectorRoutes(deps: AppDeps) {
       security,
       summary: "Save the label and the classification of each tool",
       description:
-        "Sensitive tools may only be `approval` or `off` (400 otherwise). `confirmed: false` applies a suggestion but leaves an ambiguous tool waiting for a decision.",
+        "Sensitive tools may only be `approval` or `off` (400 otherwise). `confirmed: false` applies a suggestion but leaves an ambiguous tool waiting for a decision. `useInstructions`, when given, turns the server's own instructions on or off for agents.",
       request: {
         params: ServerParams,
         body: body(
           z.object({
             label: z.string().max(80),
+            useInstructions: z.boolean().optional(),
             tools: z
               .array(
                 z.object({
@@ -442,7 +457,7 @@ export function customConnectorRoutes(deps: AppDeps) {
     })
     .openapi("OwnOAuthClient");
   const ownClientDoc =
-    "A workspace's own OAuth client (ADR 0016 addendum 2026-11-21), for an MCP server that takes only clients it approved (`needs_key` with `not_approved`): one per authorization server, used by every sign-in there and never replaced by a registration of ours. Who manages connectors only. The server is asked (without credentials) which authorization server it uses; one that doesn't sign in with OAuth is a 400 `connector.no_oauth`.";
+    "A workspace's own OAuth client (ADR 0016 addendum 2026-11-21), for an MCP server that takes only clients it approved (`needs_key` with `not_approved`): one per authorization server, used by every sign-in there and never replaced by a registration of ours. Who manages connectors only. The server is asked (without credentials) which authorization server it uses; one that doesn't sign in with OAuth is a 400 `connector.no_oauth`, one whose OAuth details can't be read a 400 `connector.oauth_discovery`.";
 
   app.openapi(
     createRoute({

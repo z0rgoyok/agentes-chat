@@ -306,3 +306,32 @@ scenario("S53b", "a 'don't do that again' said in a DM holds in the agent's runs
   expect(w.prompts("otto").at(-1)).toContain(lesson);
   await assertInvariants(w);
 });
+
+scenario(
+  "S64",
+  "a 'go on' is judged against the plan the agent set out before it: the next step is its own",
+  async () => {
+    const plan = "Feito o passo 1 de 3 (o canal). Falta: 2. a rotina, 3. o teste.";
+    const w = await world({
+      agents: ["otto"],
+      judge: {
+        followThrough: (s) =>
+          String(s.recent ?? "").includes("Falta: 2. a rotina") && !String(s.reply).includes("3 de 3")
+            ? "continue"
+            : "done",
+      },
+      script: {
+        otto: [{ text: plan }, { text: "Feito o passo 2 de 3 (a rotina)." }, { text: "Feito o passo 3 de 3: testei." }],
+      },
+    });
+    await w.say("@otto monta o relatório semanal: canal, rotina e teste");
+    await w.settle();
+    await w.say("@otto pode seguir");
+    await w.settle();
+    const [first, second] = w.judgedAs("follow_through").slice(-2);
+    expect(String(first?.state.recent)).toContain(plan);
+    expect(second?.state.reply).toContain("3 de 3");
+    expect((await w.posts("otto")).at(-1)?.body).toContain("3 de 3");
+    await assertInvariants(w);
+  },
+);

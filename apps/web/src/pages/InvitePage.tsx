@@ -35,7 +35,7 @@ import {
   Textarea,
 } from "@agenteschat/ui";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Navigate, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, type KeyboardEvent, type ReactNode, type Ref, useEffect, useRef, useState } from "react";
 import { Trans, useTranslation } from "react-i18next";
 import { useApi } from "@/api/context";
@@ -1511,9 +1511,9 @@ const transient = (error: unknown) =>
 
 /**
  * Asked: the page waits for an admin, checking every 15 s with the key the ask answered (ADR 0090). Approved, it
- * signs in with the one-time sign-in the answer carries and opens the workspace; turned down, the admin's note;
- * ended (run out, its link turned off, approved for an account that was already there, or a key the server no
- * longer knows), signing in as always. A check that fails for a moment (no connection, a deploy) never ends it: the
+ * signs in with the one-time sign-in the answer carries and opens the workspace; approved for an account that was
+ * already there, the invitation the approval sent; turned down, the admin's note; ended (run out, its link turned
+ * off, or a key the server no longer knows), signing in as always. A check that fails for a moment (no connection, a deploy) never ends it: the
  * key stays and the next check tries again.
  */
 function Waiting({ token, preview, asked }: { token: string; preview: InvitationPreview; asked: Asked }) {
@@ -1564,6 +1564,9 @@ function Waiting({ token, preview, asked }: { token: string; preview: Invitation
     if (got?.status === "in") {
       setAnswer({ state: "in", orgId: got.orgId });
       void enter(got.orgId, got.signIn);
+    } else if (got?.status === "invited") {
+      // An account that was already there: its invitation, as its email opens it, where it signs in and joins.
+      void navigate({ to: "/invite/$token", params: { token: got.token }, search: { mail: got.mail }, replace: true });
     } else if (got?.status === "denied") setAnswer({ state: "denied", reason: got.reason });
     else setAnswer({ state: "ended" });
   }, [got]);
@@ -1765,6 +1768,8 @@ function AskAsAccount({ token, preview }: { token: string; preview: InvitationPr
       );
     }
     case "approvedEmail":
+      // The invitation the approval sent, to this very account: it opens here, one press from joining.
+      if (view.invitation) return <Navigate to="/invite/$token" params={{ token: view.invitation }} replace />;
       return (
         <InviteScreen
           org={facts}

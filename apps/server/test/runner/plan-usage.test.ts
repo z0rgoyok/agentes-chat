@@ -308,6 +308,29 @@ test("Antigravity's panel: every percentage is what is left; only Gemini's group
   ]);
 });
 
+test("Antigravity's rows: Gemini's group is the plan's wherever the CLI lists it, a row that says used counts up, an unstarted quota resets never", () => {
+  // Another model group listed first: its spent five hours are its own, never the whole plan's.
+  const report = [
+    "Claude and GPT models\tWeekly Limit Remaining\t40%\t2030-01-05T10:00:00Z",
+    "Claude and GPT models\tFive Hour Limit Remaining\t0%\t2030-01-01T13:00:00Z",
+    "Gemini Models\tWeekly Limit Remaining\t100%\t1970-01-01T00:00:00Z",
+    "Gemini Models\tFive Hour Limit Remaining\t100%\t1970-01-01T00:00:00Z",
+    "",
+  ].join("\n");
+  const usage = antigravityUsage(report, "probe", NOW) as PlanUsage;
+  expect(usage.windows).toEqual([
+    { kind: "other", label: "Claude and GPT models · 7d", usedPercent: 60, resetsAt: "2030-01-05T10:00:00.000Z" },
+    { kind: "other", label: "Claude and GPT models · 5h", usedPercent: 100, resetsAt: "2030-01-01T13:00:00.000Z" },
+    { kind: "seven_day", usedPercent: 0 },
+    { kind: "five_hour", usedPercent: 0 },
+  ]);
+  expect(planState(usage, NOW)).toEqual({ state: "ok", until: null, used: 0 });
+  // A row whose quota says "used" is counted up, as the panel's lines are.
+  expect(
+    antigravityUsage("Gemini Models\tFive Hour Limit Used\t0%\t2030-01-01T13:00:00Z", "probe", NOW)?.windows,
+  ).toEqual([{ kind: "five_hour", usedPercent: 0, resetsAt: "2030-01-01T13:00:00.000Z" }]);
+});
+
 test("people hear at once only when a limit is hit or cleared or a window crosses 80, 90 (its bar turns red) or 100", () => {
   const u = (used: number, limited?: boolean): PlanUsage => ({
     windows: [{ kind: "five_hour", usedPercent: used }],

@@ -110,6 +110,46 @@ describe("an offline computer: the notice", () => {
     expect(within(notice).queryByRole("button", { name: "Trocar computador" })).toBeNull();
   });
 
+  test("the Cloud's computer moving to another server: the notice says so, never that it stopped answering", async () => {
+    const data = outages();
+    const first = data.outages[0];
+    if (!first) throw new Error("no outage");
+    data.outages = [{ ...first, name: "Computador da Acme", platform: "other", managed: true, moving: true }];
+    const { api } = setup(data);
+    fakeMachinesOf.get(api)?.setSetup({ state: "ready" });
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
+    await settle(8);
+    const notice = screen().getByRole("region", { name: "Computadores desconectados" });
+    expect(notice.textContent).toContain("Mudando de servidor… volta em alguns minutos");
+    expect(notice.textContent).toContain("Ada e Atlas esperam por ele");
+    expect(notice.textContent).not.toContain("parou de responder");
+    expect(notice.textContent).not.toContain("Já estamos cuidando");
+  });
+
+  test("the Cloud's computer restarted because it stopped answering: the notice says so, with about when it is back", async () => {
+    const data = outages();
+    const first = data.outages[0];
+    if (!first) throw new Error("no outage");
+    const maintenance = {
+      kind: "restarting",
+      since: new Date(Date.now() - 60_000).toISOString(),
+      eta: new Date(Date.now() + 3 * 60_000 + 10_000).toISOString(),
+      detail: "unresponsive",
+      away: true,
+    };
+    data.outages = [
+      { ...first, name: "Computador da Acme", platform: "other", managed: true, moving: true, maintenance },
+    ];
+    const { api } = setup(data);
+    fakeMachinesOf.get(api)?.setSetup({ state: "ready" });
+    await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });
+    await settle(8);
+    const notice = screen().getByRole("region", { name: "Computadores desconectados" });
+    expect(notice.textContent).toContain("Reiniciando… volta em cerca de 3 min");
+    expect(notice.textContent).not.toContain("parou de responder há");
+    expect(notice.textContent).not.toContain("Mudando de servidor");
+  });
+
   test("closing it is remembered until that computer comes back", async () => {
     const { api } = setup();
     const first = await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api });

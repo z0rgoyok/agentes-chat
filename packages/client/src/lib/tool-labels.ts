@@ -1,4 +1,5 @@
-import type { TFunction } from "i18next";
+import type { i18n as I18n, TFunction } from "i18next";
+import { useEffect } from "react";
 
 /**
  * Apps whose name may start a tool's (`github_…`, `GOOGLEDRIVE_…`, `mcp__higgsfield__…`), by that name with no spaces
@@ -8,6 +9,8 @@ import type { TFunction } from "i18next";
 const APPS: Record<string, string> = {
   github: "GitHub",
   gitlab: "GitLab",
+  bitbucket: "Bitbucket",
+  gitserver: "Git",
   linear: "Linear",
   jira: "Jira",
   confluence: "Confluence",
@@ -118,4 +121,91 @@ export function catalogLabel(t: TFunction, name: string): string | null {
   // i18next answers a key it lacks with the key itself, and a name that is also a property of every object
   // (`constructor`) with that property.
   return typeof label === "string" && label !== key ? label : null;
+}
+
+/**
+ * Where a connector tool's words come from when the catalog has none (`connectorToolWords`): the workspace's own,
+ * written once per language by its cheap model (`POST …/tool-labels`), added to the catalog of the language shown.
+ * Each name is asked for once a session; English needs none (its words are the name's).
+ */
+export interface LabelSource {
+  i18n: I18n;
+  ask(locale: string, keys: string[]): Promise<Record<string, string>>;
+}
+
+let source: LabelSource | null = null;
+const asked = new Set<string>();
+const queued = new Map<string, string[]>();
+let flushing = false;
+
+/** Mirrors the server's `TOOL_LABEL_KEY` and `TOOL_LABELS_MAX` (engine `tool-label-words.ts`). */
+const LABEL_KEY = /^[a-z0-9]+(?:_[a-z0-9]+){0,11}$/;
+const LABELS_PER_ASK = 30;
+
+function flush() {
+  flushing = false;
+  const s = source;
+  for (const [locale, keys] of queued) {
+    queued.delete(locale);
+    for (let i = 0; s && i < keys.length; i += LABELS_PER_ASK)
+      s.ask(locale, keys.slice(i, i + LABELS_PER_ASK)).then(
+        (labels) => {
+          // Only into a language already loaded: a bundle begun here would read as that language's whole one.
+          if (Object.keys(labels).length === 0 || !s.i18n.hasResourceBundle(locale, "translation")) return;
+          s.i18n.addResources(
+            locale,
+            "translation",
+            Object.fromEntries(Object.entries(labels).map(([k, v]) => [`toolNames.label.${k}`, v])),
+          );
+        },
+        () => {},
+      );
+  }
+}
+
+function want(key: string) {
+  const s = source;
+  const locale = s?.i18n.language;
+  if (!s || !locale || locale.startsWith("en") || key.length > 100 || !LABEL_KEY.test(key)) return;
+  if (asked.has(`${locale}:${key}`)) return;
+  asked.add(`${locale}:${key}`);
+  queued.set(locale, [...(queued.get(locale) ?? []), key]);
+  // One ask for all the names a screen draws at once.
+  if (flushing) return;
+  flushing = true;
+  setTimeout(flush, 50);
+}
+
+/**
+ * A connector tool's name in a work line ("list available accounts"): the catalog's words, else the words written
+ * for this workspace once they come (asked for here, the first time), else its own.
+ */
+export function connectorToolWords(t: TFunction, name: string): string {
+  const label = catalogLabel(t, name);
+  if (label) return label;
+  want(toolKey(name).key);
+  return name;
+}
+
+/**
+ * Lets work lines ask for the words of tools the catalog lacks, in `orgId`, while mounted. The i18n instance must
+ * redraw on added strings (`react.bindI18nStore: "added"`) for the words to show once they come.
+ */
+export function useToolLabelSource(
+  i18n: I18n,
+  orgId: string | null | undefined,
+  ask: ((orgId: string, locale: string, keys: string[]) => Promise<Record<string, string>>) | undefined,
+) {
+  useEffect(() => {
+    if (!orgId || !ask) return;
+    return setToolLabelSource({ i18n, ask: (locale, keys) => ask(orgId, locale, keys) });
+  }, [i18n, orgId, ask]);
+}
+
+/** Where words are asked for from now on (`useToolLabelSource`); the cleanup returned stops it. */
+export function setToolLabelSource(own: LabelSource): () => void {
+  source = own;
+  return () => {
+    if (source === own) source = null;
+  };
 }

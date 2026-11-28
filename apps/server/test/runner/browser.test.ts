@@ -64,6 +64,7 @@ import {
   isWebPage,
   jpegSize,
   launchChrome,
+  listenerUidsIn,
   NAME_CONTROLS,
   type OwnChrome,
   readableDisplay,
@@ -353,7 +354,7 @@ test("only the computer's Google Chrome is driven, at its standard path on each 
     "--disable-updater-scheduler",
     "--disable-search-engine-choice-screen",
     "--force-prefers-reduced-motion",
-    "--disable-features=SigninPromoOnAvatarPill",
+    "--disable-features=SigninPromoOnAvatarPill,MacAppCodeSignClone",
     "--restore-last-session",
   ]);
 });
@@ -707,7 +708,7 @@ test("a tab in the background comes to the front before a command; one that show
   // Switching tabs and waiting need no page in front.
   const before = calls().filter((c) => c === LOOK).length;
   now += 31_000;
-  expect(await t.act("tab", ["2"])).toMatchObject({ success: true });
+  expect(await t.act("tab", ["t2"])).toMatchObject({ success: true });
   expect(await t.act("wait", ["10"])).toMatchObject({ success: true });
   expect(calls().filter((c) => c === LOOK)).toHaveLength(before);
 });
@@ -1400,6 +1401,47 @@ test.if(posix)("a started Chrome's browser endpoint comes from the second line o
   expect(await start("45680\\nws://elsewhere/devtools/browser/x")).not.toHaveProperty("wsPath");
 });
 
+test("a listener holds Chrome's 127.0.0.1 port on 127.0.0.1, any IPv4 or dual-stack IPv6, never v6-only or ::1", () => {
+  const ss = [
+    "LISTEN 0 4096 127.0.0.1:10000 0.0.0.0:* uid:20000 ino:1 sk:0",
+    "LISTEN 0 4096 0.0.0.0:10000 0.0.0.0:* ino:2 sk:0",
+    "LISTEN 0 4096 *:10000 *:* uid:1000 ino:3 sk:0",
+    "LISTEN 0 4096 [::]:10000 [::]:* uid:1001 ino:4 sk:0",
+    "LISTEN 0 4096 [::1]:10000 [::]:* uid:1002 ino:5 sk:0",
+    "LISTEN 0 4096 127.0.0.1:10001 0.0.0.0:* uid:1003 ino:6 sk:0",
+  ].join("\n");
+  expect(listenerUidsIn(ss, 10000)).toEqual([20000, 0, 1000]);
+  expect(listenerUidsIn("LISTEN 0 4096 [::]:10000 [::]:* uid:1001 ino:4 sk:0", 10000)).toEqual([]);
+});
+
+test("a fixed CDP port another program listens on fails at once, saying which port and how to free it", async () => {
+  let started = 0;
+  const start = (() => {
+    started++;
+    throw new Error("Chrome must not start");
+  }) as unknown as Parameters<typeof launchChrome>[4];
+  // Root's listener (ss leaves its uid out) or another user's, beside or without the agent's own.
+  for (const uids of [[0], [1000], [20000, 1000]]) {
+    const err = await launchChrome(
+      "/chrome",
+      ["--remote-debugging-port=10000"],
+      "/p",
+      undefined,
+      start,
+      () => uids,
+      20000,
+    ).then(
+      () => null,
+      (e: unknown) => e,
+    );
+    expect(err).toBeInstanceOf(ChromeStartError);
+    expect((err as ChromeStartError).why).toBe(
+      "Another program on this computer listens on port 10000, which this agent's browser needs. Move that program to another port or stop it (sudo ss -tlnp 'sport = :10000' shows which), then try again.",
+    );
+  }
+  expect(started).toBe(0);
+});
+
 test.if(posix)("a fixed CDP port accepts only its owned listener and ignores a stale port file", async () => {
   const dir = tempDir("chrome-fixed-");
   dirs.push(dir);
@@ -1426,7 +1468,8 @@ test.if(posix)("a fixed CDP port accepts only its owned listener and ignores a s
       dir,
       undefined,
       undefined,
-      () => true,
+      () => [20001],
+      20001,
     );
     expect(chrome).toMatchObject({ port, wsPath: "/devtools/browser/owned" });
     chrome.kill();
@@ -1667,14 +1710,14 @@ test.if(posix)(
       // Our notice, in the app's look and in one language only: the person's, English when it isn't one of the app's.
       const notice = (memory: boolean, tag?: string) =>
         decodeURIComponent(crashPage(memory, tag).slice("data:text/html;charset=utf-8,".length));
-      expect(notice(true, "pt-BR")).toContain('<html lang="pt-BR">');
+      expect(notice(true, "pt-BR")).toContain('<html lang="pt-BR" translate="no">');
       expect(notice(true, "pt-BR")).toContain("<title>A página ficou sem memória</title>");
       expect(notice(true, "pt-BR")).not.toContain("The page");
       expect(notice(false, "de")).toContain(
         "<h1>Die Seite funktioniert nicht mehr</h1><p>Der Agent wird benachrichtigt.</p>",
       );
       expect(notice(false, "de")).not.toContain("The page");
-      expect(notice(true, "xx")).toContain('<html lang="en">');
+      expect(notice(true, "xx")).toContain('<html lang="en" translate="no">');
       expect(notice(true)).toContain("<title>The page ran out of memory</title>");
       expect(notice(true)).not.toContain("página");
       expect(notice(true)).toContain("background:#fbfbfa");
@@ -2038,7 +2081,7 @@ test.if(posix)("with an allowlist, an off-list page is never read and never left
   expect(JSON.parse(readFileSync(process.env.FAKE_AB_STATE as string, "utf8")).url).toBe("about:blank");
   // Switching to a new tab a link opened on another site: checked too, and blanked.
   t.page({ url: "https://shop.example.com/", tabTo: "https://evil.com/phish", noHistory: true });
-  expect(await t.act("tab", ["1"], { allowedDomains })).toMatchObject({
+  expect(await t.act("tab", ["t2"], { allowedDomains })).toMatchObject({
     success: false,
     error: expect.stringContaining("evil.com"),
   });
@@ -2866,7 +2909,12 @@ test.if(posix)(
       t.manager.act(dev, folder, { op: "browser.act", command, args, timeoutSeconds: 30, desktop: true });
     const first = await act("open", ["https://a.example/"]);
     expect(first).toMatchObject({ success: true });
-    expect(Object.keys(first.setup ?? {}).sort()).toEqual(["desktop", "launch"]);
+    // Opening the session is "install" only past 10 ms, which a slow machine's file work can take.
+    expect(
+      Object.keys(first.setup ?? {})
+        .filter((step) => step !== "install")
+        .sort(),
+    ).toEqual(["desktop", "launch"]);
     for (const ms of Object.values(first.setup ?? {})) expect(ms).toBeGreaterThanOrEqual(10);
     expect((await act("click", ["@e1"])).setup).toBeUndefined();
     // A batch says it too; the runner's log puts it in words.

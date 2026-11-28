@@ -296,6 +296,14 @@ export function githubAppRoutes(deps: AppDeps) {
     private: z.boolean(),
     updatedAt: z.string().nullable(),
   });
+  const Account = z.object({
+    host: z.string(),
+    hostLabel: z.string(),
+    prefix: z.string(),
+    login: z.string(),
+    type: z.string(),
+    repositories: z.array(Repository),
+  });
   const listing = {
     db: deps.db,
     connectors: githubAccess(deps).connectors,
@@ -319,7 +327,10 @@ export function githubAppRoutes(deps: AppDeps) {
           z
             .object({
               connected: z.boolean(),
-              accounts: z.array(z.object({ login: z.string(), type: z.string(), repositories: z.array(Repository) })),
+              accounts: z.array(Account),
+              elsewhere: z
+                .array(Account)
+                .openapi({ description: "What the organization's other git hosts reach (GitLab, Bitbucket)" }),
               truncated: z.boolean(),
             })
             .openapi("GitHubRepositories"),
@@ -514,7 +525,7 @@ export function githubAppRoutes(deps: AppDeps) {
       const target = `https://github.com/settings/apps/new?state=${encodeURIComponent(state ?? "")}`;
       const manifest = JSON.stringify(githubAppManifest(deps.config.PUBLIC_URL));
       const page = `<!doctype html>
-<html lang="${escapeHtml(locale)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(serverText(locale, "githubApp.manifestPage.title"))}</title></head>
+<html lang="${escapeHtml(locale)}" translate="no"><head><meta charset="utf-8"><meta name="google" content="notranslate"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(serverText(locale, "githubApp.manifestPage.title"))}</title></head>
 <body><form id="manifest" method="post" action="${escapeHtml(target)}"><input type="hidden" name="manifest" value="${escapeHtml(manifest)}"><button type="submit">${escapeHtml(serverText(locale, "githubApp.manifestPage.continue"))}</button></form>
 <script nonce="${nonce}">document.getElementById("manifest").submit();</script></body></html>`;
       return c.html(page, 200, {

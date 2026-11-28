@@ -29,6 +29,25 @@ describe("voice messages in Configurações (ADR 0100)", () => {
     expect(card().textContent).not.toMatch(/US\$|R\$|minutos/);
   });
 
+  test("no engine: anyone else is told who turns voice on, the server's owner that the choice below does", async () => {
+    await go({ media: { voiceAvailable: false } });
+    expect(card().textContent).toContain(
+      "Por enquanto as mensagens de voz vão como áudio, e os agentes não conseguem ouvi-las. Quem cuida deste servidor escolhe o que transforma a voz em texto, nesta mesma página.",
+    );
+    cleanup();
+    await go({ speechKey: OFF, media: { voiceAvailable: false } });
+    expect(card().textContent).toContain(
+      "As mensagens de voz vão como áudio até você escolher abaixo o que transforma a voz em texto.",
+    );
+    expect(card().textContent).not.toContain("Quem cuida deste servidor");
+  });
+
+  test("with no engine the switch still works on a server that records anyway", async () => {
+    await go({ media: { voiceAvailable: false, speechState: "none" } });
+    expect(screen().getByRole("switch", { name: "Mensagens de voz" }).hasAttribute("disabled")).toBe(false);
+    expect(screen().getByRole("switch", { name: "Mensagens de voz" }).getAttribute("aria-checked")).toBe("true");
+  });
+
   test("a key is tried, kept, and never shown", async () => {
     const state = await go({ speechKey: OFF, media: { voiceAvailable: false } });
     await act(async () => fireEvent.change(field(), { target: { value: "aai_key_7a1e" } }));

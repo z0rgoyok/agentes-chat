@@ -160,7 +160,9 @@ describe("going to a message", () => {
     const screen = chatScreenSource();
     const refresh = screen.indexOf("if (!seekRefreshing) missing();");
     expect(refresh).toBeGreaterThan(0);
-    expect(screen.lastIndexOf("if (isThread || (around?.id === seek && around.done)) {", refresh)).toBeGreaterThan(0);
+    expect(screen.lastIndexOf("if (around?.id === seek && around.done) {", refresh)).toBeGreaterThan(0);
+    // In a thread too, once the conversation's own page has none of it.
+    expect(screen.indexOf("if (seekRefreshing) return;", refresh)).toBeGreaterThan(refresh);
     expect(screen).toContain("const seekRefreshing = isThread ? threadMessages.isFetching : top.isFetching;");
   });
 });

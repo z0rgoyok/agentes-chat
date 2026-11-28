@@ -429,7 +429,10 @@ export interface AgentUnavailableEvent {
   messageId: string;
   /** The server's English, for agents and old clients: the app words it from `code` and `params`. */
   text: string;
-  /** `channel.agents_denied` (this channel's exceptions, ADR 0134), `audience.only` or `audience.nobody`. */
+  /**
+   * `channel.agents_denied` (this channel's exceptions, ADR 0134), `audience.no_talk` or `audience.plan_owner_only`
+   * (`refusalText`), `audience.only` or `audience.nobody`.
+   */
   code?: string;
   params?: Record<string, unknown>;
 }
@@ -438,6 +441,19 @@ export const isAgentUnavailable = (e: { type: string }): e is AgentUnavailableEv
   e.type === "agent.unavailable" &&
   typeof (e as AgentUnavailableEvent).agentId === "string" &&
   typeof (e as AgentUnavailableEvent).channelId === "string";
+
+/**
+ * The server's refusal past the agent's audience (`audienceDetail`), in my language: my roles don't talk to agents, or
+ * the plan it thinks with answers only its owner. Null for any other code.
+ */
+export function refusalText(t: TFunction, code: string | undefined, params: Record<string, unknown> | undefined) {
+  if (code === "audience.no_talk") return t("audience.notice.noTalk");
+  if (code !== "audience.plan_owner_only") return null;
+  return t(
+    "audience.notice.planOwnerOnly",
+    agentGrammar(typeof params?.agentName === "string" ? params.agentName : ""),
+  );
+}
 
 /**
  * Why the agent I named won't answer me, in my language: the channel's own exception, or whom the agent answers (from
@@ -451,6 +467,8 @@ export function unavailableNotice(
   roleName?: NameOf,
 ): string {
   if (notice.code === "channel.agents_denied") return t("channel.perms.agentsDenied");
+  const refused = refusalText(t, notice.code, { agentName: agent?.name, ...notice.params });
+  if (refused) return refused;
   const known = agent ? audienceNotice(t, agent, nameOf, roleName) : "";
   if (known) return known;
   const p = notice.params ?? {};

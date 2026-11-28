@@ -1,14 +1,25 @@
 import {
   confirmLink,
+  decideOnSurfacePage,
+  emailPinLink,
   listLinks,
   mintLinkCode,
+  openSurfacePage,
   removeLink,
   requireSurface,
+  type SurfacePageView,
+  setMySurfacePin,
+  setNudge,
+  setPinFromEmail,
+  sha256,
   surfaceAllowed,
   surfaceOn,
   undoSurfaceLink,
 } from "@agenteschat/engine";
 import { createRoute, z } from "@hono/zod-openapi";
+import type { Context } from "hono";
+import { getCookie, setCookie } from "hono/cookie";
+import { sessionUser } from "../../auth";
 import { requestLimitIp } from "../../http/client-ip";
 import { apiError, errorResponse } from "../../http/errors";
 import {
@@ -28,6 +39,67 @@ const tags = ["Account"];
 const CODES_PER_HOUR = { limit: 10, windowMs: 3_600_000 };
 /** As "This wasn't me": room for a few retries, never for guessing a token. */
 const UNDO_PER_IP = { limit: 10, windowMs: 10 * 60_000 };
+/** A page reloads and decides a few times; its PIN has its own lock (three wrong ones). */
+const PAGE_PER_IP = { limit: 30, windowMs: 10 * 60_000 };
+const PIN_EMAILS_PER_IP = { limit: 3, windowMs: 3_600_000 };
+/** Setting the PIN in the app: each one is a slow hash. */
+const PIN_SETS_PER_USER = { limit: 10, windowMs: 10 * 60_000 };
+const Pin = z
+  .string()
+  .regex(/^\d{6}$/)
+  .openapi({ description: "Six digits." });
+
+const PageToken = z.object({ token: z.string().min(16).max(200) });
+const SurfacePage = z
+  .object({
+    kind: z.enum(["confirm", "screen", "control"]),
+    expiresAt: z.string(),
+    surface: z.string(),
+    orgId: z.uuid().openapi({ description: "The approval's workspace: its settings choose the PIN in the app." }),
+    pin: z.object({
+      set: z.boolean().openapi({ description: "False: approving waits until the PIN is chosen somewhere trusted." }),
+      lockedUntil: z.string().nullable(),
+      canChoose: z.boolean().openapi({
+        description:
+          "None set and this browser is signed in as the person: approving here chooses it. A page link alone never does.",
+      }),
+      resetByEmail: z.boolean().openapi({
+        description: "This server sends email and the address is verified, so a link to choose the PIN can be emailed.",
+      }),
+    }),
+    approval: z
+      .object({
+        id: z.uuid(),
+        tool: z.string(),
+        params: z.record(z.string(), z.unknown()),
+        title: z.string(),
+        detail: z.string(),
+        why: z.string().nullable(),
+        kind: z.string(),
+        titleParams: z.record(z.string(), z.union([z.string(), z.number(), z.boolean()])),
+        status: z.string(),
+        canDecide: z.boolean(),
+        approverLabel: z.string().nullable(),
+      })
+      .nullable(),
+  })
+  .openapi("SurfacePage");
+const pageGone = errorResponse(
+  "Ran out, its link ended, or no longer visible (`surface.page_gone`); opened in another browser (`surface.page_elsewhere`, 403)",
+);
+
+/** The cookie that binds one page link to the browser that opened it first. */
+const pageCookie = (token: string) => `surface_page_${sha256(token).slice(0, 16)}`;
+
+const hour = z.number().int().min(0).max(23);
+const Nudge = z
+  .object({
+    on: z.boolean(),
+    afterHours: z.number().int().min(1).max(24).openapi({ description: "Hours something stays unread first." }),
+    quietFrom: hour.openapi({ description: "No nudge from this hour (the person's time zone)…" }),
+    quietTo: hour.openapi({ description: "…until this one. Equal: no quiet hours." }),
+  })
+  .openapi("SurfaceNudge");
 
 const SurfaceLink = z
   .object({
@@ -43,6 +115,8 @@ const SurfaceLink = z
     createdAt: z.string(),
     confirmedAt: z.string().nullable(),
     expiresAt: z.string().nullable().openapi({ description: "Pending only: when it stops counting (10 minutes)." }),
+    pinSet: z.boolean().openapi({ description: "A PIN confirms actions asked from the surface (ADR 0226)." }),
+    nudge: Nudge,
   })
   .openapi("SurfaceLink");
 
@@ -162,6 +236,29 @@ export function surfaceRoutes(deps: AppDeps) {
 
   app.openapi(
     createRoute({
+      method: "patch",
+      path: "/me/surface-links/{id}/nudge",
+      tags,
+      security,
+      summary: "My unread nudge on the surface: on or off, its delay, its quiet hours",
+      description:
+        "ADR 0234. On an active link of mine. The nudge comes at most once a day, only when no phone of mine takes pushes and I wrote through the surface in the last 30 days.",
+      request: { params: LinkParams, body: body(Nudge.partial()) },
+      responses: {
+        200: json(Nudge),
+        401: errors[401],
+        404: errorResponse("Not mine or not active (`surface.link_gone`), or off (`surface.off`)"),
+      },
+    }),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      requireSurface();
+      return c.json(await setNudge(db, c.get("user").id, id, c.req.valid("json")), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
       method: "delete",
       path: "/me/surface-links/{id}",
       tags,
@@ -178,6 +275,35 @@ export function surfaceRoutes(deps: AppDeps) {
       const { id } = c.req.valid("param");
       requireSurface();
       await removeLink(linkDeps, c.get("user").id, id);
+      return c.body(null, 204);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/me/surface-links/{id}/pin",
+      tags,
+      security,
+      summary: "Choose my PIN for confirming actions from the outside chat surface",
+      description:
+        "The signed-in session is what lets it be chosen (ADR 0226): a page link from the chat alone never sets one. Replaces any PIN and clears its lock. 10 an account per 10 minutes.",
+      request: { params: LinkParams, body: body(z.object({ pin: Pin })) },
+      responses: {
+        ...noContent,
+        ...errors,
+        404: errorResponse("Not my active link (`surface.link_gone`), or off (`surface.off`)"),
+        429: errorResponse("Too many tries (`rate_limited`)"),
+      },
+    }),
+    async (c) => {
+      const { id } = c.req.valid("param");
+      const user = c.get("user");
+      requireSurface();
+      if (!(await adapters.rateLimiter.consume(`surface-pin-set:${user.id}`, PIN_SETS_PER_USER)).allowed) {
+        return apiError(c, 429, "rate_limited", "Too many tries. Try again later.");
+      }
+      await setMySurfacePin(db, user.id, id, c.req.valid("json").pin);
       return c.body(null, 204);
     },
   );
@@ -203,6 +329,151 @@ export function surfaceRoutes(deps: AppDeps) {
       const limit = await adapters.rateLimiter.consume(`surface-undo:${ip}`, UNDO_PER_IP);
       if (!limit.allowed) return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
       return c.json(await undoSurfaceLink(linkDeps, c.req.valid("json").token), 200);
+    },
+  );
+
+  const resetByEmail = adapters.email.delivers === true;
+  const shown = ({ pin: { emailVerified, ...pin }, ...view }: SurfacePageView) => ({
+    ...view,
+    pin: { ...pin, resetByEmail: resetByEmail && emailVerified },
+  });
+  /** Who this browser is signed in as in the app: with no PIN yet, only that person's session chooses one. */
+  const signedIn = async (c: Context) => (await sessionUser(deps.auth, c.req.raw.headers))?.id ?? null;
+  const pageLimited = async (c: Context, key: string, limit: { limit: number; windowMs: number }) => {
+    const ip = requestLimitIp(c.req.raw.headers, deps.config.TRUSTED_PROXIES);
+    return !(await adapters.rateLimiter.consume(`${key}:${ip}`, limit)).allowed;
+  };
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/surface-page/open",
+      tags,
+      summary: "Open a page the outside chat surface linked to",
+      description:
+        "Public (ADR 0226). The page posts its token: a chat app's link preview, which only GETs the page, opens nothing. The first open, within 10 minutes of the link, binds it to this browser with a cookie; then only that browser reopens it, for an hour (an agent's screen 30 minutes, control 15). It ends early when its surface link ends or the person can no longer see what it shows. 30 tries per 10 minutes per IP address.",
+      request: { body: body(PageToken) },
+      responses: {
+        ...errors,
+        200: json(SurfacePage),
+        403: pageGone,
+        404: pageGone,
+        429: errorResponse("Too many tries (`rate_limited`)"),
+      },
+    }),
+    async (c) => {
+      if (await pageLimited(c, "surface-page", PAGE_PER_IP)) {
+        return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
+      }
+      const { token } = c.req.valid("json");
+      const name = pageCookie(token);
+      const opened = await openSurfacePage({ db }, token, getCookie(c, name) ?? null, await signedIn(c));
+      if (opened.secret) {
+        setCookie(c, name, opened.secret, {
+          path: "/api/app/surface-page",
+          httpOnly: true,
+          secure: deps.config.PUBLIC_URL.startsWith("https://"),
+          sameSite: "Strict",
+          maxAge: Math.ceil((Date.parse(opened.view.expiresAt) - Date.now()) / 1000),
+        });
+      }
+      return c.json(shown(opened.view), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/surface-page/decide",
+      tags,
+      summary: "Approve (with my PIN) or refuse the action the page shows",
+      description:
+        "Only from the browser that opened the page. Approving takes the six-digit PIN. With none set yet, it becomes the PIN only when this browser is signed in as the person; otherwise 409 `surface.pin_unset`, and the approval waits in the app. Three wrong PINs lock approving for 15 minutes, then an hour, then a day (`surface.pin_locked`, with `until`), and email the person. Who may decide is the app's rule.",
+      request: {
+        body: body(
+          PageToken.extend({
+            decision: z.enum(["approve", "refuse"]),
+            pin: z.string().max(20).optional(),
+          }),
+        ),
+      },
+      responses: {
+        ...errors,
+        200: json(SurfacePage),
+        403: errorResponse(
+          "`surface.pin_wrong` (with `left`), `surface.page_elsewhere`, or not one who decides it (`forbidden`)",
+        ),
+        404: pageGone,
+        409: errorResponse("No PIN set yet (`surface.pin_unset`), or already decided or expired (`conflict`)"),
+        429: errorResponse("`surface.pin_locked` (with `until`) or `rate_limited`"),
+      },
+    }),
+    async (c) => {
+      if (await pageLimited(c, "surface-page", PAGE_PER_IP)) {
+        return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
+      }
+      const { token, decision, pin } = c.req.valid("json");
+      const view = await decideOnSurfacePage(
+        { db, pubsub: adapters.pubsub },
+        token,
+        getCookie(c, pageCookie(token)) ?? null,
+        { decision, pin },
+        await signedIn(c),
+      );
+      return c.json(shown(view), 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/surface-page/pin-email",
+      tags,
+      summary: "Email me a link to choose my PIN (none set yet, or forgotten)",
+      description:
+        "Only from the browser that opened the page, on a server that sends email (else 404 `not_found`), to a verified address (else 403 `surface.email_unverified`). 3 emails an hour per IP address, and 3 an hour for the person.",
+      request: { body: body(PageToken) },
+      responses: {
+        ...noContent,
+        ...errors,
+        403: errorResponse("`surface.email_unverified`, or opened in another browser (`surface.page_elsewhere`)"),
+        404: pageGone,
+        429: errorResponse("Too many emails (`rate_limited`)"),
+      },
+    }),
+    async (c) => {
+      if (!resetByEmail) return apiError(c, 404, "not_found", "This server sends no email");
+      if (await pageLimited(c, "surface-pin-email", PIN_EMAILS_PER_IP)) {
+        return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
+      }
+      const { token } = c.req.valid("json");
+      await emailPinLink({ db, publicUrl: deps.config.PUBLIC_URL }, token, getCookie(c, pageCookie(token)) ?? null);
+      return c.body(null, 204);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/surface-pin",
+      tags,
+      summary: "Choose my PIN, from the emailed link",
+      description:
+        "Public, from the page the PIN email links to (`/email-undo?kind=surface-pin&token=`): the email to the verified address is what lets it be chosen. Once, within an hour; replaces any PIN and clears its lock. A PIN of the wrong shape (`surface.pin_shape`) spends nothing. 10 tries per 10 minutes per IP address.",
+      request: { body: body(PageToken.extend({ pin: z.string().max(20) })) },
+      responses: {
+        ...errors,
+        200: json(z.object({ surface: z.string() })),
+        404: errorResponse("Used or run out (`surface.pin_reset_gone`)"),
+        429: errorResponse("Too many tries (`rate_limited`)"),
+      },
+    }),
+    async (c) => {
+      if (await pageLimited(c, "surface-pin-reset", UNDO_PER_IP)) {
+        return apiError(c, 429, "rate_limited", "Too many requests. Try again later.");
+      }
+      const { token, pin } = c.req.valid("json");
+      return c.json(await setPinFromEmail(db, token, pin), 200);
     },
   );
 

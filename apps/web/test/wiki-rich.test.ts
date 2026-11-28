@@ -37,6 +37,13 @@ describe("the wiki's visual editor", () => {
     expect(open(source).save()).toBe(source);
   });
 
+  test("a numbered list that starts past 1 keeps its numbers when it is edited", () => {
+    const { root, save } = open("3. c\n4. d");
+    const items = root.querySelectorAll("ol li");
+    (items[1] as HTMLElement).textContent = "d, mudado";
+    expect(save()).toBe("3. c\n4. d, mudado");
+  });
+
   test("changing one block rewrites only that block; the others stay as written", () => {
     const source = "Primeira linha\nquebrada.\n\n- a\n  - b\n\nÚltimo parágrafo.";
     const { root, save } = open(source);

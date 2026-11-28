@@ -244,7 +244,7 @@ function Cells({ paths, tone }: { paths: Map<number, string>; tone: (v: number) 
 }
 
 /** What was tapped, under the chart ("first_trip_soft · 15%"). */
-function Picked({ text }: { text: string | null }) {
+export function Picked({ text }: { text: string | null }) {
   const reduced = useReducedMotion();
   // Each pick's words fade in over the last one's place.
   return (

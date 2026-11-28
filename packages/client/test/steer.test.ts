@@ -227,6 +227,12 @@ describe("what became of a message sent while an agent works", () => {
     expect(r.m1?.agents).toEqual([["ada", "seen"]]);
   });
 
+  test("into a run parked on an outage, its receipt says the AI isn't answering, never that it answers", () => {
+    const at = { channelId: "c1", threadId: null, agentId: "ada", runId: "r1", messageId: "m1" };
+    const r = applyReceiptEvent({}, { type: "agent.run.steered", ...at, outage: true });
+    expect(r.m1?.agents).toEqual([["ada", "outage"]]);
+  });
+
   test("run.continued and meta.canceled.continuedRunId mark the stopped reply", () => {
     const stopped = {
       id: "m9",

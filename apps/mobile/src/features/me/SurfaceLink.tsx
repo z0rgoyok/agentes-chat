@@ -7,14 +7,22 @@ import {
   useConfirmSurfaceLink,
   useMintSurfaceCode,
   useRemoveSurfaceLink,
+  useSetSurfaceNudge,
+  useSetSurfacePin,
   useSurfaceLinks,
 } from "@agenteschat/client";
 import { errorCode, errorText } from "@agenteschat/client/lib/errors";
 import { rightHandName } from "@agenteschat/client/lib/right-hand";
 import {
   codeDeadline,
+  DAY_HOURS,
+  hourLabel,
   LINK_POLL_MS,
+  NUDGE_AFTER_HOURS,
   newlyLinked,
+  pinChosen,
+  pinDigits,
+  pinMismatch,
   type SurfaceRow,
   surfaceMarkUrl,
   surfaceRowOf,
@@ -22,7 +30,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ActivityIndicator, Linking, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Linking, StyleSheet, TextInput, View } from "react-native";
 import { serverUrl } from "@/lib/server";
 import { useAppActive } from "@/lib/useAppActive";
 import { useOrg } from "@/providers/org";
@@ -30,6 +38,7 @@ import { Button, GroupedList, GroupedRow, haptics, Sheet, Text, useToast } from 
 import { iconUri } from "../connectors/logic";
 import { confirmAction } from "../settings/parts";
 import { useColors, useNow } from "../shared/hooks";
+import { pickOne } from "../shared/PickerSheet";
 import { MONO } from "../shared/parts";
 import {
   codeIsStale,
@@ -37,13 +46,15 @@ import {
   linkAssistant,
   linkRanOut,
   linkStep,
+  quietHoursText,
   surfaceRowText,
   surfaceSenderText,
 } from "./surface";
 
 /**
  * The outside chat surface's row in Notificações (ADR 0187), only where this account may link it: none opens the
- * sheet, pending opens it at the confirm, active shows the sender with Unlink.
+ * sheet, pending opens it at the confirm, active shows the sender with Unlink, and a row under it to choose the PIN
+ * (ADR 0226), which only the signed-in app can do.
  */
 export function SurfaceLinkRow() {
   const { t } = useTranslation();
@@ -53,6 +64,7 @@ export function SurfaceLinkRow() {
   const agents = useAgents(orgId);
   const remove = useRemoveSurfaceLink();
   const [open, setOpen] = useState(false);
+  const [pinOpen, setPinOpen] = useState(false);
   // The server sends no event when a pending link runs out, so the clock drops it, quickly while the sheet is open.
   const now = useNow(open ? 5_000 : 60_000);
   const row = surfaceRowOf(links.data, now);
@@ -89,8 +101,174 @@ export function SurfaceLinkRow() {
             ? { remove: { label: t("surface.row.unlink"), onPress: () => unlink(row.link) } }
             : { chevron: true, onPress: () => setOpen(true) })}
         />
+        {row.kind === "active" ? (
+          <GroupedRow
+            icon="lock"
+            label={row.link.pinSet ? t("surface.pin.change") : t("surface.pin.set")}
+            chevron
+            onPress={() => setPinOpen(true)}
+          />
+        ) : null}
+        {row.kind === "active" && (
+          <NudgeRows link={row.link} surface={row.surface} assistant={assistant ?? t("rightHand.labelCapitalized")} />
+        )}
       </GroupedList>
       <SurfaceLinkSheet open={open} onClose={() => setOpen(false)} row={row} />
+      <SurfacePinSheet
+        open={pinOpen}
+        onClose={() => setPinOpen(false)}
+        linkId={row.kind === "active" ? row.link.id : null}
+        surface={row.surface}
+      />
+    </>
+  );
+}
+
+/** Choosing the PIN, typed twice: the signed-in app is what lets it be chosen; a link from the chat never can. */
+function SurfacePinSheet({
+  open,
+  onClose,
+  linkId,
+  surface,
+}: {
+  open: boolean;
+  onClose: () => void;
+  linkId: string | null;
+  surface: string;
+}) {
+  const { t } = useTranslation();
+  const c = useColors();
+  const toast = useToast();
+  const save = useSetSurfacePin();
+  const [pin, setPin] = useState("");
+  const [again, setAgain] = useState("");
+  const error = pinMismatch(pin, again) ? t("surface.page.mismatch") : save.isError ? errorText(t, save.error) : null;
+  const field = (value: string, set: (v: string) => void, label: string) => (
+    <View style={[styles.pin, { backgroundColor: c.sunken, borderColor: c.line }]}>
+      <TextInput
+        value={value}
+        onChangeText={(v) => set(pinDigits(v))}
+        placeholder={label}
+        placeholderTextColor={c.faint}
+        accessibilityLabel={label}
+        keyboardType="number-pad"
+        secureTextEntry
+        textContentType="none"
+        autoComplete="off"
+        maxLength={6}
+        editable={!save.isPending}
+        style={[styles.pinInput, { color: c.ink }]}
+      />
+    </View>
+  );
+  return (
+    <Sheet
+      open={open}
+      onClose={onClose}
+      onGone={() => {
+        setPin("");
+        setAgain("");
+        save.reset();
+      }}
+    >
+      <View style={styles.col}>
+        <Text variant="title">{t("surface.pin.title", { surface })}</Text>
+        <Text variant="body" tone="muted">
+          {t("surface.pin.text", { surface })}
+        </Text>
+        {field(pin, setPin, t("surface.page.choosePin"))}
+        {field(again, setAgain, t("surface.page.repeatPin"))}
+        {error ? (
+          <Text variant="small" tone="danger" accessibilityLiveRegion="polite">
+            {error}
+          </Text>
+        ) : null}
+        <Button
+          variant="primary"
+          wide
+          label={t("surface.pin.save")}
+          loading={save.isPending}
+          disabled={!linkId || !pinChosen(pin, again)}
+          onPress={() =>
+            linkId &&
+            save.mutate(
+              { linkId, pin },
+              {
+                onSuccess: () => {
+                  haptics.success();
+                  toast({ title: t("surface.pinReset.done"), icon: "check" });
+                  onClose();
+                },
+                onError: () => haptics.warning(),
+              },
+            )
+          }
+        />
+      </View>
+    </Sheet>
+  );
+}
+
+/**
+ * The unread nudge under the linked surface, as on the web (ADR 0234): its switch, then its delay and quiet hours,
+ * each picked in the app's sheet and saved at once.
+ */
+function NudgeRows({ link, surface, assistant }: { link: SurfaceLink; surface: string; assistant: string }) {
+  const { t, i18n } = useTranslation();
+  const toast = useToast();
+  const save = useSetSurfaceNudge();
+  const { nudge } = link;
+  const change = (input: Partial<SurfaceLink["nudge"]>) =>
+    save.mutate({ linkId: link.id, ...input }, { onError: (e) => toast({ title: errorText(t, e), icon: "x" }) });
+  const hours = DAY_HOURS.map((h) => ({ key: String(h), label: hourLabel(i18n.language, h) }));
+  const pickAfter = async () => {
+    const key = await pickOne({
+      title: t("surface.nudge.after"),
+      value: String(nudge.afterHours),
+      options: NUDGE_AFTER_HOURS.map((h) => ({ key: String(h), label: t("surface.nudge.hours", { hours: h }) })),
+    });
+    if (key) change({ afterHours: Number(key) });
+  };
+  const pickQuiet = async () => {
+    const from = await pickOne({ title: t("surface.nudge.quietFrom"), value: String(nudge.quietFrom), options: hours });
+    if (!from) return;
+    const to = await pickOne({ title: t("surface.nudge.quietTo"), value: String(nudge.quietTo), options: hours });
+    if (to) change({ quietFrom: Number(from), quietTo: Number(to) });
+  };
+  const title = t("surface.nudge.title");
+  const quiet = t("surface.nudge.quiet");
+  return (
+    <>
+      <GroupedRow
+        icon="bell"
+        label={title}
+        labelLines={0}
+        hint={{ name: t("common.about", { label: title }), text: t("surface.nudge.hint", { assistant, surface }) }}
+        toggle={nudge.on}
+        disabled={save.isPending}
+        onPress={() => change({ on: !nudge.on })}
+      />
+      {nudge.on && (
+        <>
+          <GroupedRow
+            icon="clock"
+            label={t("surface.nudge.after")}
+            value={t("surface.nudge.hours", { hours: nudge.afterHours })}
+            menu
+            disabled={save.isPending}
+            onPress={() => void pickAfter()}
+          />
+          <GroupedRow
+            icon="mute"
+            label={quiet}
+            value={quietHoursText(t, i18n.language, nudge)}
+            hint={{ name: t("common.about", { label: quiet }), text: t("surface.nudge.quietHint") }}
+            menu
+            disabled={save.isPending}
+            onPress={() => void pickQuiet()}
+          />
+        </>
+      )}
     </>
   );
 }
@@ -401,4 +579,6 @@ const styles = StyleSheet.create({
   making: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, minHeight: 48 },
   sender: { borderRadius: 14, padding: 16, gap: 4 },
   strong: { fontWeight: "600" },
+  pin: { borderRadius: 12, borderWidth: StyleSheet.hairlineWidth, paddingHorizontal: 14 },
+  pinInput: { fontSize: 22, letterSpacing: 6, minHeight: 48 },
 });

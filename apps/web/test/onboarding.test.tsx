@@ -13,6 +13,7 @@ import {
   ATLAS_ID,
   createFakeApi,
   type FakeState,
+  fakeMachinesOf,
   GENERAL_ID,
   LODI_ID,
   ORG_ID,
@@ -36,6 +37,7 @@ const realFetch = globalThis.fetch;
 afterEach(() => {
   cleanup();
   sessionStorage.clear();
+  localStorage.clear();
   globalThis.fetch = realFetch;
   focusManager.setFocused(undefined);
 });
@@ -57,6 +59,13 @@ const type = async (label: string, value: string) => {
 const calls = (state: FakeState, method: string) => state.calls.filter((c) => c.method === method);
 const heading = () => document.querySelector(".onb__title")?.textContent;
 const eyebrow = () => document.querySelector(".onb__eyebrow")?.textContent;
+/** The rail's steps that say "Depois", and whether each is marked left for later (a dash, never the done check). */
+const laterSteps = () =>
+  [...document.querySelectorAll(".onb__steps > li")]
+    .filter((li) => li.querySelector(".onb__step-sub")?.textContent === "Depois")
+    .map((li) => li.hasAttribute("data-later"));
+/** The step the rail marks as the one the person is on. */
+const railCurrent = () => document.querySelector(".onb__step[aria-current='step']")?.textContent;
 /** The plan step's card: its button shares the rail step's name, "Ligar o time". */
 const planCard = () => document.querySelector(".onb__plan") as HTMLElement;
 const GREETING = "Oi, eu sou o Lodi. Monto o time com você.";
@@ -168,6 +177,7 @@ const plans = (list: unknown | null) => {
 };
 const PLANS = {
   recommended: "team",
+  recommendedAlone: "personal",
   plans: [
     { key: "personal", name: "Pessoal", price: "$29", period: "month" },
     { key: "team", name: "Equipe", price: "$49", period: "month" },
@@ -327,8 +337,14 @@ describe("the steps", () => {
     expect(heading()).toBe("O que a Ateliê Couto faz?");
     await click(button("Outra coisa"), 4);
     expect((button("Continuar") as HTMLButtonElement).disabled).toBe(true);
+    // Why Continue waits, in sight under the field; no ⓘ with an empty bubble.
+    const needed = "Com Outra coisa, escreva aqui o que vocês fazem para continuar.";
+    const field = screen().getByLabelText("Em uma frase").closest(".ac-field") as HTMLElement;
+    expect(field.textContent).toContain(needed);
+    expect(field.querySelector(".ac-hintline")).toBeNull();
     await type("Em uma frase", "Roupas sob medida para noivas");
     expect((button("Continuar") as HTMLButtonElement).disabled).toBe(false);
+    expect(field.textContent).not.toContain(needed);
   });
 
   test("self-hosted (no plans), the server's AI there: Criar o time goes on to inviting people, never the AI step", async () => {
@@ -368,6 +384,7 @@ describe("the steps", () => {
     expect(heading()).toBe(PEOPLE);
     expect(eyebrow()).toBe("Passo 6 de 6");
     expect(document.querySelector(".onb__steps")?.textContent).toContain("Depois");
+    expect(laterSteps()).toEqual([true]);
     await click(button("Convidar depois"), 16);
     expect(calls(state, "orgs.saveOnboarding").at(-1)?.args).toEqual([orgId, { finished: true }]);
     expect(router.state.location.pathname).toMatch(new RegExp(`^/org/${orgId}/c/`));
@@ -500,6 +517,29 @@ describe("the steps", () => {
       window.matchMedia = native;
     }
   });
+
+  test("past a team step left with no agents, the preview is what the workspace has: no place waiting for a team", async () => {
+    const native = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === "(min-width: 1200px)",
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      plans(PLANS);
+      await renderApp("/onboarding", {
+        api: createFakeApi(settingUp({ context: "Loja online", step: "agents", held: true })),
+      });
+      await settle(14);
+      expect(heading()).toBe("Ligue o time");
+      const preview = document.querySelector(".onb-preview") as HTMLElement;
+      expect(preview.querySelector(".sidebar__org-meta")?.textContent).toBe("1 membro · 1 agente");
+      expect(preview.querySelector(".onb-preview__ghost")).toBeNull();
+    } finally {
+      window.matchMedia = native;
+    }
+  });
 });
 
 describe("the plan step (agentes.chat Cloud)", () => {
@@ -547,7 +587,7 @@ describe("the plan step (agentes.chat Cloud)", () => {
       name: "Por que pago?",
     });
     expect(document.getElementById(why.getAttribute("aria-describedby") ?? "")?.textContent).toContain(
-      "Rodar no seu servidor é grátis.",
+      "Rodar o agentes.chat no seu próprio servidor ou computador é grátis.",
     );
   });
 
@@ -666,10 +706,12 @@ describe("a workspace being set up resumes from its data", () => {
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/c/${GENERAL_ID}`);
   });
 
-  test("back from paying: the payment received, then the AI step once the hold lifts; back without: the plan", async () => {
+  test("back from paying: the payment received, the plan turned on, then the AI step; back without: the plan", async () => {
     const paid = noAiYet(settingUp({ context: "Loja online", team: true, held: true }));
     plans(PLANS);
-    const { router } = await renderApp(`/org/${ORG_ID}/onboarding?paid=1`, { api: createFakeApi(paid) });
+    const { router } = await renderApp(`/org/${ORG_ID}/onboarding?paid=1&plan=team&period=year`, {
+      api: createFakeApi(paid),
+    });
     await settle(14);
     expect(router.state.location.pathname).toBe("/onboarding");
     expect(heading()).toBe("Ligue o time");
@@ -685,6 +727,17 @@ describe("a workspace being set up resumes from its data", () => {
       focusManager.setFocused(true);
     });
     await settle(16);
+    // The moment it turned on, between the plan and the step after it: the plan in force by its name, what it gives,
+    // the team awake, and the step the rail marks as its one way on. No step number: the moment is no step.
+    expect(heading()).toBe("Você está no plano Equipe, anual");
+    expect(document.querySelector(".onb__lead")?.textContent).toBe("Sem limite de pessoas nem de arquivos.");
+    // Where people connect their own computers (the fake's), not a word of one.
+    expect(document.querySelector(".onb__say")?.textContent).toBe("Estamos todos aqui. Vamos ao trabalho.");
+    expect(eyebrow()).toBeUndefined();
+    expect(railCurrent()).toContain("Conectar uma IA");
+    expect(planCard().querySelector(".paid-scene")).toBeTruthy();
+    expect(within(planCard()).queryByRole("button", { name: "Ligar o time" })).toBeNull();
+    await click(within(planCard()).getByRole("button", { name: /Conectar uma IA/ }), 16);
     expect(heading()).toBe(CONNECT);
     // The plan stays on the rail, on, and is never asked again.
     expect(document.querySelector(".onb__steps")?.textContent).toContain("Ligado");
@@ -709,6 +762,114 @@ describe("a workspace being set up resumes from its data", () => {
     await settle(14);
     expect(again.router.state.location.pathname.startsWith(`/org/${ORG_ID}/`)).toBe(true);
     expect(document.querySelector(".onb")).toBeNull();
+  });
+
+  test("back from paying with the plan already on: the moment once, and a reload goes straight to the AI step", async () => {
+    // The plan step was shown before Checkout ("computer"), and the billing service lifted the hold before the return.
+    const paidOn = () => {
+      const state = noAiYet(settingUp({ context: "Loja online", team: true, step: "computer" }));
+      state.authConfig = { billingUrl: "https://billing.example.com" };
+      return state;
+    };
+    plans(PLANS);
+    await renderApp(`/org/${ORG_ID}/onboarding?paid=1`, { api: createFakeApi(paidOn()) });
+    await settle(16);
+    expect(heading()).toBe("O seu plano está ativo");
+    expect(document.querySelector(".onb__lead")?.textContent).toBe("Sem limite de pessoas nem de arquivos.");
+    cleanup();
+    plans(PLANS);
+    await renderApp(`/org/${ORG_ID}/onboarding?paid=1`, { api: createFakeApi(paidOn()) });
+    await settle(16);
+    expect(heading()).toBe(CONNECT);
+  });
+
+  test("the moment never holds the rail: a step picked on it opens at once", async () => {
+    const state = noAiYet(settingUp({ context: "Loja online", team: true, step: "computer" }));
+    state.authConfig = { billingUrl: "https://billing.example.com" };
+    plans(PLANS);
+    await renderApp(`/org/${ORG_ID}/onboarding?paid=1`, { api: createFakeApi(state) });
+    await settle(16);
+    expect(heading()).toBe("O seu plano está ativo");
+    const during = railCurrent();
+    const first = document.querySelectorAll<HTMLButtonElement>(".onb__step")[0] as HTMLButtonElement;
+    expect(first.disabled).toBe(false);
+    await click(first, 12);
+    expect(heading()).not.toBe("O seu plano está ativo");
+    expect(railCurrent()).not.toBe(during);
+    expect(railCurrent()).toContain("Nome do workspace");
+  });
+
+  test("the moment over a rail that went further: its one button is the step the rail marks, its words what is true", async () => {
+    // The AI left for later before paying ("ai"): the people are next, the AI step answered "Depois".
+    const further = () => {
+      const state = noAiYet(settingUp({ context: "Loja online", team: true, step: "ai" }));
+      state.authConfig = { billingUrl: "https://billing.example.com" };
+      return state;
+    };
+    plans(PLANS);
+    const api = createFakeApi(further());
+    fakeMachinesOf.get(api)?.setSetup({ state: "waiting", reason: "capacity" });
+    await renderApp(`/org/${ORG_ID}/onboarding?paid=1`, { api });
+    await settle(16);
+    expect(heading()).toBe("O seu plano está ativo");
+    // The computer still waits: never "the computer is on".
+    expect(document.querySelector(".onb__say")?.textContent).toBe(
+      "Estamos todos aqui. Avisamos quando o computador estiver ligado.",
+    );
+    expect(planCard().querySelector(".ac-computer")?.getAttribute("data-state")).toBe("paused");
+    // One count: the rail's, at the people; the moment shows no step number of its own.
+    expect(eyebrow()).toBeUndefined();
+    expect(railCurrent()).toContain("Convidar pessoas");
+    expect(document.querySelector(".onb__progress-text")?.textContent).toBe("Falta 1 etapa");
+    expect(within(planCard()).queryByRole("button", { name: /Conectar uma IA/ })).toBeNull();
+    await click(within(planCard()).getByRole("button", { name: /Convidar pessoas/ }), 16);
+    expect(heading()).toBe(PEOPLE);
+    expect(eyebrow()).toBe("Passo 7 de 7");
+    cleanup();
+    localStorage.clear();
+
+    // On: its words say so, and it lights up on the sky.
+    plans(PLANS);
+    const on = createFakeApi(further());
+    const machines = fakeMachinesOf.get(on);
+    const m = machines?.pair({ name: "Computador da Ateliê Couto", kind: "managed", os: "other", online: true });
+    machines?.setSetup({ state: "ready", machineId: m?.id ?? null });
+    await renderApp(`/org/${ORG_ID}/onboarding?paid=1`, { api: on });
+    await settle(16);
+    expect(document.querySelector(".onb__say")?.textContent).toBe(
+      "Estamos todos aqui e o computador está ligado. Vamos ao trabalho.",
+    );
+  });
+
+  test("one count on every step: the page's number is the step the rail marks, and the rail says only what is left", async () => {
+    /** The rail's marked step is the page's "Passo n de N", and no other count of steps shows. */
+    const agrees = () => {
+      const rail = [...document.querySelectorAll(".onb__step")];
+      const at = rail.findIndex((b) => b.getAttribute("aria-current") === "step");
+      expect(eyebrow()).toBe(`Passo ${at + 1} de ${rail.length}`);
+      expect(document.querySelector(".onb__progress-text")?.textContent).not.toMatch(/\d+ de \d+/);
+    };
+    plans(PLANS);
+    const states: [string, FakeState][] = [
+      ["business", settingUp()],
+      ["team", settingUp({ context: "Loja online" })],
+      ["plan", settingUp({ context: "Loja online", team: true, held: true })],
+      ["ai", noAiYet(settingUp({ context: "Loja online", team: true }))],
+      ["people", settingUp({ context: "Loja online", team: true })],
+    ];
+    for (const [step, state] of states) {
+      await renderApp("/onboarding", { api: createFakeApi(state) });
+      await settle(16);
+      expect({ step, title: heading() }).not.toEqual({ step, title: undefined });
+      agrees();
+      if (step === "people") {
+        // A step gone back to: the page and the rail move together.
+        await click(document.querySelectorAll<HTMLButtonElement>(".onb__step")[0] as HTMLButtonElement, 12);
+        agrees();
+        expect(eyebrow()).toBe("Passo 1 de 6");
+      }
+      cleanup();
+    }
   });
 
   test("asked to delete the workspace being set up: its dialog, and nothing is finished", async () => {
@@ -738,6 +899,7 @@ describe("a team with no agents for now (ADR 0162, amended 2026-11-11)", () => {
     expect(eyebrow()).toBe("Passo 5 de 6");
     // The team step answered, its agents to come; Lodi alone wakes with the AI, the people still to come.
     expect(document.querySelector(".onb__steps")?.textContent).toContain("Depois");
+    expect(laterSteps()).toEqual([true]);
     expect(document.querySelector(".onb__say")?.textContent).toBe(
       "Escolha a IA que você já usa e eu acordo. Depois, falta só chamar as pessoas.",
     );
@@ -1038,6 +1200,21 @@ describe("inviting people, a team's last step (ADR 0162, amended 2026-11-11)", (
     expect(landed.at(-1)?.arrival).toBe("1");
   });
 
+  test("a server only its own computer opens: said once over the addresses, before any e-mail goes", async () => {
+    const state = settingUp({ context: "Loja online", team: true });
+    state.authConfig = { ...state.authConfig, localOnly: true };
+    await renderApp("/onboarding", { api: createFakeApi(state) });
+    await settle(16);
+    expect(heading()).toBe(PEOPLE);
+    expect(
+      screen()
+        .getAllByRole("alert")
+        .map((a) => a.textContent),
+    ).toEqual([
+      "Este servidor só abre no computador onde ele roda, então quem você convidar não consegue abrir o convite.",
+    ]);
+  });
+
   test("Convidar depois opens the workspace with no invitation; an address already in is said and left out", async () => {
     const state = settingUp({ context: "Loja online", team: true });
     const { router } = await renderApp("/onboarding", { api: createFakeApi(state) });
@@ -1157,8 +1334,11 @@ describe("for me (ADR 0159)", () => {
     // Its right hand alone, asleep until the plan, said as what it is (it has no role), and the button in its words.
     expect(planCard().querySelectorAll(".onb__plan-face")).toHaveLength(1);
     expect(planCard().querySelector(".onb__plan-week")?.textContent).toBe("Lodi · Seu braço direito");
-    expect(within(planCard()).getByRole("button", { name: "Ligar os agentes" })).toBeTruthy();
     expect(within(planCard()).queryByRole("button", { name: "Ligar o time" })).toBeNull();
+    // The plan for one person, never the team's, and its Checkout.
+    expect(planCard().textContent).toContain("Plano Pessoal · $29 por mês");
+    await click(within(planCard()).getByRole("button", { name: "Ligar os agentes" }), 6);
+    expect(calls(state, "orgs.billingLink").map((c) => c.args)).toEqual([[orgId, "onboarding", "personal"]]);
     await click(button("Ligar depois e só conhecer o workspace"), 16);
     expect(calls(state, "orgs.saveOnboarding").map((c) => c.args)).toEqual([
       [orgId, { step: "agents" }],

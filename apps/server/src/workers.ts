@@ -25,6 +25,7 @@ import {
   expireApprovals,
   expireBrowserHandoffs,
   expireConsultations,
+  expireFolderRequests,
   expireQuestions,
   expireSecretRequests,
   type FeedbackFileDeps,
@@ -58,6 +59,7 @@ import {
   purgeDeletedWikiPages,
   purgeTelegramUpdates,
   queueApprovalDigests,
+  queueSurfaceNudges,
   reapRoutineRuns,
   recheckStuckPlans,
   reconcileComposioAccounts,
@@ -265,6 +267,8 @@ export const WORKER_INTERVALS_MS = {
   opsReport: 3600_000,
   /** AI apps' expired requests, tokens and unused registrations (ADR 0119). */
   apps: 3600_000,
+  /** People due a nudge on the outside chat surface (ADR 0234): their delay is in whole hours. */
+  surfaceNudges: 15 * 60_000,
   /** Alerts the autonomy brakes held as noise, posted as one digest per agent and conversation (ADR 0131 §5). */
   autonomyDigest: 10 * 60_000,
   /** Widget tests nobody confirmed within a day go, with their routines (ADR 0135 §16). */
@@ -412,6 +416,16 @@ export function startWorkers(deps: WorkerDeps) {
   every("vaultSyncs", WORKER_INTERVALS_MS.vaultSyncs, async () => {
     if ((await enqueueVaultSyncs(db)) > 0) void ticks.get("outbox")?.();
   });
+  every(
+    "surfaceNudges",
+    WORKER_INTERVALS_MS.surfaceNudges,
+    async () => {
+      if (!(await sweepsHere(db, deps.role))) return;
+      const queued = await queueSurfaceNudges(db);
+      if (queued > 0) log.info("queued surface nudges", { queued });
+    },
+    bootDelay,
+  );
   // Next months' message partitions (the boot made this one), and what the server keeps only a while.
   daily("partitions", async () => {
     const created = await ensureMessagePartitions(db);
@@ -465,10 +479,15 @@ export function startWorkers(deps: WorkerDeps) {
   });
 
   every("consultations", WORKER_INTERVALS_MS.approvals, async () => {
-    const expired = await expireConsultations({ db, pubsub: deps.pubsub });
+    const expired = await expireConsultations({ db, pubsub: deps.pubsub, judge: deps.context?.judge });
     if (expired > 0) log.info("agent consultations expired", { expired });
     const asks = await expireAgentProposalAsks({ db, pubsub: deps.pubsub });
     if (asks > 0) log.info("expired agent proposals left the inbox", { asks });
+  });
+
+  every("folderRequests", WORKER_INTERVALS_MS.approvals, async () => {
+    const expired = await expireFolderRequests({ db, pubsub: deps.pubsub });
+    if (expired > 0) log.info("folder requests expired", { expired });
   });
 
   every("secrets", WORKER_INTERVALS_MS.approvals, async () => {
@@ -478,7 +497,7 @@ export function startWorkers(deps: WorkerDeps) {
 
   every("recovery", WORKER_INTERVALS_MS.recovery, async () => {
     const r = await recoverStaleRuns(
-      { db, pubsub: deps.pubsub },
+      { db, pubsub: deps.pubsub, judge: deps.context?.judge },
       { onError: (runId, error) => log.warn("a stale run couldn't be recovered", { runId, error: String(error) }) },
     );
     if (r.resumed.length + r.failed.length + r.requeued.length > 0) log.info("stale runs recovered", r);

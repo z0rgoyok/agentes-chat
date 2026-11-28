@@ -54,8 +54,8 @@ export function General() {
   const [reopening, setReopening] = useState(false);
   const iconShown = menuBarShown(menuBar, works || local.run);
   useEffect(() => {
-    void host.setTrayVisible(iconShown).catch(() => {});
-  }, [host, iconShown]);
+    void host.setTrayVisible(iconShown, menuBar === false).catch(() => {});
+  }, [host, iconShown, menuBar]);
 
   // An opening that fell back to compatibility mode says so here once, with the way back to the graphics card.
   // biome-ignore lint/correctness/useExhaustiveDependencies: read once per window

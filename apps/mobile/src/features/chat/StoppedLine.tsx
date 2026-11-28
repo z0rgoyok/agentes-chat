@@ -162,6 +162,11 @@ export function SpeedFallbackLine({ message }: { message: Message }) {
   );
 }
 
+/** Under a reply that thought on another computer because the agent's own was full or away (`meta.spilled`). */
+export function SpilledLine({ text }: { text: string }) {
+  return <EventPill mark="laptop">{text}</EventPill>;
+}
+
 /**
  * Under a reply "Automático" gave with another model because the plan refused the one it maps to
  * (`meta.modelStandIn`). Whoever may change the agent gets "Usar o <modelo> em todos" (the key's screen, on that

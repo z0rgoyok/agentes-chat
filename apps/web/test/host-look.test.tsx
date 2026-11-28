@@ -6,6 +6,7 @@ setupDom();
 import type { HostLook } from "@agenteschat/client";
 import { DOCS_SITE } from "@agenteschat/i18n/docs";
 import { accentPalette } from "@agenteschat/ui";
+import { LOGO_PLATES } from "@agenteschat/ui/org-logo";
 import { act, cleanup } from "@testing-library/react";
 import { brandTabTitle, createI18n, translateTabTitle } from "@/i18n";
 import { createFakeApi, ORG_ID, seedState } from "./fake-api";
@@ -47,6 +48,20 @@ describe("the sign-in page", () => {
     // On a Cloud server too: no line naming the product's service, no way to its chooser.
     await settle(4);
     expect(document.querySelector(".auth__place")).toBeNull();
+  });
+
+  test("on a registered host whose logo has light ink: the lockup says so, for its plate", async () => {
+    await signInPage({ ...NORTHWIND, logoUrl: `${NORTHWIND.logoUrl}#ink=light` }, false);
+    expect(screen().getByRole("img", { name: "Northwind Studio" }).getAttribute("data-ink")).toBe("light");
+    cleanup();
+    await signInPage(NORTHWIND, false);
+    expect(screen().getByRole("img", { name: "Northwind Studio" }).hasAttribute("data-ink")).toBe(false);
+    // The plate, as a workspace's `.org-mark`: dark behind light ink on light, white behind dark ink on dark.
+    const css = await Bun.file(new URL("../src/components/auth.css", import.meta.url).pathname).text();
+    const rule = (selector: string) => css.split(`\n${selector} {`)[1]?.split("}")[0] ?? "";
+    expect(rule('.auth__host-logo[data-ink="light"]')).toContain(`background: ${LOGO_PLATES.lightInk};`);
+    expect(rule('[data-theme="dark"] .auth__host-logo')).toContain(`background: ${LOGO_PLATES.darkInk};`);
+    expect(rule('[data-theme="dark"] .auth__host-logo[data-ink="light"]')).toContain("background: none;");
   });
 
   test("on a registered host with no logo: its name alone in the lockup's place", async () => {

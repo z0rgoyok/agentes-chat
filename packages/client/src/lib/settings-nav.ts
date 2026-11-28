@@ -14,9 +14,9 @@ export const SETTINGS_PARTS: Readonly<Record<string, string>> = {
   media: "general",
   voice: "general",
   billing: "usage",
-  skills: "connectors",
   vault: "connectors",
   access: "connectors",
+  integrations: "connectors",
 };
 
 /** A team's entries, in order: Your account, Workspace, People, Roles, AI and usage, Connectors. */

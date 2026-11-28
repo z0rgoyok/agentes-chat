@@ -29,6 +29,7 @@ import {
   isCatchUp,
   listIssues,
   loadAgentStatuses,
+  markChannelRead,
   moveRun,
   moveToBackground,
   openDm,
@@ -200,6 +201,13 @@ test("work_in_background: the anchor in the timeline, updates in its thread, the
   const notes = await f.db.select().from(schema.notifications);
   expect(notes.some((n) => n.groupKey === `work_end:${work?.id}`)).toBe(true);
   expect(notes.map((n) => n.source.messageId)).not.toContain(update?.id);
+
+  // Read where it landed, the report leaves the inbox like any answer there.
+  await markChannelRead(f.db, f.owner.id, f.org.id, f.general.id, new Date(), f.pubsub);
+  const after = await f.db.select().from(schema.notifications);
+  expect(after.filter((n) => n.groupKey === `work_end:${work?.id}`).map((n) => [n.userId, n.doneAt !== null])).toEqual([
+    [f.owner.id, true],
+  ]);
 });
 
 test("a work frees the conversation: a new message, or a reply in the anchor's thread, starts a reply turn of its own", async () => {
@@ -1303,6 +1311,19 @@ test("a follow-up does what the work left undone, as the person who asked, where
   expect(work.requestedByUserId).toBe(f.owner.id);
 });
 
+test("a follow-up of an ask bridged in from an outside chat answers for them, never as their own words (ADR 0250)", async () => {
+  f = await setup({ workTools: true, toolSources: [createPassToolSource()] });
+  const bia = await member("bia");
+  const { run, asked } = await passedOn("depois posta o resumo no #time", bia.id);
+  await f.db.update(schema.messages).set({ origin: "surface" }).where(eq(schema.messages.id, asked));
+  await endWork(deps(), await finishRun(run.id), "done");
+  await f.db.delete(schema.outbox).where(eq(schema.outbox.kind, "agent_run.execute"));
+  await drainOutbox(f.db, f.handlers);
+  const [notice] = await followUpNotices();
+  const followUp = (await runs()).find((r) => r.triggerMessageId === notice?.id) as AgentRun;
+  expect(await runAuthority(f.db, followUp)).toEqual({ kind: "person", personId: bia.id, relayed: true });
+});
+
 test("two people pass asks on to one work: one follow-up each, on their own authority, and no card decided for the other", async () => {
   const isDecision = (req: ModelRequest) => JSON.stringify(req.system).includes("workspace's right hand. ");
   f = await setup({
@@ -1394,6 +1415,25 @@ test("a work's done end takes what was passed on to it and never read: the follo
   expect((await runById(run.id))?.pendingMessageIds).toEqual([]);
   // The second line started no run: had it stayed in the inbox, the release would hand it on.
   expect(await releaseInbox(f.db, f.pubsub, ended, { reason: "done" })).toBeNull();
+});
+
+test("a check-in or move note its turn never read starts no run of its own when that turn ends", async () => {
+  f = await setup({ workTools: true });
+  const run = await working("@dev roda a migração da cobrança");
+  const { work, anchor } = await moved(run, { title: "Migração da cobrança" });
+  const note = await f.db.transaction((tx) =>
+    deliverNoticeToRun(
+      tx,
+      { ...run, threadRootId: anchor.id },
+      { kind: "work_check_in", text: "This is now background work.", refs: { workId: work.id, kind: "moved" } },
+    ),
+  );
+  expect((await runById(run.id))?.pendingMessageIds).toContain(note.message.id);
+  const before = (await runs()).length;
+  // Cut off before it read it (its computer stopped the turn): nothing goes on from an instruction meant for that turn.
+  const ended = await finishRun(run.id);
+  expect(await releaseInbox(f.db, f.pubsub, ended, { reason: "done" })).toBeNull();
+  expect(await runs()).toHaveLength(before);
 });
 
 test("a work that ends at its step cap keeps what its asker passed on to it and it never read, for Continuar", async () => {

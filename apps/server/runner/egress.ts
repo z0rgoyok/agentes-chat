@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
-import { isIP } from "node:net";
+import { BlockList, isIP } from "node:net";
+import { type NetworkInterfaceInfo, networkInterfaces } from "node:os";
 import type { MachineEgress } from "@agenteschat/adapters/machine-protocol";
 import { type AgentUser, systemLauncher } from "./agent-users";
 
@@ -29,6 +30,30 @@ export function publicAddress(ip: string): boolean {
     !(a === 198 && (b === 18 || b === 19)) &&
     !(a === 100 && b >= 64 && b <= 127)
   );
+}
+
+/**
+ * Whether `ip` is on one of this computer's own networks (an interface's subnet). `publicAddress` lets a global IPv6
+ * address through, yet devices at home have those too (the router is often the prefix's `::1`), as can a LAN with
+ * public IPv4 addresses: a connection lent to others never reaches those.
+ */
+export function onOwnNetwork(
+  ip: string,
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces(),
+): boolean {
+  const family = isIP(ip);
+  if (!family) return false;
+  const own = new BlockList();
+  for (const a of Object.values(interfaces).flat()) {
+    const [net, prefix] = a?.cidr?.split("/") ?? [];
+    if (!net || !prefix) continue;
+    try {
+      own.addSubnet(net, Number(prefix), net.includes(":") ? "ipv6" : "ipv4");
+    } catch {
+      // An address the list can't hold is no network to keep out.
+    }
+  }
+  return own.check(ip, family === 6 ? "ipv6" : "ipv4");
 }
 
 export function parseEgress(value: unknown): MachineEgress | null {

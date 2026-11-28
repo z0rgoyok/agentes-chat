@@ -1,9 +1,11 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
   ACCESS_ALLOW_PROTOCOL,
+  AGENTS_CLI_PROTOCOL,
   BROWSER_PROFILE_PROTOCOL,
   CLI_INSTALL_PROTOCOL,
   DESKTOP_PROTOCOL,
+  EGRESS_SHARE_PROTOCOL,
   HEARTBEAT_MS,
   MACHINE_CLOSE,
   MACHINE_TOKEN_PREFIX,
@@ -12,6 +14,7 @@ import {
   type PubSub,
   REMOTE_PAUSE_PROTOCOL,
   RUNNER_STOPPED_CLOSE,
+  type TaskRoomReport,
 } from "@agenteschat/adapters";
 import {
   and,
@@ -19,6 +22,7 @@ import {
   desc,
   type Executor,
   eq,
+  gte,
   inArray,
   isNotNull,
   isNull,
@@ -36,8 +40,9 @@ import { ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { publishOrgEvent } from "./events";
 import { can, requireActiveMembership, requirePermission } from "./organizations";
 import { maySql } from "./permissions";
-import { isRightHand, RIGHT_HAND, rightHandPermanent } from "./right-hand";
+import { isRightHand, RIGHT_HAND } from "./right-hand";
 import { liveSeats, oneUserComputer, removedSeatIds, removeSeat, SHARED_SEAT, seatName } from "./right-hand-seats";
+import { folderPickable, runByApp, runnerUpdateOf } from "./runner-update";
 
 const { machines, agents, users, organizationMembers } = schema;
 
@@ -87,11 +92,15 @@ export class MachineOfflineError extends Error {
   constructor(
     readonly machineName: string,
     kind: string | null | undefined,
+    /** Away for what we do to it (`shownMaintenance`): said instead of not answering. */
+    maintenance?: ShownMaintenance | null,
   ) {
     super(
-      kind === "managed"
-        ? `The computer ${machineName} isn't answering right now. It usually comes back within minutes.`
-        : `The computer ${machineName} is offline. Ask its owner to start the runner.`,
+      maintenance?.away
+        ? maintenanceWords(machineName, maintenance)
+        : kind === "managed"
+          ? `The computer ${machineName} isn't answering right now. It usually comes back within minutes.`
+          : `The computer ${machineName} is offline. Ask its owner to start agentes.chat there.`,
     );
     this.name = "MachineOfflineError";
   }
@@ -189,6 +198,91 @@ export const shownOnline = (
   row: Pick<MachineRow, "online" | "lastSeenAt" | "deletedAt" | "kind" | "standbyAt" | "wakeWantedAt">,
   now = new Date(),
 ) => machineOnline(row, now) || shownStandby(row, now);
+
+/** The longest the apps say what we do to a computer with no time it should end: past it, its real state shows. */
+export const MOVING_SHOWN_MS = 2 * 60 * 60_000;
+/** How long past its expected end what we do is still said ("taking longer than expected"), then its real state. */
+export const MAINTENANCE_OVERRUN_MS = 30 * 60_000;
+/** The longest what we do is said after the operator's latest word, whatever its `eta`: a far one can't stick. */
+export const MAINTENANCE_LONGEST_MS = 24 * 60 * 60_000;
+
+/** What we do to the workspace's own computer as people see it (`shownMaintenance`). */
+export interface ShownMaintenance {
+  kind: schema.MaintenanceKind;
+  since: string;
+  eta: string | null;
+  detail: schema.MaintenanceDetail | null;
+  /** It is away for it: the apps say this instead of offline. False: it works, maybe slower. */
+  away: boolean;
+}
+
+/**
+ * What we do to the workspace's own computer as people see it (ADR 0257): a move, a restart, an update, a disk
+ * conversion or its host's maintenance, as the operator last said (`moving_at`), until `MAINTENANCE_OVERRUN_MS` past
+ * its expected end (or `MOVING_SHOWN_MS` after the last word when it has none). Away, it is said instead of offline;
+ * online, only work that runs beside its own (a move's copy, a conversion), since it may be slower. Null: nothing to
+ * say. Standby is never one: it shows as online (ADR 0161).
+ */
+export function shownMaintenance(
+  row: Pick<MachineRow, "online" | "lastSeenAt" | "deletedAt" | "kind" | "movingAt" | "maintenance">,
+  now = new Date(),
+): ShownMaintenance | null {
+  if (row.kind !== "managed" || row.deletedAt || !row.movingAt) return null;
+  const m = row.maintenance;
+  const said = row.movingAt.getTime();
+  const until = m?.eta
+    ? Math.min(Date.parse(m.eta) + MAINTENANCE_OVERRUN_MS, said + MAINTENANCE_LONGEST_MS)
+    : said + MOVING_SHOWN_MS;
+  if (!(now.getTime() < until)) return null;
+  const kind = m?.kind ?? "moving";
+  const detail = m?.detail ?? null;
+  const away = !machineOnline(row, now);
+  if (!away && kind !== "converting" && detail !== "copying") return null;
+  return { kind, since: m?.since ?? row.movingAt.toISOString(), eta: m?.eta ?? null, detail, away };
+}
+
+/** Away for what we do to it (`shownMaintenance`): the apps say that, never offline or not answering. */
+export const shownMoving = (
+  row: Pick<MachineRow, "online" | "lastSeenAt" | "deletedAt" | "kind" | "movingAt" | "maintenance">,
+  now = new Date(),
+) => shownMaintenance(row, now)?.away === true;
+
+const KIND_WORDS: Record<schema.MaintenanceKind, string> = {
+  moving: "moving to a new server",
+  restarting: "restarting",
+  updating: "updating its software",
+  converting: "upgrading its disk",
+  host_maintenance: "on a server under maintenance",
+};
+
+/**
+ * What we do to it in an agent's words (English, as tools and notes speak): what, why and when it should be back.
+ * "restarting: it stopped answering, so it was restarted automatically, back in about 2 minutes".
+ */
+export function maintenancePhrase(m: ShownMaintenance, now = new Date()) {
+  const why =
+    m.detail === "unresponsive"
+      ? ": it stopped answering, so it was restarted automatically"
+      : m.detail === "copying" && !m.away
+        ? ": its files are being copied, so it may be slower"
+        : m.detail === "handover"
+          ? ": its last changes are being handed over"
+          : "";
+  const left = m.eta ? Math.ceil((Date.parse(m.eta) - now.getTime()) / 60_000) : null;
+  const back =
+    left === null
+      ? m.away
+        ? ", back in a few minutes"
+        : ""
+      : left <= 0
+        ? ", taking longer than expected"
+        : `, ${m.away ? "back" : "done"} in about ${left} minute${left === 1 ? "" : "s"}`;
+  return `${KIND_WORDS[m.kind]}${why}${back}`;
+}
+
+/** "The computer X is restarting: it stopped answering, so it was restarted automatically, back in about 2 minutes." */
+export const maintenanceWords = (name: string, m: ShownMaintenance, now = new Date()) =>
+  `The computer ${name} is ${maintenancePhrase(m, now)}.`;
 
 export type OfflineCause = "unresponsive" | "stopped" | "dropped";
 
@@ -511,6 +605,114 @@ export async function computerDrivers(db: Database, orgId: string, agentId: stri
   return ownersDriving.length > 0 ? ownersDriving : drivers;
 }
 
+/** How long a computer is said to go out through a lent one after it last did (ADR 0237). */
+export const EGRESS_VIA_SHOWN_MS = 5 * 60_000;
+
+/** A borrowing computer's last lent connection, while recent: whose computer carries its web traffic now. */
+export function egressViaNow(via: { machineId: string; at: string } | null | undefined, now = new Date()) {
+  return via && now.getTime() - Date.parse(via.at) < EGRESS_VIA_SHOWN_MS ? via.machineId : null;
+}
+
+let lendingOnThisServer = false;
+
+/**
+ * ADR 0237 on a self-hosted server (set once at boot: every server but one whose computers a provisioner makes,
+ * `MACHINE_PROVISIONING=external`): people's computers lend their internet to this server's own computer, to
+ * computers marked the workspace's that don't lend, and to the server's own reads of web pages for agents. Off, only
+ * the workspace's managed computer borrows.
+ */
+export function setServerLending(on: boolean) {
+  lendingOnThisServer = on;
+}
+
+export const serverLending = () => lendingOnThisServer;
+
+type LendingFacts = Pick<MachineRow, "kind" | "os" | "protocol"> & { executors?: { app?: true } | null };
+
+/**
+ * ADR 0237: a connected computer that is a server rather than a person's desktop: a Linux runner the agentes.chat app
+ * doesn't run (a Terminal install on a VPS or a server-room box). Where this server lends, it borrows by default.
+ */
+export const serverBox = (m: LendingFacts) => m.kind === "connected" && m.os === "linux" && !runByApp(m);
+
+/**
+ * Whether a computer goes out through a lending one (ADR 0237): the workspace's managed computer, and, where the
+ * server lends (`serverLending`), this server's own computer and, with its own switch off, one marked the workspace's
+ * or a server box (`serverBox`). A lending computer never borrows (its switch is on), nor does a person's own desktop
+ * that doesn't lend.
+ */
+export function borrowsInternet(m: LendingFacts & Pick<MachineRow, "belongsToWorkspace" | "egressShare">): boolean {
+  if (m.kind === "managed") return true;
+  if (!lendingOnThisServer) return false;
+  if (m.kind === "host") return true;
+  return m.kind === "connected" && !m.egressShare && (m.belongsToWorkspace || serverBox(m));
+}
+
+/**
+ * ADR 0237, at a connected computer's hello where this server lends: a server box whose switch its owner never turned
+ * on (`egress_share_at` null) has it turned off, so it borrows instead of lending. A newly paired one and one paired
+ * before alike; once off it stays as the owner sets it.
+ */
+export const lendsOffAtHello = (m: LendingFacts & Pick<MachineRow, "egressShare" | "egressShareAt">) =>
+  lendingOnThisServer && m.egressShare && m.egressShareAt === null && serverBox(m);
+
+/**
+ * Whether `orgId`'s agents use only a lending computer's internet (ADR 0237, amendment 2026-11-27 c): a person's
+ * computer that lends it has "Use only this computer's internet" on.
+ */
+export async function usesOnlyLent(db: Executor, orgId: string): Promise<boolean> {
+  return (await onlyLenders(db, orgId)).length > 0;
+}
+
+/** The computers `orgId` is lent "only" (`usesOnlyLent`), the newest pick first. */
+const onlyLenders = (db: Executor, orgId: string) =>
+  db
+    .select({ id: machines.id, name: machines.name })
+    .from(machines)
+    .where(
+      and(
+        eq(machines.orgId, orgId),
+        eq(machines.kind, "connected"),
+        eq(machines.egressShare, true),
+        eq(machines.egressOnly, true),
+        gte(machines.protocol, EGRESS_SHARE_PROTOCOL),
+        isNull(machines.deletedAt),
+      ),
+    )
+    .orderBy(desc(sql`coalesce(${machines.egressShareAt}, ${machines.createdAt})`));
+
+/**
+ * The computer `orgId`'s agents use only the internet of (`usesOnlyLent`), while none such is online: they have no
+ * internet now. Null otherwise.
+ */
+export async function lentOnlyOffline(
+  deps: { db: Executor; machines?: { status(machineId: string): Promise<{ online: boolean } | null> } },
+  orgId: string,
+): Promise<{ machineId: string; name: string } | null> {
+  const rows = await onlyLenders(deps.db, orgId);
+  const [first] = rows;
+  if (!first || !deps.machines) return null;
+  const online = await Promise.all(rows.map((r) => deps.machines?.status(r.id).catch(() => null)));
+  return online.some((m) => m?.online) ? null : { machineId: first.id, name: first.name };
+}
+
+/** What an agent reads when nothing reaches the internet because the computer it is lent "only" is offline. */
+export const lentOfflineText = (name: string) =>
+  `No internet: ${name} is offline, and this workspace's agents use only its internet ("Use only this computer's internet" on its page). Nothing reaches the internet until it is back online.`;
+
+/**
+ * The workspace's computer's observed way out, its country kept only when it was seen on the route its agents take
+ * now: through the lent computer since that one began carrying them, or the usual way while none is online to lend.
+ * Otherwise the flag would be the last route's (the Cloud's own exit) until the next observation comes in.
+ */
+export function egressOnRoute(m: Pick<MachineRow, "egress" | "egressVia">, lenderOnline: boolean, now = new Date()) {
+  const e = m.egress?.ip ? { ...m.egress, ip: m.egress.ip } : null;
+  if (!e?.country) return e;
+  const via = egressViaNow(m.egressVia, now) ? m.egressVia : null;
+  const onRoute = via ? !via.since || e.at >= via.since : !lenderOnline;
+  return onRoute ? e : { ip: e.ip, at: e.at };
+}
+
 /**
  * The machines of an org as one person sees them: every member sees them;
  * the workspace path and the access report only admins and the pairer.
@@ -561,12 +763,23 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
     rightHand && homeRow && (can(membership, "control_computers") || rightHand.owner === actorId)
       ? { machineId: homeRow.id, agentId: rightHand.id }
       : null;
+  // A person's computer online to lend its internet (ADR 0237): the agents' next connections go out through it.
+  const lenders = rows.filter(
+    ({ machine: r }) => r.kind === "connected" && r.egressShare && r.protocol >= EGRESS_SHARE_PROTOCOL,
+  );
+  const lends = ({ machine: r }: (typeof rows)[number]) => machineOnline(r, now) && !machinePause(r, now);
+  const lenderOnline = lenders.some(lends);
+  // Lent "only" (amendment 2026-11-27 c) and none such lends now: the agents have no internet, and the apps say whose.
+  const onlyLenders = lenders.filter((r) => r.machine.egressOnly);
+  const onlyLender = onlyLenders.some(lends) ? undefined : onlyLenders.at(-1);
   return rows.map(({ machine: m, pairedByName }) => {
     const mine = m.pairedByUserId === actorId;
     const pause = machinePause(m, now);
     // The workspace's own computer (ADR 0056 §10) is a service people use, not a box they look into.
     const managed = m.kind === "managed";
     const online = shownOnline(m, now);
+    const viaId = egressViaNow(m.egressVia, now);
+    const via = viaId ? rows.find((r) => r.machine.id === viaId) : undefined;
     return {
       id: m.id,
       name: m.name,
@@ -576,10 +789,24 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
       offlineCause: offlineCause(m, online),
       /** The workspace's own computer is asleep in standby (ADR 0161) and wakes as it should: nothing is wrong. */
       standby: shownStandby(m, now),
+      /** Away for what we do to it (`shownMoving`): apps from before `maintenance` read this alone. */
+      moving: shownMoving(m, now),
+      /** What we do to the workspace's own computer now (`shownMaintenance`), said instead of offline. */
+      maintenance: shownMaintenance(m, now),
       networkTransition: managed ? m.networkTransition : null,
       /** The workspace's own computer's agents wait for their way out, as the operator says: a line, never an error. */
       egressWaiting: managed && machineOnline(m, now) && m.egressWaitingAt !== null,
-      egress: managed && machineOnline(m, now) && m.egress?.ip ? { ...m.egress, ip: m.egress.ip } : null,
+      egress: managed && machineOnline(m, now) ? egressOnRoute(m, lenderOnline, now) : null,
+      /** ADR 0237: the person's computer whose internet this computer's agents' web traffic uses now. */
+      egressVia: via ? { machineId: via.machine.id, name: via.machine.name, userName: via.pairedByName } : null,
+      /**
+       * ADR 0237 amendment 2026-11-27 c, the workspace's own computer: its agents use only this person's computer's
+       * internet, and it is offline or paused, so they have none now. Null: they have internet.
+       */
+      egressOffline:
+        managed && onlyLender
+          ? { machineId: onlyLender.machine.id, name: onlyLender.machine.name, userName: onlyLender.pairedByName }
+          : null,
       lastSeenAt: m.lastSeenAt?.toISOString() ?? null,
       hostname: managed ? "" : m.hostname,
       os: managed ? "other" : m.os,
@@ -589,6 +816,10 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
       runnerVersion: m.runnerVersion,
       /** The runner's machine protocol (9+: pause; 10+: access on the machine). */
       protocol: m.protocol,
+      /** Its runner is behind this server and how its owner updates it (`runnerUpdateOf`); null: nothing to do. */
+      update: runnerUpdateOf(m),
+      /** The agentes.chat app runs it, not a Terminal install (`runByApp`); the workspace's own computer: neither. */
+      app: !managed && runByApp(m),
       /** Its runner can hold browser profiles (ADR 0110); a system-mode computer has none at all (`mode`). */
       browserProfiles: m.protocol >= BROWSER_PROFILE_PROTOCOL,
       execAllowed: m.execAllowed,
@@ -611,8 +842,22 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
        * (`CLI_INSTALL_PROTOCOL`); never the workspace's own computer, which installs them itself.
        */
       cliInstall: !managed && m.protocol >= CLI_INSTALL_PROTOCOL,
+      /** A folder can be asked for from here: the agentes.chat app there shows who asks and picks it (`folderPickable`). */
+      folderPick: folderPickable(m),
       /** The coding CLIs there that can't start, with their own error line; admins and the pairer only. */
       cliErrors: (admin || mine) && !managed ? (m.executors?.broken ?? null) : null,
+      /**
+       * ADR 0228 §6: the coding CLIs its runner fetches there (none on the workspace's own computer, nor in system mode
+       * before `AGENTS_CLI_PROTOCOL`; in system mode only for agents who reach none), and where each fetch stands
+       * (`fetching` with bytes, `ready`, `failed` with why).
+       */
+      cliFetchable:
+        managed || (m.executors?.mode === "system" && m.protocol < AGENTS_CLI_PROTOCOL)
+          ? []
+          : (m.executors?.copies?.fetchable ?? []),
+      cliFetch: managed ? null : (m.executors?.copies?.fetch ?? null),
+      /** What holds Codex's commands on a Windows computer (`CODEX_UNELEVATED_PROTOCOL`); null elsewhere or unknown. */
+      codexSandbox: m.os === "windows" ? (m.executors?.codex?.sandbox ?? null) : null,
       pairedBy: m.pairedByUserId ? { id: m.pairedByUserId, name: pairedByName ?? "" } : null,
       // A private agent stays out for whom it is unlisted (`listsAgentTo`), but not on the computer of who paired it.
       agents: using
@@ -637,6 +882,8 @@ async function machineViews(db: Database, actorId: string, orgId: string, only?:
               freeGb: m.load.diskFreeGb,
               use: m.load.diskUse ?? null,
               sharedGb: m.load.sharedGb ?? null,
+              sizeGb: m.load.diskGb ?? null,
+              parts: m.load.diskParts ?? null,
             }
           : null,
       /** Whether the agent browser can run there (protocol 12, ADR 0040); null when its runner doesn't say. */
@@ -678,9 +925,14 @@ export async function machineView(db: Database, actorId: string, orgId: string, 
   return view;
 }
 
-/** Its size as stored, with a new task limit (`TASK_LIMIT_PROTOCOL`); a row with no size yet keeps none. */
-export const withTaskLimit = (maxTasks: number) =>
-  sql`jsonb_set(${machines.size}, '{maxTasks}', to_jsonb(${maxTasks}::int))`;
+/**
+ * Its size as stored, with a new task limit (`TASK_LIMIT_PROTOCOL`) and room (`TASK_ROOM_PROTOCOL`); a row with no
+ * size yet keeps none.
+ */
+export const withTaskLimit = (maxTasks: number, room?: TaskRoomReport) => {
+  const limit = sql`jsonb_set(${machines.size}, '{maxTasks}', to_jsonb(${maxTasks}::int))`;
+  return room ? sql`jsonb_set(${limit}, '{room}', ${JSON.stringify(room)}::jsonb)` : limit;
+};
 
 /** `machine.updated` to every member: what changed (no access details: those are for admins and the pairer). */
 
@@ -723,6 +975,77 @@ export async function setMachineEgressWaiting(
   if (!row) return null;
   await publishMachineUpdated(deps.pubsub, orgId, machineId, { egressWaiting: waiting });
   return { waiting };
+}
+
+/** What the operator says it does to the workspace's own computer (`PUT …/maintenance`). */
+export interface MaintenanceSaid {
+  kind: schema.MaintenanceKind;
+  eta?: Date | null;
+  detail?: schema.MaintenanceDetail | null;
+}
+
+/**
+ * `PUT …/machines/{machineId}/maintenance`: the operator says what it does to the workspace's own computer (ADR 0257),
+ * or (null) that it is done; its people's apps read it again. Said again with the same kind it keeps its `since` and
+ * takes the new time and step; `moving_at` is the latest word, which `MOVING_SHOWN_MS` counts from when there is no
+ * `eta`. Null: the workspace has no such managed computer.
+ */
+export async function setMachineMaintenance(
+  deps: { db: Database; pubsub?: PubSub },
+  orgId: string,
+  machineId: string,
+  said: MaintenanceSaid | null,
+) {
+  const where = and(
+    eq(machines.orgId, orgId),
+    eq(machines.id, machineId),
+    eq(machines.kind, "managed"),
+    isNull(machines.deletedAt),
+  );
+  const [now] = await deps.db
+    .select({ movingAt: machines.movingAt, maintenance: machines.maintenance })
+    .from(machines)
+    .where(where);
+  if (!now) return null;
+  const was = now.movingAt ? (now.maintenance ?? { kind: "moving", since: now.movingAt.toISOString() }) : null;
+  const record: schema.MachineMaintenanceRecord | null = said
+    ? {
+        kind: said.kind,
+        since: was?.kind === said.kind ? was.since : new Date().toISOString(),
+        eta: said.eta?.toISOString() ?? null,
+        detail: said.detail ?? null,
+      }
+    : null;
+  const [row] = await deps.db
+    .update(machines)
+    .set({ movingAt: record ? sql`now()` : null, maintenance: record })
+    .where(where)
+    .returning({ id: machines.id });
+  if (!row) return null;
+  // `moving`: what apps from before kinds read (they ask for the list again).
+  await publishMachineUpdated(deps.pubsub, orgId, machineId, { moving: record !== null, maintenance: record });
+  return { maintenance: record };
+}
+
+/**
+ * `PUT …/machines/{machineId}/moving` (from before kinds): a move said, or that the move ended. Ended, it leaves any
+ * other kind in place: a restart said during the move still shows until the computer's hello.
+ */
+export async function setMachineMoving(
+  deps: { db: Database; pubsub?: PubSub },
+  orgId: string,
+  machineId: string,
+  moving: boolean,
+) {
+  if (!moving) {
+    const [row] = await deps.db
+      .select({ maintenance: machines.maintenance })
+      .from(machines)
+      .where(and(eq(machines.orgId, orgId), eq(machines.id, machineId)));
+    if (row?.maintenance && row.maintenance.kind !== "moving") return { moving };
+  }
+  const set = await setMachineMaintenance(deps, orgId, machineId, moving ? { kind: "moving" } : null);
+  return set && { moving };
 }
 
 /** How many `deletedAgentIds` lists: a computer that misses one only keeps that agent's transcripts. */
@@ -959,6 +1282,8 @@ export async function detachMachine(tx: Executor, machine: Pick<MachineRow, "id"
       standbyAt: null,
       wakeWantedAt: null,
       egressWaitingAt: null,
+      movingAt: null,
+      maintenance: null,
       previousAgentIds: ids,
       updatedAt: now,
     })
@@ -1051,7 +1376,12 @@ export async function setAgentComputerTarget(
   const membership = await requirePermission(deps.db, actorId, orgId, "read");
   const agent = await getAgent(deps.db, orgId, agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  if (machineId && isRightHand(agent)) throw rightHandPermanent("given a computer");
+  if (machineId && isRightHand(agent)) {
+    throw new ForbiddenError(
+      "The team's right hand always uses the workspace's own computer, so no other can be chosen for it.",
+      "agent.right_hand_computer",
+    );
+  }
   const admin = managesAgent(agent, actorId, membership);
   const machine = machineId ? await getMachine(deps.db, orgId, machineId) : null;
   if (machineId && !machine) throw new NotFoundError("Computer not found", "machine.not_found");

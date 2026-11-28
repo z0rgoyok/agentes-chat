@@ -145,7 +145,7 @@ const Bundle = z
     todo: z
       .array(
         z.object({
-          kind: z.enum(["connection", "app", "secret", "model", "file", "webhook"]),
+          kind: z.enum(["connection", "app", "secret", "model", "file", "path", "webhook"]),
           label: z.string().max(500),
           url: z.string().max(2000).optional(),
           agents: z.array(Key).max(IMPORT_LIMITS.agents),

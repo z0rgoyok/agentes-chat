@@ -1,26 +1,34 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ASK_AGAIN, DELETE_BRANCHES_POINTER } from "@agenteschat/adapters/command-policy";
+import { ASK_AGAIN, DELETE_BRANCHES_POINTER, textVerdict } from "@agenteschat/adapters/command-policy";
 import {
   allowedMerge,
+  childRunner,
   commandApproval,
   lonePush,
   pushesOwnBranches,
   pushThroughProxy,
   repoFacts,
 } from "../../runner/command-gate";
+import { selfCommand } from "../../runner/launch";
 import { gitRepo, hasGit, removeDirs, tempDir } from "./helpers";
 
 const dirs: string[] = [];
 afterEach(() => removeDirs(dirs));
 
 const own = ["agentes/dev/"];
-const hold = (command: string, cwd: string | null, extra: { head?: string; script?: boolean } = {}) =>
+type Extra = Omit<Parameters<typeof commandApproval>[1], "cwd" | "own" | "how">;
+const hold = (command: string, cwd: string | null, extra: Extra = {}) =>
   commandApproval(command, { cwd, own, how: ASK_AGAIN, ...extra });
 /** Why it waits for a person, or never runs (null: it runs). */
-const gate = async (command: string, cwd: string | null, extra: { head?: string; script?: boolean } = {}) =>
+const gate = async (command: string, cwd: string | null, extra: Extra = {}) =>
   (await hold(command, cwd, extra))?.message ?? null;
+/** This runner from its source, started as it starts itself (`launch.ts`): `bun apps/server/runner/main.ts`. */
+const RUNNER = selfCommand({ execPath: process.execPath, argv1: path.join(import.meta.dir, "../../runner/main.ts") });
+/** Past the length a script is read apart from, and quick to read. */
+const LONG = "echo ok\n".repeat(1200);
 /** Our git proxy's URL for acme/app (any host: the computer reads the shape). */
 const PROXY =
   "https://agentes.test/api/git/0190a7b2-3c4d-7e5f-8a9b-0c1d2e3f4a5b/0190a7b2-3c4d-7e5f-8a9b-0c1d2e3f4a5c/acme/app.git";
@@ -104,6 +112,109 @@ test.skipIf(!hasGit)(
     expect(await gate("bash .agentes/run-1.sh", work)).toBeNull();
   },
 );
+
+test("a long script is read in a child runner: this runner's thread stays free, and a merge at its end still waits", async () => {
+  const dir = tempDir("gate-");
+  dirs.push(dir);
+  // 1 MiB of code naming deny-listed programs, its first 128 KiB on one line (a costly shape to read, and quick to
+  // build).
+  const merge = '\nsubprocess.run(["gh", "pr", "merge", "12"])\n';
+  let crafted = "";
+  for (let i = 0; crafted.length < 128 * 1024; i++) crafted += `gh api${i} `;
+  crafted += "\n";
+  for (let i = 0; crafted.length < 1024 * 1024; i++) crafted += `gh api${i} x\n`;
+  const text = `${crafted.slice(0, 1024 * 1024 - merge.length)}${merge}`;
+  writeFileSync(path.join(dir, "run.py"), text);
+  // This process's CPU time, not the wall clock: on a busy machine the thread waits without doing any work.
+  const cpuMs = (since: NodeJS.CpuUsage) => {
+    const used = process.cpuUsage(since);
+    return (used.user + used.system) / 1000;
+  };
+  let since = process.cpuUsage();
+  const message = await gate("python3 run.py", dir, { script: true, apart: { runner: childRunner(RUNNER) } });
+  const apart = cpuMs(since);
+  expect(message).toContain("This is a merge: a person approves it first.");
+  // The same read on this thread (about 0.7 s on a laptop): the child's time isn't this process's.
+  since = process.cpuUsage();
+  expect(textVerdict(text, ASK_AGAIN, true).denied).toContain("merge");
+  const here = cpuMs(since);
+  expect(apart).toBeLessThan(here / 3);
+}, 30_000);
+
+test.skipIf(!hasGit)(
+  "a long script's pushes, read in a child runner, meet git here: the verdicts of a short one",
+  async () => {
+    const { root } = gitRepo(dirs);
+    mkdirSync(path.join(root, ".agentes"));
+    const cases: Array<[string, string, string | null]> = [
+      ["a.sh", "cd work && git push origin develop", "This push goes to the default branch develop"],
+      [
+        "b.sh",
+        "git -C work push origin --delete cursor/pap-582-fix",
+        "This deletes the remote branch cursor/pap-582-fix",
+      ],
+      ["c.sh", "cd work\ngit push origin agentes/dev/fix", null],
+      ["d.sh", "cd work && git push origin main", null],
+      ["e.sh", "git push origin fix", "git can't tell this repository's default branch, so this push may go to it"],
+      [
+        "f.sh",
+        "git push origin $BRANCH",
+        "This runs git push in a way the computer can't read, so where it goes is unknown",
+      ],
+      ["g.sh", "vercel deploy --prod", "This is a deploy"],
+      ["h.py", 'subprocess.run(["gh", "pr", "merge", "12"])', "This is a merge"],
+    ];
+    for (const [file, last, why] of cases) {
+      const text = `${LONG}${last}\n`;
+      const code = file.endsWith(".py");
+      writeFileSync(path.join(root, ".agentes", file), text);
+      // What the child answers is what this runner works out for itself.
+      const [bin = "", ...args] = RUNNER;
+      const answer = execFileSync(bin, [...args, "script-check"], {
+        input: JSON.stringify({ text, how: ASK_AGAIN, code }),
+      });
+      expect([file, JSON.parse(String(answer))]).toEqual([file, textVerdict(text, ASK_AGAIN, code)]);
+      const message = await gate(`${code ? "python3" : "bash"} .agentes/${file}`, root, {
+        script: true,
+        apart: { runner: childRunner(RUNNER) },
+      });
+      expect([file, message?.split(": a person approves it first.")[0] ?? null]).toEqual([file, why]);
+    }
+  },
+  30_000,
+);
+
+test("a child runner that can't answer, or is another build, leaves the script read here", async () => {
+  const dir = tempDir("gate-");
+  dirs.push(dir);
+  writeFileSync(path.join(dir, "run.sh"), `${LONG}gh pr merge 12\n`);
+  /** A child runner from a file of this code. */
+  const child = (name: string, code: string) => {
+    writeFileSync(path.join(dir, name), code);
+    return childRunner([process.execPath, path.join(dir, name)]);
+  };
+  const silent = `process.stdout.write('{"pushes":[],"denied":null}')`;
+  // Its answer is well formed, from a file another one was renamed over since, as `agentes-runner update` does.
+  const updated = child("updated.js", silent);
+  writeFileSync(path.join(dir, "next.js"), `${silent}\n`);
+  renameSync(path.join(dir, "next.js"), path.join(dir, "updated.js"));
+  writeFileSync(path.join(dir, "plain.txt"), "not a program");
+  for (const [why, runner] of [
+    ["no file", childRunner([path.join(dir, "nowhere")])],
+    ["doesn't start", childRunner([path.join(dir, "plain.txt")])],
+    ["dies", child("dies.js", "process.exit(3)")],
+    ["nonsense", child("nonsense.js", `console.log('{"pushes":1,"denied":null}')`)],
+    ["hangs", child("hangs.js", "setInterval(() => {}, 1000)")],
+    ["another build", updated],
+  ] as const) {
+    const started = performance.now();
+    const message = await gate("bash run.sh", dir, { script: true, apart: { runner, ms: 500 } });
+    expect([why, message]).toEqual([why, expect.stringContaining("This is a merge: a person approves it first.")]);
+    expect(performance.now() - started).toBeLessThan(5000);
+  }
+  // The same answer from a file nothing replaced is the verdict: the merge isn't seen.
+  expect(await gate("bash run.sh", dir, { script: true, apart: { runner: child("same.js", silent) } })).toBeNull();
+});
 
 test.skipIf(!hasGit)(
   "spellings git reads its own way reach the default branch too: they wait, and what can't be read waits",

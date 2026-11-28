@@ -1,25 +1,31 @@
-import { afterEach, beforeEach, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { orgTopic, type RealtimeEvent, userTopic } from "@agenteschat/adapters";
 import { eq, schema } from "@agenteschat/db";
 import {
   addChannelMember,
+  archiveAgent,
   archiveChannel,
   ConflictError,
   channelMembersDetail,
   createAgent,
   createChannel,
+  createIssue,
+  deleteAgent,
   ForbiddenError,
   joinChannel,
   listChannels,
   NotFoundError,
   openDm,
+  openTaskConversation,
   postPersonMessage,
   type RouterStrategy,
   removeChannelMember,
   removeMember,
   requireChannelAccess,
   routeMessage,
+  setAgentChannels,
   setChannelAgentAutoReply,
+  updateChannel,
   ValidationError,
 } from "../src";
 import { addMember, addUser, type Fixture, setup } from "./fixtures";
@@ -287,5 +293,70 @@ test("an agent's reply mode in a channel: the channel's creator or the agent's o
   expect(Object.fromEntries(rows.filter((r) => r.agentHandle).map((r) => [r.agentHandle, r.autoReply]))).toEqual({
     dev: false,
     bot: false,
+  });
+});
+
+describe("a channel's responsible agent (ADR 0095)", () => {
+  const lead = async () =>
+    (await f.db.select().from(schema.channels).where(eq(schema.channels.id, f.general.id)))[0]?.leadAgentId;
+  const setLead = (leadAgentId: string | null, actorId = f.owner.id, channelId = f.general.id) =>
+    updateChannel(f.db, actorId, f.org.id, channelId, { leadAgentId });
+
+  test("is one of its member agents, not archived, set by whoever manages the channel", async () => {
+    const ada = await createAgent(
+      f.db,
+      f.owner.id,
+      f.org.id,
+      { name: "Ada", handle: "ada", role: "Finance", credentialId: f.credential.id },
+      { model: "claude-sonnet-5-5" },
+    );
+    // Not in the channel yet.
+    await expect(setLead(ada.id)).rejects.toMatchObject({ code: "channel.lead_not_member" });
+    await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { agentId: ada.id });
+    await setLead(ada.id);
+    expect(await lead()).toBe(ada.id);
+    const listed = await listChannels(f.db, f.owner.id, f.org.id);
+    expect(listed.find((c) => c.id === f.general.id)?.leadAgentId).toBe(ada.id);
+    // Another setting leaves it as it is.
+    await updateChannel(f.db, f.owner.id, f.org.id, f.general.id, { topic: "invoices" });
+    expect(await lead()).toBe(ada.id);
+    // Taken back by hand.
+    await setLead(null);
+    expect(await lead()).toBeNull();
+    // A person may not set it without managing the channel.
+    const member = await addMember(f.db, f.org.id, "member");
+    await joinChannel(f.db, member.id, f.org.id, f.general.id);
+    await expect(setLead(ada.id, member.id)).rejects.toBeInstanceOf(ForbiddenError);
+    // Archived, it keeps its place in the channel but can't be made responsible for it.
+    await setLead(f.agent.id);
+    await archiveAgent(f.db, f.owner.id, f.org.id, ada.id);
+    await expect(setLead(ada.id)).rejects.toMatchObject({ code: "channel.lead_not_member" });
+    expect(await lead()).toBe(f.agent.id);
+  });
+
+  test("stops being it when it leaves, from the channel or from its own page, or is deleted", async () => {
+    await setLead(f.agent.id);
+    await removeChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { agentId: f.agent.id });
+    expect(await lead()).toBeNull();
+    // Its page's list of channels takes it out as well.
+    await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { agentId: f.agent.id });
+    await setLead(f.agent.id);
+    await setAgentChannels(f.db, f.owner.id, f.org.id, f.agent.id, []);
+    expect(await lead()).toBeNull();
+    // Deleted for good.
+    await addChannelMember(f.db, f.owner.id, f.org.id, f.general.id, { agentId: f.agent.id });
+    await setLead(f.agent.id);
+    expect(await lead()).toBe(f.agent.id);
+    await deleteAgent({ db: f.db, pubsub: f.pubsub, hub: f.machineHub }, f.owner.id, f.org.id, f.agent.id);
+    expect(await lead()).toBeNull();
+  });
+
+  test("is for regular channels only: a task's conversation refuses it", async () => {
+    const owner = { type: "person" as const, userId: f.owner.id };
+    const issue = await createIssue({ db: f.db, pubsub: f.pubsub }, owner, f.org.id, { title: "Monthly invoices" });
+    const task = await openTaskConversation(f.db, owner, f.org.id, issue.id);
+    await expect(setLead(f.agent.id, f.owner.id, task.channelId)).rejects.toMatchObject({
+      code: "channel.lead_channel_only",
+    });
   });
 });

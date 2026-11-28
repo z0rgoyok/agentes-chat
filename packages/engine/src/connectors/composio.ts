@@ -81,6 +81,35 @@ function toolsOf(client: ComposioClient, way: ComposioWay): Promise<ComposioTool
   return pending;
 }
 
+const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** The arguments of an action that take a file (Composio marks them `file_uploadable`), by name. */
+export function composioFileArgs(schema: unknown): string[] {
+  const properties = isRecord(schema) && isRecord(schema.properties) ? schema.properties : {};
+  return Object.entries(properties)
+    .filter(([, p]) => isRecord(p) && p.file_uploadable === true)
+    .map(([name]) => name);
+}
+
+/**
+ * An action's schema as agents see it: each argument that takes a file takes a Drive file's id instead (Composio's
+ * own shape names a key in its storage, which no agent has). The call puts the file there (`uploadComposioFiles`).
+ */
+export function withDriveFileArgs(schema: Record<string, unknown>): Record<string, unknown> {
+  const args = composioFileArgs(schema);
+  if (args.length === 0 || !isRecord(schema.properties)) return schema;
+  const properties = { ...schema.properties };
+  for (const name of args) {
+    properties[name] = {
+      type: "string",
+      file_uploadable: true,
+      description:
+        'A file of the workspace\'s Drive, by its id ("file <id>" works too): an .xlsx, a .docx, a PDF, any file as it is. A file on your computer goes to the Drive first with upload_file, which answers with its id.',
+    };
+  }
+  return { ...schema, properties };
+}
+
 /**
  * An action as an MCP tool: our name for it, and Composio's hints read by our rules. It reads only when Composio says
  * so and nothing in it sends, deletes, pays or shares; it asks whenever Composio says it destroys (a post aside,
@@ -94,7 +123,7 @@ export function composioMcpTool(way: ComposioWay, tool: ComposioTool): McpTool {
   return {
     name: composioToolName(way, tool.slug),
     description: tool.description,
-    inputSchema: tool.inputSchema,
+    inputSchema: withDriveFileArgs(tool.inputSchema),
     readOnlyHint: !asks && tool.tags.includes("readOnlyHint") ? true : null,
     destructiveHint: asks ? true : null,
   };

@@ -1,18 +1,14 @@
 import { type PubSub, typingTopic } from "@agenteschat/adapters";
 import { and, type Database, eq, gte, isNull, schema, sql } from "@agenteschat/db";
+import { TYPING_TTL_MS } from "./events";
 import type { Message } from "./messages";
 
 const { messages } = schema;
 
-/** However long a person keeps writing, a run started on their message waits at most this many quiet windows. */
+/** However long a person keeps typing, a run started on their message holds its first model call at most this many `quietMs`. */
 export const BURST_MAX_WINDOWS = 4;
-
-/**
- * Without a sign of more coming (a `user.typing` from the person here, or another message of theirs), the wait ends
- * this long after their message instead of the whole window (token-trim B11). The apps send a typing frame the
- * moment a new message starts, so "oi" then "preciso de uma coisa" is still read as one (ADR 0112).
- */
-export const TYPING_GRACE_MS = 1200;
+/** How often a held run looks whether the person still types, or sent what they typed. */
+const TYPING_POLL_MS = 250;
 
 type TypingWhere = { channelId: string; threadId: string | null; userId: string };
 
@@ -28,7 +24,7 @@ const logs = new WeakMap<PubSub, TypingLog>();
 
 /**
  * The typing log of a pub/sub, listening from the first call on: called when the handlers are made, so a frame sent
- * while a run reads its context (before its wait starts) still counts.
+ * while a run reads its context (before its first model call) still counts.
  */
 export function typingLogFor(pubsub: PubSub): TypingLog {
   const known = logs.get(pubsub);
@@ -53,49 +49,33 @@ export function typingLogFor(pubsub: PubSub): TypingLog {
 export const typesInApp = (m: Pick<Message, "meta">) => !m.meta?.via;
 
 /**
- * People split one request over a few messages ("oi" / "preciso de uma coisa" / "olha o relatório de ontem"):
- * before its first model call, a run started on a person's message waits until that person has been quiet for
- * `quietMs` in the conversation (capped at `BURST_MAX_WINDOWS` windows from the trigger), so the messages that
- * joined its inbox meanwhile are read with the first one (ADR 0112). Measured from the messages' own times: a
- * run that starts late (a busy worker, the router's own wait) waits only what is left, usually nothing.
+ * People split one request over a few messages ("oi" / "preciso de uma coisa"). Nothing waits for that: what they send
+ * before a run's first model call is read with it, and what comes after reaches the turn under way (ADR 0112). Only
+ * while the apps show the person typing here ("digitando…": a frame since their last message, within
+ * `TYPING_TTL_MS`) does a run started on their message hold its first model call, until they send it or stop, at most
+ * `BURST_MAX_WINDOWS` × `quietMs` from the trigger. No frame heard: no wait and no statement.
  */
-export async function waitForBurst(
+export async function waitWhileTyping(
   db: Database,
   trigger: Pick<Message, "orgId" | "channelId" | "threadId" | "authorUserId" | "createdAt" | "meta">,
   quietMs: number,
+  typing: TypingLog,
   signal?: AbortSignal,
-  /** With it, the wait ends after `TYPING_GRACE_MS` when the person hasn't typed since their message (`typingLogFor`). */
-  typing?: TypingLog,
 ): Promise<void> {
   const author = trigger.authorUserId;
-  if (!author || quietMs <= 0) return;
+  if (!author || quietMs <= 0 || !typesInApp(trigger)) return;
   const where = { channelId: trigger.channelId, threadId: trigger.threadId ?? null, userId: author };
-  const typed =
-    typing && typesInApp(trigger)
-      ? (offset: number) =>
-          (typing.lastTyped(where) ?? Number.NEGATIVE_INFINITY) + offset >= trigger.createdAt.getTime()
-      : null;
-  await waitQuiet(db, { ...trigger, authorUserId: author }, quietMs, signal, typed);
-}
-
-async function waitQuiet(
-  db: Database,
-  trigger: Pick<Message, "orgId" | "channelId" | "threadId" | "createdAt"> & { authorUserId: string },
-  quietMs: number,
-  signal: AbortSignal | undefined,
-  /** Whether the person typed after their message, given the database clock minus this process's. */
-  typed: ((offset: number) => boolean) | null,
-): Promise<void> {
-  const author = trigger.authorUserId;
-  // Parar or a shutdown drain ends the wait at once: the run frees its slot instead of sitting out the window.
+  const heard = () => typing.lastTyped(where);
+  const typed = heard();
+  if (typed === null || Date.now() - typed >= TYPING_TTL_MS) return;
+  // Parar or a shutdown drain ends the wait at once: the run frees its slot instead of sitting it out.
   const aborted = signal
     ? new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }))
     : null;
-  const from = trigger.createdAt.getTime();
-  const cap = from + quietMs * BURST_MAX_WINDOWS;
+  const cap = trigger.createdAt.getTime() + quietMs * BURST_MAX_WINDOWS;
   for (;;) {
     if (signal?.aborted) return;
-    // Message times come from the database's clock: the wait is measured on it too, never the app's.
+    // Message times come from the database's clock, typing frames from this process's: compared on one of them.
     const [row] = await db
       .select({
         latest: sql<number>`extract(epoch from max(${messages.createdAt})) * 1000`.mapWith(Number),
@@ -113,12 +93,13 @@ async function waitQuiet(
         ),
       );
     if (!row) return;
-    const last = Math.max(from, row.latest || 0);
-    // Nothing more on its way (no typing, no second message): only the grace, not the whole window.
-    const quiet = typed && !typed(row.now - Date.now()) && last - from < 1;
-    const wait = Math.min(quiet ? from + Math.min(TYPING_GRACE_MS, quietMs) : last + quietMs, cap) - row.now;
+    const offset = row.now - Date.now();
+    const last = (heard() ?? Number.NEGATIVE_INFINITY) + offset;
+    // Their message ends the typing that came before it, as the apps show it.
+    const until = last < Math.max(trigger.createdAt.getTime(), row.latest || 0) ? 0 : last + TYPING_TTL_MS;
+    const wait = Math.min(until, cap) - row.now;
     if (wait <= 0) return;
-    const nap = Bun.sleep(Math.min(wait, quietMs));
+    const nap = Bun.sleep(Math.min(wait, TYPING_POLL_MS));
     await (aborted ? Promise.race([nap, aborted]) : nap);
   }
 }

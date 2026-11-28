@@ -21,6 +21,7 @@ import {
   markChannelRead,
   markNotificationDone,
   markNotificationRead,
+  markThreadRead,
   NotFoundError,
   notificationCounts,
   notificationCountsByOrg,
@@ -152,6 +153,103 @@ test("an agent's answer reaches the person who asked, merged per conversation; r
   // Read in the conversation: it leaves the inbox.
   await markChannelRead(f.db, f.owner.id, f.org.id, dm.id, new Date(), f.pubsub);
   expect((await inbox(f.owner.id)).items).toEqual([]);
+});
+
+test("reading a channel or DM reads what was said to me there; it stays in the inbox, read", async () => {
+  f = await setup();
+  const { bia } = await people();
+  const root = await post(f.owner.id, "@bia olha isso");
+  await post(f.owner.id, "@bia e aqui no fio", root.id);
+  const mine = await post(bia.id, "Subi o build");
+  await addReaction(f.db, f.owner.id, f.org.id, mine.id, "🎉", f.pubsub);
+  const dm = await openDm(f.db, f.owner.id, f.org.id, { userId: bia.id });
+  await post(f.owner.id, "Te mandei o contrato", undefined, dm.id);
+  const events = hear(bia.id);
+
+  await markChannelRead(f.db, bia.id, f.org.id, f.general.id, new Date(), f.pubsub);
+  const unread = async () =>
+    (await inbox(bia.id)).items
+      .filter((n) => n.readAt === null)
+      .map((n) => n.kind)
+      .sort();
+  // The thread's mention waits for the thread; the DM for the DM.
+  expect(await unread()).toEqual(["dm", "mention"]);
+  expect((await inbox(bia.id)).items).toHaveLength(4);
+  expect(events.some((e) => e.type === "notification.upserted" && e.alert === false)).toBe(true);
+  expect(events.some((e) => e.type === "notification.counts")).toBe(true);
+
+  await markChannelRead(f.db, bia.id, f.org.id, dm.id, new Date(), f.pubsub);
+  expect(await unread()).toEqual(["mention"]);
+  // What lands after the read is news again.
+  await post(f.owner.id, "Assinou?", undefined, dm.id);
+  expect(await unread()).toEqual(["dm", "mention"]);
+});
+
+test("reading a channel leaves a mention in one of its tasks' comments unread", async () => {
+  f = await setup();
+  const { caio } = await people();
+  const owner = { type: "person" as const, userId: f.owner.id };
+  const issue = await createIssue(deps(), owner, f.org.id, { title: "Export report as CSV", channelId: f.general.id });
+  await commentIssue(deps(), owner, f.org.id, issue.id, "@caio can you review?");
+  await drainOutbox(f.db, f.handlers);
+  const [mention] = (await inbox(caio.id)).items.filter((n) => n.kind === "mention");
+  expect(mention?.source).toMatchObject({ issueId: issue.id, channelId: f.general.id });
+
+  await markChannelRead(f.db, caio.id, f.org.id, f.general.id, new Date(), f.pubsub);
+  expect((await inbox(caio.id)).items.find((n) => n.kind === "mention")?.readAt).toBeNull();
+});
+
+test("an agent's own DM, a reminder and a routine's report are read when the DM is", async () => {
+  f = await setup();
+  const dm = await openDm(f.db, f.owner.id, f.org.id, { agentId: f.agent.id });
+  const say = async (body: string, meta: Record<string, unknown>) => {
+    const m = await insertMessage(f.db, {
+      orgId: f.org.id,
+      channelId: dm.id,
+      threadId: null,
+      author: { type: "agent", agentId: f.agent.id, runId: null, hop: 0, stretchId: null },
+      body,
+      meta,
+    });
+    // `send_dm` enqueues its own notification job.
+    await notifyMessage(deps(), f.org.id, m.id);
+  };
+  const routine = { id: "00000000-0000-4000-8000-000000000002", name: "Bom dia", runId: "r" };
+  await say("Reminder: call the bank", { reminderText: "call the bank", reminder: true, routine });
+  await say("Good morning!", { routine });
+  await say("Posso fechar o pedido?", { agentDm: { fromMessageId: "00000000-0000-4000-8000-000000000004" } });
+  expect(await notificationCounts(deps(), f.owner.id, f.org.id)).toEqual({ unread: 3, waiting: 0 });
+
+  await markChannelRead(f.db, f.owner.id, f.org.id, dm.id, new Date(), f.pubsub);
+  expect(await notificationCounts(deps(), f.owner.id, f.org.id)).toEqual({ unread: 0, waiting: 0 });
+});
+
+test("reading a thread reads its replies, the mentions in it and an agent's answer there", async () => {
+  f = await setup();
+  const { bia, caio } = await people();
+  const root = await post(f.owner.id, "Release 2.4.1 checklist");
+  await post(bia.id, "Build is green @ana", root.id);
+  await post(caio.id, "Smoke tests pass", root.id);
+  await post(bia.id, "@ana fora do fio");
+  await notify(deps(), {
+    orgId: f.org.id,
+    userIds: [f.owner.id],
+    kind: "agent_reply",
+    groupKey: "work_end:00000000-0000-4000-8000-000000000003",
+    actor: { type: "agent", id: f.agent.id },
+    source: { channelId: f.general.id, threadId: root.id },
+    latest: { text: "Pronto" },
+  });
+
+  await markThreadRead(deps(), f.owner.id, f.org.id, root.id);
+  const unread = async () =>
+    (await inbox(f.owner.id)).items.filter((n) => n.readAt === null).map((n) => [n.kind, n.latest.text]);
+  // The mention outside the thread is the channel's; the agent's answer left the inbox.
+  expect(await unread()).toEqual([["mention", "@ana fora do fio"]]);
+  expect((await inbox(f.owner.id)).items.some((n) => n.kind === "agent_reply")).toBe(false);
+
+  await post(caio.id, "Tagged", root.id);
+  expect((await unread()).map(([kind]) => kind).sort()).toEqual(["mention", "thread_reply"]);
 });
 
 test("the realtime event says whether it reaches the person's devices, by their choices", async () => {

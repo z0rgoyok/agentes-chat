@@ -143,7 +143,7 @@ export function fallbackTarget(data: PushOpenData): OpenTarget | null {
   if (kind === "join_request") return { to: "/org/$orgId/settings/$section", params: { section: "invites" } };
   if (kind === "invitation_accepted") return { to: "/org/$orgId/settings/$section", params: { section: "members" } };
   // Settings › Computers is Devices now: its old address redirects there.
-  if (kind === "machine_connected" || kind === "computer_ready")
+  if (kind === "machine_connected" || kind === "computer_ready" || kind === "computer_down" || kind === "computer_back")
     return { to: "/org/$orgId/settings/$section", params: { section: "computers" } };
   // A folder waits on this person's computer (the agent asked), which is where it is allowed: that computer.
   // Never the conversation it was asked from, which a push can't tell from a DM.

@@ -92,3 +92,61 @@ test("what ships draws who records a voice message: three still bars at every wi
     last('.ac-typing[data-active="true"] .ac-typing__text:has(>.ac-typing__group+.ac-typing__group)', "flex-wrap"),
   ).toBe("wrap");
 });
+
+test("what ships draws the working row's rings with transforms only, still with reduced motion, paused off screen", async () => {
+  const all = await builtCss();
+  const css = topLevel(all);
+  const last = (selector: string, property: string) =>
+    declarations(css, selector)
+      .filter(([p]) => p === property)
+      .at(-1)?.[1];
+  // Still everywhere: each dot at its own place on its ring, turned by a transform alone.
+  expect(last(".ac-orbit__spin", "animation")).toBeUndefined();
+  expect(last(".ac-orbit__spin", "transform")).toBe("rotate(var(--start))");
+  // Each ring rests at its own tilt: it turns round the face only where motion is welcome.
+  expect(last(".ac-orbit__roll", "animation")).toBeUndefined();
+  expect(last(".ac-orbit__roll", "transform-origin")).toBe("0 0");
+  // The rings take no room: they reach into the row's gap, behind and in front of the face.
+  expect(last(".ac-orbit>.ac-orbit__front", "position")).toBe("absolute");
+  expect(last(".ac-orbit>.ac-orbit__back", "position")).toBe("absolute");
+  expect(last(".ac-orbit>.ac-orbit__back", "z-index")).toBe("var(--z-under)");
+  // Their box reaches past the row: the row clips it, or the conversation would scroll by it.
+  expect(last(".working-tail", "overflow")).toBe("clip");
+  // Turning only where motion is welcome, and paused off screen.
+  const moving = atRule(all, "@media (prefers-reduced-motion: no-preference)");
+  expect(declarations(moving, ".ac-orbit__spin").find(([p]) => p === "animation")?.[1]).toContain("ac-orbit-turn");
+  expect(
+    declarations(moving, ".ac-orbit[data-paused=true] :is(.ac-orbit__spin,.ac-orbit__unspin,.ac-orbit__roll)").find(
+      ([p]) => p === "animation-play-state",
+    )?.[1],
+  ).toBe("paused");
+  // Its keyframes move only transforms (the compositor's), never layout or paint.
+  const frames = all.match(/@keyframes ac-orbit-turn\{[^}]*\{[^}]*\}[^}]*\{[^}]*\}\}/)?.[0] ?? "";
+  expect(frames).toContain("transform:");
+  expect(frames.replace(/transform:[^;}]*/g, "")).not.toMatch(/[a-z-]+:/);
+  // The rings themselves turn round the face too, slowly, the light riding them: transforms alone again.
+  expect(declarations(moving, ".ac-orbit__roll").find(([p]) => p === "animation")?.[1]).toContain("ac-orbit-roll");
+  const roll = all.match(/@keyframes ac-orbit-roll\{[^}]*\{[^}]*\}[^}]*\{[^}]*\}\}/)?.[0] ?? "";
+  expect(roll).toContain("rotate(360deg)");
+  expect(roll.replace(/transform:[^;}]*/g, "")).not.toMatch(/[a-z-]+:/);
+  // The row's line is a row's, not the bar's: no height cap, the message's size.
+  const line = ".working-tail>.working-tail__body>.working-tail__line.ac-typing[data-active]";
+  expect(last(line, "max-height")).toBe("none");
+  expect(last(line, "font-size")).toBe("var(--msg-text)");
+  // One line whatever it says: no piece wraps to a second (it came and went as the step turned, moving the
+  // conversation and the composer), the step gives way first, and the name keeps its width up to half the line.
+  expect(last(".working-tail__words", "flex-wrap")).toBeUndefined();
+  expect(last(".working-tail__words", "white-space")).toBe("nowrap");
+  expect(
+    last(
+      ".working-tail>.working-tail__body>.working-tail__line.ac-typing[data-active] .ac-typing__text",
+      "white-space",
+    ),
+  ).toBeUndefined();
+  const name = ".working-tail .ac-typing__agents:has(>.ac-typing__step)>b";
+  expect(last(name, "flex")).toBe("none");
+  expect(last(name, "max-width")).toBe("50%");
+  expect(last(name, "white-space")).toBe("nowrap");
+  // What it did so far wraps: never cut.
+  expect(last(".working-tail__trail>li", "overflow-wrap")).toBe("anywhere");
+});

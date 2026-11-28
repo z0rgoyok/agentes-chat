@@ -1,5 +1,5 @@
 import type { LiveRoom } from "@agenteschat/client";
-import type { Box, Guide, Point } from "@agenteschat/live";
+import { type Box, type Guide, groupMembersOf, outermostGroup, type Point } from "@agenteschat/live";
 import type { Peer, PeerUser } from "@agenteschat/live/awareness";
 import {
   type DeckView,
@@ -157,6 +157,14 @@ export function Stage(props: StageProps) {
   const oy = (roomH - deck.h * scale) / 2;
   const byId = useMemo(() => new Map(slide.elements.map((el) => [el.id, el])), [slide.elements]);
   const chosen = selected.map((id) => byId.get(id)).filter((el): el is ElementView => !!el);
+  /** What a press on an element picks (ADR 0220 §3): the whole outermost group it sits in, or itself. */
+  const pickOf = (id: string): string[] => {
+    const group = byId.get(id)?.group;
+    const groups = slide.groups ?? [];
+    if (!group || !groups.some((g) => g.id === group)) return [id];
+    const members = groupMembersOf(slide.elements, groups, outermostGroup(groups, group));
+    return members.includes(id) ? [id, ...members.filter((m) => m !== id)] : [id];
+  };
   const gesture = useRef<Gesture | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [marquee, setMarquee] = useState<Box | null>(null);
@@ -284,9 +292,12 @@ export function Stage(props: StageProps) {
     if (readOnly) return;
     const additive = e.shiftKey || e.metaKey || e.ctrlKey;
     const wasSelected = selected.includes(id);
+    // A press picks the element's group; a double click (or a press while it alone is chosen) goes inside it.
+    const pick = pickOf(id);
     let next = [...selected];
-    if (additive) next = wasSelected ? next.filter((s) => s !== id) : [...next, id];
-    else if (!wasSelected) next = [id];
+    if (additive)
+      next = wasSelected ? next.filter((s) => !pick.includes(s)) : [...next, ...pick.filter((p) => !next.includes(p))];
+    else if (!wasSelected) next = pick;
     if (next.join() !== selected.join()) props.onSelect(next);
     const boxes = new Map(
       next

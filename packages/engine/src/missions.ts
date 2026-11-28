@@ -42,6 +42,7 @@ import {
   taskModeOf,
   taskScope,
   taskSeconds,
+  waitsInQueue,
 } from "./machine-tasks";
 import { MachineOfflineError, type MachineRow, shownOnline } from "./machines";
 import { insertMessage, type Message, messageView } from "./messages";
@@ -1236,6 +1237,8 @@ export async function createMission(
         authorType: "person",
         authorUserId: userId,
         body: goal,
+        // Typed on the mission's form in our apps (the only caller is its route).
+        origin: "app",
         meta: { missionStart: { title } },
       })
       .returning();
@@ -1671,7 +1674,7 @@ const missionUpdateRefusal = (
   what: string,
 ) =>
   new ConflictError(
-    `The runner on ${computer.name} ${what}. ${runnerUpdateWay(computer)}`,
+    `The agentes.chat program on ${computer.name} ${what}. ${runnerUpdateWay(computer)}`,
     computer.kind === "managed" ? "machine.updates_itself" : "mission.runner_outdated",
     { computer: computer.name },
   );
@@ -1778,7 +1781,7 @@ async function cancelMissionTasks(deps: MissionDeps, mission: MissionRow, actorI
     try {
       // Waiting in our queue: the runner never had it.
       reply =
-        deps.hub && !row.startRequest
+        deps.hub && !waitsInQueue(row)
           ? await deps.hub.call<"task.cancel">(row.machineId, {
               agent: { id: mission.agentId, handle: agent?.handle ?? "agent" },
               op: "task.cancel",

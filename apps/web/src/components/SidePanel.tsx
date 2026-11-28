@@ -5,6 +5,9 @@ import { useTranslation } from "react-i18next";
 import { useModalSheet } from "@/hooks/useModalSheet";
 import { leaveAnimated, takeOverLeaving } from "@/lib/leave";
 
+/** How long rows arriving in a pane that just opened still rise in turn (a thread's replies loading after it lands). */
+const LANDING_MS = 1200;
+
 /**
  * Every side pane (a thread, search's results, an agent's page, a task's conversation or steps, Auditoria's details, a
  * DM's side on a narrow window): a card floating 10px in from the window's top, right and bottom over a scrim that dims
@@ -38,8 +41,16 @@ export function SidePanel({
   useLayoutEffect(() => {
     const panel = ref.current;
     const dim = scrim.current;
-    if (takeOverLeaving()) for (const el of [panel, dim]) el?.setAttribute("data-swap", "");
+    if (takeOverLeaving([panel, dim])) for (const el of [panel, dim]) el?.setAttribute("data-swap", "");
     return () => leaveAnimated([dim, panel]);
+  }, [ref]);
+  // Landing: what is inside rises in turn (threads.css), replies that load meanwhile too; after it, rows just appear.
+  useLayoutEffect(() => {
+    const panel = ref.current;
+    if (!panel || panel.hasAttribute("data-swap")) return;
+    panel.setAttribute("data-landing", "");
+    const timer = setTimeout(() => panel.removeAttribute("data-landing"), LANDING_MS);
+    return () => clearTimeout(timer);
   }, [ref]);
   // In <body>: `fixed` is the window's whatever the page does (a page's entrance holds a transform that would keep the
   // scrim off the sidebar), and everything else, #root, goes inert under it.

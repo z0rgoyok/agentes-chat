@@ -38,7 +38,7 @@ export type AutoEffort = "low" | "medium" | "high";
 export const AUTO_EFFORTS: readonly AutoEffort[] = ["low", "medium", "high"];
 
 /** The judge answers within this, or the run starts on the medium tier with medium effort. */
-export const AUTO_MODEL_TIMEOUT_MS = 1500;
+export const AUTO_MODEL_TIMEOUT_MS = 800;
 
 /** What the judge decided for a run (or why it fell back). */
 export interface AutoChoice {
@@ -75,9 +75,13 @@ export function fallbackChoice(source: Exclude<AutoChoice["source"], "judge" | "
 const ACTING =
   "acting for the person with tools (opening a site, taking a screenshot, clicking or filling in a page, running a command, changing files, sending something)";
 
+/** Never the small tier either: a short message that moves work along reads like a quick turn and is not one. */
+const GOING_ON =
+  'a go-ahead or \'continue\' ("ok", "next", "pode seguir"), the next step of work already under way, setting up, configuring or testing something, or handing work to others and following it';
+
 const TIER_CRITERIA: Record<ModelTier, string> = {
-  small: `A quick, simple turn that only answers: a greeting or thanks, a short factual answer, a status, a yes/no. Little reasoning. Never ${ACTING}.`,
-  medium: `Everyday work: an answer that needs some care, ${ACTING}, a few tool calls, a summary, an ordinary fix, document or routine check.`,
+  small: `A quick, simple turn that only answers: a greeting or thanks, a short factual answer, a status, a yes/no to a plain question. Little reasoning. Never ${GOING_ON}. Never ${ACTING}.`,
+  medium: `Everyday work: an answer that needs some care, ${ACTING}, ${GOING_ON}, a few tool calls, a summary, an ordinary fix, document or routine check.`,
   large:
     "Hard or high-stakes work: deep reasoning, a long multi-step task, planning, a subtle bug, writing or reviewing substantial code, or a mistake would be costly.",
 };
@@ -199,21 +203,58 @@ async function askAutoChoice(
       return fallbackChoice("error");
     }
     const tierP = percent(answers.tier?.probabilities?.[tier]);
-    const effortP = percent(answers.effort?.probabilities?.[effort]);
-    const reason = `${TIER_REASON[tier]}${tierP}; ${effort} effort${effortP}.`;
+    const sure = answers.effort?.probabilities?.[effort];
+    const unsureHigh =
+      effort === "high" && tier !== "large" && !input.routine && !input.mission && (sure ?? 1) < AUTO_HIGH_P;
+    const effortWhy = unsureHigh
+      ? `medium effort (high not sure enough${percent(sure)})`
+      : `${effort} effort${percent(sure)}`;
+    const reason = `${TIER_REASON[tier]}${tierP}; ${effortWhy}.`;
     const p = answers.tier?.probabilities?.[tier];
-    return {
-      tier,
-      effort,
-      reason: reason.charAt(0).toUpperCase() + reason.slice(1),
-      source: "judge",
-      ...(typeof p === "number" ? { tierP: p } : {}),
-    };
+    return flooredAutoChoice(
+      {
+        tier,
+        effort: unsureHigh ? "medium" : effort,
+        reason: reason.charAt(0).toUpperCase() + reason.slice(1),
+        source: "judge",
+        ...(typeof p === "number" ? { tierP: p } : {}),
+      },
+      input,
+    );
   } catch {
     return fallbackChoice("error");
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * The small tier only when the judge is this sure of it, else the medium one. A miss there costs a turn that stops at
+ * its first step (with a long tool list the smallest models give up on the task); a miss the other way costs a few
+ * cents.
+ */
+export const AUTO_SMALL_P = 0.75;
+
+/**
+ * High effort below the large tier only when the judge is this sure of it, else medium, where a person waits on the
+ * reply: higher effort thinks longer and makes more tool calls on the same task. Measured in production
+ * (2026-11-24 to 26, a person's message on the medium tier): half of the judge's high picks came under 60%, and a
+ * reply took a median 32 s at high against 21 s at medium on Claude Code, 52 s against 35 s on Codex. Medium is what
+ * Claude's own guidance starts agentic work at on Sonnet 5.5 and Opus 5.5's default. Routines and missions, with
+ * nobody waiting, keep the judge's pick, and the large tier keeps its effort.
+ */
+export const AUTO_HIGH_P = 0.6;
+
+/**
+ * The floor under a judged tier: a small one the judge isn't sure of, or one in a mission (its main session works
+ * through a plan), runs medium. Every other choice stands.
+ */
+export function flooredAutoChoice(choice: AutoChoice, run: { mission: boolean }): AutoChoice {
+  if (choice.source !== "judge" || choice.tier !== "small") return choice;
+  if (!run.mission && (choice.tierP ?? 1) >= AUTO_SMALL_P) return choice;
+  const why = run.mission ? "part of a mission" : `small not sure enough${percent(choice.tierP)}`;
+  const { tierP: _, ...rest } = choice;
+  return { ...rest, tier: "medium", reason: `Everyday work (${why}); ${choice.effort} effort.` };
 }
 
 /** How long a conversation keeps its "Automático" choice: the prompt cache's longest life (`cacheTtl` 1h). */

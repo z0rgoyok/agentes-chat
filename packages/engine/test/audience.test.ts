@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { BRAIN_PROTOCOL, createFakeEmailSender, userTopic } from "@agenteschat/adapters";
+import { ACCOUNTS_PROTOCOL, BRAIN_PROTOCOL, createFakeEmailSender, userTopic } from "@agenteschat/adapters";
 import { and, eq, rowsOf, schema, sql } from "@agenteschat/db";
 import {
   acceptInvitation,
@@ -299,6 +299,45 @@ describe("who can talk to the agent", () => {
     const mine = await postPersonMessage(deps(), f.owner.id, f.org.id, f.general.id, { body: "@dev faz o relatório" });
     expect(await runsOf(mine.id)).toHaveLength(1);
     expect(mine.notices).toBeUndefined();
+  });
+
+  test("someone its audience takes hears the check that turned them down: their roles, or its plan's switch", async () => {
+    const { bia } = await world();
+    await setAgentAudience(f.db, f.owner.id, f.org.id, f.agent.id, { mode: "everyone", userIds: [] });
+    const mention = async () =>
+      (await postPersonMessage(deps(), bia.id, f.org.id, f.general.id, { body: "@dev faz o relatório" })).notices;
+    const { machineId } = await pairMachine(deps(), f.owner.id, f.org.id, { protocol: ACCOUNTS_PROTOCOL });
+    const plan = "0193abab-0000-4000-8000-0000000000b1";
+    await f.db.insert(schema.machineAccounts).values({
+      id: plan,
+      orgId: f.org.id,
+      machineId,
+      kind: "claude_code",
+      label: "Conta",
+      status: "active",
+      createdBy: f.owner.id,
+      shared: true,
+    });
+    await f.db
+      .update(schema.agents)
+      .set({ brain: "claude_code", brainAccountId: plan })
+      .where(eq(schema.agents.id, f.agent.id));
+    // A new account's "Atende outras pessoas" is off: the agent answers only its owner.
+    expect(await mention()).toMatchObject([
+      {
+        code: "audience.plan_owner_only",
+        params: { agentId: f.agent.id, agentName: "Dev" },
+        text: "Dev thinks with a plan that answers only its owner. Whoever looks after Dev can turn on “Answers other people” on its page.",
+      },
+    ]);
+    await everyoneWithout(f.db, f.org.id, "talk_to_agents");
+    expect(await mention()).toMatchObject([{ code: "audience.no_talk", params: { agentName: "Dev" } }]);
+    await expect(openDm(f.db, bia.id, f.org.id, { agentId: f.agent.id })).rejects.toMatchObject({
+      code: "audience.no_talk",
+    });
+    expect(
+      await runsOf((await postPersonMessage(deps(), bia.id, f.org.id, f.general.id, { body: "@dev" })).id),
+    ).toEqual([]);
   });
 
   test("an agent nobody may talk to (no owner, only its owner) still tells whoever mentions it", async () => {
@@ -721,7 +760,8 @@ describe("who sees every agent in Equipe's lists (view_all_agents)", () => {
     await everyoneWithout(f.db, f.org.id, "view_all_agents");
     expect(await listing(walt.id)).toEqual({ team: ["Dev"], groups: ["Time:1"], count: all.count - 2 });
     expect(await listing(f.owner.id)).toEqual(all);
-    // A cargo that holds the key, or manages agents, lists every agent again but the private one.
+    // A cargo that holds the key, or manages agents, lists every agent again but the private one. Who manages agents
+    // also finds it on Equipe by its facts alone (ADR 0085, addendum of 2026-11-24); its setor and the counts don't.
     for (const permissions of [["view_all_agents"], ["manage_agents"]] as const) {
       const role = await createRole(f.db, f.owner.id, f.org.id, {
         name: permissions[0],
@@ -729,7 +769,9 @@ describe("who sees every agent in Equipe's lists (view_all_agents)", () => {
       });
       const lia = await addMember(f.db, f.org.id, "member", `lia-${permissions[0]}`);
       await setMemberRoles(f.db, f.owner.id, f.org.id, lia.id, [role.id]);
-      expect(await listing(lia.id)).toEqual(viewsAll);
+      expect(await listing(lia.id)).toEqual(
+        permissions[0] === "manage_agents" ? { ...viewsAll, team: ["Bento", "Cora", "Dev"] } : viewsAll,
+      );
     }
     // It narrows lists only: Bento's public card still reaches the member, to draw its messages.
     expect((await listAgents(f.db, walt.id, f.org.id)).map((a) => a.id)).toContain(bento.id);
@@ -760,8 +802,9 @@ describe("who sees every agent in Equipe's lists (view_all_agents)", () => {
     await setMemberRoles(f.db, f.owner.id, f.org.id, gil.id, [keys.id]);
     await setAgentEditors(f.db, duda.id, f.org.id, bento.id, { userIds: [edna.id], roleIds: [review.id] });
 
+    // Listed whole: a row on Equipe that isn't its facts alone.
     const lists = async (userId: string) => {
-      const team = (await getTeam(f.db, userId, f.org.id)).agents.some((a) => a.id === bento.id);
+      const team = (await getTeam(f.db, userId, f.org.id)).agents.some((a) => a.id === bento.id && !a.factsOnly);
       const membership = await getMembership(f.db, userId, f.org.id);
       const [row] = await f.db
         .select({ id: schema.agents.id })
@@ -776,6 +819,12 @@ describe("who sees every agent in Equipe's lists (view_all_agents)", () => {
     for (const who of [duda, f.owner, caio, edna, fabi]) expect(await lists(who.id)).toBe(true);
     // A plain member who sees every agent, and who holds "Editar qualquer agente" without its audience.
     for (const who of [walt, gil]) expect(await lists(who.id)).toBe(false);
+    // The latter finds it on Equipe by its facts alone; the former not at all.
+    const facts = async (userId: string) =>
+      (await getTeam(f.db, userId, f.org.id)).agents.find((a) => a.id === bento.id)?.factsOnly;
+    expect(await facts(gil.id)).toBe(true);
+    expect(await facts(walt.id)).toBeUndefined();
+    expect(await facts(edna.id)).toBe(false);
 
     // Answering someone else, it is listed again to who sees every agent.
     await setAgentAudience(f.db, duda.id, f.org.id, bento.id, { mode: "people", userIds: [duda.id], roleIds: [] });

@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { createTestDatabase } from "@agenteschat/db/testing";
-import type { PGlite } from "@electric-sql/pglite";
+import { createTestDatabase, pgliteNotifier } from "@agenteschat/db/testing";
 import {
   createMemoryPresence,
   createMemoryPubSub,
@@ -13,18 +12,6 @@ import {
   type PubSub,
   type RealtimeEvent,
 } from "../src";
-
-function pgliteNotifier(pg: PGlite): PgNotifier {
-  return {
-    async listen(channel, onPayload) {
-      const unsub = await pg.listen(channel, onPayload);
-      return async () => unsub();
-    },
-    async notify(channel, payload) {
-      await pg.query("select pg_notify($1, $2)", [channel, payload]);
-    },
-  };
-}
 
 const tick = () => new Promise((r) => setTimeout(r, 20));
 

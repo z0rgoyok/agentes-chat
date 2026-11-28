@@ -21,6 +21,7 @@ import {
   isNull,
   ne,
   or,
+  rowsOf,
   schema,
   sql,
 } from "@agenteschat/db";
@@ -30,6 +31,7 @@ import { NotFoundError, ValidationError } from "./errors";
 import { transcriptKey } from "./file-reader";
 import { assertStorageRoom } from "./limits";
 import { assertPublicHttpsUrl, outboundFetch, type ResolveHost } from "./net-guard";
+import { heavyRead } from "./operator-paging";
 import { requirePermission } from "./organizations";
 import { enqueue } from "./outbox";
 import { withoutTrailingSlashes } from "./url-text";
@@ -472,7 +474,10 @@ export interface StoredBytes {
   ownBucketBytes: number;
 }
 
-/** The statements `storedBytes` runs, the Drive's and the skills', exported for the test that reads their plans. */
+/**
+ * The statements `storedBytes` runs, the Drive's and the skills', exported for the test that reads their plans.
+ * `instanceStoredBytes` sums the same rows for every workspace at once: what changes here changes there.
+ */
 export const storedBytesQueries = (db: Executor, orgId: string) =>
   [
     db
@@ -533,6 +538,68 @@ export async function storedBytes(db: Executor, orgId: string): Promise<StoredBy
     ownBucketBytes += Number(sum?.own ?? 0);
   }
   return { platformBytes, ownBucketBytes };
+}
+
+/** What the files of every workspace on this server's storage take together (`instanceStoredBytes`). */
+export interface InstanceStoredBytes {
+  /** `storedBytes`' platform bytes, summed over the workspaces whose new files go to this server's storage. */
+  storageBytes: number;
+  /** How many workspaces that sum is of: each has at least one byte counted. */
+  workspaces: number;
+  /** How many workspaces send new files to a bucket of their own: left out whole. */
+  ownStorageWorkspaces: number;
+}
+
+/**
+ * `storedBytes`' platform bytes for the whole instance: the rows `storedBytesQueries` sums for one workspace, summed
+ * for all of them at once, so a change to what one counts is a change to the other. A workspace with a bucket of its
+ * own is left out with whatever it still keeps here (files written before the bucket and not copied to it, live
+ * files' documents). No index holds a file's size, so every row of the five tables is read: it runs as a `heavyRead`.
+ */
+export async function instanceStoredBytes(db: Database): Promise<InstanceStoredBytes> {
+  // Out of the Drive's trash, the workspace matched on both sides as for one workspace.
+  const kept = (orgId: unknown, artifactId: unknown) =>
+    sql`join ${artifacts} on ${artifacts.id} = ${artifactId} and ${artifacts.orgId} = ${orgId}
+      and ${artifacts.deletedAt} is null`;
+  const [total] = rowsOf<{ storageBytes: number | null; workspaces: number; ownStorageWorkspaces: number }>(
+    await heavyRead(
+      db,
+      sql`
+      with own as (
+        select ${storageConfigs.orgId} as org_id from ${storageConfigs} where ${storageConfigs.status} = 'active'
+      ), files as (
+        select ${artifactVersions.orgId} as org_id, ${artifactVersions.size} as bytes from ${artifactVersions}
+          ${kept(artifactVersions.orgId, artifactVersions.artifactId)}
+          where ${artifactVersions.storageConfigId} is null
+        union all
+        select ${skillFiles.orgId}, ${skillFiles.size} from ${skillFiles}
+          where ${skillFiles.storageConfigId} is null and ${skillFiles.blobKey} is not null
+        union all
+        select ${voiceClips.orgId}, ${voiceClips.size} from ${voiceClips}
+          where ${voiceClips.storageConfigId} is null and ${voiceClips.audioDeletedAt} is null
+        union all
+        select ${liveAssets.orgId}, ${liveAssets.size} from ${liveAssets}
+          ${kept(liveAssets.orgId, liveAssets.artifactId)}
+          where ${liveAssets.storageConfigId} is null
+        union all
+        select ${liveDocs.orgId}, ${liveDocs.stateBytes} from ${liveDocs}
+          ${kept(liveDocs.orgId, liveDocs.artifactId)}
+      ), per_org as (
+        select org_id, sum(bytes) as bytes from files
+        where org_id not in (select org_id from own)
+        group by org_id having sum(bytes) > 0
+      )
+      select sum(bytes)::float8 as "storageBytes", count(*)::int as workspaces,
+        (select count(*)::int from own) as "ownStorageWorkspaces"
+      from per_org`,
+    ),
+  );
+  return {
+    // No workspace with a byte counted sums to null.
+    storageBytes: total?.storageBytes ?? 0,
+    workspaces: total?.workspaces ?? 0,
+    ownStorageWorkspaces: total?.ownStorageWorkspaces ?? 0,
+  };
 }
 
 export async function getMigration(db: Database, actorId: string, orgId: string) {

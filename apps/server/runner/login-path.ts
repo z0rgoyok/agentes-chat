@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import os from "node:os";
 import path, { win32 } from "node:path";
+import { consoleText } from "./console-text";
 import { envValue } from "./executors";
 
 /**
@@ -66,11 +67,22 @@ export function mergePathWith(delimiter: string, ...lists: (string | null | unde
   return out.join(delimiter);
 }
 
-/** Where the usual installers put a CLI on Windows: Claude Code's own, npm's global launchers, Bun's. */
+/**
+ * Where the usual installers put a CLI on Windows: Claude Code's own, npm's global launchers, Bun's, Google's for the
+ * Antigravity CLI (`%LOCALAPPDATA%\agy\bin\agy.exe`, its `install.ps1`) and xAI's for Grok Build
+ * (`%USERPROFILE%\.grok\bin\grok.exe`, its `install.ps1`).
+ */
 export function usualWindowsDirs(env: NodeJS.ProcessEnv = process.env): string[] {
   const home = envValue(env, "USERPROFILE", "win32") || os.homedir();
   const appData = envValue(env, "APPDATA", "win32") || win32.join(home, "AppData", "Roaming");
-  return [win32.join(home, ".local", "bin"), win32.join(appData, "npm"), win32.join(home, ".bun", "bin")];
+  const localAppData = envValue(env, "LOCALAPPDATA", "win32") || win32.join(home, "AppData", "Local");
+  return [
+    win32.join(home, ".local", "bin"),
+    win32.join(appData, "npm"),
+    win32.join(home, ".bun", "bin"),
+    win32.join(localAppData, "agy", "bin"),
+    win32.join(home, ".grok", "bin"),
+  ];
 }
 
 /**
@@ -93,12 +105,12 @@ export function windowsRegistryPath(env: NodeJS.ProcessEnv = process.env): strin
   const read = (key: string) => {
     try {
       const r = spawnSync(reg, ["query", key, "/v", "Path"], {
-        encoding: "utf8",
         timeout: 5000,
         windowsHide: true,
         stdio: ["ignore", "pipe", "ignore"],
       });
-      return registryPathValue(`${r.stdout ?? ""}`, env);
+      // In the console's code page: a folder with an accent read as UTF-8 was a folder that isn't there.
+      return registryPathValue(consoleText(r.stdout ?? ""), env);
     } catch {
       return null;
     }

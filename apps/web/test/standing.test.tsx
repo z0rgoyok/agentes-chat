@@ -138,6 +138,17 @@ describe("on hold: a line on top of the work area", () => {
 describe("a billing hold (ADR 0079): its own words, and its fix for whoever runs the workspace", () => {
   const BILLING = "https://billing.example.com";
 
+  test("on the Cloud, the plan's line says why it costs: a computer connected here doesn't replace it, one's own server is free", async () => {
+    const state = seedState();
+    state.authConfig = { ...state.authConfig, cloud: true };
+    await open({ state: "hold", reason: "payment" }, false, null, { billingUrl: BILLING, state });
+    const banner = screen().getByRole("region", { name: STATUS });
+    const why = within(banner).getByRole("button", { name: "Por que pago?" });
+    expect(document.getElementById(why.getAttribute("aria-describedby") ?? "")?.textContent).toBe(
+      "O Cloud inclui o computador dos agentes sempre ligado e quem mantém o servidor. Um computador seu conectado a um workspace do Cloud não substitui o plano. Rodar o agentes.chat no seu próprio servidor ou computador é grátis.",
+    );
+  });
+
   test("owners and admins get the button of its code: it opens the billing service, signed in", async () => {
     const left: string[] = [];
     setNavigateAway((url) => left.push(url));

@@ -24,6 +24,11 @@ import { type RunCommand, runSync, systemdBooted } from "./service";
 export const SELF_CHECK_EVERY_MS = 6 * 3600_000;
 /** After a failed check: soon, and again while it keeps failing. */
 export const SELF_CHECK_RETRY_MS = 5 * 60_000;
+/**
+ * Everything but the agents' network held, and no agent has a user here yet to try that with. A sign-in may begin
+ * (it runs as its own user, outside any agent's network); no turn runs on it until the check passed with an agent.
+ */
+export const SELF_CHECK_DEFERRED = "No agent here yet to try the network with";
 const PROBE_ACCOUNT = "00000000-0000-4000-8000-000000000000";
 const PROBE_AGENT: AgentUser = { id: PROBE_ACCOUNT, user: "ag-00000000", uid: PROBE_AGENT_UID };
 const PROBE_TIMEOUT_MS = 20_000;
@@ -79,7 +84,7 @@ function directBytes(uid: number, run: RunCommand): number {
   return bytes;
 }
 
-/** Null when everything held; otherwise why not, for the machine's status. */
+/** Null when everything held, `SELF_CHECK_DEFERRED` when all but the network leg did; otherwise why not. */
 export async function accountSelfCheck(c: SelfCheck): Promise<string | null> {
   const spec = c.config.claudeSharedLogin;
   if (!spec) return "The feature is off";
@@ -101,7 +106,7 @@ export async function accountSelfCheck(c: SelfCheck): Promise<string | null> {
   // Any version runs: the one installed only goes with a failure, so a report shows which CLI changed what.
   const version = /\d+\.\d+\.\d+/.exec(run(cli, [...pre, "--version"]).output)?.[0];
   const why = await probe(c, cli, pre, run, launcher);
-  return why && version ? `${why} (Claude CLI ${version})` : why;
+  return why && why !== SELF_CHECK_DEFERRED && version ? `${why} (Claude CLI ${version})` : why;
 }
 
 /** The stand-in agent against the sign-in's user, then the network route. */
@@ -140,7 +145,7 @@ async function probe(
   if (!networkAuthRoute) return "The agents' networks don't route the sign-in's user";
   // Only a real agent's uid: the network hook starts namespaces for nothing else.
   const agent = readAgentUsers(c.home)[0];
-  if (!agent) return "No agent here yet to try the network with";
+  if (!agent) return SELF_CHECK_DEFERRED;
   c.users.room(account, agent.uid);
   const routed: AgentUser = { ...agent, networkLauncher, networkMark, networkRevision };
   const egress = launcher(account, routed, path.join(agentHome(agent.user), "probe"));

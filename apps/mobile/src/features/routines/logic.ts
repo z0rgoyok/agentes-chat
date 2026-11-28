@@ -12,8 +12,7 @@ import type {
   RoutineTargetInput,
 } from "@agenteschat/client";
 import { createsRoutinesFor } from "@agenteschat/client/lib/audience";
-import type { RunStatus } from "@agenteschat/client/lib/calendar";
-import { pausedFix, type RoutineFix, runPixels } from "@agenteschat/client/lib/routine-view";
+import { pausedFix, type RoutineFix, type RunStatus, runPixels } from "@agenteschat/client/lib/routine-view";
 import type { IconName } from "@/ui";
 import { defaultRule, fromApiRule, onceAt, onceRule, type RecurrenceRule, toApiRule } from "./rule";
 

@@ -9,8 +9,10 @@ import {
   browserScreenKey,
   browserShowsDesktop,
   DESKTOP_CLOSE,
+  DESKTOP_GIVE_UP_MS,
   desktopCloseState,
   desktopMode,
+  desktopOpenFailed,
   desktopRetryMs,
   desktopSocketUrl,
   desktopStatusState,
@@ -89,6 +91,31 @@ describe("the agent's screen", () => {
       expect(desktopCloseState(code)).toEqual({ state: "connecting", retry: "later" });
     }
     expect([0, 1, 2, 3, 9].map(desktopRetryMs)).toEqual([1000, 2000, 5000, 10_000, 10_000]);
+  });
+
+  test("a failed try to open it: its cause under the cover, and it stops by itself once it has opened for 2 minutes", () => {
+    const since = 1_000_000;
+    expect(desktopOpenFailed(4408, "timeout", since, since + 21_000)).toEqual({ why: "late", gaveUp: false });
+    expect(desktopOpenFailed(4503, "offline", since, since)).toEqual({ why: "offline", gaveUp: false });
+    expect(desktopOpenFailed(4502, "internal", since, since)).toEqual({ why: "refused", gaveUp: false });
+    for (const code of [1001, 1006, 1013]) {
+      expect(desktopOpenFailed(code, "", since, since)).toEqual({ why: "dropped", gaveUp: false });
+    }
+    expect(desktopOpenFailed(4408, "timeout", since, since + DESKTOP_GIVE_UP_MS)).toEqual({
+      why: "late",
+      gaveUp: true,
+    });
+    // Control changing hands, or a state with its own cover: no cause, and the retries go as they do.
+    for (const [code, reason] of [
+      [4410, ""],
+      [4409, ""],
+      [4429, ""],
+      [4502, "machine_paused"],
+      [4502, "desktop_busy"],
+      [1000, ""],
+    ] as const) {
+      expect(desktopOpenFailed(code, reason, since, since + DESKTOP_GIVE_UP_MS)).toBeNull();
+    }
   });
 
   test("its state before a socket: someone else in control, or why it can't show; one not running opens", () => {

@@ -240,13 +240,15 @@ export const fonts = {
   mono: "Martian Mono",
 } as const;
 
-/** Cubic bezier curves `[x1, y1, x2, y2]`: `spring` and `out` from the tokens; `ios` for sheets (`--drawer`). */
+/** Cubic bezier curves `[x1, y1, x2, y2]`: `spring` and `out` from the tokens; `ios` for sheets (`--drawer`); `move`
+ *  for what moves or resizes in place (`--move`). */
 export const motion = {
   spring: [0.34, 1.4, 0.5, 1],
   out: [0.2, 0.8, 0.2, 1],
   ios: [0.32, 0.72, 0, 1],
+  move: [0.65, 0, 0.35, 1],
 } as const satisfies Record<string, readonly [number, number, number, number]>;
 
 /** Durations in ms (`--dur-*`): fast for presses, menus and exits, base for dialogs, toasts and arrivals, panel for a
- *  side panel's slide. */
-export const durations = { fast: 140, base: 180, panel: 240 } as const;
+ *  side panel's slide, morph for a card or row changing size in place. */
+export const durations = { fast: 140, base: 180, panel: 240, morph: 260 } as const;

@@ -30,7 +30,9 @@ import {
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   AgentSticker,
+  arriveAfter,
   Button,
+  cx,
   Dialog,
   DialogBody,
   DialogFooter,
@@ -38,6 +40,7 @@ import {
   Icon,
   Input,
   Locked,
+  MorphRoom,
   Spinner,
   Textarea,
   WAVE_SECONDS,
@@ -52,6 +55,7 @@ import { usePlanHold } from "@/components/ai/plan-hold";
 import { useChannelActions } from "@/components/channel-actions";
 import { useConnectAi } from "@/components/connect-ai-context";
 import { useInviteDialog } from "@/components/invite/InviteDialog";
+import { arrivals, useArrivalsBusy } from "@/components/lodi-cursor/arrivals";
 import { useOrg } from "@/components/org-context";
 import { type RequestAnswer, RequestCard } from "@/components/RequestCard";
 import { useDirectory } from "@/hooks/useDirectory";
@@ -269,6 +273,16 @@ const countsText = (t: TFunction, plan: TeamPlan, personal: boolean) => {
  * (everything at once as whoever clicks, or nothing and the step that failed), "Ajustar" per agent, "Ver como mapa"
  * and Descartar. Created: a receipt with Desfazer, then a first task per agent and inviting the people it named.
  */
+/*
+ * After Criar o time, one place at a time where the eyes are: the card's answer (70ms, `useMorph`), the waving team
+ * and the lines under the card, then the first tasks and their rows 50ms apart.
+ */
+const WAVE_IN_MS = 160;
+const FIRST_TASK_IN_MS = 250;
+const ROW_STEP_MS = 50;
+/** "Depois": `--dur-fast`, the exit's fade (team-plan.css `.tp-leaving`). */
+const LEAVE_MS = 140;
+
 export function TeamPlanCardView({ message, card }: { message: Message; card: TeamProposalCard }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
@@ -281,11 +295,18 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
   const former = useFormerAgents(org.id).data;
   // Made here and now, on a hold: the new agents wave, once.
   const [wave, setWave] = useState(false);
+  // Lodi's cursor is building the sidebar from this team (not an earlier one in the same conversation): Pular lands it.
+  const landing =
+    useArrivalsBusy() &&
+    card.decidedByUserId === me.user.id &&
+    [...(card.created?.channelIds ?? []), ...(card.created?.agentIds ?? [])].some(arrivals.owns);
   const [adjusting, setAdjusting] = useState<TeamAgentDraft | null>(null);
   const [map, setMap] = useState(false);
   const agent = message.author.id ? dir.anyAgent(message.author.id) : undefined;
   const plan = card.params;
   const status = teamStatus(card);
+  // Created while on screen: what comes under the card arrives in turn (an opened conversation shows it as it is).
+  const [createdHere] = useState(() => status === "open");
   const personal = isPersonal(org);
   const failed = (e: unknown) => toast.show(errorText(t, e), "error");
   const title = t("ask.kind.team");
@@ -316,6 +337,7 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
   // server's `undoTeam`, ADR 0085 addendum of 2026-11-17), so a private agent stays out of reach of who only holds
   // "Edit agents".
   const managesTeam = managesTeamAgents(org, card.created?.agentIds ?? [], dir.agents, former);
+  const undoable = teamUndoable(card, { userId: me.user.id, admin: managesTeam });
   const answer: RequestAnswer | undefined = open
     ? undefined
     : status === "created"
@@ -325,16 +347,26 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
             ? t(modeKey(org, "teamPlan.card.created"), { name: by })
             : t(modeKey(org, "teamPlan.card.createdYou")),
           time: card.decidedAt ? whenAt(t, i18n.language, card.decidedAt) : undefined,
-          action: teamUndoable(card, { userId: me.user.id, admin: managesTeam }) ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={team.undo.isPending}
-              onClick={() => team.undo.mutate(undefined, { onError: failed })}
-            >
-              {t("agentActions.undo")}
-            </Button>
-          ) : undefined,
+          action:
+            undoable || landing ? (
+              <span className="rq__answer-acts">
+                {undoable && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={team.undo.isPending}
+                    onClick={() => team.undo.mutate(undefined, { onError: failed })}
+                  >
+                    {t("agentActions.undo")}
+                  </Button>
+                )}
+                {landing && (
+                  <Button size="sm" variant="ghost" className="lodi-skip" onClick={arrivals.skip}>
+                    {t("lodiCursor.skip")}
+                  </Button>
+                )}
+              </span>
+            ) : undefined,
         }
       : {
           done: false,
@@ -386,7 +418,12 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
                   disabled={team.deny.isPending}
                   onClick={() =>
                     team.create.mutate(undefined, {
-                      onSuccess: ({ noAi }) => {
+                      onSuccess: ({ card: made, noAi }) => {
+                        // Lodi's cursor shows the clicker where it all went (a personal workspace lists no channels).
+                        arrivals.add({
+                          channelIds: personal ? [] : (made.created?.channelIds ?? []),
+                          agentIds: made.created?.agentIds ?? [],
+                        });
                         if (held) setWave(true);
                         else if (noAi?.length) connect?.open({ agentId: noAi[0], agentIds: noAi });
                       },
@@ -421,11 +458,30 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
         what={names}
       />
       {status === "created" && (
-        <>
-          {card.created?.skipped.includes("skills") && <p className="small muted">{t("teamPlan.card.skillsWait")}</p>}
-          {card.created?.skipped.includes("weekly") && <p className="small muted">{t("teamPlan.card.weeklyWait")}</p>}
+        // Its room glides open under the card and shut when the first tasks go: nothing under it jumps.
+        <MorphRoom enter={createdHere} className="tp-after">
+          {card.created?.skipped.includes("skills") && (
+            <p
+              className={cx("small muted", createdHere && "ac-arrive")}
+              style={createdHere ? arriveAfter(WAVE_IN_MS) : undefined}
+            >
+              {t("teamPlan.card.skillsWait")}
+            </p>
+          )}
+          {card.created?.skipped.includes("weekly") && (
+            <p
+              className={cx("small muted", createdHere && "ac-arrive")}
+              style={createdHere ? arriveAfter(WAVE_IN_MS) : undefined}
+            >
+              {t("teamPlan.card.weeklyWait")}
+            </p>
+          )}
           {wave && (
-            <div className="tp-wave" aria-hidden="true">
+            <div
+              className={cx("tp-wave", createdHere && "ac-arrive")}
+              style={createdHere ? arriveAfter(WAVE_IN_MS) : undefined}
+              aria-hidden="true"
+            >
               {plan.agents.map((a) => (
                 <AgentSticker
                   key={a.handle}
@@ -437,8 +493,10 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
               ))}
             </div>
           )}
-          {card.decidedByUserId === me.user.id && !held && <FirstTaskCard message={message} card={card} />}
-        </>
+          {card.decidedByUserId === me.user.id && !held && (
+            <FirstTaskCard message={message} card={card} arriving={createdHere} />
+          )}
+        </MorphRoom>
       )}
       {adjusting && (
         <AdjustDialog
@@ -462,7 +520,16 @@ export function TeamPlanCardView({ message, card }: { message: Message; card: Te
  * After the team: a short first task per agent (its DM opens with it typed, never sent, for the person to finish) and
  * inviting the people. Only once the team can answer: never on a billing hold (the caller's), nor before an AI.
  */
-function FirstTaskCard({ message, card }: { message: Message; card: TeamProposalCard }) {
+function FirstTaskCard({
+  message,
+  card,
+  arriving,
+}: {
+  message: Message;
+  card: TeamProposalCard;
+  /** Right after Criar o time: it rises in after the receipt and the waving team, then its rows one by one. */
+  arriving: boolean;
+}) {
   const { t } = useTranslation();
   const { org } = useOrg();
   const dir = useDirectory(org.id);
@@ -470,73 +537,88 @@ function FirstTaskCard({ message, card }: { message: Message; card: TeamProposal
   const invite = useInviteDialog();
   const thinks = useAiStatus(org.id).data?.any === true;
   const [later, setLater] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const tasks = firstTasks(card).filter((f) => dir.agentById.has(f.agentId));
   // No "Invite …" in a personal workspace (ADR 0159): it is for one person, inviting stays in Settings.
   const people = isPersonal(org) ? [] : card.params.invite;
   if (later || !thinks || (tasks.length === 0 && people.length === 0)) return null;
   const agent = message.author.id ? dir.anyAgent(message.author.id) : undefined;
   const label = t("ask.kind.firstTask");
+  // "Depois": it fades where it is, then its room closes.
+  const putOff = () => {
+    setLeaving(true);
+    setTimeout(() => setLater(true), LEAVE_MS);
+  };
   return (
-    <RequestCard
-      id={`${message.id}-first`}
-      kind="firstTask"
-      agent={agent}
-      label={label}
-      mine={false}
-      waitingFor={t("teamPlan.firstTask.suggestion")}
-      lead={t("teamPlan.firstTask.lead")}
-      body={
-        tasks.length > 0 ? (
-          <ul className="tp-agents">
-            {tasks.map((f) => (
-              <li key={f.agentId} className="tp-agent ac-mediarow">
-                <span className="ac-mediarow__face">
-                  <AgentAvatar agentId={f.agentId} name={f.name} size="md" />
-                </span>
-                <span className="ac-mediarow__head">
-                  <b>{f.name}</b>
-                </span>
-                <span className="ac-mediarow__end ac-mediarow__end--wrap">
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      // The task ends in a blank for them to finish.
-                      setDraftFor(`agent:${f.agentId}`, `${f.task} `);
-                      void navigate({
-                        to: "/org/$orgId/dm/agent/$agentId",
-                        params: { orgId: org.id, agentId: f.agentId },
-                      });
-                    }}
-                  >
-                    {t("teamPlan.firstTask.open")}
-                  </Button>
-                </span>
-                <span className="ac-mediarow__body">
-                  <span className="tp-agent__line">{f.task}</span>
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : undefined
-      }
-      actions={
-        <>
-          {people.length > 0 && invite && can(org, "invite_people") && (
-            <Button
-              size="sm"
-              variant="primary"
-              onClick={() => invite.open({ emails: people.filter((p) => EMAIL.test(p)) })}
-            >
-              {t("teamPlan.firstTask.invite", { names: joinNames(people, t) })}
+    <div
+      className={cx(arriving && "ac-arrive", leaving && "tp-leaving")}
+      style={arriving ? arriveAfter(FIRST_TASK_IN_MS) : undefined}
+    >
+      <RequestCard
+        id={`${message.id}-first`}
+        kind="firstTask"
+        agent={agent}
+        label={label}
+        mine={false}
+        waitingFor={t("teamPlan.firstTask.suggestion")}
+        lead={t("teamPlan.firstTask.lead")}
+        body={
+          tasks.length > 0 ? (
+            <ul className="tp-agents">
+              {tasks.map((f, i) => (
+                <li
+                  key={f.agentId}
+                  className={cx("tp-agent ac-mediarow", arriving && "ac-arrive")}
+                  style={arriving ? arriveAfter(FIRST_TASK_IN_MS + ROW_STEP_MS * (i + 1)) : undefined}
+                >
+                  <span className="ac-mediarow__face">
+                    <AgentAvatar agentId={f.agentId} name={f.name} size="md" />
+                  </span>
+                  <span className="ac-mediarow__head">
+                    <b>{f.name}</b>
+                  </span>
+                  <span className="ac-mediarow__end ac-mediarow__end--wrap">
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        // The task ends in a blank for them to finish.
+                        setDraftFor(`agent:${f.agentId}`, `${f.task} `);
+                        void navigate({
+                          to: "/org/$orgId/dm/agent/$agentId",
+                          params: { orgId: org.id, agentId: f.agentId },
+                        });
+                      }}
+                    >
+                      {t("teamPlan.firstTask.open")}
+                    </Button>
+                  </span>
+                  <span className="ac-mediarow__body">
+                    <span className="tp-agent__line">{f.task}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : undefined
+        }
+        actions={
+          <>
+            {people.length > 0 && invite && can(org, "invite_people") && (
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={() => invite.open({ emails: people.filter((p) => EMAIL.test(p)) })}
+              >
+                {t("teamPlan.firstTask.invite", { names: joinNames(people, t) })}
+              </Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={putOff}>
+              {t("teamPlan.firstTask.later")}
             </Button>
-          )}
-          <Button size="sm" variant="ghost" onClick={() => setLater(true)}>
-            {t("teamPlan.firstTask.later")}
-          </Button>
-        </>
-      }
-      what={label}
-    />
+          </>
+        }
+        what={label}
+      />
+    </div>
   );
 }
 

@@ -4,6 +4,8 @@
   it on per host, one VM first
 - Date: 2026-11-14
 - Amends: ADR 0096 §3 (each agent's /tmp was in its tmpfs, in memory)
+- Amended by: ADR 0243 (in memory, all agents' /tmp share one tmpfs of 20% of the RAM; on disk, a filesystem that
+  can't be made leaves /tmp in that pool instead of failing the launch)
 - Code: runner `agent-users.ts` (`agentRam`, `DISK_TMP`, the `tmpOnDisk` of `systemLauncher` and
   `containersCommand`), `service.ts` (`AGENT_DISK_TMP_ROOT`, `AGENT_TMP_CLEANUP`), `config.ts` (`agentTmpOnDisk`),
   `daemon.ts` (`configFromGrant`); tests `agent-users.test.ts`, `system-mode.test.ts`, `isolation.root.test.ts`

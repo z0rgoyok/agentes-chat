@@ -312,7 +312,7 @@ export function useAgentProfileStatus(agentId: string, name: string): AgentProfi
   const note = !own
     ? ""
     : own.by !== "self"
-      ? t("presence.byAuto")
+      ? t(shown.work?.private ? "presence.byPrivate" : "presence.byAuto")
       : until
         ? t("mobile.status.bySelfUntil", {
             name,

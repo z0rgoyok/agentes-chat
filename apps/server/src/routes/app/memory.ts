@@ -5,9 +5,11 @@ import {
   type ContextItem,
   can,
   decideProposal,
+  dmPeople,
   editContextItem,
   editorDecides,
   ForbiddenError,
+  forgetRightHandLearned,
   getAgent,
   isHowTo,
   isPlaybook,
@@ -31,6 +33,7 @@ import {
   SERVER_REASONS,
   SETTING_GROUP,
   settingsGroup,
+  settingsPerson,
   teamMemoryKind,
   undoProposal,
   userVisibleChannels,
@@ -97,6 +100,10 @@ const Memory = z
       .optional()
       .openapi({ description: "A `rule` the viewer may remove: its giver, the agent's owner or an admin." }),
     channelId: z.uuid().nullable().optional().openapi({ description: "Where it was learned." }),
+    onlyYou: z.boolean().optional().openapi({
+      description:
+        "Kept for the viewer alone: a preference of theirs, or learned in a DM. Else everyone who reads `channelId` sees it.",
+    }),
     updatedAt: z.string(),
     from: z
       .object({
@@ -229,6 +236,10 @@ const Proposal = z
     undoable: z.boolean().openapi({
       description: "Applied, and the viewer may put it back (`POST …/proposals/{id}/undo`).",
     }),
+    applicable: z.boolean().openapi({
+      description:
+        "Left out by the review, and the viewer may make that change: they apply it themselves (`POST …/proposals/{id}/accept`, 409 when what it was made against changed since).",
+    }),
     undoneBy: z.object({ userId: z.string(), name: z.string() }).nullable(),
     undoneAt: z.string().nullable(),
     decidedAt: z.string().nullable(),
@@ -267,11 +278,13 @@ async function memoryViews(db: Database, items: ContextItem[], visible: readonly
   const channelIds = [...new Set(items.flatMap((i) => i.channelIds))];
   const channels = channelIds.length
     ? await db
-        .select({ id: schema.channels.id, name: schema.channels.name })
+        .select({ id: schema.channels.id, name: schema.channels.name, dmKey: schema.channels.dmKey })
         .from(schema.channels)
         .where(inArray(schema.channels.id, channelIds))
     : [];
   const channelName = new Map(channels.map((c) => [c.id, c.name]));
+  // A DM with one person in it (theirs with an agent): only they read what came from it.
+  const ownDms = new Set(channels.filter((c) => c.dmKey && dmPeople(c.dmKey).length === 1).map((c) => c.id));
   const replaced = await db
     .select({
       supersededBy: schema.contextItems.supersededBy,
@@ -343,6 +356,8 @@ async function memoryViews(db: Database, items: ContextItem[], visible: readonly
       playbook: isPlaybook(i),
       disputed: i.disputed,
       channelId: i.channelIds[0] ?? null,
+      // Kept for one person (a preference, or what came from a DM): the viewer's, since nobody else lists it.
+      onlyYou: i.scopeType === "person" || (i.channelIds.length > 0 && i.channelIds.every((id) => ownDms.has(id))),
       updatedAt: i.updatedAt.toISOString(),
     };
   });
@@ -411,7 +426,10 @@ const beforeOf = (diff: string) =>
     .map((l) => l.slice(1))
     .join("\n");
 
-async function proposalViews(db: Database, rows: (ProposalRow & { canDecide: boolean; undoable: boolean })[]) {
+async function proposalViews(
+  db: Database,
+  rows: (ProposalRow & { canDecide: boolean; undoable: boolean; applicable: boolean })[],
+) {
   const agentIds = [
     ...new Set(rows.flatMap((r) => [r.agentId, r.decidedByAgentId].filter((id): id is string => !!id))),
   ];
@@ -464,6 +482,7 @@ async function proposalViews(db: Database, rows: (ProposalRow & { canDecide: boo
   return rows.map((r) => {
     const agent = r.agentId ? agentById.get(r.agentId) : undefined;
     const owner = agent?.ownerUserId;
+    const person = r.target === "agent_settings" ? settingsPerson(r) : null;
     const sourceItems = r.itemIds.flatMap((id) => (itemById.get(id) ? [itemById.get(id) as ContextItem] : []));
     const name = agent?.name ?? "the agent";
     return {
@@ -509,10 +528,11 @@ async function proposalViews(db: Database, rows: (ProposalRow & { canDecide: boo
               ? ("undone" as const)
               : ("refused" as const),
       stale: r.status === "stale",
-      // Its owner decides it beside who manages it (`ownerDecides`), or as who edits it (`editorDecides`, ADR 0085
-      // addendum of 2026-11-17): the apps name them.
-      decider:
-        (ownerDecides(r) || editorDecides(r)) && owner
+      // A row on a person's own AI is theirs alone (`settingsPerson`). Its owner decides it beside who manages it
+      // (`ownerDecides`), or as who edits it (`editorDecides`, ADR 0085 addendum of 2026-11-17): the apps name them.
+      decider: person
+        ? { type: "user" as const, userId: person, name: users.get(person) ?? "" }
+        : (ownerDecides(r) || editorDecides(r)) && owner
           ? { type: "user" as const, userId: owner, name: users.get(owner) ?? "" }
           : r.target === "agent_settings" && settingsGroup(r) === "account"
             ? { type: "account_owner" as const }
@@ -526,6 +546,7 @@ async function proposalViews(db: Database, rows: (ProposalRow & { canDecide: boo
       review: r.review,
       reviewed: !r.decidedByUserId && !!r.decidedAt,
       undoable: r.undoable,
+      applicable: r.applicable,
       undoneBy: r.undoneByUserId ? { userId: r.undoneByUserId, name: users.get(r.undoneByUserId) ?? "" } : null,
       undoneAt: r.undoneAt ? r.undoneAt.toISOString() : null,
       decidedAt: r.decidedAt ? r.decidedAt.toISOString() : null,
@@ -680,6 +701,24 @@ export function memoryRoutes(deps: AppDeps) {
       );
       const views = await memoryViews(db, about, visible);
       return c.json({ memories: views.map((v) => ({ ...v, from: mine.get(v.id) ?? null })) }, 200);
+    },
+  );
+
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/right-hand/forget-learned",
+      tags,
+      security,
+      summary: "Forget all the right hand learned from me on its own",
+      description:
+        "Deletes, for good, what the right hand learned or saved on its own for me alone (my preferences, what came from my DM with it). What I asked it to remember stays, and so does what it learned in a channel (that channel's).",
+      request: { params: OrgParams },
+      responses: { 200: json(z.object({ forgotten: z.number().int() })), ...errors },
+    }),
+    async (c) => {
+      const forgotten = await forgetRightHandLearned(db, c.get("user").id, c.req.valid("param").orgId);
+      return c.json({ forgotten }, 200);
     },
   );
 

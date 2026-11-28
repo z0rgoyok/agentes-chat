@@ -177,6 +177,34 @@ describe("the agent's screen on the phone's page", () => {
     expect(sockets).toHaveLength(2);
   });
 
+  test("a try that fails says why; one that fails after 2 minutes of opening is the last, until asked", () => {
+    const timers = spyOn(globalThis, "setTimeout").mockImplementation(((fn: () => void) => {
+      fn();
+      return 0;
+    }) as unknown as typeof setTimeout);
+    const clock = spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      const { session, sockets, events } = setup();
+      session.set({ connect: true, mode: "watch" });
+      sockets[0]?.serverCloses(4408, "timeout");
+      expect(events).toContainEqual({ type: "why", why: "late", gaveUp: false });
+      expect(sockets).toHaveLength(2);
+      clock.mockReturnValue(1_000_000 + 120_000);
+      sockets[1]?.serverCloses(1006);
+      expect(events.at(-2)).toEqual({ type: "why", why: "dropped", gaveUp: true });
+      expect(sockets).toHaveLength(2);
+      // Control changing hands says no cause.
+      session.retry();
+      expect(sockets).toHaveLength(3);
+      const before = events.filter((e) => e.type === "why").length;
+      sockets[2]?.serverCloses(4410, "control_ended");
+      expect(events.filter((e) => e.type === "why")).toHaveLength(before);
+    } finally {
+      clock.mockRestore();
+      timers.mockRestore();
+    }
+  });
+
   test("a close heard after letting go changes nothing", () => {
     const { session, sockets, events } = setup();
     session.set({ connect: true, mode: "watch" });

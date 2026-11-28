@@ -1,11 +1,23 @@
 import { everyoneWord, isEveryoneWord } from "@agenteschat/client/lib/everyone";
 import { linkPill } from "@agenteschat/client/lib/link-pills";
 import { parseFileLink, parseMessageLink } from "@agenteschat/client/lib/message-links";
+import { linkSite, type TableCellRead, tableColumnKinds } from "@agenteschat/client/lib/table";
 import { LinearGradient } from "expo-linear-gradient";
-import { type ComponentRef, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Text as RNText, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import {
+  FlatList,
+  Pressable,
+  Text as RNText,
+  ScrollView,
+  type StyleProp,
+  StyleSheet,
+  type TextStyle,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { ScrollView as GestureScrollView } from "react-native-gesture-handler";
+import Animated, { useAnimatedScrollHandler, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { serverUrl } from "@/lib/server";
 import { Text, useTheme } from "@/ui";
 import { router } from "@/ui/navigation";
@@ -15,6 +27,7 @@ import { openPage } from "../ai/parts";
 import { ownLinkHref } from "../links/app-links";
 import { useColors } from "../shared/hooks";
 import { MONO } from "../shared/parts";
+import { SiteIcon } from "../shared/SiteIcon";
 import { ChannelRefText } from "./ChannelRefText";
 import { FileRefText } from "./FileRefText";
 import { IdRefText } from "./IdRefText";
@@ -25,14 +38,14 @@ import {
   CHAT_TEXT_MAX_SCALE,
   chatCellOf,
   chatCodeOf,
+  fitTableColumns,
   type Inline,
   mentionTint,
   tableColumnWidths,
-  tableHidden,
   tableKey,
   tableResolvesLate,
 } from "./logic";
-import { useLayoutKey, useRowLook } from "./look";
+import { useKeptWidth, useLayoutKey, useRowLook } from "./look";
 import { MessageRefText } from "./MessageRefText";
 import { useRowDirectory, useRowMyHandle } from "./row-data";
 
@@ -77,8 +90,9 @@ export function Spans({
             );
           case "code":
             return (
-              <RNText key={key} style={[styles.inlineCode, codeSize, { backgroundColor: c.sunken, color: c.ink2 }]}>
-                {s.text}
+              // On the plate, a thin space of room at each side: a text inside a text takes no padding.
+              <RNText key={key} style={[styles.inlineCode, codeSize, { backgroundColor: c.plate, color: c.ink2 }]}>
+                {`\u2009${s.text}\u2009`}
               </RNText>
             );
           case "link": {
@@ -98,7 +112,7 @@ export function Spans({
                 key={key}
                 accessibilityRole="link"
                 onPress={() => (own ? router.push(own as never) : openPage(s.href))}
-                style={styles.link}
+                style={[styles.link, { textDecorationColor: c.faint }]}
               >
                 {s.text}
               </RNText>
@@ -110,7 +124,7 @@ export function Spans({
             const shown = (
               <RNText
                 key={key}
-                style={s.code ? [styles.inlineCode, { backgroundColor: c.sunken, color: c.ink2 }] : undefined}
+                style={s.code ? [styles.inlineCode, { backgroundColor: c.plate, color: c.ink2 }] : undefined}
               >
                 {s.text}
               </RNText>
@@ -161,20 +175,62 @@ function MentionText({ text, everyone, ink }: { text: string; everyone: boolean;
 
 type TableBlock = Extract<Block, { kind: "table" }>;
 
+/** The table's sideways scroller, its offset read on the UI thread: the standing column and the fade follow it there. */
+const TableScroller = Animated.createAnimatedComponent(GestureScrollView);
+
+/** How wide the fade is at the side that hides columns, and how far a scroll takes it from whole to nothing. */
+const TABLE_FADE = 28;
+
+/** A cell as its column's kind reads it (`tableColumnKinds`): its words, and whether it is only a link. */
+const cellRead = (cell: Inline[]): TableCellRead => {
+  const said = cell.filter((s) => s.text.trim());
+  return { text: cell.map((s) => s.text).join(""), link: said.length === 1 && said[0]?.kind === "link" };
+};
+
+/** A cell's words as a spreadsheet takes them (`tableTsv`). */
+export const cellText = (cell: Inline[]) => cell.map((s) => s.text).join("");
+
 /**
- * A table (the web's `md__table`): a quiet box with a hairline, the header on a soft band, rows split by
- * hairlines, numbers on the right in tabular figures. Each column is as wide as its widest cell as drawn (measured
- * on an unseen copy that never wraps, since a guess by letters came out narrow and broke words), up to a max that
- * grows with the text size (`tableColumnWidths`); a table wider than the message scrolls sideways inside its box,
- * its hidden side fading out at the edge, and the scroll bar flashes once when it first shows there is more.
- * `surface`: the color under the table (the fade's), the chat's background unless said.
+ * A cell that is only a link to a site, in a column of links: where it goes, the name it shows (the site's, or the
+ * link's own words when it has them) and the host its icon comes from. Null for anything else (a message's or a file's
+ * link here keeps its pill).
+ */
+function siteCellOf(cell: Inline[]): { href: string; label: string; host: string } | null {
+  const said = cell.filter((s) => s.text.trim());
+  const only = said.length === 1 ? said[0] : undefined;
+  if (only?.kind !== "link") return null;
+  if (parseMessageLink(only.href, [serverUrl()]) || parseFileLink(only.href, [serverUrl()])) return null;
+  const site = linkSite(only.href);
+  if (!site) return null;
+  return { href: only.href, label: only.text === only.href ? site : only.text, host: new URL(only.href).host };
+}
+
+/**
+ * A table (the web's table card's table): no band behind the header, rows split by hairlines, numbers on the right
+ * in tabular figures. Each column is first as wide as its widest cell as drawn (measured on an unseen copy that never
+ * wraps, since a guess by letters came out narrow and broke words), then fitted to the box (`fitTableColumns`): the
+ * columns of longer text wrap and the links cut at their end so the whole table fits before it scrolls; a count
+ * ("#") stays narrow. Only a table that still can't fit scrolls sideways inside its box: its first column stands
+ * still (the one after a count too), with a hairline at its edge once the rest has moved under it; a scroll comes to
+ * rest at the start of a column, and the side that hides columns fades out. All of it follows the scroll on the UI
+ * thread. `surface`: the color under the table (the standing column's and the fade's), the chat's background unless
+ * said. `bare`: no box of its own (a `TableCard`'s frame holds it). `full`: the whole screen's (`/table`), the header
+ * staying on top as the rows scroll up under it, `bottom` points of room under the last row.
  */
 export function Table({
   header,
   rows,
   align,
   surface,
-}: Pick<TableBlock, "header" | "rows" | "align"> & { surface?: string }) {
+  bare = false,
+  full = false,
+  bottom = 0,
+}: Pick<TableBlock, "header" | "rows" | "align"> & {
+  surface?: string;
+  bare?: boolean;
+  full?: boolean;
+  bottom?: number;
+}) {
   const c = useColors();
   const { fontScale } = useWindowDimensions();
   // Each column's width as drawn, kept across the list's unmounts (`kept-sizes.ts`): a table coming back lays out at
@@ -204,53 +260,134 @@ export function Table({
   // column measures again and widens, where measured once at the icon the title wrapped in it.
   const unmeasured = header.some((_, col) => drawn[col] === undefined);
   const late = useMemo(() => tableResolvesLate(header, rows), [header, rows]);
-  const [frame, setFrame] = useState(0);
-  // Where the scroll stood when an edge's fade last turned on or off: a scroll redraws the table only then, never at
-  // every frame of a swipe. Where it is now lives off React (`scrolled`) and catches the drawn one up when the box or
-  // the columns change size.
-  const [x, setX] = useState(0);
-  const scrolled = useRef(0);
-  const scroller = useRef<ComponentRef<typeof GestureScrollView>>(null);
-  const flashed = useRef(false);
+  const kinds = useMemo(
+    () =>
+      tableColumnKinds(
+        rows.map((r) => r.map(cellRead)),
+        header.length,
+      ),
+    [header.length, rows],
+  );
+  // The box's width, kept as the columns are: a table coming back fits it from its first frame.
+  const [frame, onFrame] = useKeptWidth(`table-frame:${content}`);
+  // Full screen: the room under the bar, which the header and the rows' own scroller share.
+  const [tall, setTall] = useState(0);
   const widths = tableColumnWidths(header, rows, { ...measured.before, ...drawn }, fontScale);
-  // The content's width said outright (not left to layout), so the box always knows it has more to scroll.
-  const total = widths.reduce((sum, w) => sum + w, 0);
-  const hidden = tableHidden(x, frame, total);
-  const onScroll = (offset: number) => {
-    scrolled.current = offset;
-    const now = tableHidden(offset, frame, total);
-    if (now.left !== hidden.left || now.right !== hidden.right) setX(offset);
-  };
-  // A table wider than the message says so once: the system's scroll bar flashes, then the fade keeps saying it.
-  useEffect(() => {
-    if (flashed.current || !hidden.right) return;
-    flashed.current = true;
-    scroller.current?.flashScrollIndicators();
-  }, [hidden.right]);
-  const fadeTo = surface ?? c.bg;
+  const fitted = fitTableColumns(widths, kinds, frame, fontScale);
+  // The content's width said outright (not left to layout), so the box always knows how far it scrolls.
+  const total = fitted.widths.reduce((sum, w) => sum + w, 0);
+  const scrolls = fitted.scrolls && frame > 0;
+  // The columns standing still while the rest pass under them: the first, and the one after a count ("#").
+  const standing = scrolls ? (kinds[0] === "index" && header.length > 2 ? 2 : 1) : 0;
+  const snaps = useMemo(() => {
+    if (!scrolls) return undefined;
+    const end = total - frame;
+    const stand = fitted.widths.slice(0, standing).reduce((sum, w) => sum + w, 0);
+    const starts: number[] = [];
+    let at = 0;
+    for (const w of fitted.widths) {
+      starts.push(at);
+      at += w;
+    }
+    // A scroll rests where a column starts right after the standing ones, or at the table's end.
+    const rests = starts
+      .slice(standing + 1)
+      .map((start) => start - stand)
+      .filter((o) => o > 0 && o < end);
+    return [0, ...rests, end];
+  }, [scrolls, total, frame, fitted.widths, standing]);
+  const fill = surface ?? c.bg;
+  const edge = c.line2 ?? c.line;
+  const x = useSharedValue(0);
+  const onScroll = useAnimatedScrollHandler({
+    onScroll: (e) => {
+      x.value = e.contentOffset.x;
+    },
+  });
+  // Pinned where the box starts whatever the scroll (a bounce at the start never pulls it right), with its edge's
+  // hairline once something has gone under it.
+  const stand = useAnimatedStyle(() => ({
+    transform: [{ translateX: Math.max(0, x.value) }],
+    borderRightColor: x.value > 1 ? edge : "transparent",
+  }));
+  const fade = useAnimatedStyle(() => ({
+    opacity: Math.min(1, Math.max(0, (total - frame - x.value) / TABLE_FADE)),
+  }));
   // In a conversation the cells follow the person's Tamanho do texto, as the words around the table do.
   const sized = useRowLook().text;
-  const words = (inline: Inline[], col: number, head: boolean) => (
-    <Text
-      variant={head ? "label" : "subhead"}
-      tone={head ? "muted" : "ink"}
-      style={[
-        styles.cellText,
-        sized ? chatCellOf(variantStyle(head ? "label" : "subhead"), sized) : null,
-        { textAlign: align[col] ?? "left" },
-      ]}
-      maxFontSizeMultiplier={sized ? CHAT_TEXT_MAX_SCALE : undefined}
-    >
-      <Spans inline={inline} />
-    </Text>
-  );
-  const cell = (inline: Inline[], col: number, head: boolean) => (
-    <View key={col} style={[styles.cell, { width: widths[col] }]}>
-      {words(inline, col, head)}
+  const textStyle = (col: number, head: boolean) => [
+    styles.cellText,
+    sized ? chatCellOf(variantStyle(head ? "label" : "subhead"), sized) : null,
+    { textAlign: align[col] ?? "left" },
+  ];
+  const words = (inline: Inline[], col: number, head: boolean) => {
+    const site = head || kinds[col] !== "link" ? null : siteCellOf(inline);
+    if (site) return <SiteCell site={site} style={textStyle(col, false)} />;
+    return (
+      <Text
+        variant={head ? "label" : "subhead"}
+        tone={head || kinds[col] === "index" ? "faint" : "ink"}
+        style={textStyle(col, head)}
+        maxFontSizeMultiplier={sized ? CHAT_TEXT_MAX_SCALE : undefined}
+      >
+        <Spans inline={inline} />
+      </Text>
+    );
+  };
+  const cellStyle = (col: number) => [styles.cell, kinds[col] === "index" && styles.count];
+  const cell = (inline: Inline[], col: number, head: boolean) =>
+    col < standing ? (
+      <Animated.View
+        key={col}
+        style={[cellStyle(col), styles.standing, { width: fitted.widths[col], backgroundColor: fill }, stand]}
+      >
+        {words(inline, col, head)}
+      </Animated.View>
+    ) : (
+      <View key={col} style={[cellStyle(col), { width: fitted.widths[col] }]}>
+        {words(inline, col, head)}
+      </View>
+    );
+  const headRow = (
+    <View style={[styles.tr, styles.head, { borderBottomColor: edge }]}>
+      {header.map((h, col) => cell(h, col, true))}
     </View>
   );
+  const row = (r: Inline[][], j: number) => (
+    <View key={j} style={[styles.tr, j > 0 && styles.trLine, { borderTopColor: c.line }]}>
+      {header.map((_, col) => cell(r[col] ?? [], col, false))}
+    </View>
+  );
+  const fadeOut = scrolls ? (
+    <Animated.View pointerEvents="none" style={[styles.fade, fade]}>
+      <LinearGradient
+        colors={[withAlpha(fill, 0), fill]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={StyleSheet.absoluteFill}
+      />
+    </Animated.View>
+  ) : null;
+  const scroller = (body: ReactNode) => (
+    <TableScroller
+      horizontal
+      style={full ? styles.fill : styles.sideways}
+      directionalLockEnabled
+      nestedScrollEnabled
+      alwaysBounceHorizontal={false}
+      showsHorizontalScrollIndicator={false}
+      scrollEnabled={scrolls}
+      scrollEventThrottle={16}
+      onScroll={onScroll}
+      snapToOffsets={snaps}
+      decelerationRate={scrolls ? "fast" : "normal"}
+      contentContainerStyle={{ width: total }}
+    >
+      {body}
+    </TableScroller>
+  );
   return (
-    <View>
+    <View style={full ? styles.fill : undefined}>
       {/* Each column's cells unseen, on a sideways strip with no width to wrap them: their widths. A copy of its own for
           each content, so every column says its width (one whose width didn't change would say nothing). */}
       {unmeasured || late ? (
@@ -271,12 +408,11 @@ export function Table({
                   setMeasured((m) =>
                     m.key !== columnsKey || m.columns[col] === w ? m : { ...m, columns: { ...m.columns, [col]: w } },
                   );
-                  setX(scrolled.current);
                 }}
               >
                 {[h, ...rows.map((r) => r[col] ?? [])].map((inline, j) => (
                   // biome-ignore lint/suspicious/noArrayIndexKey: the cells of one column, in order
-                  <View key={j} style={styles.cell}>
+                  <View key={j} style={cellStyle(col)}>
                     {words(inline, col, j === 0)}
                   </View>
                 ))}
@@ -285,60 +421,77 @@ export function Table({
           </ScrollView>
         </View>
       ) : null}
-      {/* The message's long-press (select) is a Pressable around the whole row: the table takes its own touches so a
-          sideways drag scrolls it instead of starting the press, and its scroller is the gesture handler's (native
-          gesture first, ahead of the row's JS responder). Long-press elsewhere on the message still selects it. */}
-      <View
-        style={[styles.table, { borderColor: c.line2 ?? c.line }]}
-        onStartShouldSetResponder={() => true}
-        onResponderTerminationRequest={() => true}
-      >
-        <GestureScrollView
-          ref={scroller}
-          horizontal
-          style={styles.sideways}
-          directionalLockEnabled
-          nestedScrollEnabled
-          alwaysBounceHorizontal={false}
-          showsHorizontalScrollIndicator
-          scrollEventThrottle={16}
+      {full ? (
+        // The whole screen's: the header stays on top while the rows scroll up under it, both moving sideways together.
+        <View
+          style={styles.fill}
           onLayout={(e) => {
-            setFrame(e.nativeEvent.layout.width);
-            setX(scrolled.current);
+            onFrame(e);
+            setTall(e.nativeEvent.layout.height);
           }}
-          onScroll={(e) => onScroll(e.nativeEvent.contentOffset.x)}
-          contentContainerStyle={{ width: total }}
         >
-          <View style={{ width: total }}>
-            <View style={[styles.tr, { backgroundColor: c.plate }]}>{header.map((h, col) => cell(h, col, true))}</View>
-            {rows.map((r, j) => (
-              // biome-ignore lint/suspicious/noArrayIndexKey: the rows of one table, in order
-              <View key={j} style={[styles.tr, { borderTopColor: c.line }, styles.trLine]}>
-                {header.map((_, col) => cell(r[col] ?? [], col, false))}
-              </View>
-            ))}
-          </View>
-        </GestureScrollView>
-        {hidden.left ? (
-          <LinearGradient
-            pointerEvents="none"
-            colors={[fadeTo, withAlpha(fadeTo, 0)]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={[styles.fade, styles.fadeLeft]}
-          />
-        ) : null}
-        {hidden.right ? (
-          <LinearGradient
-            pointerEvents="none"
-            colors={[withAlpha(fadeTo, 0), fadeTo]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={[styles.fade, styles.fadeRight]}
-          />
-        ) : null}
-      </View>
+          {scroller(
+            <View style={{ width: total, height: tall }}>
+              {headRow}
+              <FlatList
+                data={rows}
+                keyExtractor={(_, j) => String(j)}
+                renderItem={({ item, index }) => row(item, index)}
+                extraData={fitted.widths}
+                contentContainerStyle={{ paddingBottom: bottom }}
+                style={styles.fill}
+              />
+            </View>,
+          )}
+          {fadeOut}
+        </View>
+      ) : (
+        /* The message's long-press (select) is a Pressable around the whole row: the table takes its own touches so a
+           sideways drag scrolls it instead of starting the press, and its scroller is the gesture handler's (native
+           gesture first, ahead of the row's JS responder). Long-press elsewhere on the message still selects it. */
+        <View
+          style={bare ? undefined : [styles.table, { borderColor: edge }]}
+          onLayout={onFrame}
+          onStartShouldSetResponder={() => true}
+          onResponderTerminationRequest={() => true}
+        >
+          {scroller(
+            <View style={{ width: total }}>
+              {headRow}
+              {rows.map(row)}
+            </View>,
+          )}
+          {fadeOut}
+        </View>
+      )}
     </View>
+  );
+}
+
+/**
+ * A cell that only links to a site: the site's icon and its name, on one line cut at its end; a tap opens the address
+ * (a page of this server on its screen, any other in the in-app browser), the whole address said to a screen reader.
+ */
+function SiteCell({
+  site,
+  style,
+}: {
+  site: { href: string; label: string; host: string };
+  style: StyleProp<TextStyle>;
+}) {
+  const c = useColors();
+  const open = () => {
+    const own = ownLinkHref(site.href, serverUrl());
+    if (own) router.push(own as never);
+    else openPage(site.href);
+  };
+  return (
+    <Pressable onPress={open} accessibilityRole="link" accessibilityHint={site.href} style={styles.site}>
+      <SiteIcon host={site.host} />
+      <RNText numberOfLines={1} style={[style, styles.siteName, { color: c.ink2 }]}>
+        {site.label}
+      </RNText>
+    </Pressable>
   );
 }
 
@@ -351,15 +504,21 @@ const styles = StyleSheet.create({
    * under its words (on a phone, each layer over the words larger than the one under it by the words less the table).
    */
   sideways: { flexGrow: 0 },
-  fade: { position: "absolute", top: 0, bottom: 0, width: 28 },
-  fadeLeft: { left: 0 },
-  fadeRight: { right: 0 },
+  fill: { flex: 1 },
+  fade: { position: "absolute", top: 0, bottom: 0, right: 0, width: TABLE_FADE },
   measure: { position: "absolute", top: 0, left: 0, right: 0, opacity: 0 },
   tr: { flexDirection: "row" },
+  head: { borderBottomWidth: StyleSheet.hairlineWidth },
   trLine: { borderTopWidth: StyleSheet.hairlineWidth },
-  cell: { paddingHorizontal: 12, paddingVertical: 8 },
+  cell: { paddingHorizontal: 12, paddingVertical: 9 },
+  // A count ("#") hugs its numbers: its words start where the row's do, the next column right after.
+  count: { paddingRight: 4 },
+  // Over the columns passing under it, its edge drawn once they do.
+  standing: { zIndex: 1, borderRightWidth: StyleSheet.hairlineWidth },
   cellText: { fontVariant: ["tabular-nums"] },
-  bold: { fontWeight: "700" },
+  site: { flexDirection: "row", alignItems: "center", gap: 6 },
+  siteName: { flexShrink: 1 },
+  bold: { fontWeight: "600" },
   italic: { fontStyle: "italic" },
   link: { textDecorationLine: "underline" },
   inlineCode: { fontFamily: MONO, fontSize: 15 },

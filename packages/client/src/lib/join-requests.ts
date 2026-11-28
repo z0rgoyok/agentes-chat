@@ -50,8 +50,8 @@ export type AskView =
   | { state: "sent" }
   /** In the workspace: `already` when they were in before their request was approved. */
   | { state: "in"; orgId: string | null; already: boolean }
-  /** Approved, not in yet: the invitation to their address finishes it. */
-  | { state: "approvedEmail" }
+  /** Approved, not in yet: the invitation to their address finishes it, opened here when its token came along. */
+  | { state: "approvedEmail"; invitation?: string }
   | { state: "denied"; reason: string | null }
   | { state: "closed" };
 
@@ -66,7 +66,8 @@ export function askView(preview: Pick<InvitationPreview, "closed" | "you">, sent
   if (you?.member) return { state: "in", orgId: you.orgId ?? null, already: status !== "approved" };
   if (preview.closed) return { state: "closed" };
   if (status === "denied") return { state: "denied", reason: you?.request?.reason ?? null };
-  if (status === "approved") return { state: "approvedEmail" };
+  if (status === "approved")
+    return { state: "approvedEmail", ...(you?.invitation ? { invitation: you.invitation } : {}) };
   if (sent || status === "pending") return { state: "sent" };
   return { state: "form" };
 }

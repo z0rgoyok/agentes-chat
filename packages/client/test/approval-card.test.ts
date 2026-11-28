@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { resources } from "@agenteschat/i18n";
 import i18next, { type TFunction } from "i18next";
 import type { Approval } from "../src/index";
-import { digestCounts, digestGroups, digestRows } from "../src/lib/approval-card";
+import { approveAllByAgent, digestCounts, digestGroups, digestRows } from "../src/lib/approval-card";
 import { digestLine } from "../src/lib/approval-words";
 
 const HOUR = 3_600_000;
@@ -120,4 +120,18 @@ test("a routine group's rows: one agent's requests that read the same are one ro
   // Shown whole it still folds, so it can close again.
   expect(cut.folds).toBe(true);
   expect(digestRows(long, titleOf, detailOf, true)).toMatchObject({ hidden: 0, rows: { length: 9 }, folds: true });
+});
+
+test("'Aprovar todos' per agent: each agent with two or more requests this person may decide, in the order asked", () => {
+  const list = [
+    ask("b2", { agentId: "agent-bia", createdAt: new Date(NOW - 10 * 60_000).toISOString() }),
+    ask("a1", { createdAt: new Date(NOW - 30 * 60_000).toISOString() }),
+    ask("a2", { createdAt: new Date(NOW - 20 * 60_000).toISOString() }),
+    ask("a3", { canDecide: false }),
+    ask("a4", { status: "approved" }),
+    ask("b1", { agentId: "agent-bia", canDecide: false }),
+  ];
+  expect(approveAllByAgent(list, NOW).map((g) => [g.agentId, g.ids])).toEqual([["agent-ada", ["a1", "a2"]]]);
+  // Past its deadline it is no longer waiting.
+  expect(approveAllByAgent([ask("a1"), ask("a2", { expiresAt: new Date(NOW - 1).toISOString() })], NOW)).toEqual([]);
 });

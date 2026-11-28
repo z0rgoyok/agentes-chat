@@ -457,23 +457,23 @@ export function whoSeesLines(
 /** Whether a channel's name has every word of a search, typed with its "#" or not. */
 export const channelMatches = (name: string, query: string) => matchesWords(name, query.trim().replace(/^#/, ""));
 
-/** The channels a cargo's Canais lists, in the sidebar's groups and order: no category first, then each one. */
-export function channelGroups<C extends Pick<Channel, "id" | "name" | "categoryId" | "position">>(
+/** The channels a cargo's Canais lists, in the sidebar's groups and order: no sector first, then each one (ADR 0240). */
+export function channelGroups<C extends Pick<Channel, "id" | "name" | "groupId" | "position">>(
   channels: readonly C[],
-  categories: readonly { id: string; name: string }[],
+  sectors: readonly { id: string; name: string }[],
   query = "",
 ) {
-  const known = new Set(categories.map((c) => c.id));
+  const known = new Set(sectors.map((g) => g.id));
   const hits = channels.filter((c) => channelMatches(c.name, query));
   const order = (a: C, b: C) =>
     (isGeneral(b) ? 1 : 0) - (isGeneral(a) ? 1 : 0) ||
     (a.position ?? 0) - (b.position ?? 0) ||
     a.name.localeCompare(b.name);
   const of = (id: string | null) =>
-    hits.filter((c) => (c.categoryId && known.has(c.categoryId) ? c.categoryId : null) === id).sort(order);
+    hits.filter((c) => (c.groupId && known.has(c.groupId) ? c.groupId : null) === id).sort(order);
   return [
     { id: null, name: null, channels: of(null) },
-    ...categories.map((c) => ({ id: c.id, name: c.name, channels: of(c.id) })),
+    ...sectors.map((g) => ({ id: g.id, name: g.name, channels: of(g.id) })),
   ].filter((g) => g.channels.length > 0);
 }
 

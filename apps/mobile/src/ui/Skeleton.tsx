@@ -4,6 +4,7 @@ import Animated, { Easing, useAnimatedStyle, useSharedValue, withTiming } from "
 import { useLivePaused } from "@/agent/live";
 import { useDrawingClock } from "@/sky/clock";
 import { LIST_AVATAR } from "./ListRow";
+import { SCREEN_X } from "./rhythm";
 import { useReducedMotion, useTheme } from "./theme";
 
 /**
@@ -90,6 +91,51 @@ export function SkeletonOver({ leaving, children }: { leaving: boolean; children
   );
 }
 
+/** A kept list shows it is loading after this long: a quick switch never blinks. As the web's skeletons wait. */
+const REFRESH_DELAY_MS = 150;
+
+/**
+ * A list kept on screen while its next tab or filter loads (`busy`: the query's `isPlaceholderData`): after 150 ms
+ * what it held dims and a thin bar pulses along its top, so the switch answers at once and nothing moves when the rows
+ * land. Every tabbed or filtered list loads this way, as on the web; its first load is `SkeletonList`.
+ */
+export function Refreshing({ busy, label, children }: { busy: boolean; label: string; children: ReactNode }) {
+  const { colors } = useTheme();
+  const reduced = useReducedMotion();
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    if (!busy) {
+      setShown(false);
+      return;
+    }
+    const timer = setTimeout(() => setShown(true), REFRESH_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [busy]);
+  const dim = useSharedValue(1);
+  useEffect(() => {
+    const to = shown ? 0.5 : 1;
+    dim.set(reduced ? to : withTiming(to, { duration: 150 }));
+  }, [dim, shown, reduced]);
+  const look = useAnimatedStyle(() => ({ opacity: dim.get() }));
+  return (
+    <View accessibilityState={{ busy }}>
+      <Animated.View style={look}>{children}</Animated.View>
+      {shown ? <RefreshBar color={colors.ink} label={label} /> : null}
+    </View>
+  );
+}
+
+function RefreshBar({ color, label }: { color: string; label: string }) {
+  const pulse = usePulse();
+  return (
+    <Animated.View
+      accessibilityRole="progressbar"
+      accessibilityLabel={label}
+      style={[styles.bar, { backgroundColor: color }, pulse]}
+    />
+  );
+}
+
 /** Row shapes: the name's and the preview's widths, in percent of the text column. */
 const SHAPES: [number, number][] = [
   [42, 80],
@@ -124,6 +170,8 @@ export function usePulse() {
 const styles = StyleSheet.create({
   // Over the rows, from the top of their box: the stand-ins take no room while they fade.
   over: { position: "absolute", top: 0, left: 0, right: 0 },
+  // Over the kept list's top edge, taking no room: the list doesn't move when it comes or goes.
+  bar: { position: "absolute", top: 0, left: SCREEN_X, right: SCREEN_X, height: 2, borderRadius: 1 },
   // The same box as `ListRow`: 16 at the sides, the 52 avatar, 12 to the text, 76 tall.
   row: {
     flexDirection: "row",

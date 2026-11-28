@@ -170,8 +170,9 @@ function commandsOf(label: string) {
     todo.push(...linked(unit));
     for (const [, method = ""] of unit.text.matchAll(/\bhost\s*\??\.\s*(\w+)/g)) {
       const command = COMMAND.get(method);
-      // main.tsx raises a folder request's notification in the popover only (it checks `host.window`).
-      if (command && !(unit.file === "main.tsx" && method === "notify" && label !== "popover")) calls.set(command, key);
+      // main.tsx raises a folder request's notification (`raisePick`) in the popover only (it checks `host.window`).
+      const popoverOnly = unit.file === "main.tsx" || key === "control/notify.ts#raisePick";
+      if (command && !(popoverOnly && method === "notify" && label !== "popover")) calls.set(command, key);
     }
   }
   return calls;

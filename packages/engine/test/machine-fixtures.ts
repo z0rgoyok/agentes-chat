@@ -4,6 +4,7 @@ import {
   MACHINE_PROTOCOL_VERSION,
   type MachineReplies,
   type MachineRequest,
+  type OsPermission,
   openSecret,
   type PubSub,
   type SecretRequest,
@@ -103,7 +104,7 @@ export interface FakeRunnerOptions {
     req: Extract<Request, { op: "exec" }>,
     out: (stream: "stdout" | "stderr", chunk: string) => void,
   ) =>
-    | { exitCode: number; stdout: string; stderr: string; timedOut?: boolean }
+    | { exitCode: number; stdout: string; stderr: string; timedOut?: boolean; permission?: OsPermission }
     | "hang"
     /** The runner refuses it (`approval_needed`: its command policy held it). */
     | { fail: { code: string; message: string } };
@@ -257,6 +258,8 @@ export function fakeRunner(hub: MachineHub, options: FakeRunnerOptions = {}) {
           contentType: "",
         });
       }
+      case "egress.proxy":
+        return ok({ on: req.on });
       case "keep.start":
       case "keep.end": {
         const refused = options.keep?.(req);

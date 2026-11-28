@@ -81,7 +81,7 @@ test("Canais arquivados, in Canais' +: the archived channels this person may bri
   const r = await renderApp(`/org/${ORG_ID}/c/${GENERAL_ID}`, { api: createFakeApi(state) });
   await settle(8);
   const nav = screen().getByRole("navigation", { name: "Navegação do workspace" });
-  const plus = within(nav).getByRole("button", { name: "Novo canal ou categoria" });
+  const plus = within(nav).getByRole("button", { name: "Novo canal" });
   await act(async () => {
     fireEvent.keyDown(plus, { key: "Enter" });
     fireEvent.keyUp(plus, { key: "Enter" });

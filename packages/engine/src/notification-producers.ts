@@ -828,7 +828,7 @@ async function notifyTaskMessage(deps: NotificationDeps, message: typeof message
     .where(and(eq(issues.orgId, message.orgId), eq(issues.conversationChannelId, message.channelId)));
   const author =
     message.authorType === "person" ? message.authorUserId : message.authorAgentId ? message.authorAgentId : null;
-  if (!issue || !author) return;
+  if (!issue || !author || message.authorType === "app") return;
   // A message of a confidential thread (ADR 0190) is told with no word of it.
   const sealed = isConfidential(message.meta);
   const text = sealed ? "" : readableBody(message.body, message.meta);

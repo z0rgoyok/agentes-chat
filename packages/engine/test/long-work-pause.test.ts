@@ -756,6 +756,31 @@ test("a widget's refresh isn't long work by kind: at 99% of the plan its slot ru
   expect(await routineRunRefreshesWidget(f.db, slot?.id ?? "")).toBe(false);
 });
 
+test("a widget's refresh that grows long still never pauses: it refreshes until the plan's own limit", async () => {
+  f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(12) });
+  await spend(f, 99);
+  const deps = { db: f.db, pubsub: f.pubsub, context: f.context };
+  const board = await createDashboard(deps, f.owner.id, f.org.id, {
+    title: "Vendas",
+    audience: "private",
+    editPolicy: "owner",
+  });
+  await createWidget(deps, f.owner.id, f.org.id, board.id, {
+    agentId: f.agent.id,
+    prompt: "vendas de hoje",
+    format: "kpi",
+    schedule: "hour",
+  });
+  await f.db.update(schema.routineRuns).set({ trigger: "schedule" });
+  await drainOutbox(f.db, f.handlers);
+  const [refresh] = await runs(f);
+  // Past the 8 model calls that make any other run long work, at 99% of its budget: no pause, no card.
+  expect(f.provider.calls.length).toBeGreaterThan(8);
+  expect((refresh?.transcript as { usagePause?: unknown } | undefined)?.usagePause).toBeUndefined();
+  expect(refresh?.status).not.toBe("waiting_input");
+  expect(await allCards(f)).toHaveLength(0);
+});
+
 test("a run canceled while paused: its card says it won't run, and Continuar agora on it starts nothing", async () => {
   f = await setup({ contextTools: true, budgetNanoUsd: BUDGET, reply: stepper(12) });
   await spend(f, 99);

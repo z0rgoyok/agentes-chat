@@ -3,7 +3,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { type Database, eq, schema, sql } from "@agenteschat/db";
 import { createTestDatabase } from "@agenteschat/db/testing";
-import { agentView, confirmSetupStep, createAgent, createOrganization, NotFoundError, newSetup, setupOf } from "../src";
+import {
+  agentView,
+  closeSetup,
+  confirmSetupStep,
+  createAgent,
+  createOrganization,
+  NotFoundError,
+  newSetup,
+  setupOf,
+} from "../src";
 import { addMember, addUser } from "./fixtures";
 
 // A new agent's setup checklist (ADR 0155 §2): every new agent starts with one, whichever way it was made; its owner
@@ -110,11 +119,40 @@ describe("setup checklist", () => {
     expect(await stored(w.db, leo.id)).toEqual({ role: null, done: ["who", "how", "where"] });
   });
 
+  test("its owner or whoever manages agents closes it on its page, whatever is left; nobody else; twice changes nothing", async () => {
+    const w = await workspace();
+    const leo = await createAgent(
+      w.db,
+      w.owner.id,
+      w.org.id,
+      { name: "Leo", handle: "leo", ownerUserId: w.member.id },
+      MODEL,
+    );
+    const other = await addMember(w.db, w.org.id, "member", "caio");
+    await expect(closeSetup(w.db, other.id, w.org.id, leo.id)).rejects.toBeInstanceOf(NotFoundError);
+    expect(await stored(w.db, leo.id)).toEqual({ role: null, done: ["who", "how"] });
+    await closeSetup(w.db, w.member.id, w.org.id, leo.id);
+    await closeSetup(w.db, w.member.id, w.org.id, leo.id);
+    expect(await stored(w.db, leo.id)).toEqual({ role: null, done: ["who", "how"], closed: true });
+    // Its steps still confirm (in its chat), and it reads back closed.
+    await confirmSetupStep(w.db, w.admin.id, w.org.id, leo.id, "where");
+    expect(setupOf(await stored(w.db, leo.id))).toEqual({ role: null, done: ["who", "how", "where"], closed: true });
+    // An admin closes anyone's.
+    const bia = await createAgent(w.db, w.owner.id, w.org.id, { name: "Bia", handle: "bia" }, MODEL);
+    await closeSetup(w.db, w.admin.id, w.org.id, bia.id);
+    expect(await stored(w.db, bia.id)).toMatchObject({ closed: true });
+    // The right hand's first run isn't closed this way.
+    const [lodi] = await w.db.select().from(schema.agents).where(eq(schema.agents.builtin, "right_hand"));
+    await expect(closeSetup(w.db, w.owner.id, w.org.id, lodi?.id ?? "")).rejects.toBeInstanceOf(NotFoundError);
+    expect(await stored(w.db, lodi?.id ?? "")).toEqual({ role: null, done: [] });
+  });
+
   test("an agent made before the checklist keeps none", async () => {
     const w = await workspace();
     const old = await createAgent(w.db, w.owner.id, w.org.id, { name: "Old", handle: "old" }, MODEL);
     await w.db.update(schema.agents).set({ setup: null }).where(eq(schema.agents.id, old.id));
     await confirmSetupStep(w.db, w.owner.id, w.org.id, old.id, "ai");
+    await closeSetup(w.db, w.owner.id, w.org.id, old.id);
     expect(await stored(w.db, old.id)).toBeNull();
   });
 
@@ -139,6 +177,8 @@ describe("setup checklist", () => {
     expect(setupOf(null)).toBeNull();
     expect(setupOf({ role: "dev", done: ["ai", "nope", "ai", "how"] })).toEqual({ role: "dev", done: ["ai", "how"] });
     expect(setupOf({ role: 7, done: "ai" })).toEqual({ role: null, done: [] });
+    expect(setupOf({ role: null, done: [], closed: true })).toEqual({ role: null, done: [], closed: true });
+    expect(setupOf({ role: null, done: [], closed: "yes" })).toEqual({ role: null, done: [] });
     expect(newSetup(undefined)).toEqual({ role: null, done: ["who", "how"] });
   });
 

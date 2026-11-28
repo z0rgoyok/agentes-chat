@@ -10,6 +10,7 @@ import {
   setupView,
   WORKSPACE_COMPUTER_KIND,
 } from "@agenteschat/client/lib/computer";
+import { maintenanceOf } from "@agenteschat/client/lib/computer-maintenance";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import {
@@ -20,6 +21,7 @@ import {
   machineTitle,
 } from "@agenteschat/client/lib/machines";
 import { can } from "@agenteschat/client/lib/permissions";
+import { isRightHand } from "@agenteschat/client/lib/right-hand";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   Card,
@@ -53,7 +55,8 @@ function MachineTargetView({ target }: { target: Extract<ComputerTarget, { kind:
   // In agentes for Mac, offline on this very Mac: reconnect from here (ADR 0036).
   const here = useIsThisMac(org.id, target.machineId);
   // The workspace's own computer: nobody connected it, nobody turns it on or off.
-  const managed = useMachines(org.id).data?.find((m) => m.id === target.machineId)?.kind === "managed";
+  const row = useMachines(org.id).data?.find((m) => m.id === target.machineId);
+  const managed = row?.kind === "managed";
   return (
     <span className="stack-4" style={{ gap: 4 }}>
       <span className="row" style={{ gap: 8, alignItems: "center" }}>
@@ -63,7 +66,7 @@ function MachineTargetView({ target }: { target: Extract<ComputerTarget, { kind:
             {managed ? t("computerSetup.managedHint") : t("computer.machineHint")}
           </InfoHint>
         </span>
-        <MachineChip online={target.online} />
+        <MachineChip online={target.online} maintenance={maintenanceOf(row)} />
       </span>
       {!managed && !target.online && (
         <span className="small muted">{here ? t("machines.thisMac.offline") : t("computer.machineOffline")}</span>
@@ -287,7 +290,8 @@ function AgentComputerRow({
   const value = current?.id ?? NO_COMPUTER;
   const none = noComputer.choice(value === NO_COMPUTER);
   const choices = machines.filter((m) => admin || m.pairedBy?.id === me.user.id || m.id === value);
-  const canPick = (admin || ownsAgentAs(agent, me.user.id, myRoleIds)) && choices.length > 0;
+  // The right hand always uses the workspace's own computer (ADR 0175): its row only says which.
+  const canPick = !isRightHand(agent) && (admin || ownsAgentAs(agent, me.user.id, myRoleIds)) && choices.length > 0;
   const iconOf = (id: string) =>
     id === NO_COMPUTER && none ? (
       <NoComputerIcon choice={none} />

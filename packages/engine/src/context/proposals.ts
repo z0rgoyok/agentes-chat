@@ -50,6 +50,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { publishAgentsChanged, publishUserEvent } from "../events";
 import { cutText } from "../format";
 import type { Judge } from "../judge";
+import { ownTypedSql } from "../message-origin";
 import { notify, resolveNotifications } from "../notifications";
 import { can, type Membership, requirePermission } from "../organizations";
 import { enqueue } from "../outbox";
@@ -82,6 +83,7 @@ import {
   checkPermissionText,
   consolidateItem,
   getContextItems,
+  isQuote,
   itemVisibleIn,
   itemWords,
   REFUSED_CHANGE,
@@ -117,10 +119,58 @@ export type SettleOrigin =
   /** A person asked for it (a settings card that wasn't applied at once). */
   | "asked";
 
-/** Queues the review of new proposals (after the caller's commit, through the outbox; retried on a rate limit). */
-export async function queueSettle(db: Executor, orgId: string, ids: string[], origin: SettleOrigin) {
+/** What of the person's message the review reads, at most. */
+const WORDS_CHARS = 2000;
+
+/**
+ * Queues the review of new proposals (after the caller's commit, through the outbox; retried on a rate limit).
+ * `words`: what the person who asked wrote (`askedWords`), so the review can tell their wish from what a run read.
+ */
+export async function queueSettle(
+  db: Executor,
+  orgId: string,
+  ids: string[],
+  origin: SettleOrigin,
+  words?: string | null,
+) {
   if (ids.length === 0) return;
-  await enqueue(db, { orgId, kind: SETTLE_JOB, payload: { ids, origin }, dedupeKey: `${SETTLE_JOB}:${ids[0]}` });
+  const said = words?.trim() ? { words: cutText(words.trim(), WORDS_CHARS) } : {};
+  await enqueue(db, {
+    orgId,
+    kind: SETTLE_JOB,
+    payload: { ids, origin, ...said },
+    dedupeKey: `${SETTLE_JOB}:${ids[0]}`,
+  });
+}
+
+/**
+ * The message that started the run, when `userId` typed it in our apps (`ownTyped`, ADR 0250): the person's own words
+ * for a change they asked for, with the names of the files it attached. Null for a notice, a colleague's message, anything an agent wrote, and what was posted
+ * with a token, by an AI app or through a bridge (someone else's words may be in it).
+ */
+export async function askedWords(
+  db: Database,
+  ctx: { orgId: string; triggerMessageId?: string | null },
+  userId: string | null | undefined,
+): Promise<string | null> {
+  if (!userId || !ctx.triggerMessageId) return null;
+  const [m] = await db
+    .select({ body: messages.body, meta: messages.meta })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.orgId, ctx.orgId),
+        eq(messages.id, ctx.triggerMessageId),
+        ownTypedSql(),
+        eq(messages.authorUserId, userId),
+      ),
+    );
+  if (!m) return null;
+  // What the message attached is part of the request ("install this skill" with its .zip): its files by name.
+  const files = Array.isArray(m.meta?.artifacts)
+    ? (m.meta.artifacts as { title?: unknown }[]).map((a) => a.title).filter((t): t is string => typeof t === "string")
+    : [];
+  return files.length > 0 ? `${m.body}\n(Attached: ${files.join(", ")})` : m.body;
 }
 
 /** The reason of a proposal whose agent gave none. */
@@ -165,6 +215,11 @@ export function isPromotable(item: ContextItem) {
   // Untrusted content and unverified lessons are never promoted (memory poisoning, echo chambers).
   if (item.trust !== "high" || !item.verified) return false;
   if (!["lesson", "preference", "decision", "fact"].includes(item.kind)) return false;
+  // A person's exact words (ADR 0167) are evidence for memory, never an instruction: pasted whole they'd be one long
+  // bullet of whatever they said.
+  if (isQuote(item)) return false;
+  // A fact about the work is what an agent remembers, not how it behaves: only the workspace's goes to its context.
+  if (item.kind === "fact" && item.agentId) return false;
   return (
     item.recurrence >= PROMOTION.minRecurrence ||
     (item.confidence >= PROMOTION.minConfidence && item.relevance >= PROMOTION.minRelevance)
@@ -439,6 +494,13 @@ async function unsentHidden(db: Database, actorId: string, p: Proposal) {
   return !card || !(await userVisibleChannels(db, p.orgId, actorId)).includes(card.channelId);
 }
 
+/**
+ * Left out by the review (ADR 0219), and so still a person's to apply: a lesson stays in memory instead, a person's
+ * own refusal stands, and deleting an agent can't be put back, so that stays a delete made on the agent's page.
+ */
+export const leftOutByReview = (p: Pick<Proposal, "status" | "decidedByUserId" | "review" | "itemIds" | "settings">) =>
+  p.status === "rejected" && !p.decidedByUserId && !!p.review && p.itemIds.length === 0 && !deletes(p);
+
 async function mayDecide(db: Database, actorId: string, p: Proposal, known?: Membership, byReview = false) {
   const membership = known ?? (await requirePermission(db, actorId, p.orgId, "read"));
   // The review applies a row as someone who may make it, whether or not the person who asked sent it on (ADR 0219).
@@ -501,7 +563,7 @@ export async function listProposals(
   const shown = await proposalsShown(db, actorId, membership, all);
   const rows = can(membership, "review_memory") ? shown : await proposalsVisible(db, actorId, orgId, shown);
   const outdated = await outdatedIds(db, orgId, rows);
-  const out: (Proposal & { canDecide: boolean; undoable: boolean })[] = [];
+  const out: (Proposal & { canDecide: boolean; undoable: boolean; applicable: boolean })[] = [];
   // Who may put a change back depends on what kind of change it is and on which agent, not on the row: the history's
   // 200 rows ask once per kind (a settings row's lines differ, so each asks).
   const mayUndo = new Map<string, Promise<boolean>>();
@@ -518,22 +580,27 @@ export async function listProposals(
   for (const r of rows) {
     if (r.status === "pending" && (await unsentHidden(db, actorId, r))) continue;
     // What was applied may be put back by whoever may make it (ADR 0219); a deleted agent can't come back.
+    // Also what the review left out: whoever may make it applies it themselves.
     let undoable = false;
-    if (r.status === "accepted" && !deletes(r)) {
+    let applicable = false;
+    if ((r.status === "accepted" && !deletes(r)) || leftOutByReview(r)) {
       const key = undoKey(r);
       if (!mayUndo.has(key))
         mayUndo.set(
           key,
           mayDecide(db, actorId, r, membership, true).catch(() => false),
         );
-      undoable = await (mayUndo.get(key) as Promise<boolean>);
+      const may = await (mayUndo.get(key) as Promise<boolean>);
+      if (r.status === "accepted") undoable = may;
+      else applicable = may;
     }
-    if (outdated.has(r.id)) out.push({ ...r, status: "stale", canDecide: false, undoable: false });
+    if (outdated.has(r.id)) out.push({ ...r, status: "stale", canDecide: false, undoable: false, applicable: false });
     else
       out.push({
         ...r,
         canDecide: r.status === "pending" && (await mayDecide(db, actorId, r, membership)),
         undoable,
+        applicable,
       });
   }
   return out;
@@ -617,9 +684,11 @@ export async function decideProposal(
     .where(and(eq(contextProposals.id, proposalId), eq(contextProposals.orgId, orgId)));
   if (!p) throw new NotFoundError("Proposal not found");
   const review = options.review;
-  if (!(await mayDecide(db, actorId, p, undefined, !!review)))
+  // What the review left out, whoever may make it still applies from its card.
+  const reapply = !review && decision === "accept" && leftOutByReview(p);
+  if (!(await mayDecide(db, actorId, p, undefined, !!review || reapply)))
     throw new ForbiddenError("Only the agent's owner or an admin can decide this");
-  if (p.status !== "pending") throw new ConflictError("This proposal was already decided");
+  if (p.status !== "pending" && !reapply) throw new ConflictError("This proposal was already decided");
   if (options.finalText !== undefined && isAgentSetting(p))
     throw new ValidationError("Only instructions and the workspace context can be edited before accepting");
   // A person may adjust the text before accepting; it still can't carry secrets or permission rules.
@@ -681,7 +750,7 @@ export async function decideProposal(
         decidedAt: new Date(),
         ...(status === "accepted" ? { proposedText: finalText } : {}),
       })
-      .where(and(eq(contextProposals.id, proposalId), eq(contextProposals.status, "pending")))
+      .where(and(eq(contextProposals.id, proposalId), eq(contextProposals.status, p.status)))
       .returning();
     // Someone decided it while this waited for the agent: their decision stands.
     if (!row) throw new ConflictError("This proposal was already decided");
@@ -893,6 +962,8 @@ export async function proposeSkillChange(
     requesterId?: string | null;
     /** Why it wasn't applied when made, for the review (ADR 0219); the agent on its own by default. */
     origin?: SettleOrigin;
+    /** What the person who asked wrote (`askedWords`). */
+    words?: string | null;
   },
 ): Promise<Proposal | null> {
   checkContent(input.body);
@@ -928,7 +999,7 @@ export async function proposeSkillChange(
     })
     .returning();
   if (!proposal) return null;
-  await queueSettle(deps.db, input.orgId, [proposal.id], input.origin ?? "agent");
+  await queueSettle(deps.db, input.orgId, [proposal.id], input.origin ?? "agent", input.words);
   return proposal;
 }
 
@@ -1121,7 +1192,7 @@ async function cardResult(db: Executor, proposerId: string, rows: Proposal[], vi
     reviewedAccepted &&
       `Applied after review: ${reviewedAccepted}. It is in effect now, even if your instructions above still show the old text (this notice wins until they refresh): say it is done in a line, without checking it.`,
     reviewedLeft &&
-      `Left out after review, not applied: ${reviewedLeft}. Don't propose it again unless someone asks; if a person asked for it, tell them why in a line.`,
+      `Left out after review, not applied: ${reviewedLeft}. Don't propose it again unless someone asks; if a person asked for it, tell them why in a line, and that whoever may make the change can apply it themselves from its card ("Apply anyway"), after a look at the change.`,
     accepted.lines &&
       `${accepted.who} accepted: ${accepted.lines}. It is already applied and in effect now, even if your instructions above still show the old text (this notice wins until they refresh): don't propose or check it, say so here in a line.`,
     refused.lines && `${refused.who} refused: ${refused.lines}. Don't propose it again unless someone asks.`,
@@ -1332,6 +1403,8 @@ export async function proposeChange(
     requesterId: string;
     /** The run, when the person who asked may have what they decide applied now (`ownWords`). */
     atOnce?: ToolContext;
+    /** What the person who asked wrote (`askedWords`), for the review of what isn't applied at once. */
+    words?: string | null;
   },
 ): Promise<{ proposals: (Proposal & { canDecide: boolean })[]; applied: Proposal[]; skipped: string[] }> {
   const { db } = deps;
@@ -1446,12 +1519,14 @@ export async function proposeChange(
     orgId,
     out.filter((p) => p.canDecide).map((p) => p.id),
     "outside",
+    input.words,
   );
   await queueSettle(
     db,
     orgId,
     out.filter((p) => !p.canDecide).map((p) => p.id),
     "asked_other",
+    input.words,
   );
   return { proposals: out, applied, skipped };
 }

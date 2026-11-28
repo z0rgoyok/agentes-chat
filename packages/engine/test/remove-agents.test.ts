@@ -14,6 +14,7 @@ import {
   PROPOSE_REMOVE_AGENTS_TOOL,
   postPersonMessage,
   RIGHT_HAND,
+  rankTools,
   rightHandPrompt,
   type ToolContext,
   undoAgentAction,
@@ -173,5 +174,23 @@ describe("propose_remove_agents", () => {
     );
     expect(prompt).toContain("Archiving or deleting agents, several at once ('start over'): propose_remove_agents");
     expect(prompt).not.toContain("an account or an agent");
+  });
+
+  test("taking agents out of a channel is never an archive: the call with a channel is refused toward leave", async () => {
+    f = await setup({ rightHand: true });
+    const [ana] = await team(f);
+    const ctx = await devRun(f, f.owner.id, "@dev tira a Ana deste canal");
+    const out = await call(f, ctx, { agents: ["@ana"], reason: "tirar do canal", channel: "general" });
+    expect(out.isError).toBe(true);
+    expect(out.content).toContain("propose_settings_change with `leave`");
+    expect(await f.db.select().from(schema.contextProposals)).toHaveLength(0);
+    expect((await getAgent(f.db, f.org.id, ana?.id ?? ""))?.archivedAt).toBeNull();
+
+    // Searched for, the channel's tool ranks next to it, and its own line (as find_tools cuts it) points there.
+    const tools = await gatewayOf(f).granted(ctx);
+    const ranked = rankTools(tools, "", "remove agent from channel").map((t) => t.name);
+    expect(ranked.slice(0, 2)).toContain("propose_settings_change");
+    const removal = tools.find((t) => t.name === PROPOSE_REMOVE_AGENTS_TOOL);
+    expect(removal?.description.slice(0, 300)).toContain("never out of one channel (that is propose_settings_change");
   });
 });

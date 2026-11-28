@@ -33,7 +33,7 @@ import { useOrgId } from "../shared/hooks";
 import { roleIdsOf } from "../shared/owner";
 import { tapHaptic } from "../shared/parts";
 import { boldRuns } from "./actions";
-import { ConsultQuote, useConsultById } from "./ConsultGroup";
+import { ConsultPairRow, useConsultById } from "./ConsultGroup";
 import { useCardTop, useMessageCardFrame } from "./look";
 import { useRowDirectory, useRowMeId, useRowRoles } from "./row-data";
 
@@ -82,9 +82,9 @@ function Row({ entry: e, channelId, authorId }: { entry: ReachEntry; channelId: 
   ]
     .filter(Boolean)
     .join(" · ");
-  // Handed to it by direct message: the two agents talking, quoted as a reply quotes their talk, opening their
-  // conversation. Under another such quote they stack with the list's own gap.
-  if (talk) return <ConsultQuote askerId={authorId} channelId={channelId} items={[talk]} alone />;
+  // Handed to it by direct message: the two agents' row, as a reply's, opening their conversation. Under another such
+  // row they stack with the list's own gap.
+  if (talk) return <ConsultPairRow askerId={authorId} channelId={channelId} items={[talk]} />;
   return (
     <View style={[styles.one, card.style]}>
       <View style={styles.head}>

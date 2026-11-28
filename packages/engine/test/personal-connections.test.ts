@@ -1193,6 +1193,13 @@ describe("what the team's paths never name nor hand out", () => {
       "Walter Linear",
       "linear",
     ]);
+    // Asked by its person, the names are still not given, and the refusal can say why; asked by anyone else, nothing
+    // says the connection exists.
+    const byWalter = await resolveApps(f.db, f.org.id, ["Walter Linear", `connector:${mine.id}`], walter.id);
+    expect(byWalter.found.size).toBe(0);
+    expect(byWalter.personal).toEqual(["Walter Linear", `connector:${mine.id}`]);
+    expect(byWalter.choices.join()).not.toContain(mine.id);
+    expect((await resolveApps(f.db, f.org.id, ["Walter Linear"], f.owner.id)).personal).toEqual([]);
     expect(await pendingConnectors(f.db, f.org.id, new Set())).toEqual([]);
     const missing = await missingPermissions({ db: f.db, orgId: f.org.id, agentId: ops.id });
     expect(missing.map((m) => m.connectionId)).not.toContain(mine.id);

@@ -199,10 +199,20 @@ p {
   font-size: 13px;
   border-radius: 9px 9px 9px 3px;
 }
+/* Whole (a wordmark arrives uncropped), on the web's `.org-mark` plate: only where the surface would hide the ink. */
 .dk-org--logo {
   display: inline-block;
-  object-fit: cover;
-  background: transparent;
+  object-fit: contain;
+  background: none;
+}
+.dk-org--logo[data-ink="light"] {
+  background: #1c1c1b;
+}
+[data-theme="dark"] .dk-org--logo {
+  background: #ffffff;
+}
+[data-theme="dark"] .dk-org--logo[data-ink="light"] {
+  background: none;
 }
 .dk-orgmark {
   flex: none;
@@ -760,35 +770,6 @@ body[data-window="popover"] {
 }
 .dk-choose__list {
   margin-top: 20px;
-}
-.dk-choose__list .ac-optrow__title {
-  flex-wrap: wrap;
-}
-/* "Recomendado" after the Cloud's name: words in the brand's blue, never a pill. */
-.dk-choose__rec {
-  margin-left: 8px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--agent);
-}
-/* Each place goes on by itself: a chevron at its end, brighter and a step on under the pointer or the focus. */
-.dk-choose__place {
-  padding-right: 14px;
-}
-.dk-choose__place:hover {
-  background: var(--chosen-bg);
-}
-.dk-choose__chev {
-  flex: none;
-  color: var(--faint);
-  transition:
-    color 0.15s var(--out),
-    translate 0.15s var(--out);
-}
-.dk-choose__place:hover .dk-choose__chev,
-.dk-choose__place:focus-visible .dk-choose__chev {
-  color: var(--ink);
-  translate: 2px 0;
 }
 .dk-choose__more {
   margin-top: 12px;
@@ -1378,6 +1359,7 @@ body[data-window="popover"] {
   font-size: 46px;
   letter-spacing: 0.08em;
   line-height: 1;
+  white-space: nowrap;
   padding: 14px 20px;
   border-radius: 18px;
   background: var(--raised);
@@ -1683,6 +1665,11 @@ body[data-window="popover"] {
   border-top: 1px solid var(--line);
   flex-wrap: wrap;
   min-width: 0;
+}
+/* Under the row it depends on: its words start under that row's title (past the 32px logo and the 12px gap). */
+.dk-crow[data-nested] {
+  border-top: 0;
+  padding-inline-start: 44px;
 }
 .dk-crow:first-child {
   border-top: 0;

@@ -184,8 +184,71 @@ test("effort none: Haiku 5.5 thinks not at all at low effort; a model that can't
   expect(haiku.thinking).toEqual({ type: "disabled" });
   expect(haiku.output_config).toEqual({ effort: "low" });
   const sonnet = await sent("claude-sonnet-5-5");
-  expect(sonnet.thinking).toEqual({ type: "adaptive", block_binding: { prefix_mismatch_behavior: "drop_block" } });
+  expect(sonnet.thinking).toEqual({
+    type: "adaptive",
+    display: "updates",
+    block_binding: { prefix_mismatch_behavior: "drop_block" },
+  });
   expect(sonnet.output_config).toEqual({ effort: "low" });
+});
+
+test("progress updates: asked for where the model hides them, told as notes, the blocks kept for replay", async () => {
+  const body = sse([
+    start(10),
+    { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "Found the invoice, " } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "now the spreadsheet." } },
+    { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig1" } },
+    { type: "content_block_stop", index: 0 },
+    // A block it kept empty is no note.
+    { type: "content_block_start", index: 1, content_block: { type: "thinking", thinking: "", signature: "sig2" } },
+    { type: "content_block_stop", index: 1 },
+    {
+      type: "content_block_start",
+      index: 2,
+      content_block: { type: "tool_use", id: "toolu_1", name: "read", input: {} },
+    },
+    { type: "content_block_delta", index: 2, delta: { type: "input_json_delta", partial_json: "{}" } },
+    { type: "content_block_stop", index: 2 },
+    { type: "message_delta", delta: { stop_reason: "tool_use", stop_sequence: null }, usage: { output_tokens: 9 } },
+    { type: "message_stop" },
+  ]);
+  const call = async (model: string, progressNotes?: boolean) => {
+    const { fetcher, requests } = scripted(body);
+    const notes: string[] = [];
+    const result = await createAnthropicProvider({
+      fetch: fetcher,
+      maxRetries: 0,
+      ...(progressNotes === undefined ? {} : { progressNotes }),
+    }).stream(
+      { model, system: "s", messages: [{ role: "user", content: "hi" }], maxTokens: 512 },
+      { apiKey: "k", onDelta: () => {}, onNote: (n) => notes.push(n) },
+    );
+    const sent = requests[0];
+    return {
+      notes,
+      result,
+      thinking: sent?.body.thinking as Record<string, unknown> | undefined,
+      beta: sent?.headers.get("anthropic-beta") ?? "",
+    };
+  };
+  const opus = await call("claude-opus-5-5");
+  expect(opus.thinking?.display).toBe("updates");
+  expect(opus.beta).toContain("thinking-display-updates-2026-08-18");
+  expect(opus.notes).toEqual(["Found the invoice, now the spreadsheet."]);
+  // Never the reply's text, and the block goes back as it came.
+  expect(opus.result.text).toBe("");
+  expect(opus.result.content[0]).toEqual({
+    type: "opaque",
+    provider: "anthropic",
+    data: { type: "thinking", thinking: "Found the invoice, now the spreadsheet.", signature: "sig1" },
+  });
+  // Off by the server's setting, or a model that doesn't hide them: asked nothing, and a summary is no note.
+  for (const off of [await call("claude-opus-5-5", false), await call("claude-haiku-5-5")]) {
+    expect(off.thinking?.display).toBeUndefined();
+    expect(off.beta).not.toContain("thinking-display-updates");
+    expect(off.notes).toEqual([]);
+  }
 });
 
 test("xhigh and max go through to Claude 5.5, which takes them", async () => {

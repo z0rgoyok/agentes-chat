@@ -135,13 +135,16 @@ export interface InviteCard {
 }
 
 /**
- * "Instalar skill" (`offer_install_skill`): the install dialog with the skill's GitHub link filled in, where a person
- * who manages skills picks it and installs it.
+ * "Instalar skill" (`offer_install_skill`): the install dialog with the skill read, from its GitHub link (`url`) or
+ * from a .zip sent in the conversation (`file`), where a person who manages skills picks it and installs it.
  */
 export interface InstallSkillCard {
   kind: "install_skill";
   forUserId: string | null;
-  url: string;
+  /** The skill's GitHub link; absent for a .zip (`file`). */
+  url?: string;
+  /** A .zip sent in the conversation: its Drive id, its name and the skills its SKILL.md files name. */
+  file?: { id: string; name: string; skills: string[] };
   why: string;
 }
 
@@ -203,6 +206,13 @@ export interface OpenPageCard {
   why: string;
 }
 
+/** "Ligar mensagens de voz" (`offer_voice_setup`): one click for the server's owner, an ask for anyone else. */
+export interface VoiceSetupCard {
+  kind: "voice_setup";
+  forUserId: string | null;
+  why: string;
+}
+
 /** An agent's event proposal (`propose_event`): the person who asked confirms it, which creates the event. */
 export interface CalendarProposalCard {
   kind: "calendar_proposal";
@@ -226,6 +236,7 @@ export type ActionCard =
   | ApprovalsCard
   | MemberChangesCard
   | OpenPageCard
+  | VoiceSetupCard
   | ConnectAiCard
   | ConnectAppCard
   | InviteCard
@@ -490,6 +501,10 @@ export function actionCardOf(meta: Record<string, unknown> | null | undefined): 
     };
   }
   if (card.kind === "install_skill") {
+    if (typeof p.file === "string" && typeof p.name === "string") {
+      const skills = Array.isArray(p.skills) ? p.skills.filter((n): n is string => typeof n === "string") : [];
+      return { kind: "install_skill", forUserId, file: { id: p.file, name: p.name, skills }, why };
+    }
     return typeof p.url === "string" && isHttpsUrl(p.url)
       ? { kind: "install_skill", forUserId, url: p.url, why }
       : null;
@@ -517,6 +532,7 @@ export function actionCardOf(meta: Record<string, unknown> | null | undefined): 
     });
     return rows.length > 0 ? { kind: "member_changes", forUserId, rows, why } : null;
   }
+  if (card.kind === "voice_setup") return { kind: "voice_setup", forUserId, why };
   if (card.kind === "open_page") {
     if (!isAppPage(p.page)) return null;
     return {
@@ -632,11 +648,19 @@ export const inviteDone = (card: InviteCard, invited: readonly string[]) => {
   return card.emails.every((e) => have.has(e.toLowerCase()));
 };
 
-/** Done once the library has a skill installed from the card's link. */
-export const installSkillDone = (card: InstallSkillCard, skills: readonly Pick<Skill, "sourceUrl">[]) =>
-  skills.some((s) => s.sourceUrl === card.url);
+/** Done once the library has a skill installed from the card's link, or every skill its .zip names. */
+export const installSkillDone = (card: InstallSkillCard, skills: readonly Pick<Skill, "sourceUrl" | "name">[]) =>
+  card.file
+    ? card.file.skills.length > 0 && card.file.skills.every((name) => skills.some((s) => s.name === name))
+    : skills.some((s) => s.sourceUrl === card.url);
 
-/** The install an agent's card opened: its own link and the agent that posted it (kept by the app that opened it). */
+/** What the card offers to install, as it shows: its link, or its .zip's name. */
+export const installSkillSource = (card: InstallSkillCard) => card.file?.name ?? card.url ?? "";
+
+/**
+ * The install an agent's card opened: its own link (or its .zip's Drive id) and the agent that posted it (kept by the
+ * app that opened it).
+ */
 export interface CardInstall {
   url: string;
   agentId: string;
@@ -777,6 +801,8 @@ export function actionCardDetail(card: WorkspaceActionCard, t: TFunction, locale
         text(input.topic),
         typeof input.private === "boolean" &&
           (t(input.private ? "channel.visibilityPrivate" : "channel.visibilityPublic") as string),
+        typeof input.reply_in_threads === "boolean" &&
+          (t(input.reply_in_threads ? "channel.replyInThreads" : "channel.replyInChannel") as string),
       );
     case "update_workspace":
       return parts(
@@ -812,6 +838,10 @@ export function actionCardDetail(card: WorkspaceActionCard, t: TFunction, locale
         .join("\n");
     case "remove_ai_key":
       return text(card.params.words.provider);
+    // What the level means, in the same line as its choice on the agent's page.
+    case "set_approvals_level":
+    case "set_agent_approvals_level":
+      return text(input.level) ? (t(`approvalsLevel.${text(input.level)}.text` as never) as string) : "";
     default:
       return "";
   }

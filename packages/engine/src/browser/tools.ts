@@ -443,7 +443,7 @@ export function runnerFailureText(error: string | undefined, code?: string): str
 
 /** After a browser that stopped answering: what the agent does, and doesn't, next. */
 const NOT_RESPONDING =
-  "Don't guess why and don't try again right away: tell the person the browser on that computer isn't responding, and that the agentes app's runner log there says why.";
+  "Don't guess why and don't try again right away: tell the person the browser on that computer isn't responding, and that the agentes.chat app's log there says why.";
 
 /** Why a secret can't be typed in the browser. */
 function secretMissingText(name: string, held: { site: string | null; gone?: boolean } | null) {
@@ -584,7 +584,7 @@ function tabsLine(t: BrowserTabs | undefined): string {
   for (const host of t.closed ?? []) counts.set(host, (counts.get(host) ?? 0) + 1);
   const closed = [...counts].map(([host, n]) => (n > 1 ? `${host} ×${n}` : host)).join(", ");
   return `\nTabs open: ${t.count}${list.length > 0 ? ` (${list.join("; ")})` : ""}.${
-    closed ? ` Closed to keep your tabs tidy: ${closed}, so the tab numbers from list changed.` : ""
+    closed ? ` Closed to keep your tabs tidy: ${closed}.` : ""
   }`;
 }
 
@@ -1578,10 +1578,10 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
         properties: {
           action: { type: "string", enum: ["list", "open", "switch", "close"] },
           url: { type: "string", description: "For `open`: the address.", maxLength: 2048 },
-          index: {
-            type: "integer",
-            description: "For `switch` and `close`: the tab's number from `list`.",
-            minimum: 0,
+          tab: {
+            type: "string",
+            description: "For `switch` and `close`: the tab's id from `list` (`t2`), or its label.",
+            maxLength: 64,
           },
         },
         required: ["action"],
@@ -1589,7 +1589,12 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
       },
       async (input, ctx) => {
         const action = str(input.action);
-        const index = typeof input.index === "number" ? String(Math.max(0, Math.round(input.index))) : null;
+        // `agent-browser` takes a tab by id (`t2`), label or target id, never by position: it refuses a bare number.
+        // Its subcommand words are no tab either: a switch to `close` would close the tab the agent is on.
+        const tab = str(input.tab).trim() || null;
+        if (tab !== null && (!/^[A-Za-z0-9][\w-]*$/.test(tab) || /^(\d+|new|list|close)$/i.test(tab))) {
+          return { content: "Give the tab's id from `list`, like `t2`, not its position.", isError: true };
+        }
         let args: string[];
         if (action === "list") args = [];
         else if (action === "open") {
@@ -1601,10 +1606,9 @@ export function createBrowserToolSource(deps: BrowserToolDeps): ToolSource & { r
           if (refused) return refused;
           args = ["new", ...(url ? [url] : [])];
         } else if (action === "switch") {
-          if (index === null)
-            return Promise.resolve({ content: "Say which tab (`index` from `list`).", isError: true });
-          args = [index];
-        } else args = ["close", ...(index !== null ? [index] : [])];
+          if (tab === null) return { content: "Say which tab (`tab`: its id from `list`).", isError: true };
+          args = [tab];
+        } else args = ["close", ...(tab !== null ? [tab] : [])];
         return run(ctx, { command: "tab", args, timeoutSeconds: COMMAND_SECONDS }, (d) =>
           action === "list"
             ? dataText(d)

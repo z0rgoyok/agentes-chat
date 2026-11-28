@@ -1,3 +1,4 @@
+import { formatTime } from "@agenteschat/i18n/format";
 import type { SurfaceLink, SurfaceLinkCode, SurfaceLinks } from "../api/types";
 import { CONNECTOR_MARK } from "./connected";
 import { capitalize } from "./format";
@@ -63,3 +64,24 @@ export function surfaceMarkUrl(name: string): string | null {
   const url = `/connectors/${name.trim().toLowerCase()}.svg`;
   return CONNECTOR_MARK.test(url) ? url : null;
 }
+
+/** The nudge's delays the apps offer, in hours (ADR 0234). */
+export const NUDGE_AFTER_HOURS = [1, 2, 4, 8, 12, 24] as const;
+
+/** Every whole hour of the day, for the quiet hours. */
+export const DAY_HOURS = Array.from({ length: 24 }, (_, h) => h);
+
+/** An hour of the day as the reader's clock writes it ("22:00", "10 PM"). */
+export const hourLabel = (locale: string, hour: number) => formatTime(locale, new Date(2000, 0, 1, hour));
+
+/** A PIN as the server takes it (ADR 0226): six digits. */
+export const PIN_SHAPE = /^\d{6}$/;
+
+/** What a PIN field keeps of what's typed or pasted: its first six digits. */
+export const pinDigits = (typed: string) => typed.replace(/\D/g, "").slice(0, 6);
+
+/** A PIN being chosen is ready: six digits, typed the same twice. */
+export const pinChosen = (pin: string, again: string) => PIN_SHAPE.test(pin) && again === pin;
+
+/** The second PIN, fully typed, differs from the first. */
+export const pinMismatch = (pin: string, again: string) => again.length === 6 && again !== pin;

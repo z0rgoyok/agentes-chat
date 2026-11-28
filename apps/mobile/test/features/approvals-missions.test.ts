@@ -14,6 +14,7 @@ import {
   cardDeadline,
   itemOwnWords,
   runKeys,
+  STALE_HOLD_MS,
 } from "@agenteschat/client/lib/approval-card";
 import { approvalEffects } from "@agenteschat/client/lib/approval-review";
 import { approvalRuleWords, approvalTitle } from "@agenteschat/client/lib/approval-words";
@@ -451,20 +452,29 @@ describe("several requests on one card", () => {
     ]);
   });
 
-  test("a card's line: an approved action waits for what was asked before it, and runs from when that settled", () => {
-    // Run r1 asked g1, run r2 asked g22 later on the same card.
+  test("a card's line: an approved action waits for what its run was told already waited, and runs from when that settled", () => {
+    // Run r1 asked g1; run r2, started while it waited and told so, asked g22 later.
     const r1 = goal("g1", { runId: "r1" });
-    const r2 = goal("g22", { runId: "r2", status: "approved", decidedAt: at(-1) });
+    const r2 = goal("g22", { runId: "r2", status: "approved", decidedAt: at(-1), afterIds: ["g1"] });
     // Approved first, while the one asked before it still waits: in line behind it.
-    let line = approvalLine([r1, r2]);
+    let line = approvalLine([r1, r2], undefined, now);
     expect(line.get("g22")).toMatchObject({ position: 2, count: 2, waitsOnAt: 1, freeSince: null });
     expect(line.get("g22")?.waitsOn?.id).toBe("g1");
     expect(line.get("g1")).toMatchObject({ position: 1, waitsOn: null });
+    // Not told about it: another conversation's request holds nothing.
+    const untold = { ...r2, afterIds: [] };
+    expect(approvalLine([r1, untold], undefined, now).get("g22")?.waitsOn).toBeNull();
+    // Waiting for a person longer than the hold limit: it holds nothing any more.
+    expect(approvalLine([r1, r2], undefined, now + STALE_HOLD_MS).get("g22")?.waitsOn).toBeNull();
+    // On another card, found among the requests at hand.
+    const elsewhere = { ...r1, messageId: "card-2" };
+    line = approvalLine([r2], [elsewhere, r2], now);
+    expect(line.get("g22")).toMatchObject({ waitsOn: { id: "g1" }, waitsOnAt: null });
     // The earlier one approved, or claimed by its run, but with no result yet: still before it.
     const approved = goal("g1", { runId: "r1", status: "approved", decidedAt: at(-30) });
-    expect(approvalLine([approved, r2]).get("g22")?.waitsOn?.id).toBe("g1");
+    expect(approvalLine([approved, r2], undefined, now).get("g22")?.waitsOn?.id).toBe("g1");
     const claimed = goal("g1", { runId: "r1", status: "approved", decidedAt: at(-0.5), executedAt: at(-0.4) });
-    expect(approvalLine([claimed, r2]).get("g22")?.waitsOn?.id).toBe("g1");
+    expect(approvalLine([claimed, r2], undefined, now).get("g22")?.waitsOn?.id).toBe("g1");
     // Done: free since it ran.
     const ran = goal("g1", {
       runId: "r1",
@@ -473,24 +483,19 @@ describe("several requests on one card", () => {
       executedAt: at(-0.2),
       result: { ok: true, text: "ok" },
     });
-    line = approvalLine([ran, r2]);
+    line = approvalLine([ran, r2], undefined, now);
     expect(line.get("g22")).toMatchObject({ waitsOn: null, freeSince: at(-0.2) });
     // Its own run's other request, wherever it sits, holds it too: the run goes on once all of its are decided.
     const sibling = goal("g333", { runId: "r2" });
-    expect(approvalLine([ran, r2, sibling]).get("g22")).toMatchObject({ waitsOn: { id: "g333" }, waitsOnAt: 3 });
-    // Held by both, it names the first in the line.
-    expect(approvalLine([r1, r2, sibling]).get("g22")?.waitsOn?.id).toBe("g1");
-    // Interleaved runs: a run's place is its earliest action still to do, so r1's later one goes with its first.
-    const a1 = goal("g1", { runId: "r1", status: "approved", decidedAt: at(-1) });
-    const a3 = goal("g333", { runId: "r1", status: "approved", decidedAt: at(-1) });
-    line = approvalLine([a1, r2, a3]);
-    expect(line.get("g333")?.waitsOn).toBeNull();
-    expect(line.get("g22")?.waitsOn?.id).toBe("g1");
+    expect(approvalLine([ran, r2, sibling], undefined, now).get("g22")).toMatchObject({
+      waitsOn: { id: "g333" },
+      waitsOnAt: 3,
+    });
     // Approved ahead and a mission's requests stand outside the line.
     const ahead = goal("g1", { runId: "r1", runAt: at(120) });
-    expect(approvalLine([ahead, r2]).get("g22")?.waitsOn).toBeNull();
+    expect(approvalLine([ahead, r2], undefined, now).get("g22")?.waitsOn).toBeNull();
     const mission = goal("g1", { runId: null });
-    expect(approvalLine([mission, r2]).get("g22")?.waitsOn).toBeNull();
+    expect(approvalLine([mission, r2], undefined, now).get("g22")?.waitsOn).toBeNull();
   });
 
   test("waiting requests of one kind in a row come together as one run, and Aprovar sempre takes the run's like ones", () => {
@@ -587,7 +592,7 @@ describe("a request's screen on the phone", () => {
     const page = sheet.slice(sheet.lastIndexOf("return ("));
     expect(page.indexOf("<OpenItemHead agentId={a?.agentId ?? null} grouped />")).toBeGreaterThan(-1);
     expect(page.indexOf("<OpenItemHead")).toBeLessThan(page.indexOf("{body}"));
-    expect(sheet).toContain(".filter((tr) => tr !== undo)");
+    expect(sheet).toContain(".filter((tr) => tr !== undo && tr !== effect)");
     const parts = read("approvals/parts.tsx");
     expect(parts).toContain("const { undo } = approvalEffects(a);");
     // biome-ignore lint/suspicious/noTemplateCurlyInString: the component's own template, read as source text
@@ -610,7 +615,7 @@ describe("a request's screen on the phone", () => {
     // A pushed screen with the system's back, never a sheet (ADR 0218 §6); its dock is pinned over what scrolls, and
     // the content ends clear of it.
     expect(sheet).toContain(
-      '<PushedLargeTitle title="" collapsed grouped keyboard bottomInset={dock ? 140 : 24} dock={dock}>',
+      '<PushedLargeTitle title="" collapsed grouped keyboard bottomInset={dock ? dockHeight : 24} dock={dock}>',
     );
     expect(sheet).toMatch(/dock: \{\s*position: "absolute",\s*left: 0,\s*right: 0,\s*bottom: 0,/);
     expect(sheet).toContain("paddingBottom: insets.bottom + 12");
@@ -653,5 +658,27 @@ describe("a request's screen on the phone", () => {
     const parts = read("approvals/parts.tsx");
     const details = parts.slice(parts.indexOf("export function ApprovalDetails("));
     expect(details).toContain("<Spans inline={parseInline(r.value)} />");
+  });
+});
+
+describe("hold to approve inside a message", () => {
+  const root = join(import.meta.dir, "../../../..");
+  const read = (path: string) => readFileSync(join(root, path), "utf8");
+
+  test("on iOS the message's menu doesn't start on a hold of its own, so the hold fills instead of opening the menu", () => {
+    const hold = read("apps/mobile/src/ui/HoldButton.tsx");
+    expect(hold).toContain('export const OWN_HOLD = "own-hold";');
+    expect(hold).toContain("testID={OWN_HOLD}");
+    // The menu's view returns no menu before it cancels the press's touches.
+    const patch = read("patches/expo-router@58.0.23.patch");
+    expect(patch).toContain('current.accessibilityIdentifier == "own-hold"');
+    expect(patch).toMatch(
+      /\+\s+if startsOnOwnHold\(interaction, at: location\) \{\n\+\s+return nil\n\+\s+\}\n\s+cancelReactNativeTouches\(\)/,
+    );
+    expect(JSON.parse(read("package.json")).patchedDependencies["expo-router@58.0.23"]).toBe(
+      "patches/expo-router@58.0.23.patch",
+    );
+    // The version patched is the one installed: a newer expo-router has to carry the patch over.
+    expect(read("bun.lock")).toContain('"expo-router": ["expo-router@58.0.23"');
   });
 });

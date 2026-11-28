@@ -72,7 +72,7 @@ export function desktopUseUnavailableText(s: Extract<AgentDesktopUseStatus, { av
     case "machine_removed":
       return REMOVED_COMPUTER_MESSAGE;
     case "outdated":
-      return `The runner on ${on} is too old for using your desktop. Tell the person: its owner should update it.`;
+      return `The agentes.chat program on ${on} is too old for using your desktop. Tell the person: its owner should update it.`;
     case "switched_off":
       return `The desktop is turned off on ${on}. Whoever connected it can turn it on from agentes.chat; tell the people.`;
     case "commands_off":

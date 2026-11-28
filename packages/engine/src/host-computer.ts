@@ -132,7 +132,8 @@ export async function syncHostComputer(deps: HostDeps, input: HostSyncInput): Pr
   for (const m of dropped) await revoke(deps.pubsub, m.id);
   if (!ownerId || served.length === 0) return { orgs: [] };
 
-  const name = cleanMachineName(input.name) || cleanMachineName(input.hostname);
+  const hostname = (input.hostname ?? "").slice(0, 200);
+  const name = cleanMachineName(input.name) || cleanMachineName(hostname);
   await db
     .insert(machines)
     .values(
@@ -142,7 +143,7 @@ export async function syncHostComputer(deps: HostDeps, input: HostSyncInput): Pr
         name,
         audienceMode: "everyone" as const,
         pairedByUserId: ownerId,
-        hostname: (input.hostname ?? "").slice(0, 200),
+        hostname,
         os: OSES.has(input.os ?? "") ? (input.os as string) : "other",
         arch: (input.arch ?? "").slice(0, 40),
         runnerVersion: (input.runnerVersion ?? "").slice(0, 40),
@@ -162,8 +163,20 @@ export async function syncHostComputer(deps: HostDeps, input: HostSyncInput): Pr
     const row = rows.find((r) => r.orgId === org.id);
     if (!row || row.deletedAt) continue;
     const view = { orgId: org.id, orgName: org.name, machineId: row.id };
+    const uncustomized = !row.name || (row.hostname !== "" && row.name === cleanMachineName(row.hostname));
+    const nextName = uncustomized && name ? name : row.name;
     const fresh = row.tokenHash === null;
     if (!fresh && have.has(org.id) && !rotate.has(org.id)) {
+      if ((hostname && hostname !== row.hostname) || nextName !== row.name) {
+        await db
+          .update(machines)
+          .set({
+            ...(hostname ? { hostname } : {}),
+            name: nextName,
+            updatedAt: now,
+          })
+          .where(and(eq(machines.id, row.id), eq(machines.name, row.name), isNull(machines.deletedAt)));
+      }
       orgs.push(view);
       continue;
     }
@@ -175,7 +188,8 @@ export async function syncHostComputer(deps: HostDeps, input: HostSyncInput): Pr
         tokenHash: sha256Hex(token),
         hostKey: deps.hostKey,
         pairedByUserId: ownerId,
-        ...(row.name ? {} : { name }),
+        ...(hostname ? { hostname } : {}),
+        name: nextName,
         updatedAt: now,
       })
       .where(

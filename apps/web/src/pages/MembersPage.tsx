@@ -55,6 +55,7 @@ import { MenuEntries } from "@/components/DesktopMenus";
 import { usePersonMenu } from "@/components/entity-menus";
 import { useFilterCopy } from "@/components/filters";
 import { useCopied } from "@/components/invite/copied";
+import { LocalOnlyInvites } from "@/components/invite/InviteLinkPanel";
 import { State, Who, whenWords } from "@/components/invite/InviteRows";
 import { LoadingList } from "@/components/Loading";
 import { CreateAgentLink } from "@/components/new-agent/new-agent-context";
@@ -128,6 +129,21 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
   // A personal workspace (ADR 0159): a few people need no filter by role, and its owner's own row leaves their roles
   // out (they say nothing to them); everyone else's keep theirs, and their menu gives one.
   const personal = isPersonal(org);
+  // Each row: a message button for anyone else, and "⋯" only when the viewer has an admin action on them (roles, a
+  // new-password link, removing). Leaving stays in one's own right-click and profile card, unless "⋯" shows anyway.
+  const rows = people.map((m) => {
+    const isMe = m.userId === me.user.id;
+    // The server says who is below whom; here the roles show in the menu when there's anything to give.
+    const gives = manage && (m.role !== "owner" || org.role === "owner") && orgRoles.some((r) => r.givable);
+    const linksPassword = !isMe && makesPasswordLinks;
+    const entries = personEntries(m).filter((e): e is MenuItemEntry => e.kind === "item");
+    const dm = entries.find((e) => e.id === "dm");
+    const out = entries.find((e) => e.id === "remove");
+    const admin = gives || linksPassword || (!isMe && out !== undefined);
+    return { m, isMe, gives, linksPassword, dm, out, admin };
+  });
+  // Every row keeps the "⋯" place when any has one, so the times end on one edge.
+  const anyAdmin = rows.some((r) => r.admin);
 
   return (
     <div className={`${embedded ? "settings__section" : "page"} members-page`}>
@@ -142,6 +158,7 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
         })}
         actions={invites && <InviteActions />}
       />
+      {invites && <LocalOnlyInvites />}
 
       <div className="ac-groups">
         {!invites && <Suggestions />}
@@ -179,18 +196,9 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
           )}
           {peopleQuery.isLoading && <LoadingList count={3} trailing />}
           <List>
-            {people.map((m) => {
-              const isMe = m.userId === me.user.id;
+            {rows.map(({ m, isMe, gives, linksPassword, dm, out, admin }) => {
               const held = rolesOf(m, orgRoles);
-              // The server says who is below whom; here the roles show in the menu when there's anything to give.
-              const gives = manage && (m.role !== "owner" || org.role === "owner") && orgRoles.some((r) => r.givable);
               const ownRoles = personal && isMe && m.role === "owner";
-              const linksPassword = !isMe && makesPasswordLinks;
-              // The row's own menu: of the person's right-click menu, what acts on them here.
-              const acts = personEntries(m).filter(
-                (e): e is MenuItemEntry => e.kind === "item" && (e.id === "dm" || e.id === "remove"),
-              );
-              const out = acts.filter((e) => e.id === "remove");
               return (
                 <div key={m.userId} className="ac-list__row members-person" {...entityMenu(() => personEntries(m))}>
                   <ProfileTrigger
@@ -247,8 +255,22 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
                           : t("members.joined", { when: formatShortDate(i18n.language, m.joinedAt) })}
                     </span>
                   </span>
-                  <span className="members-person__menu ac-captail ac-captop">
-                    {(acts.length > 0 || gives || linksPassword) && (
+                  <span
+                    className={`members-person__menu ac-captail ac-captop${anyAdmin ? " members-person__menu--two" : ""}`}
+                  >
+                    {dm && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        iconOnly
+                        icon="message"
+                        className="members-person__dm"
+                        aria-label={t("profile.messageTo", { name: m.name })}
+                        title={t("profile.messageTo", { name: m.name })}
+                        onClick={dm.run}
+                      />
+                    )}
+                    {admin && (
                       <Menu
                         align="end"
                         label={t("members.moreOf", { name: m.name })}
@@ -258,11 +280,11 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
                             variant="ghost"
                             iconOnly
                             icon="more"
+                            className="members-person__more"
                             aria-label={t("members.moreOf", { name: m.name })}
                           />
                         }
                       >
-                        <MenuEntries entries={acts.filter((e) => e.id === "dm")} />
                         {gives && (
                           <MenuSub icon="shield" label={t("rolesPage.rolesCta")}>
                             <RoleChoices
@@ -282,8 +304,8 @@ export function MembersPage({ embedded = false }: { embedded?: boolean } = {}) {
                             {t("members.passwordLink.item")}
                           </MenuItem>
                         )}
-                        {out.length > 0 && (acts.length > out.length || gives || linksPassword) && <MenuSeparator />}
-                        <MenuEntries entries={out} />
+                        {out && (gives || linksPassword) && <MenuSeparator />}
+                        {out && <MenuEntries entries={[out]} />}
                       </Menu>
                     )}
                   </span>

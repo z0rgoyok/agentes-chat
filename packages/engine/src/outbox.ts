@@ -417,8 +417,9 @@ export class PermanentJobError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = "PermanentJobError";
   }
 }
@@ -864,6 +865,7 @@ export const UNREPEATABLE_JOB_KINDS = [
   "threads.assess",
   "routine.run",
   "machine.tasks_offline",
+  "machine.down_notice",
   "live-activity.refresh",
   "context.consolidate",
   "team_watch.check",

@@ -1,5 +1,5 @@
 import type { ErrorReporter, KeyWrapper, PlatformCredentials, PubSub, SearchKind } from "@agenteschat/adapters";
-import { and, type Database, desc, type Executor, eq, isNull, lt, rowsOf, schema, sql } from "@agenteschat/db";
+import { and, type Database, desc, type Executor, eq, gt, isNull, lt, rowsOf, schema, sql } from "@agenteschat/db";
 import {
   costNanoUsd,
   customModelOf,
@@ -41,6 +41,7 @@ import {
   modelInfo,
   modelProvider,
   openRouterListed,
+  outputCapRefusal,
   outputTokensWithin,
   PROVIDERS,
   ProviderError,
@@ -56,6 +57,7 @@ import { decryptCredential, usableCredentialRow } from "./credentials";
 import { loadEndpointModels } from "./endpoints";
 import { BudgetExceededError, MissingCredentialError, NotFoundError, ValidationError } from "./errors";
 import { publishUserEvent } from "./events";
+import { getOrMake } from "./format";
 import { maySql, type RolePermission } from "./permissions";
 import { addPersonSpend, assertPersonUnderLimit, personSpendAdded } from "./person-usage";
 import { respanEndpoint } from "./respan-pricing";
@@ -71,6 +73,7 @@ const {
   organizationSettings,
   organizationMembers,
   personUsageMonths,
+  modelOutputLimits,
 } = schema;
 
 export interface ModelGatewayDeps {
@@ -103,6 +106,27 @@ export interface GatewayEmbeddings {
 }
 
 export const EMBED_QUERY_TIMEOUT_MS = 1500;
+/**
+ * A query's call itself goes on this many times its wait: one past its first asker's wait is kept for the next search
+ * of the same words (`gateway.embed`). The hosted model's slow spells last seconds, and every call in one is slow.
+ */
+export const EMBED_QUERY_CALL_WAITS = 4;
+/**
+ * A query that waited its whole wait starts a slow spell: for this long the next queries wait only
+ * `EMBED_SLOW_SPELL_WAIT_MS` before searching with words, until one is answered within the whole wait again. In a
+ * spell nearly every wait ran out (production, 2026-11: 1 context in 10 sat at the 1.5 s wait, hour after hour).
+ */
+export const EMBED_SLOW_SPELL_MS = 60_000;
+export const EMBED_SLOW_SPELL_WAIT_MS = 400;
+/**
+ * A query's call still unanswered after this sends the same request again, and the first answer of the two is the
+ * vector. The hosted model's slow answers are mostly one call's, not a spell's (production, 2026-11: a query after a
+ * slow one was slow 1 time in 4, after a quick one 1 in 9), so a second call is nearly always quick.
+ */
+export const EMBED_QUERY_HEDGE_MS = 500;
+/** How long a query's vector is kept for the same words, and how many are kept. */
+export const QUERY_VECTOR_TTL_MS = 10 * 60_000;
+const QUERY_VECTORS_KEPT = 256;
 /** Only stops a hung server from holding an indexing job: a CPU server takes minutes over a long batch. */
 export const EMBED_DOCUMENT_TIMEOUT_MS = 5 * 60_000;
 /** Embedding calls failed in a row before the outage is reported, once until one succeeds again. */
@@ -139,6 +163,8 @@ export interface GatewayCall {
   /** The agent's conversation, the same on each of its calls (`StreamOptions.session`). */
   session?: string;
   onDelta(text: string): void;
+  /** A note the model wrote between its calls, apart from its text (`StreamOptions.onNote`). */
+  onNote?(text: string): void;
   signal?: AbortSignal;
 }
 
@@ -204,6 +230,10 @@ export interface ImageGatewayResult {
 export const RESERVATION_TTL_MS = 15 * 60_000;
 /** Below this many output tokens a call isn't worth making: the budget counts as exhausted. */
 export const MIN_OUTPUT_TOKENS = 256;
+/** How many times a call the provider refused for its output cap is sent again, each time lower (`outputCapRefusal`). */
+const OUTPUT_CAP_RETRIES = 3;
+/** A key's output limit learned longer ago is learned again: a provider may raise it. */
+export const LEARNED_LIMIT_TTL_MS = 30 * 24 * 3600_000;
 /** A test call that takes longer says the key couldn't be checked: it never holds a person's save up for long. */
 export const KEY_CHECK_TIMEOUT_MS = 15_000;
 
@@ -269,6 +299,56 @@ export function createModelGateway(deps: ModelGatewayDeps) {
   const now = deps.now ?? (() => new Date());
   const { db } = deps;
   let embedFailures = 0;
+  /** Query vectors by organization and words, while their call runs and for `QUERY_VECTOR_TTL_MS` after. */
+  const queryVectors = new Map<string, { at: number; result: Promise<EmbeddingResult> }>();
+  /** Until when the embeddings server is in a slow spell (`EMBED_SLOW_SPELL_MS`). */
+  let slowSpellUntil = 0;
+  /** One call to the embeddings provider, its usage recorded; its failures in a row counted and reported. */
+  const embedCall = async (
+    embeddings: GatewayEmbeddings,
+    call: { orgId: string; texts: string[]; inputType: "document" | "query" },
+    timeoutMs: number,
+  ): Promise<EmbeddingResult> => {
+    const { provider, apiKey } = embeddings;
+    let result: EmbeddingResult;
+    try {
+      result = await provider.embed(call.texts, {
+        apiKey,
+        inputType: call.inputType,
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch (error) {
+      if (++embedFailures === EMBED_FAILURES_REPORTED) {
+        try {
+          deps.errors?.capture(error, {
+            cause: "embeddings",
+            provider: provider.id,
+            model: provider.model,
+            input_type: call.inputType,
+          });
+        } catch {
+          // A report that can't be made never fails a search.
+        }
+      }
+      throw error;
+    }
+    embedFailures = 0;
+    const cost = embeddingCostNanoUsd(result.model, result.tokens);
+    await db.insert(usageRecords).values({
+      orgId: call.orgId,
+      agentId: null,
+      kind: "embedding",
+      credentialId: null,
+      provider: provider.id,
+      model: result.model,
+      requestedModel: provider.model,
+      inputTokens: result.tokens,
+      outputTokens: 0,
+      costNanoUsd: cost,
+      createdAt: now(),
+    });
+    return result;
+  };
 
   const providerFor = (provider: string) => {
     const p = deps.providers[provider];
@@ -411,8 +491,87 @@ export function createModelGateway(deps: ModelGatewayDeps) {
     throw new ValidationError(`OpenRouter doesn't list ${model} anymore. Pick another model in the agent's settings.`);
   }
 
-  /** The output cap sent: the call's, within the most the model may write. */
-  const capOf = (maxTokens: number, info: ModelInfo) => Math.min(maxTokens, info.maxOutputTokens ?? maxTokens);
+  /**
+   * The most each key and model may write (`${credentialId ?? "platform"}|${model}`), for what its row doesn't say or
+   * says wrong: as its provider's list tells it (`ModelProvider.outputLimit`), or as a refusal did (`outputCapRefusal`).
+   * Null: its provider was asked and told nothing.
+   */
+  // A workspace key's are kept (`model_output_limits`) and read once per process; the platform key's stay in the
+  // process (ponytail: one list read or refused call per start and model, a row of their own if that ever shows).
+  const learnedLimits = new Map<string, number | null>();
+  const storedLimits = new Map<string, Promise<void>>();
+  const limitKey = (key: Key, model: string) => `${key.credentialId ?? "platform"}|${model}`;
+
+  /** What an earlier process learned for a workspace key and model, read the first time this one needs it. */
+  const loadLimit = (at: string, key: Key, model: string) =>
+    key.credentialId === null || learnedLimits.has(at)
+      ? undefined
+      : getOrMake(storedLimits, at, async () => {
+          const [row] = await db
+            .select({ max: modelOutputLimits.maxOutputTokens })
+            .from(modelOutputLimits)
+            .where(
+              and(
+                eq(modelOutputLimits.credentialId, key.credentialId as string),
+                eq(modelOutputLimits.model, model),
+                gt(modelOutputLimits.learnedAt, new Date(Date.now() - LEARNED_LIMIT_TTL_MS)),
+              ),
+            )
+            .catch(() => []);
+          if (row && !learnedLimits.has(at)) learnedLimits.set(at, row.max);
+        });
+
+  /** Learned now: kept for this process, and a workspace key's for the next ones. */
+  async function learnLimit(at: string, key: Key, model: string, max: number | null) {
+    learnedLimits.set(at, max);
+    if (key.credentialId === null) return;
+    await db
+      .execute(sql`insert into ${modelOutputLimits} (org_id, credential_id, model, max_output_tokens, learned_at)
+        select c.org_id, c.id, ${model}, ${max}::integer, now() from ${providerCredentials} c where c.id = ${key.credentialId}::uuid
+        on conflict (credential_id, model) do update set max_output_tokens = excluded.max_output_tokens, learned_at = now()`)
+      .catch(() => {});
+  }
+
+  /** The output cap sent: the call's, within the most the model may write (its row's, else what was learned). */
+  async function capOf(maxTokens: number, info: ModelInfo, provider: ModelProvider, model: string, key: Key) {
+    const at = limitKey(key, model);
+    // Also for a model its row knows: a refusal may have said the row is wrong for this key.
+    await loadLimit(at, key, model);
+    if (!info.maxOutputTokens && !learnedLimits.has(at) && provider.outputLimit) {
+      const told = await provider
+        .outputLimit(model, { apiKey: key.apiKey, ...(key.endpoint ? { endpoint: key.endpoint } : {}) })
+        .catch(() => null);
+      await learnLimit(at, key, model, told);
+    }
+    return Math.min(maxTokens, info.maxOutputTokens ?? maxTokens, learnedLimits.get(at) ?? maxTokens);
+  }
+
+  /**
+   * `provider.stream`, sent again lower when the provider refuses the output cap before anything streamed
+   * (`outputCapRefusal`): a lower cap only shrinks what the budget reserved. `request.maxTokens` ends as the cap sent.
+   */
+  async function streamWithinCap(
+    provider: ModelProvider,
+    request: ModelRequest,
+    options: Parameters<ModelProvider["stream"]>[1],
+    key: Key,
+  ): Promise<ModelResult> {
+    for (let tries = 0; ; tries++) {
+      try {
+        return await provider.stream(request, options);
+      } catch (error) {
+        const cut =
+          tries < OUTPUT_CAP_RETRIES && error instanceof ProviderError
+            ? outputCapRefusal(error, request.maxTokens)
+            : null;
+        if (!cut || cut.retry < MIN_OUTPUT_TOKENS) throw error;
+        const at = limitKey(key, request.model);
+        if (cut.learn)
+          await learnLimit(at, key, request.model, Math.min(cut.learn, learnedLimits.get(at) ?? cut.learn));
+        request.maxTokens = cut.retry;
+      }
+    }
+  }
 
   /** Usage of a stream that failed midway: what the provider reported, else counted or estimated. */
   async function partialUsage(
@@ -862,7 +1021,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
         model: agent.model,
         system: call.system,
         messages: call.messages,
-        maxTokens: capOf(call.maxTokens, info),
+        maxTokens: await capOf(call.maxTokens, info, provider, agent.model, key),
         tools: call.tools,
         ...(call.effort ? { effort: call.effort } : {}),
         ...(call.cacheTtl ? { cacheTtl: call.cacheTtl } : {}),
@@ -893,15 +1052,21 @@ export function createModelGateway(deps: ModelGatewayDeps) {
 
       let result: ModelResult;
       try {
-        result = await provider.stream(request, {
-          apiKey: key.apiKey,
-          workspaceId: key.workspaceId,
-          organization: key.organization,
-          project: key.project,
-          endpoint: key.endpoint,
-          ...(call.session ? { session: call.session } : {}),
-          onDelta: call.onDelta,
-        });
+        result = await streamWithinCap(
+          provider,
+          request,
+          {
+            apiKey: key.apiKey,
+            workspaceId: key.workspaceId,
+            organization: key.organization,
+            project: key.project,
+            endpoint: key.endpoint,
+            ...(call.session ? { session: call.session } : {}),
+            onDelta: call.onDelta,
+            ...(call.onNote ? { onNote: call.onNote } : {}),
+          },
+          key,
+        );
       } catch (error) {
         const usage = error instanceof ProviderError ? await partialUsage(error, provider, request, key) : null;
         let actual = 0;
@@ -955,7 +1120,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
         ...(refused ? { thinking: { ...result.thinking, refused: withoutKey(refused, key.apiKey) } } : {}),
         usageRecordId: record.id,
         costNanoUsd: record.cost,
-        maxTokens,
+        maxTokens: request.maxTokens,
       };
     },
 
@@ -1171,8 +1336,9 @@ export function createModelGateway(deps: ModelGatewayDeps) {
      * Embeds texts for the organization's search index (kind `embedding`, no agent), within a timeout: a query's is
      * short, a run waits on it. Null when no embedding provider is configured, when none of `kinds` gets vectors (the
      * kinds the texts are, or that a query searches; absent: any), or on a workspace that may not work. Throws when
-     * the provider fails, and callers go on with words alone; the failure that makes `EMBED_FAILURES_REPORTED` in a
-     * row is reported.
+     * the provider fails or a query's wait ends first, and callers go on with words alone; the failure that makes
+     * `EMBED_FAILURES_REPORTED` in a row is reported. The same words of a query share one call: asked early (a run
+     * asks when it reads its trigger), its vector is often there when memory and the wiki search.
      */
     async embed(call: {
       orgId: string;
@@ -1187,47 +1353,63 @@ export function createModelGateway(deps: ModelGatewayDeps) {
       if (embedded && !wanted?.some((k) => embedded.includes(k))) return null;
       // Null, not a refusal: people on a hold still read and search, with full text alone.
       if (await standingRefusal(db, call.orgId)) return null;
-      const { provider, apiKey } = embeddings;
-      const timeoutMs =
-        call.inputType === "query" ? (embeddings.queryTimeoutMs ?? EMBED_QUERY_TIMEOUT_MS) : EMBED_DOCUMENT_TIMEOUT_MS;
-      let result: EmbeddingResult;
-      try {
-        result = await provider.embed(call.texts, {
-          apiKey,
-          inputType: call.inputType,
-          signal: AbortSignal.timeout(timeoutMs),
+      if (call.inputType === "document") return embedCall(embeddings, call, EMBED_DOCUMENT_TIMEOUT_MS);
+      const waitMs = embeddings.queryTimeoutMs ?? EMBED_QUERY_TIMEOUT_MS;
+      const key = `${call.orgId}\0${call.texts.join("\0")}`;
+      let kept = queryVectors.get(key);
+      const askedAt = Date.now();
+      const wait = askedAt < slowSpellUntil ? Math.min(waitMs, EMBED_SLOW_SPELL_WAIT_MS) : waitMs;
+      if (!kept || Date.now() - kept.at > QUERY_VECTOR_TTL_MS) {
+        const once = () => embedCall(embeddings, call, waitMs * EMBED_QUERY_CALL_WAITS);
+        const first = once();
+        const result =
+          EMBED_QUERY_HEDGE_MS >= waitMs
+            ? first
+            : Promise.any([
+                first,
+                new Promise<EmbeddingResult>((resolve, reject) => {
+                  let sent = false;
+                  const hedge = setTimeout(() => {
+                    sent = true;
+                    once().then(resolve, reject);
+                  }, EMBED_QUERY_HEDGE_MS);
+                  // Answered, or failed before the hedge: no second call (a failure is the query's at once).
+                  first.then(
+                    () => clearTimeout(hedge),
+                    (error) => {
+                      if (sent) return;
+                      clearTimeout(hedge);
+                      reject(error);
+                    },
+                  );
+                }),
+              ]).catch((error) => {
+                throw error instanceof AggregateError ? error.errors[0] : error;
+              });
+        // Answered within the whole wait: the spell, if any, is over.
+        result.then(
+          () => {
+            if (Date.now() - askedAt < waitMs) slowSpellUntil = 0;
+          },
+          () => {},
+        );
+        const entry = { at: Date.now(), result };
+        kept = entry;
+        queryVectors.delete(key);
+        queryVectors.set(key, entry);
+        if (queryVectors.size > QUERY_VECTORS_KEPT) queryVectors.delete(queryVectors.keys().next().value as string);
+        result.catch(() => {
+          if (queryVectors.get(key) === entry) queryVectors.delete(key);
         });
-      } catch (error) {
-        if (++embedFailures === EMBED_FAILURES_REPORTED) {
-          try {
-            deps.errors?.capture(error, {
-              cause: "embeddings",
-              provider: provider.id,
-              model: provider.model,
-              input_type: call.inputType,
-            });
-          } catch {
-            // A report that can't be made never fails a search.
-          }
-        }
-        throw error;
       }
-      embedFailures = 0;
-      const cost = embeddingCostNanoUsd(result.model, result.tokens);
-      await db.insert(usageRecords).values({
-        orgId: call.orgId,
-        agentId: null,
-        kind: "embedding",
-        credentialId: null,
-        provider: provider.id,
-        model: result.model,
-        requestedModel: provider.model,
-        inputTokens: result.tokens,
-        outputTokens: 0,
-        costNanoUsd: cost,
-        createdAt: now(),
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waited = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          if (wait === waitMs) slowSpellUntil = Date.now() + EMBED_SLOW_SPELL_MS;
+          reject(new ProviderError(`the embeddings server took more than ${wait} ms`, true));
+        }, wait);
       });
-      return result;
+      return Promise.race([kept.result, waited]).finally(() => clearTimeout(timer));
     },
 
     /**
@@ -1302,7 +1484,7 @@ export function createModelGateway(deps: ModelGatewayDeps) {
         model: call.model,
         system: call.system,
         messages: call.messages,
-        maxTokens: capOf(call.maxTokens, info),
+        maxTokens: await capOf(call.maxTokens, info, provider, call.model, key),
         ...(call.tools ? { tools: call.tools } : {}),
         outputSchema: call.outputSchema,
         effort: call.effort,
@@ -1319,12 +1501,12 @@ export function createModelGateway(deps: ModelGatewayDeps) {
       };
       let result: ModelResult;
       try {
-        result = await provider.stream(request, {
-          apiKey: key.apiKey,
-          workspaceId: key.workspaceId,
-          endpoint: key.endpoint,
-          onDelta: () => {},
-        });
+        result = await streamWithinCap(
+          provider,
+          request,
+          { apiKey: key.apiKey, workspaceId: key.workspaceId, endpoint: key.endpoint, onDelta: () => {} },
+          key,
+        );
       } catch (error) {
         const usage = error instanceof ProviderError ? await partialUsage(error, provider, request, key) : null;
         if (usage) await recordUsage(db, { ...base, model: call.model, usage, partial: true });

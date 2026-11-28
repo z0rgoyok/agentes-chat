@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { schema } from "@agenteschat/db";
-import { browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
+import { type Browser, browser, createTestServer, joinByInvitation, seedOrg, signUp, type TestServer } from "./harness";
 
 let t: TestServer;
 afterEach(() => t.close());
@@ -12,6 +12,7 @@ type ListedAgent = {
   seesDetails: boolean;
   canTalk: boolean;
   listed?: boolean;
+  factsOnly?: boolean;
   budgetUsedPercent?: number;
 };
 
@@ -64,20 +65,9 @@ test("someone an agent doesn't answer sees only its public card, on every route 
   expect(listed.find((a) => a.id === ana.id)?.instructions).toBe("Answer support questions.");
   expect(listed.find((a) => a.id === ana.id)?.seesDetails).toBe(true);
 
-  // Its page: the public card, no instructions or month.
-  const detail = (await (await bia(`${org}/agents/${rex.id}`)).json()) as {
-    instructions: string;
-    seesDetails: boolean;
-    channels: unknown[];
-    credentialId: string | null;
-  };
-  expect(detail.seesDetails).toBe(false);
-  expect(detail.credentialId).toBeNull();
-  expect(detail.instructions).toBe("");
-  expect(Array.isArray(detail.channels)).toBe(true);
-
-  // Rex answers only its owner: private, so unlisted to her. Team leaves it out and the list flags it, while its page
-  // above still answers with the public card (its messages need its name and face).
+  // Rex answers only its owner: private, so its page doesn't open for her at all (its name and face for its messages
+  // come with the list). Team leaves it out and the list flags it.
+  expect((await bia(`${org}/agents/${rex.id}`)).status).toBe(404);
   const team = (await (await bia(`${org}/team`)).json()) as { agents: { id: string }[] };
   expect(team.agents.map((a) => a.id)).toContain(ana.id);
   expect(team.agents.map((a) => a.id)).not.toContain(rex.id);
@@ -257,4 +247,86 @@ test("an agent's playbook comes with its plain summary, only for its owner and a
     { text: "The office closes at 18:00.", summary: null, playbook: false },
   ]);
   expect(await list(bia)).toEqual([{ text: "The office closes at 18:00.", summary: null, playbook: false }]);
+});
+
+test('"Edit agents" on a teammate\'s private agent: its facts and usage, never how it works; a plain member, nothing', async () => {
+  t = await createTestServer();
+  const owner = browser(t);
+  await signUp(owner, "owner@example.com");
+  const { orgId, credentialId } = await seedOrg(owner);
+  const lara = await joinByInvitation(t, owner, orgId, "lara@example.com");
+  const bia = await joinByInvitation(t, owner, orgId, "bia@example.com");
+  const org = `/api/app/organizations/${orgId}`;
+  const idOf = async (b: Browser) => ((await (await b("/api/app/me")).json()) as { user: { id: string } }).user.id;
+  const ownerId = await idOf(owner);
+  const leads = (await (
+    await owner(`${org}/roles`, { json: { name: "Leads", permissions: ["manage_agents"] } })
+  ).json()) as { id: string };
+  expect(
+    (await owner(`${org}/members/${await idOf(lara)}/roles`, { method: "PUT", json: { roleIds: [leads.id] } })).status,
+  ).toBe(200);
+  const rex = (await (
+    await owner(`${org}/agents`, {
+      json: {
+        name: "Rex",
+        handle: "rex",
+        model: "claude-sonnet-5-5",
+        credentialId,
+        instructions: "The pricing table lives in sheet 4.",
+        audience: { mode: "owner", userIds: [] },
+      },
+    })
+  ).json()) as { id: string };
+  await t.db.insert(schema.usageRecords).values({
+    orgId,
+    agentId: rex.id,
+    kind: "agent",
+    provider: "anthropic",
+    model: "claude-sonnet-5-5",
+    requestedModel: "claude-sonnet-5-5",
+    inputTokens: 1200,
+    outputTokens: 300,
+    costNanoUsd: 42_000,
+    billedTo: "org",
+  });
+
+  // Listed for her with a lock, no instructions and nothing to change.
+  const listed = ((await (await lara(`${org}/agents`)).json()) as { agents: ListedAgent[] }).agents;
+  expect(listed.find((a) => a.id === rex.id)).toMatchObject({
+    factsOnly: true,
+    seesDetails: false,
+    instructions: "",
+  });
+  const team = (await (await lara(`${org}/team`)).json()) as { agents: { id: string; factsOnly?: boolean }[] };
+  expect(team.agents.find((a) => a.id === rex.id)?.factsOnly).toBe(true);
+
+  // Its page: who made it, who edits it and this month's numbers, no instructions or key.
+  const page = await lara(`${org}/agents/${rex.id}`);
+  expect(page.status).toBe(200);
+  expect(await page.json()).toMatchObject({
+    factsOnly: true,
+    seesDetails: false,
+    instructions: "",
+    credentialId: null,
+    tokensThisMonth: 1500,
+    createdByUserId: ownerId,
+    editors: { userIds: [], roleIds: [] },
+    canManage: false,
+    canEdit: false,
+  });
+
+  // How it works stays closed: its tools, memory, skills, usage tab and runs (their transcripts) are refused.
+  for (const part of DETAIL_READS) {
+    const res = await lara(`${org}/agents/${rex.id}/${part}`);
+    expect({ part, status: res.status }).toEqual({ part, status: 403 });
+  }
+  expect((await lara(`${org}/runs?agentId=${rex.id}`)).status).toBe(403);
+  expect((await lara(`${org}/agents/${rex.id}`, { method: "PATCH", json: { role: "QA" } })).status).toBe(403);
+
+  // A plain member still doesn't see it: not on Equipe, and its link answers nothing.
+  const biaTeam = (await (await bia(`${org}/team`)).json()) as { agents: { id: string }[] };
+  expect(biaTeam.agents.map((a) => a.id)).not.toContain(rex.id);
+  expect((await bia(`${org}/agents/${rex.id}`)).status).toBe(404);
+  // Its owner reads it whole, as before.
+  expect(await (await owner(`${org}/agents/${rex.id}`)).json()).toMatchObject({ seesDetails: true, factsOnly: false });
 });

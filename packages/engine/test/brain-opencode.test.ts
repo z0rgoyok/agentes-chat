@@ -149,7 +149,7 @@ test("which brain a run thinks with, and why OpenCode can't now", () => {
   expect(computerBrainUnavailable("opencode", "m1", status())).toBeNull();
   expect(computerBrainUnavailable("opencode", null, null)?.message).toBe("The agent has no computer for OpenCode.");
   expect(computerBrainUnavailable("opencode", "m1", status({ protocol: OPENCODE_PROTOCOL - 1 }))?.message).toBe(
-    "The runner on MacBook is too old for OpenCode agents. Its owner updates the agentes app there, or runs `agentes-runner update`.",
+    "The agentes.chat program on MacBook is too old for OpenCode agents. Its owner updates the agentes app there, or runs `agentes-runner update`.",
   );
   expect(computerBrainUnavailable("opencode", "m1", status({ executors: { detectedAt: "x" } }))?.code).toBe(
     "opencode_missing",

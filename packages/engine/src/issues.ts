@@ -1339,7 +1339,8 @@ export async function updateIssue(
         : null;
     return { row: updated, ended };
   });
-  await linkRun(deps, actor, row);
+  // A status or column set here is the agent's own word: starting work must not undo it (todo back to in progress).
+  await linkRun(deps, actor, row, { start: !patch.status && !patch.columnId });
   // A new agent assignee joins the task's conversation (ADR 0145): a mention there reaches it.
   if (agentsOf(joined).length > 0 && row.conversationChannelId) {
     await admitTaskAgents(db, orgId, row.conversationChannelId, { ids: agentsOf(joined) });
@@ -1383,17 +1384,24 @@ function editedCriteria(current: IssueRow["criteria"], next: { id?: string; text
  * the run is linked to it, and an issue the agent has that is still "to do"
  * moves to "in progress" on its own.
  */
-async function linkRun(deps: IssueDeps, actor: IssueActor, issue: IssueRow) {
+async function linkRun(deps: IssueDeps, actor: IssueActor, issue: IssueRow, opts?: { start: boolean }) {
   if (actor.type !== "agent" || !actor.runId) return;
-  await startedWork(deps, issue, actor.agentId, [actor.runId]);
+  await startedWork(deps, issue, actor.agentId, [actor.runId], opts);
 }
 
-async function startedWork(deps: IssueDeps, issue: IssueRow, agentId: string, runIds: string[]) {
+async function startedWork(
+  deps: IssueDeps,
+  issue: IssueRow,
+  agentId: string,
+  runIds: string[],
+  { start = true }: { start?: boolean } = {},
+) {
   if (runIds.length === 0) return;
   await deps.db
     .update(agentRuns)
     .set({ issueId: issue.id })
     .where(and(inArray(agentRuns.id, runIds), isNull(agentRuns.issueId), eq(agentRuns.orgId, issue.orgId)));
+  if (!start) return;
   const [current] = await deps.db.select().from(issues).where(eq(issues.id, issue.id));
   const isMineToStart =
     current?.status === "todo" && (await isAssigned(deps.db, current.id, { type: "agent", id: agentId }));
@@ -1721,7 +1729,7 @@ export async function askAgentToImplement(
   const issue = await findVisible(db, actor, orgId, { id: issueId });
   const agent = await getAgent(db, orgId, agentId);
   if (!agent || agent.archivedAt) throw new NotFoundError("Agent not found");
-  if (!canTalkTo(agent, userId, await speakerFor(db, orgId, userId))) throw await audienceError(db, agent);
+  if (!canTalkTo(agent, userId, await speakerFor(db, orgId, userId))) throw await audienceError(db, agent, userId);
   // It goes first among whoever has the task, everyone else staying: the first agent is the one the task's
   // conversation answers with (ADR 0188).
   const had = await assigneesOfIssue(db, issue.id);
@@ -1743,6 +1751,7 @@ export async function askAgentToImplement(
       threadId: conversation.rootId,
       author: by ? { type: "agent", agentId: by.agentId, runId: by.runId, hop: by.hop } : { type: "person", userId },
       body: `Please implement issue #${issue.number}.`,
+      origin: by ? "agent" : "system",
       meta: {
         issueId: issue.id,
         issueWorkStart: true,
@@ -2045,8 +2054,8 @@ export async function linkIssueToWork(
 
 /**
  * A card follows its work (ADR 0121 §4): queued → A fazer, working → Em andamento, waiting on a person, paused or
- * failed → the blocked badge in its stage, done → Feito (left in review when the agent moved it there), stopped →
- * back to A fazer. An update is an activity event on it.
+ * failed → the blocked badge in its stage, done → Feito (in review when the agent moved it there or a criterion is
+ * still open), stopped → back to A fazer. An update is an activity event on it.
  */
 export async function setWorkIssueState(
   deps: IssueDeps,
@@ -2061,7 +2070,14 @@ export async function setWorkIssueState(
   let status: IssueStatus = current.status;
   let blocked: IssueRow["blocked"] = null;
   const ended = input.ended ?? (view.status === "live" || view.status === "queued" ? null : view.status);
-  if (ended === "done") status = current.status === "in_review" ? "in_review" : "done";
+  // A run ending "done" only means its turn ended: with criteria still open the work isn't finished, a person reviews it.
+  if (ended === "done")
+    status =
+      current.status === "in_review" || current.status === "done"
+        ? current.status
+        : current.criteria.some((c) => !c.done)
+          ? "in_review"
+          : "done";
   else if (ended === "canceled") status = "todo";
   else if (ended === "failed") blocked = { reason: "failed", since: now.toISOString(), text: view.errorCode ?? "" };
   else if (view.state === "queued") status = current.status === "done" ? current.status : "todo";

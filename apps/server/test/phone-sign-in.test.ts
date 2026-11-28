@@ -111,6 +111,20 @@ describe("one-time sign-in for the phone", () => {
       .where(like(schema.verifications.identifier, "phone-sign-in:%"));
     expect(stored).toHaveLength(0);
   });
+
+  test("auth-config says so too, where the apps invite: links from a computer's own address open nowhere else", async () => {
+    const localOnly = async () =>
+      ((await (await t.app.request("/api/app/auth-config")).json()) as { localOnly: boolean }).localOnly;
+    t = await createTestServer({ env: { INSTALL_MODE: "native" } });
+    expect(await localOnly()).toBe(true);
+    await t.close();
+    t = await createTestServer({ env: { INSTALL_MODE: "desktop", PUBLIC_URL: "https://box.tail1234.ts.net" } });
+    expect(await localOnly()).toBe(false);
+    await t.close();
+    // A development server keeps its own address, and says nothing.
+    t = await createTestServer();
+    expect(await localOnly()).toBe(false);
+  });
 });
 
 describe("GET /api/instance", () => {

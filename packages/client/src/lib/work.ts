@@ -1,6 +1,6 @@
 import type { TFunction } from "i18next";
 import type { ConnectorDef, Message, OrgSummary, Run, RunStep } from "../api/types";
-import type { LiveCode, LiveOutput, LiveRun, LiveStep, LiveWork } from "../realtime/streams";
+import type { LiveCode, LiveOutput, LivePhase, LiveRun, LiveStep, LiveWork } from "../realtime/streams";
 import { type Activity, type ActivityKind, activityVerb, appLabel, PERMISSION_TOOL, toolActivity } from "./activity";
 import {
   type CliLine,
@@ -16,7 +16,7 @@ import { POSTGRES_MARK } from "./databases";
 import { capitalize, joinNames, lowerFirst, shortTarget } from "./format";
 import { workDuration } from "./long-work";
 import { MAIL_BRANDS } from "./mail";
-import { catalogLabel, toolKey } from "./tool-labels";
+import { catalogLabel, connectorToolWords, toolKey } from "./tool-labels";
 
 /**
  * Whether a finished reply shows what the agent did ("Usou 4 ferramentas"): only for a person who turned it on in this
@@ -82,17 +82,15 @@ export function autoApprovedWords(t: TFunction, a: AutoApproved): string {
 }
 
 /**
- * A line's grey words: none beside code, who approved it for good where a rule did, else its hint, a connector
- * tool's name by the catalog's words where it has them ("Buscar issues", not "search issues").
+ * A line's hint in words: a connector tool's name by the catalog's words where it has them ("Buscar issues", not
+ * "search issues"), else by the words written for the workspace in the reader's language (`connectorToolWords`).
  */
+export const hintWords = (t: TFunction, l: Pick<ToolLine, "hint" | "kind">) =>
+  l.kind === "consulting" && l.hint ? connectorToolWords(t, l.hint) : l.hint;
+
+/** A line's grey words: none beside code, who approved it for good where a rule did, else its hint (`hintWords`). */
 export const toolLineHint = (t: TFunction, l: Pick<ToolLine, "code" | "hint" | "autoApproved" | "kind">) =>
-  l.code
-    ? null
-    : l.autoApproved
-      ? autoApprovedWords(t, l.autoApproved)
-      : l.kind === "consulting" && l.hint
-        ? (catalogLabel(t, l.hint) ?? l.hint)
-        : l.hint;
+  l.code ? null : l.autoApproved ? autoApprovedWords(t, l.autoApproved) : hintWords(t, l);
 
 /** What the agent said before a model call's tools (`model_call` step: `narration`, `turn`). */
 export interface WorkNarration {
@@ -862,13 +860,14 @@ export const subagentsTail = (t: TFunction, busy: SubagentsNow) =>
     : t("cliTools.progress.agents", { count: Math.max(1, busy.agents) });
 
 /** A turn quicker than this shows nothing new: its step line says the agent's own words only past it. */
-export const STEP_WORDS_AFTER_MS = 5000;
+export const STEP_WORDS_AFTER_MS = 1500;
 
 /**
  * The waiting row's step line: what the agent does right now, verb first ("Usando o navegador · console.example.com…",
  * "Mexendo nos arquivos do PC · refresh.ts…"), from the same live work as its tool block; "Pensando…" while no step
  * runs; "Esperando aprovação…" while its last call waits on a person. `step`: the brain's own words for its latest call
  * (quoted), or its own call no `agent.tool` told. `intent`: what it is about to do (`LiveRun.intent`), for "Pensando…".
+ * `phase`: a step before the model has the turn that is taking a while ("Atualizando o código…"), while no call runs.
  */
 export function waitStep(
   t: TFunction,
@@ -876,6 +875,7 @@ export function waitStep(
   step?: LiveStep,
   intent?: string,
   locale?: string,
+  phase?: LivePhase,
 ): string {
   const last = (work ?? []).findLast((w) => w.kind === "call");
   if (last?.kind === "call" && last.held) return t("chat.wait.held");
@@ -890,6 +890,7 @@ export function waitStep(
     return `${capitalize(words, locale)}…`;
   }
   if (now?.state !== "run") {
+    if (phase === "code") return t("chat.wait.code");
     if (step?.tool) return `${capitalize(activityVerb(t, toolActivity(step.tool)))}…`;
     return intent ? `${capitalize(intent)}…` : t("chat.wait.thinking");
   }
@@ -905,7 +906,10 @@ export function waitStep(
   // The folded line keeps its first call's hint; the step line names the call running now, one the block lists: a call
   // it leaves out (the line before slow work, after a call refused for its arguments) never lends it its name.
   const listed = (work ?? []).findLast(listedCall);
-  const hint = listed?.running ? toolHint(listed.tool, now, listed.detail) : now.hint;
+  const hint = hintWords(t, {
+    kind: now.kind,
+    hint: listed?.running ? toolHint(listed.tool, now, listed.detail) : now.hint,
+  });
   const target = hint ? shortTarget(hint) : "";
   return target ? `${verb} · ${target}…` : `${verb}…`;
 }
@@ -918,7 +922,7 @@ export function waitStep(
  */
 export function barStep(
   t: TFunction,
-  run: Pick<LiveRun, "status" | "work" | "step" | "startedAt" | "workingSince" | "intent">,
+  run: Pick<LiveRun, "status" | "work" | "step" | "startedAt" | "workingSince" | "intent" | "phase">,
   locale?: string,
   now = Date.now(),
 ): string {
@@ -926,7 +930,7 @@ export function barStep(
   if (!calling && run.status === "running")
     return run.intent ? `${lowerFirst(run.intent, locale)}…` : `${activityVerb(t, { kind: "writing" })}…`;
   const long = now - (run.workingSince ?? run.startedAt ?? now) >= STEP_WORDS_AFTER_MS;
-  return lowerFirst(waitStep(t, run.work, long ? run.step : undefined, run.intent, locale), locale);
+  return lowerFirst(waitStep(t, run.work, long ? run.step : undefined, run.intent, locale, run.phase), locale);
 }
 
 export { formatLineTime } from "./format";

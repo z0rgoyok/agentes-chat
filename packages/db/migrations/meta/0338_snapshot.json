@@ -1,5 +1,5 @@
 {
-  "id": "34af8bf8-b018-45b3-9807-6f3eb85163e3",
+  "id": "7608b094-5bb2-411e-8571-2a7e352e1690",
   "prevId": "52ebaee0-4cb8-4a80-afb5-e392bc14bf6e",
   "version": "7",
   "dialect": "postgresql",
@@ -824,6 +824,13 @@
         },
         "welcome_people": {
           "name": "welcome_people",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "right_hand_learns": {
+          "name": "right_hand_learns",
           "type": "boolean",
           "primaryKey": false,
           "notNull": true,
@@ -21448,12 +21455,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": 0
-        },
-        "pricing_receipt": {
-          "name": "pricing_receipt",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
         },
         "cost_nano_usd": {
           "name": "cost_nano_usd",

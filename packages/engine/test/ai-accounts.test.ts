@@ -12,6 +12,7 @@ import {
   aiHubView,
   audienceSql,
   createCredential,
+  insertMessage,
   planKeyFallbackOn,
   postPersonMessage,
   replyRefusal,
@@ -310,6 +311,42 @@ describe("Atender todos", () => {
     expect(await replyRefusal(fx.db, { ...agent, ownerUserId: fx.owner.id }, WALTERS, run)).toBeNull();
     await setAccountPermissions(deps, walter.id, fx.org.id, WALTERS, {
       reply: { mode: "admins", userIds: [], roleIds: [] },
+    });
+    expect(await replyRefusal(fx.db, agent, WALTERS, run)).toBeNull();
+  });
+
+  test("an integration app's message reaches a plan only when the account answers everyone", async () => {
+    const { fx, walter, deps } = await world();
+    const agent = { orgId: fx.org.id, name: "Dev", ownerUserId: walter.id };
+    const appId = Bun.randomUUIDv7();
+    const msg = await insertMessage(fx.db, {
+      orgId: fx.org.id,
+      channelId: fx.general.id,
+      author: { type: "app", appId },
+      body: "Where is my order?",
+      meta: { app: { id: appId, name: "Support bot", color: "graphite" }, readOutside: true },
+    });
+    const [run] = await fx.db
+      .insert(schema.agentRuns)
+      .values({
+        orgId: fx.org.id,
+        agentId: fx.agent.id,
+        channelId: fx.general.id,
+        threadRootId: msg.id,
+        triggerMessageId: msg.id,
+        trigger: "mention",
+        hop: 1,
+      })
+      .returning();
+    if (!run) throw new Error("no run");
+    // Nobody of the workspace is behind it, and the owner's own plan doesn't answer outsiders.
+    expect((await replyRefusal(fx.db, agent, WALTERS, run))?.code).toBe("plan_not_shared");
+    await setAccountPermissions(deps, walter.id, fx.org.id, WALTERS, {
+      reply: { mode: "admins", userIds: [], roleIds: [] },
+    });
+    expect((await replyRefusal(fx.db, agent, WALTERS, run))?.code).toBe("plan_not_shared");
+    await setAccountPermissions(deps, walter.id, fx.org.id, WALTERS, {
+      reply: { mode: "everyone", userIds: [], roleIds: [] },
     });
     expect(await replyRefusal(fx.db, agent, WALTERS, run)).toBeNull();
   });

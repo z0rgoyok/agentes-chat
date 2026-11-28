@@ -1,0 +1,10 @@
+/* A CLI its computer fetches (CliFetchLine, ADR 0228 §6): the words, the kit's meter under them, then "Tentar de novo".
+   Its own sheet: the line shows in the agent's brain settings and in Contas de IA, which load different sheets. */
+.cli-fetch {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+}
+.cli-fetch .ac-meter {
+  width: 100%;
+}

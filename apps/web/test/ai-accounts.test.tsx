@@ -112,13 +112,13 @@ async function actions(detail: HTMLElement) {
 }
 
 describe("IA e uso: the viewer's own accounts", () => {
-  test("the old address opens IA e uso; with accounts, Conectar uma IA is in the card's head, the same picker as everywhere", async () => {
+  test("the old address opens IA e uso; Add account is in the card's head (or its empty state), the same picker as everywhere", async () => {
     const { router } = await renderApp(`/org/${ORG_ID}/settings/keys`, { api: createFakeApi(seedState()) });
     await settle(6);
     expect(router.state.location.pathname).toBe(`/org/${ORG_ID}/settings/usage`);
     const plans = screen().getByRole("region", { name: "Contas" });
-    // No account yet: one way to connect one, in the card's empty state.
-    const connect = within(plans).getByRole("button", { name: "Conectar uma IA" });
+    // One way to add an account: in the card's head, or in its empty state with nothing at all.
+    const connect = within(plans).getByRole("button", { name: "Adicionar conta" });
     expect(connect.closest(".ac-empty, .ac-card__head")).not.toBeNull();
     await act(async () => fireEvent.click(connect));
     await settle(4);
@@ -131,10 +131,11 @@ describe("IA e uso: the viewer's own accounts", () => {
     // Looking at the plans asks the computers for fresh usage.
     expect(member.state.calls.some((c) => c.method === "machines.refreshAccountUsage")).toBe(true);
     const [work, mm] = rows();
-    // One line: its name, its plan and owner, its window closest to the limit.
+    // One line: its name, its plan, its window closest to the limit.
     const head = work?.querySelector(".plan-row__head") as HTMLElement;
     expect(head.querySelector(".plan-row__title")?.textContent).toBe("Trabalho");
-    expect(head.querySelector(".plan-row__owner")?.textContent).toBe("Team · de Walter");
+    // The viewer's own: in "Suas contas", its plan alone.
+    expect(head.querySelector(".plan-row__owner")?.textContent).toBe("Team");
     expect(head.querySelector(".ac-planmeter__line")?.textContent).toBe("5h 84%");
     expect(within(head).getAllByRole("meter")).toHaveLength(1);
     // A coding plan's key: its maker's mark; opened, its key's end and the way to a new key.
@@ -142,11 +143,11 @@ describe("IA e uso: the viewer's own accounts", () => {
     const detail = await opened(mm);
     expect(detail.textContent).toContain("chave …MnOp");
     expect(await action(detail, "Trocar a chave")).toBeTruthy();
-    expect(screen().queryByRole("region", { name: "Chaves de provedor" })).toBeNull();
+    expect(screen().queryByRole("region", { name: "Chaves de API" })).toBeNull();
     cleanup();
     await page([WORK]);
     expect(screen().getByRole("region", { name: "Contas" })).toBeTruthy();
-    expect(screen().getByRole("region", { name: "Chaves de provedor" })).toBeTruthy();
+    expect(screen().getByRole("region", { name: "Chaves de API" })).toBeTruthy();
   });
 
   test("an OpenCode key and a Gemini Enterprise seat each show their maker's logo, never a letter", async () => {

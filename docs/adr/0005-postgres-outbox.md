@@ -12,7 +12,7 @@
 - Optional `dedupe_key` (unique) makes enqueueing idempotent.
 - Done jobs leave the outbox 14 days after they were queued (`pruneDoneJobs`, daily, in batches), so the queue's indexes stay the size of two weeks of jobs. Their `dedupe_key` moves to `outbox_dedupe` for 90 days, where a trigger on `outbox` still refuses a second enqueue by any statement. Not kept: the keys nothing can queue again (a message's or a run's jobs, past time windows). Never pruned: kinds whose key is a memory for good (`KEPT_JOB_KINDS`: `saidOnce`'s ledger, greetings and reminders sent once, boot sweeps that rely on their keys), and the jobs of an agent run that hasn't ended.
 - Failed jobs, and done ones still in the outbox, keep their content 30 days: then the daily tick clears their `payload` and `last_error` (`clearOldOutboxPayloads`). The row stays, so its `dedupe_key` still refuses a second enqueue.
-- Workers run inside the server process (`apps/server/src/workers.ts`): the outbox every second (plus `wake()` right after a post with mentions), message partition maintenance daily. Safe on several replicas.
+- Workers run inside the server process (`apps/server/src/workers.ts`): the outbox every second, and at once when a transaction commits a job due now (the `outbox_wake` trigger NOTIFYs every replica, migration `outbox_wake`; a post also calls `wake()`), message partition maintenance daily. Safe on several replicas.
 - Job kinds today: `message.posted` (dispatch @mentions) and `agent_run.execute`.
 
 ## Consequences

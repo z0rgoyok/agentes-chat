@@ -292,7 +292,7 @@ describe("the right words for the right empty", () => {
     api.orgs.planUsage = async () => ({ month: "2026-10", money: false, accounts: [], api: [] });
     await renderApp(`/org/${ORG_ID}/settings/usage`, { api });
     await settle(8);
-    expect(within(empty()).getByRole("button", { name: "Conectar uma IA" })).toBeDefined();
+    expect(within(empty()).getByRole("button", { name: "Adicionar conta" })).toBeDefined();
   });
 
   test("a channel I only read: no greeting, no chips for a composer that isn't there", async () => {

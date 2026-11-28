@@ -8,6 +8,7 @@ import {
   PERMISSION_TOOL,
   PRIVATE_KEY,
   redactCommon,
+  replaceShapes,
   SIGNED_SHAPES,
 } from "@agenteschat/adapters";
 import { and, type Database, eq, isNull, schema } from "@agenteschat/db";
@@ -206,7 +207,7 @@ export async function artifactToolDetail(
 /** Things that look like credentials, masked in previews and live output (agents should never have any). */
 const SECRET = new RegExp(`${KEY_SHAPES.source}|${SIGNED_SHAPES.source}`, "g");
 
-export const maskSecrets = (text: string) => text.replace(SECRET, "••••");
+export const maskSecrets = (text: string) => replaceShapes(text, SECRET, "••••");
 
 /** `text` with each of `values` masked wherever it appears, the longest first: secrets known by value, of any shape. */
 export const maskValues = (text: string, values: readonly string[]) =>
@@ -221,7 +222,7 @@ export const maskValues = (text: string, values: readonly string[]) =>
  */
 export function carriesCredential(value: unknown): boolean {
   const text = typeof value === "string" ? value : (JSON.stringify(value) ?? "");
-  return PRIVATE_KEY.test(text) || text.replace(SECRET, "") !== text;
+  return PRIVATE_KEY.test(text) || replaceShapes(text, SECRET, "") !== text;
 }
 
 /**
@@ -244,7 +245,7 @@ export const maskCredentials = (text: string) => replaceKeys(maskSecrets(text), 
 /** `maskCredentials`, except a credential that appears word for word in `pasted` (what people wrote themselves). */
 export const maskCredentialsExcept = (text: string, pasted: string) => {
   const keep = (found: string) => (pasted.includes(found) ? found : "••••");
-  return replaceKeys(text.replace(SECRET, keep), keep);
+  return replaceKeys(replaceShapes(text, SECRET, keep), keep);
 };
 
 /**
@@ -267,17 +268,19 @@ export function scrubSignIns(text: string, note: string): { text: string; found:
     found++;
     return note;
   };
-  const out = replaceKeys(
-    text
-      // A value already scrubbed stays as it is, so scrubbing twice changes nothing: only when what matched is the
-      // note's own start and nothing more (the note in front of a real value hides nothing).
-      .replace(SIGN_IN_FIELD, (match, field: string, value: string, at: number, all: string) =>
-        note.startsWith(value) && all.startsWith(note, at + field.length) ? match : `${field}${hit()}`,
-      ),
+  const out = replaceShapes(
+    replaceKeys(
+      text
+        // A value already scrubbed stays as it is, so scrubbing twice changes nothing: only when what matched is the
+        // note's own start and nothing more (the note in front of a real value hides nothing).
+        .replace(SIGN_IN_FIELD, (match, field: string, value: string, at: number, all: string) =>
+          note.startsWith(value) && all.startsWith(note, at + field.length) ? match : `${field}${hit()}`,
+        ),
+      hit,
+    ),
+    SECRET,
     hit,
-  )
-    .replace(SECRET, hit)
-    .replace(SIGN_IN_SHAPES, hit);
+  ).replace(SIGN_IN_SHAPES, hit);
   return { text: out, found };
 }
 
@@ -338,10 +341,11 @@ export const redactCredentials = (text: string) =>
   maskValuesAfter(
     maskValuesAfter(
       redactCommon(
-        maskCredentials(text)
-          .replace(USERINFO_PASSWORD, "://***@")
-          .replace(USERINFO, "://***@")
-          .replace(SERVICE_KEYS, "••••"),
+        replaceShapes(
+          maskCredentials(text).replace(USERINFO_PASSWORD, "://***@").replace(USERINFO, "://***@"),
+          SERVICE_KEYS,
+          "••••",
+        ),
       ).replace(HEADER_VALUE, (_, quote, name, is, bare, bareIs) =>
         quote ? `${quote}${name}${is}***` : `${bare}${bareIs}***`,
       ),

@@ -1,10 +1,12 @@
-import type { DesktopMode, DesktopViewState, Edition, Machine } from "@agenteschat/client";
+import type { DesktopMode, DesktopOpenWhy, DesktopViewState, Edition, Machine } from "@agenteschat/client";
 import {
   ApiError,
   askControlWords,
   DESKTOP_CLOSE,
+  DESKTOP_SLOW_MS,
   desktopCloseState,
   desktopMode,
+  desktopOpenFailed,
   desktopRetryMs,
   desktopSocketUrl,
   desktopStatusState,
@@ -16,12 +18,13 @@ import {
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
 import { quoteExcerpt } from "@agenteschat/client/lib/reply";
 import { useSeat } from "@agenteschat/client/lib/seat-context";
-import { Button, cx, Icon, InfoHint } from "@agenteschat/ui";
+import { Button, cx, Icon } from "@agenteschat/ui";
 import type RFB from "@novnc/novnc";
 import { type ReactNode, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useDirectory } from "@/hooks/useDirectory";
 import { matchesNow, TOUCH, useMatchMedia } from "@/hooks/useMatchMedia";
+import { holdReload } from "@/lib/app-version";
 import { heldPicture, holdImage, holdPicture, liveCanvas, pictureOf, showsPicture } from "@/lib/canvas";
 import { useSaid } from "@/lib/toast";
 import { SocketFactoryContext, useDesktopPointer } from "@/realtime/context";
@@ -123,6 +126,11 @@ export function DesktopView({
   const pointer = useDesktopPointer(agentId);
   const [round, setRound] = useState(0);
   const [gaveUp, setGaveUp] = useState(false);
+  // Why it hasn't opened yet (the last failed try), whether it took long, since when it opens, and Tentar de novo's count.
+  const [why, setWhy] = useState<DesktopOpenWhy | null>(null);
+  const [slow, setSlow] = useState(false);
+  const since = useRef(Date.now());
+  const [fresh, setFresh] = useState(0);
   // Control opening over the last picture it watched, or watching again over the last one in control.
   const [taking, setTaking] = useState(false);
   const [returning, setReturning] = useState(false);
@@ -193,7 +201,11 @@ export function DesktopView({
     if (!inControl) return;
     const ask = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", ask);
-    return () => window.removeEventListener("beforeunload", ask);
+    const release = holdReload();
+    return () => {
+      window.removeEventListener("beforeunload", ask);
+      release();
+    };
   }, [inControl]);
 
   // A changed state may let it open again (a screen switched on, a computer back).
@@ -272,6 +284,9 @@ export function DesktopView({
           const next = desktopCloseState(e.code, e.reason, { preview });
           // A card's screen that keeps dropping says so, and the card shows the frames.
           const spent = preview && next.retry !== "never" && attempts.current >= PREVIEW_RETRIES;
+          // The full screen says why under its cover, and stops trying by itself once it has opened for long.
+          const failed = preview ? null : desktopOpenFailed(e.code, e.reason, since.current);
+          if (failed) setWhy(failed.why);
           // Control ended (handed back): it opens again as a watcher over the picture it had; any other close says why.
           if (e.code !== DESKTOP_CLOSE.controlEnded || !holdPicture(el)) {
             heldPicture(el)?.remove();
@@ -280,7 +295,7 @@ export function DesktopView({
           }
           // What changed shows at once (someone took control); a state that blocks it stops the retry.
           void refetch();
-          if (next.retry === "never" || spent) return setGaveUp(true);
+          if (next.retry === "never" || spent || failed?.gaveUp) return setGaveUp(true);
           // "now" still waits a moment: the new state (control handed back) usually changes the mode first.
           const delay = next.retry === "now" ? 250 : desktopRetryMs(attempts.current);
           attempts.current++;
@@ -412,6 +427,22 @@ export function DesktopView({
 
   const shown: DesktopViewState = blocked ?? view;
   const live = shown === "live";
+  // Each stretch without the screen starts its clock: what it says, and when it gives up, count from there.
+  useEffect(() => {
+    if (live) setWhy(null);
+    else since.current = Date.now();
+  }, [live]);
+  const opening = !preview && !gaveUp && (shown === "connecting" || shown === "offline");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: Tentar de novo (`fresh`) starts the wait again
+  useEffect(() => {
+    setSlow(false);
+    if (!opening) return;
+    const timer = setTimeout(() => setSlow(true), DESKTOP_SLOW_MS);
+    return () => clearTimeout(timer);
+  }, [opening, fresh]);
+  // What the opening cover says under its words: the last try's cause, or that it takes long (a computer the status
+  // says isn't answering says that).
+  const cause: DesktopOpenWhy | null = why ?? (slow ? (shown === "offline" ? "offline" : "slow") : null);
   // Handing back or taking, the last picture stays in sight under what is happening: never a cold cover.
   const switching = actions.done.isPending || actions.takeover.isPending || taking || returning;
   const offer = !preview && live && !inControl && !switching && !head?.full && !s?.controllerUserId && canTakeOver;
@@ -444,6 +475,9 @@ export function DesktopView({
   // One new socket: no longer given up opens it; otherwise a new round does.
   const retry = () => {
     attempts.current = 0;
+    since.current = Date.now();
+    setWhy(null);
+    setFresh((n) => n + 1);
     setView("connecting");
     if (gaveUp) setGaveUp(false);
     else setRound((r) => r + 1);
@@ -498,23 +532,6 @@ export function DesktopView({
         ? (head?.watching ?? t("agentComputer.sub.watching"))
         : "";
   const retrying = <span>{t("desktop.state.retrying")}</span>;
-  const notice = <span className="muted">{t("desktop.control.notice", g)}</span>;
-  // What programs there can see, kept to one line in the window (desktop.css). agentes.chat Cloud may screen the
-  // session (ADR 0076): said behind an ⓘ after it.
-  const controlLine = (
-    <span className="dsk-words">
-      {edition === "cloud" ? (
-        <span className="ac-hintline">
-          {notice}
-          <InfoHint name={t("common.about", { label: t("desktop.session.check") })}>
-            {t("desktop.session.screening")}
-          </InfoHint>
-        </span>
-      ) : (
-        notice
-      )}
-    </span>
-  );
   const again = (
     <Button size="sm" icon="refresh" onClick={retry}>
       {t("desktop.retry")}
@@ -532,10 +549,25 @@ export function DesktopView({
       onRetry={retry}
     />
   );
+  const openLine = cause ? <span>{t(`desktop.open.${cause}` as const, { computer })}</span> : null;
+  // Opening, then the cause and Tentar de novo once a try failed or it took long; stopped, the cause stays.
+  const openingCover = (help?: ReactNode) =>
+    gaveUp ? (
+      <Cover color={color} icon="alert" text={t("desktop.open.gaveUp", g)} help={openLine} action={again} />
+    ) : (
+      <Cover
+        color={color}
+        sky
+        spinner
+        text={t("agentComputer.state.opening", g)}
+        help={openLine ?? help}
+        action={cause ? again : undefined}
+      />
+    );
   const cover: Record<Exclude<DesktopViewState, "live">, ReactNode> = {
-    connecting: <Cover color={color} sky spinner text={t("agentComputer.state.opening", g)} />,
+    connecting: openingCover(),
     hidden: <Cover color={color} icon="eyeOff" text={t("browser.inCard.hiddenHelp", g)} />,
-    offline: <Cover color={color} sky spinner text={t("agentComputer.state.opening", g)} help={retrying} />,
+    offline: openingCover(retrying),
     busy: <Cover color={color} spinner text={t("desktop.state.busy")} help={retrying} />,
     noRoom: <Cover color={color} icon="alert" text={t("agentComputer.state.noRoom", { computer })} action={again} />,
     paused: (
@@ -698,9 +730,7 @@ export function DesktopView({
               <Icon name={said.error ? "alert" : "check"} size={14} />
               <span>{said.text}</span>
             </span>
-          ) : got === null ? (
-            controlLine
-          ) : (
+          ) : got !== null ? (
             <span className="dsk-got" role="status">
               <span className="muted">{t("desktop.clipboard.got", g)}</span>
               <q>{quoteExcerpt(got, 120)}</q>
@@ -714,7 +744,7 @@ export function DesktopView({
                 {t("desktop.clipboard.copy")}
               </button>
             </span>
-          )}
+          ) : null}
           <Egress machine={machine} compact />
         </div>
       )}

@@ -205,6 +205,34 @@ describe("run policy table", () => {
     }
   });
 
+  test("a run an app's message started reads only the web unasked: the workspace's data asks a person (ADR 0252)", () => {
+    const fromApp: RunAuthority = { kind: "unattended", personId: null, reason: "app", appId: "app_1" };
+    const askFirst = [
+      builtIn("search_context", "memory:read"),
+      builtIn("list_issues", "issues:read"),
+      builtIn("read_file"),
+      builtIn("get_context"),
+      app("github_list_issues", "github:issues.read"),
+      builtIn("browser_open", "browser:use"),
+      builtIn("create_issue", "issues:write"),
+      builtIn("tell_agent"),
+      builtIn("ask_agent"),
+    ];
+    for (const tool of askFirst) {
+      expect(decide(fromApp, tool)).toBe("approve");
+      // What a routine read woke the same run: these stay its own.
+      expect(decide(reportWoke, tool)).not.toBe("refuse");
+    }
+    expect(decide(reportWoke, builtIn("search_context", "memory:read"))).toBe("allow");
+    for (const tool of [builtIn("web_search"), builtIn("web_fetch"), builtIn("react"), builtIn("ask_user")])
+      expect(decide(fromApp, tool)).toBe("allow");
+    expect(decide(fromApp, app("github_create_issue", "github:issues.write"))).toBe("approve");
+    expect(toolPolicy(fromApp, builtIn("create_routine", "schedule:write"))).toEqual({
+      action: "refuse",
+      reason: REFUSALS.fedElsewhere,
+    });
+  });
+
   test("the computer's own permission prompt is listed for every run; a mission's tools never for a routine", () => {
     for (const who of [routine("read"), routine("act"), unattended, person])
       expect(decide(who, builtIn("permission_prompt"))).toBe("allow");

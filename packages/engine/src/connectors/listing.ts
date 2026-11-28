@@ -44,6 +44,8 @@ export const CONNECTOR_BRANDS: Record<string, { file: string; color: string | nu
   paypal: { file: "paypal", color: null, own: true },
   canva: { file: "canva", color: null, own: true },
   gitlab: { file: "gitlab", color: "#FC6D26" },
+  bitbucket: { file: "bitbucket", color: "#0052CC" },
+  git: { file: "git", color: "#F05032" },
   neon: { file: "neon", color: "#00E599" },
   prisma: { file: "prisma", color: null },
   netlify: { file: "netlify", color: "#00C7B7" },
@@ -124,6 +126,8 @@ export interface ConnectorListingEntry {
    * the apps say so instead of "Em breve" (on the Cloud it stays "Em breve" until the vendor approves the app).
    */
   needsApp?: boolean;
+  /** A git host at an address of one's own (ADR 0227): the connect form asks for it (`required`) or offers it. */
+  address?: "optional" | "required";
   /** Connects through Composio (its page, its OAuth app): available only with `COMPOSIO_API_KEY` (ADR 0107). */
   via?: "composio";
   /** Where it connects, by the way this server picked (a `remote_mcp` entry's address). */
@@ -198,6 +202,7 @@ export function connectorListing(server: ServerCatalog): ConnectorListingEntry[]
       available: oauthConfigured || d.auth.includes("api_key"),
       soon: false,
       ...(d.native && !oauthConfigured && !d.auth.includes("api_key") && !server.cloud ? { needsApp: true } : {}),
+      ...(d.address ? { address: d.address } : {}),
       serverUrl: d.serverUrl,
       ...brand(d.id),
       scopes: Object.entries(d.scopes).map(([id, s]) => ({

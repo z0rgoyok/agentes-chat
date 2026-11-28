@@ -18,8 +18,8 @@ export const inAgent = (memories: Memory[], agent: string) =>
   agent === "all" ? memories : memories.filter((m) => m.agentId === agent);
 
 /** "Aprenderam agora há pouco": the newest. */
-export const justLearned = (memories: Memory[]) =>
-  [...memories].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, LIST_COUNT);
+export const justLearned = (memories: Memory[], count = LIST_COUNT) =>
+  [...memories].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).slice(0, count);
 
 /** "Mais usadas": what was used, most first. */
 export const mostUsed = (memories: Memory[]) =>

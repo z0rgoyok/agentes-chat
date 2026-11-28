@@ -14,7 +14,8 @@ import { cx } from "../cx";
 import { useDarkTheme } from "../hooks/useDarkTheme";
 import { Icon } from "../icons/Icon";
 import { DitherLine } from "./ChartPieces";
-import type { KpiWidgetSpec, WidgetSpec, WidgetStatus } from "./spec";
+import { formatWidgetNumber, seriesTip } from "./format";
+import { type KpiWidgetSpec, kpiText, type WidgetSpec, type WidgetStatus } from "./spec";
 import { widgetTileVars } from "./tiles";
 import { WidgetBody } from "./WidgetBody";
 
@@ -182,6 +183,7 @@ export function WidgetCard({
           locale={locale}
           buildingText={buildingText}
           sparkApart
+          label={title}
         />
         {board && cut.cut && onOpen && (
           <CardMore
@@ -193,35 +195,50 @@ export function WidgetCard({
         )}
       </div>
       <div className="wg__foot">{footer}</div>
-      <WidgetBleed spec={status === "building" ? null : spec} color={color} size={size} />
+      <WidgetBleed spec={status === "building" ? null : spec} color={color} size={size} locale={locale} label={title} />
       {horizon && <CardHorizon content={body} />}
     </article>
   );
 }
 
-/** A number's trend line, drawn apart from its body (`sparkApart`): null for anything else. */
-function sparkOf(spec: WidgetSpec | null): KpiWidgetSpec["spark"] | null {
-  return spec?.kind === "kpi" && spec.spark && spec.spark.length > 1 ? spec.spark : null;
+/** A number whose trend line is drawn apart from its body (`sparkApart`): null for anything else. */
+function sparkOf(spec: WidgetSpec | null): (KpiWidgetSpec & { spark: number[] }) | null {
+  return spec?.kind === "kpi" && spec.spark && spec.spark.length > 1 ? { ...spec, spark: spec.spark } : null;
 }
 
 /**
  * A number's trend at the card's bottom, edge to edge under the footer and clipped by the card's corners: the line's
- * dither runs out at the bottom edge and the last point keeps its square inside the card. Null for any other kind.
+ * dither runs out at the bottom edge and the last point keeps its square inside the card. Hover, tap or the arrow
+ * keys show a point's value (and its date, given `sparkLabels`) in the chat's tip. Null for any other kind.
  */
 export function WidgetBleed({
   spec,
   color,
   size,
+  locale,
+  label,
 }: {
   spec: WidgetSpec | null;
   color: string;
   size: { w: 1 | 2; h: 1 | 2 };
+  locale: string;
+  /** The widget's title: the trend's name for a screen reader. */
+  label?: string;
 }) {
-  const spark = sparkOf(spec);
-  if (!spark) return null;
+  const kpi = sparkOf(spec);
+  if (!kpi) return null;
   return (
     <div className="wg__bleed">
-      <DitherLine className="wk-spark" values={spark} color={color} height={size.h === 2 ? 120 : 56} bleed dot />
+      <DitherLine
+        className="wk-spark"
+        values={kpi.spark}
+        color={color}
+        height={size.h === 2 ? 120 : 56}
+        bleed
+        dot
+        tip={seriesTip(kpi.sparkLabels, kpi.spark, (v) => kpiText(kpi, formatWidgetNumber(v, locale)))}
+        label={label}
+      />
     </div>
   );
 }

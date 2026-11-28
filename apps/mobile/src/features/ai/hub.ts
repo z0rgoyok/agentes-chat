@@ -173,9 +173,9 @@ export function choiceText(t: TFunction, row: AiChoiceRow, locale: string, now =
   if (row.type === "workspace")
     return {
       label: t("mobile.aiHub.choice.workspace"),
-      sub: t("mobile.aiHub.choice.workspaceSub"),
-      keywords: "",
-      mark: null,
+      sub: [t("mobile.aiHub.choice.workspaceSub"), row.apiKey?.label].filter(Boolean).join(" · "),
+      keywords: row.apiKey ? providerLabel(row.apiKey.provider) : "",
+      mark: row.apiKey?.provider ?? null,
     };
   if (row.type === "key" && row.apiKey) {
     const k = row.apiKey;

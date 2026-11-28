@@ -199,6 +199,40 @@ export const pairItemOf = (c: MessageConsultation): ConsultPairItem => ({
   answeredAt: null,
 });
 
+const CLOSED_STATUSES: ReadonlySet<string> = new Set(["answered", "expired", "failed"]);
+
+/**
+ * Another agent's request in the DM of the agent it went to (a `hand_off` notice, packages/engine/src/consultations.ts
+ * `traceHandOff`): the agent that asked, the channel where the person asked it (none for a DM), and the pair row it
+ * draws there, which opens the exchange. Null for any other message.
+ */
+export function handOffOf(
+  meta: Record<string, unknown> | undefined,
+): { askerId: string; askedIn: string | null; item: ConsultPairItem } | null {
+  const notice = noticeOf(meta);
+  const r = notice?.kind === "hand_off" ? notice.refs : null;
+  if (!r?.consultationId || !r.askerAgentId || !r.agentId) return null;
+  const status = r.status && CLOSED_STATUSES.has(r.status) ? (r.status as ConsultPairItem["status"]) : "open";
+  return {
+    askerId: r.askerAgentId,
+    askedIn: r.askedIn ?? null,
+    item: {
+      id: r.consultationId,
+      kind: r.kind === "note" ? "note" : "question",
+      consultedAgentId: r.agentId,
+      status,
+      waiting: null,
+      question: r.question ?? "",
+      // The row never shows the answer (it opens with the exchange): only that one came.
+      answer: status === "answered" ? "…" : null,
+      // Its row says nothing while it is out, so no deadline counts down here.
+      expiresAt: "9999-12-31T00:00:00Z",
+      createdAt: r.createdAt ?? null,
+      answeredAt: r.answeredAt ?? null,
+    },
+  };
+}
+
 /** The short word after the names while one question is out ("perguntando 42 s"). */
 function pairOpenKey(state: ConsultLineState, c: ConsultPairItem) {
   switch (state) {
@@ -558,4 +592,56 @@ export function consultLineTarget(
   fold: Extract<ConsultNoticeFold, { fold: "line" }>,
 ): string {
   return firstOfRun(messages, fold.consultation.runId) ?? fold.messageId;
+}
+
+/** A message as `relayedAnswers` reads it: who wrote it, its words, its run. */
+export interface RelayRow extends ConsultRow {
+  author: { type: string; id: string | null };
+  body: string;
+}
+
+/** A consulted agent's words, passed on by the agent that asked it: drawn as the quote at the top of that message. */
+export interface RelayedAnswer<T extends RelayRow = RelayRow> {
+  /** The consulted agent's message, no longer drawn on its own. */
+  message: T;
+  consultation: RunConsultation;
+}
+
+/** What a consulted run posts for the person rather than for the agent that asked: a request, a file, a card. */
+const FOR_PEOPLE = ["approvalId", "question", "secretRequest", "notice", "files", "artifacts", "media", "actionCard"];
+
+/** Words only, nothing the person acts on or opens: they can go into the asker's quote. */
+const relayable = (row: RelayRow) =>
+  row.author.type === "agent" && row.body.trim() !== "" && !FOR_PEOPLE.some((key) => row.meta?.[key] !== undefined);
+
+/**
+ * A consulted agent's words posted here (its run answers a question another agent asked from here,
+ * `consultedRunId`) that the agent that asked passes on in its next message close below (`CONSULT_NEAR_ROWS`):
+ * that message opens with them as a quote, which opens the two agents' conversation (where the words stay whole),
+ * and they take no row of their own. Until the asker's message comes they keep their row, so nothing goes away
+ * before it has a place. Requests, files and cards the consulted run posts are for the person and always stay.
+ * `rows`: the conversation's messages in order. `relays`: by the asker's message id; `relayed`: the folded ids.
+ */
+export function relayedAnswers<T extends RelayRow>(
+  rows: readonly T[],
+  list: readonly RunConsultation[],
+): { relays: Map<string, RelayedAnswer<T>>; relayed: Set<string> } {
+  const relays = new Map<string, RelayedAnswer<T>>();
+  const relayed = new Set<string>();
+  if (list.length === 0) return { relays, relayed };
+  // Latest first, as the server lists them: a run answering two questions answers the latest.
+  const byRun = new Map<string, RunConsultation>();
+  for (const c of list) if (c.consultedRunId && !byRun.has(c.consultedRunId)) byRun.set(c.consultedRunId, c);
+  for (const [at, row] of rows.entries()) {
+    const c = row.agentRunId ? byRun.get(row.agentRunId) : undefined;
+    if (!c || !relayable(row)) continue;
+    const asker = rows
+      .slice(at + 1, at + 1 + CONSULT_NEAR_ROWS)
+      .find((r) => r.author.type === "agent" && r.author.id === c.agentId && r.body.trim() !== "");
+    if (!asker) continue;
+    relayed.add(row.id);
+    // Two in a row before the same message: it quotes the later one, and the conversation holds both.
+    relays.set(asker.id, { message: row, consultation: c });
+  }
+  return { relays, relayed };
 }

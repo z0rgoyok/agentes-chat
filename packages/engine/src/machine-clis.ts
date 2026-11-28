@@ -7,7 +7,7 @@ import {
   type InstallableCli,
   parseExecutors,
 } from "@agenteschat/adapters";
-import type { Database } from "@agenteschat/db";
+import { and, type Database, eq, inArray, isNull, schema } from "@agenteschat/db";
 import { recordAudit } from "./audit";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
 import { type AccessDeps, cliRequestKey, storeMachineExecutors } from "./machine-access";
@@ -47,7 +47,7 @@ async function installable(db: Database, actorId: string, orgId: string, machine
 export async function checkMachineClis(deps: Deps, actorId: string, orgId: string, machineId: string) {
   const machine = await installable(deps.db, actorId, orgId, machineId);
   const status = await deps.hub.status(machine.id);
-  if (!status?.online) throw new MachineOfflineError(machine.name, machine.kind);
+  if (!status?.online) throw new MachineOfflineError(machine.name, machine.kind, status?.maintenance);
   const reply: { executors?: unknown } = await deps.hub.call(machine.id, { op: "clis.check" });
   // Checked like `hello.executors`: the row's other fields (`mode`, `ownUsage`…) are never the runner's to set here.
   const executors = parseExecutors(
@@ -98,7 +98,7 @@ export async function machineCliInstall(
   }
   if (action === "start") {
     const status = await deps.hub.status(machine.id);
-    if (!status?.online) throw new MachineOfflineError(machine.name, machine.kind);
+    if (!status?.online) throw new MachineOfflineError(machine.name, machine.kind, status?.maintenance);
   }
   let reply: { install?: unknown };
   try {
@@ -158,4 +158,43 @@ export async function askMachineCliInstall(
     details: { tool },
   });
   return { ownerId };
+}
+
+/** The CLI each computer brain thinks with, as `cli.install` names it. */
+const CLI_OF_BRAIN = { claude_code: "claude", codex: "codex" } as const satisfies Record<string, InstallableCli>;
+
+/**
+ * Turning "Help when the team's computer is full or away" on (ADR 0233): the CLIs its owner's agents think with that
+ * the computer lacks start installing now, with their vendor's installer, so its first spilled turn finds them. Best
+ * effort: offline, an app too old, or an install that won't start leaves the turn to say so later. The tools started.
+ */
+export async function installHelpClis(
+  deps: Deps,
+  actorId: string,
+  orgId: string,
+  machineId: string,
+): Promise<InstallableCli[]> {
+  const machine = await getMachine(deps.db, orgId, machineId);
+  if (!machine || machine.pairedByUserId !== actorId || machine.kind === "managed") return [];
+  const brains = await deps.db
+    .selectDistinct({ brain: schema.agents.brain })
+    .from(schema.agents)
+    .where(
+      and(
+        eq(schema.agents.orgId, orgId),
+        eq(schema.agents.ownerUserId, actorId),
+        inArray(schema.agents.brain, Object.keys(CLI_OF_BRAIN)),
+        isNull(schema.agents.archivedAt),
+        isNull(schema.agents.deletedAt),
+      ),
+    );
+  const missing = brains
+    .map((b) => CLI_OF_BRAIN[b.brain as keyof typeof CLI_OF_BRAIN])
+    .filter((tool) => !machine.executors?.[tool]);
+  const started: InstallableCli[] = [];
+  for (const tool of missing) {
+    const done = await machineCliInstall(deps, actorId, orgId, machineId, "start", tool).catch(() => null);
+    if (done?.install) started.push(tool);
+  }
+  return started;
 }

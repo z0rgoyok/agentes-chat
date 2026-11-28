@@ -28,6 +28,7 @@ export * from "./realtime/connection";
 export * from "./realtime/consults";
 export * from "./realtime/machines";
 export * from "./realtime/receipts";
+export * from "./realtime/reconnect";
 export * from "./realtime/steer";
 export * from "./realtime/streams";
 export * from "./realtime/typing";

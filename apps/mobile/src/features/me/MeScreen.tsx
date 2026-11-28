@@ -1,6 +1,7 @@
 import { useApi, useArchivedChannels, useAuthConfig, useIssues, useMe, useOverview } from "@agenteschat/client";
 import { showsAbout } from "@agenteschat/client/lib/about";
 import { PHONE_APP_ICON } from "@agenteschat/client/lib/app-icons";
+import { can } from "@agenteschat/client/lib/permissions";
 import { isPersonal, modeKey } from "@agenteschat/client/lib/workspace-mode";
 import { isAppLocale, localeInfo } from "@agenteschat/i18n/locale";
 import { useMutation } from "@tanstack/react-query";
@@ -30,6 +31,7 @@ import {
 } from "@/ui";
 import { CoverBarBackdrop, CoverParallax, useCoverScroll } from "@/ui/cover";
 import { router } from "@/ui/navigation";
+import { useReadableSide } from "@/ui/pane";
 import { openPage } from "../ai/parts";
 import { confirmAction, Uploading } from "../settings/parts";
 import { AgentFace } from "../shared/Face";
@@ -69,6 +71,8 @@ type WorkRow =
   | "issues"
   | "proposals"
   | "routines"
+  | "connectors"
+  | "skills"
   | "code"
   | "wiki"
   | "drive"
@@ -78,13 +82,16 @@ type WorkRow =
   | "team"
   | "archived";
 /**
- * A team's workspace: Threads is a tab and Team a row of Agents. Archived channels last, only while there are some (no
- * longer a link at the end of Conversas).
+ * A team's workspace: Threads is a tab and Team a row of Agents. Connectors and Skills sit with the work too, as the
+ * web's workspace menu and sidebar keep them a click away (Settings still lists them). Archived channels last, only
+ * while there are some (no longer a link at the end of Conversas).
  */
 const TEAM_WORK: WorkRow[] = [
   "issues",
   "proposals",
   "routines",
+  "connectors",
+  "skills",
   "code",
   "wiki",
   "drive",
@@ -103,6 +110,8 @@ const PERSONAL_WORK: WorkRow[] = [
   "code",
   "threads",
   "proposals",
+  "connectors",
+  "skills",
   "wiki",
   "dashboards",
   "memory",
@@ -165,8 +174,9 @@ let horizonArrived = false;
  * workspace's sky as a band with your photo hanging from it (a tap changes it), your name, your @ and workspace; then
  * grouped lists on the grouped gray, one value per row. Status first (ADR 0084). The workspace as one row: where you
  * are, how many more and the unread elsewhere, opening the list by server (ADR 0154), with the workspace's settings
- * under it. Your agents, alive (a working one says what it does), "Ver todos" to the Agentes tab. Your work (Tarefas,
- * Propostas, Rotinas, Wiki, Drive, Painéis, Memória): what belongs to the workspace lives in Configurações, once. The
+ * under it. Your agents, alive (a working one says what it does), "Ver todos" to the Agentes tab. Your work (Issues,
+ * Proposals, Routines, Connectors, Skills, Wiki, Drive, Dashboards, Memory): the rest of the workspace lives in
+ * Settings. The
  * preferences; Sons and Aparência (a few fixed choices) change in their row through the app's short menu, Idioma (one of
  * many) on its own pushed list. Sair alone in red; the version and build at the foot. Opened many times a day,
  * so nothing here animates beyond the presses and the platform's push, but for your agents rising onto the horizon the
@@ -206,6 +216,8 @@ function MePage() {
   const c = useColors();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  // On a large screen the lists keep to the readable column under the sky, which runs edge to edge (ADR 0212).
+  const side = useReadableSide();
   // A screen over this page with the platform's push (back comes here); on a large screen (ADR 0212) one of Você's own
   // pages opens beside the list instead, its row lit while it shows.
   const open = useOpenPage();
@@ -288,6 +300,25 @@ function MePage() {
     routines: (
       <GroupedRow key="routines" icon="clock" label={t("routines.title")} chevron onPress={() => open("/routines")} />
     ),
+    // The same screens Settings opens, with Settings' icons.
+    connectors: (
+      <GroupedRow
+        key="connectors"
+        icon="join"
+        label={t("mobile.connectors.title")}
+        chevron
+        onPress={() => open("/connectors")}
+      />
+    ),
+    skills: can(org.org, "read") ? (
+      <GroupedRow
+        key="skills"
+        icon="sparkle"
+        label={t("skills.title")}
+        chevron
+        onPress={() => open("/settings/skills")}
+      />
+    ) : null,
     // Code (ADR 0215): the sessions where agents program, as the web's sidebar tool; only where it has anything for me
     // (§12: an agent that programs on a computer, or an open session of mine).
     code: overview?.code ? (
@@ -414,7 +445,7 @@ function MePage() {
           ) : null}
         </View>
 
-        <View style={styles.groups}>
+        <View style={[styles.groups, side > 0 ? { paddingHorizontal: SCREEN_X + side } : null]}>
           <GroupedHeader>{t("mobile.me.status")}</GroupedHeader>
           <GroupedList>
             <StatusRow />

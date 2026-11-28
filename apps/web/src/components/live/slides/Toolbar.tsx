@@ -1,3 +1,4 @@
+import type { FontRef } from "@agenteschat/live";
 import type { RichAlign, RichList } from "@agenteschat/live/rich";
 import type { ShapeKind, SlideLayout, SlideTheme, ThemeId } from "@agenteschat/live/slides";
 import {
@@ -16,15 +17,25 @@ import {
 import { type FormEvent, type ReactNode, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { RichFormat, RichMarkKey } from "../rich";
+import { type FontChoices, FontPicker } from "../type/FontPicker";
+import {
+  type EffectsLook,
+  EffectsMenu,
+  type EffectsPatch,
+  TextStyleMenu,
+  TypeGlyph,
+  type TypeLook,
+  type TypePatch,
+} from "../type/TypeMenus";
 import type { AlignHow } from "./actions";
 import { LayoutPicker, Swatches, TableSizePicker, ThemePicker } from "./pickers";
 import { useRoving } from "./roving";
 
 /**
  * The presentation's toolbar (ADR 0196 §2): undo and redo; a new slide (with its layout), the slide's layout and the
- * deck's theme; text, pictures, shapes, charts and tables; the text group while a text is chosen (size, bold, italic,
- * underline, strikethrough, color, alignment, lists, indent, link); a shape's fill and outline, a line's arrow, a
- * table's rows and columns; arranging; deleting. One row of 32 px buttons in groups, scrolling sideways with faded
+ * deck's theme; text, pictures, shapes, charts and tables; the text group while a text is chosen (font, size, bold,
+ * italic, underline, strikethrough, color, the text style menu "Aa", alignment, lists, indent, link); a shape's fill,
+ * outline and effects, a line's arrow, a table's rows and columns; arranging; deleting (fonts and styles: ADR 0220 §8). One row of 32 px buttons in groups, scrolling sideways with faded
  * edges when it doesn't fit, a single tab stop moved with the arrows (`role="toolbar"`). A press on a button keeps
  * the caret where it was in the text being typed.
  */
@@ -36,6 +47,12 @@ export interface TextTools {
   size: number;
   /** A caret is in the box (a link needs words chosen in it). */
   editing: boolean;
+  /** The font the list shows: a role of the deck (`heading`, `body`) or a ref. */
+  font: FontRef;
+  /** What the text style menu shows. */
+  look: TypeLook;
+  /** The weights the font draws. */
+  weights: readonly number[];
 }
 
 export interface ShapeTools {
@@ -43,6 +60,10 @@ export interface ShapeTools {
   fill: string | null;
   stroke: string | null;
   arrow: boolean;
+  /** A shape's shadow, gradient and border dash (null for a line). */
+  effects: EffectsLook | null;
+  /** It has a border, so its dash shows. */
+  border: boolean;
 }
 
 export type TableOp = "rowAbove" | "rowBelow" | "colLeft" | "colRight" | "deleteRow" | "deleteCol" | "header";
@@ -78,6 +99,15 @@ export interface SlideToolbarProps {
   onList(kind: RichList): void;
   onLevel(delta: 1 | -1): void;
   onSize(size: number): void;
+  /** The font list's choices: the deck's heading and text fonts, the file's own. */
+  fonts: FontChoices;
+  onFont(ref: FontRef): void;
+  onType(patch: TypePatch): void;
+  /** "Fontes da apresentação…". */
+  onFileFonts(): void;
+  /** "Trazer fonte do Drive…". */
+  onBringFont(): void;
+  onEffects(patch: EffectsPatch): void;
   onLink(href: string | null): void;
   /** The link field is open (⌘K in a text opens it too). */
   linkOpen: boolean;
@@ -268,6 +298,13 @@ export function SlideToolbar(props: SlideToolbarProps) {
       {text && (
         <>
           {sep}
+          <FontPicker
+            choices={props.fonts}
+            value={text.font}
+            onChange={props.onFont}
+            onFileFonts={props.onFileFonts}
+            onBring={props.onBringFont}
+          />
           <Menu
             label={t("live.slides.tools.size")}
             onClosed={props.onDone}
@@ -323,6 +360,13 @@ export function SlideToolbar(props: SlideToolbarProps) {
               />
             )}
           </PickerPopover>
+          <TextStyleMenu
+            look={text.look}
+            weights={text.weights}
+            onChange={props.onType}
+            onClosed={props.onDone}
+            trigger={opener(t("live.type.text"), <TypeGlyph />)}
+          />
           {tool("alignLeft", t("live.slides.tools.alignLeft"), () => props.onAlign("left"), {
             pressed: (text.format.align ?? "left") === "left",
           })}
@@ -396,6 +440,16 @@ export function SlideToolbar(props: SlideToolbarProps) {
               />
             )}
           </PickerPopover>
+          {shape.effects && (
+            <EffectsMenu
+              look={shape.effects}
+              scale="slides"
+              border={shape.border}
+              onChange={props.onEffects}
+              onClosed={props.onDone}
+              trigger={opener(t("live.type.effects"), t("live.type.effects"), { words: true })}
+            />
+          )}
           {shape.line && tool("arrowRight", t("live.slides.tools.arrowEnd"), props.onArrow, { pressed: shape.arrow })}
         </>
       )}

@@ -1,3 +1,4 @@
+import type { FileFonts } from "../fonts";
 import type { RichAlign, RichList, RichRun } from "../rich/types";
 
 /**
@@ -97,4 +98,6 @@ export interface DocumentPreview {
   /** Characters of text in the whole document. */
   chars: number;
   source?: DocumentSource;
+  /** The document's own fonts for headings and body (ADR 0220 §3). */
+  fonts?: FileFonts;
 }

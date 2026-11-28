@@ -15,6 +15,8 @@ import type {
   CliInstall,
   CliName,
   InstallableCli,
+  OsPermission,
+  PermissionNeed,
   RunnerAccess,
   RunnerAccountInfo,
   RunnerExecutorInfo,
@@ -65,6 +67,15 @@ export interface ControlBrowser {
   link?: string;
 }
 
+/** An agent using one of the person's apps here (ADR 0258): what the menu bar says, with Stop. */
+export interface ControlAppUse {
+  agentId: string;
+  /** The app as `agent-desktop` names it (`Mail`, `Finder`). */
+  app: string;
+  /** When the agent last ran a command in it (ISO). */
+  actedAt: string;
+}
+
 export type ControlBrowserDoing =
   | "opening"
   | "reading"
@@ -110,8 +121,12 @@ export interface ControlStatus {
   access?: RunnerAccess;
   /** The agents' browsers that are open or have a person's turn (absent: older runner). */
   browsers?: ControlBrowser[];
+  /** `PERSON_APPS_PROTOCOL`: the agents using the person's apps lately (absent: older runner). */
+  apps?: ControlAppUse[];
   /** The phones this computer reaches now, as the server hears them (absent: older runner, or no phones looked for). */
   phones?: RunnerPhone[];
+  /** The OS permissions agents' work waits on here, for the app to ask the person (absent: older runner). */
+  permissions?: PermissionNeed[];
   /** The OS user agents' commands run as here (absent: older runner). */
   user?: string;
   /**
@@ -185,6 +200,8 @@ export interface ControlConfig extends Required<ControlConfigPatch> {
   workspace: string;
   /** The runner's own `maxConcurrentTasks` when the config has none, sized to the computer; absent: an older one (3). */
   defaultMaxConcurrentTasks?: number;
+  /** Background tasks start on the computer's room (`TASK_ROOM_PROTOCOL`): `maxConcurrentTasks` decides nothing there. */
+  tasksOnRoom?: boolean;
   managedBy?: "desktop";
 }
 
@@ -270,6 +287,10 @@ export type ControlRequest =
   | { type: "reconnect" }
   /** Closes an agent's browser on this computer (the tray's "Parar"); its profile stays. */
   | { type: "browser.stop"; agentId: string }
+  /** The menu bar's Stop on "<Agent> is using <App>": that agent's next commands in the person's apps are refused. */
+  | { type: "apps.stop"; agentId: string }
+  /** The person allowed the permission (or the app found it on): its wait ends here and on the server. */
+  | { type: "permission.clear"; permission: OsPermission }
   /**
    * ADR 0041: the computer brains' accounts on this computer. `accounts.list`
    * asks each CLI (cached). `account.begin` starts the CLI's sign-in here: it
@@ -330,6 +351,8 @@ export interface ControlReplies {
   "access.answer": { access: RunnerAccess };
   reconnect: { reconnecting: boolean };
   "browser.stop": { stopped: boolean };
+  "apps.stop": { stopped: boolean };
+  "permission.clear": { cleared: boolean };
   "accounts.list": { accounts: RunnerAccountInfo[] };
   /** The URL the CLI opened (shown in case the browser didn't open) and, for Codex, the code to type there. */
   "account.begin": { loginId: string; url: string; userCode?: string };
@@ -369,7 +392,21 @@ export type ControlEvent =
   | { kind: "access.resolved"; requestId: string; decision: "granted" | "denied" | "expired" }
   | { kind: "access.changed"; access: RunnerAccess }
   /** The computer's owner turned `tool` on from the apps (`access.allow`): the app says so, with Undo. */
-  | { kind: "access.allowed"; tool: keyof RunnerTools; byName: string };
+  | { kind: "access.allowed"; tool: keyof RunnerTools; byName: string }
+  /**
+   * Someone asked from the apps for a folder here (`access.pick`): the app shows who, and the person here picks one in
+   * the system's folder picker, for `agentId` or every agent. With `requestId`: an agent's pending request, again.
+   */
+  | { kind: "access.pick"; pick: ControlFolderPick };
+
+/** `access.pick` as the app gets it. */
+export interface ControlFolderPick {
+  byName: string;
+  agentId?: string;
+  agentName?: string;
+  requestId?: string;
+  at: string;
+}
 
 /** Runner → app. */
 export type ControlOut =

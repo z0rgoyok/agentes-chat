@@ -104,7 +104,7 @@ function sideBySide(groupText: string, groups: number[]): Set<string> | null {
   return host ? members : null;
 }
 
-const gb = (bytes: number) => `${(bytes / GIB).toFixed(1)} GB`;
+export const gb = (bytes: number) => `${(bytes / GIB).toFixed(1)} GB`;
 const cpu = (n: number) => n.toFixed(1);
 
 export async function computerNow(io: ComputerIo = {}): Promise<string> {

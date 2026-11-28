@@ -1,0 +1,1 @@
+ALTER TABLE "live_assets" ADD COLUMN "font" jsonb;

@@ -1,4 +1,4 @@
-import { isPaidReturn } from "@agenteschat/client/lib/billing";
+import { paidSearch } from "@agenteschat/client/lib/billing";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 
 /**
@@ -9,7 +9,7 @@ export const Route = createFileRoute("/org/$orgId/onboarding")({
   beforeLoad: ({ params, search }) => {
     throw redirect({
       to: "/onboarding",
-      search: { resume: params.orgId, ...(isPaidReturn(search) ? { paid: true } : {}) },
+      search: { resume: params.orgId, ...paidSearch(search) },
     });
   },
 });

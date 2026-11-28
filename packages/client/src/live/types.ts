@@ -69,6 +69,21 @@ export interface LiveAsset {
   size: number;
   width: number | null;
   height: number | null;
+  /** A font (ADR 0220 §2): what its own file says it is; null or missing for a picture. */
+  font?: LiveAssetFont | null;
+}
+
+/** A font file's family, style and weight, as the file itself names them. */
+export interface LiveAssetFont {
+  family: string;
+  style: string;
+  weight: number;
+  italic: boolean;
+}
+
+/** One of a live file's own fonts (brought from the Drive); the file names it `asset:<id>`. */
+export interface LiveFileFont extends LiveAssetFont {
+  id: string;
 }
 
 /** Where a copied picture comes from: a Drive file the person reads (one of its versions), or another live file's. */

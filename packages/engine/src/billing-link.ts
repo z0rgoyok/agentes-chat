@@ -1,4 +1,4 @@
-import { createHmac, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, hkdfSync, randomBytes, randomUUID } from "node:crypto";
 import { type Database, eq, schema, sql } from "@agenteschat/db";
 import { appLocale } from "@agenteschat/i18n/locale";
 import { operatorOrg } from "./operator";
@@ -61,17 +61,34 @@ export const PLAN_CLAIM = /^[a-z][a-z0-9_]{0,31}$/;
 /** How long a link opens the billing service: minted on click, it only has to reach the next page. */
 export const BILLING_LINK_SECONDS = 300;
 
+/** The key a link's claims are sealed with: HKDF-SHA256 of the secret this server shares with the outside service. */
+export const linkKey = (secret: string) =>
+  Buffer.from(hkdfSync("sha256", secret, "agentes.chat", "agentes.chat/link-token/v2", 32));
+
 /**
- * `v1.<claims as base64url JSON>.<base64url HMAC-SHA256 of "v1.<claims>">`, the token of every signed link to an
- * outside service (the billing service, the referral service). The service checks the signature over the payload
- * exactly as sent, never over claims it serialized again.
+ * `v2.<nonce>.<ciphertext>.<tag>`, base64url: the claims' JSON sealed with AES-256-GCM under `linkKey` (a fresh 12-byte
+ * nonce per link, the associated data `v2`), the token of every link to an outside service (the billing service, the
+ * referral service). Sealed, not only signed: a link's address ends up in history, synced devices and screenshots, and
+ * shows nothing of who it is for. `nonce` is only for test vectors.
  */
-export function signLinkToken(secret: string, claims: object): string {
-  const signed = `v1.${Buffer.from(JSON.stringify(claims)).toString("base64url")}`;
-  return `${signed}.${createHmac("sha256", secret).update(signed).digest("base64url")}`;
+export function sealLinkToken<T extends object>(secret: string, claims: T, nonce = randomBytes(12)): string {
+  const cipher = createCipheriv("aes-256-gcm", linkKey(secret), nonce);
+  cipher.setAAD(Buffer.from("v2"));
+  const body = Buffer.concat([cipher.update(JSON.stringify(claims)), cipher.final()]);
+  return ["v2", ...[nonce, body, cipher.getAuthTag()].map((part) => part.toString("base64url"))].join(".");
 }
 
-export const signBillingLink = (secret: string, claims: BillingLinkClaims) => signLinkToken(secret, claims);
+/** A link's claims as the outside service reads them (`sealLinkToken`'s inverse); throws on any other token. */
+export function openLinkToken(secret: string, token: string): unknown {
+  const [version, nonce = "", body = "", tag = "", ...rest] = token.split(".");
+  if (version !== "v2" || rest.length > 0) throw new Error("not a v2 link token");
+  const decipher = createDecipheriv("aes-256-gcm", linkKey(secret), Buffer.from(nonce, "base64url"), {
+    authTagLength: 16,
+  });
+  decipher.setAAD(Buffer.from("v2"));
+  decipher.setAuthTag(Buffer.from(tag, "base64url"));
+  return JSON.parse(Buffer.concat([decipher.update(Buffer.from(body, "base64url")), decipher.final()]).toString());
+}
 
 /**
  * The only `return` an outside service accepts: `/org/<uuid>` plus lowercase path segments, no search, no hash (the
@@ -135,7 +152,7 @@ const totalsOf = (orgId: string) => ({
 });
 
 /**
- * A signed link to the workspace's plan and billing on the billing service, for its owners and admins. A
+ * A sealed link to the workspace's plan and billing on the billing service, for its owners and admins. A
  * suspended workspace refuses it (`org.suspended`); a held one doesn't, since paying is how a billing hold ends, nor
  * one being deleted, whose payer still reaches its invoices and card.
  */
@@ -167,7 +184,7 @@ export async function mintBillingLink(
   if (!org || !user || !totals) throw new Error("billing link: the workspace or the account is gone");
   const iat = Math.floor((input.now ?? new Date()).getTime() / 1000);
   const exp = iat + BILLING_LINK_SECONDS;
-  const token = signBillingLink(input.secret, {
+  const token = sealLinkToken<BillingLinkClaims>(input.secret, {
     aud: "agentes-billing",
     jti: randomUUID(),
     iat,

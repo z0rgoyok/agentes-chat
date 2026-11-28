@@ -120,6 +120,7 @@ export class ModelBrain implements Brain {
         ...request,
         maxTokens: maxOutputTokens ?? agentOutputTokens(agent.model, request.effort),
         onDelta: (text) => deltas.push({ type: "text_delta", text }),
+        onNote: (text) => deltas.push({ type: "note", text }),
         signal: io.signal,
       })
       .then(
@@ -155,7 +156,8 @@ export class ModelBrain implements Brain {
  * The effort a turn is sent: the agent's, or "Automático"'s, as set (the provider adapter sends `xhigh` and `max` as
  * `high` to a model without them). None set: `high` on a model that takes an effort, since some APIs default lower
  * (Claude Opus 5.5 at medium) and an agent's work is long tool loops; only where the row knows its output limit,
- * since the call gets 16K otherwise (`agentOutputTokens`) and high thinking inside 16K cuts replies.
+ * since elsewhere it may turn out small (the gateway learns it from a refusal) and high thinking inside a small
+ * limit cuts replies.
  */
 export function turnEffort(model: string, effort: BrainTurn["effort"]): ModelRequest["effort"] {
   if (effort) return effort;

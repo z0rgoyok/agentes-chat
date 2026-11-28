@@ -1,3 +1,4 @@
+import { looksLikeRepo } from "@agenteschat/client";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { ScrollView, StyleSheet, View } from "react-native";
@@ -6,8 +7,7 @@ import { router } from "@/ui/navigation";
 import { PushedHeader } from "../shared/parts";
 import { codeDraft } from "./draft";
 
-/** The shapes the server takes (ADR 0215 §1): a GitHub repository, or a local project's name (no owner). */
-const GITHUB_REPO = /^[\w.-]+\/[\w.-]+$/;
+/** The shapes the server takes (ADR 0215 §1): a repository on a git host (`looksLikeRepo`), or a local project's name. */
 const LOCAL_NAME = /^(?!\.)[A-Za-z0-9._-]{1,64}$/;
 
 /**
@@ -33,7 +33,7 @@ export function CodingWhereScreen() {
   const shown = all.filter((r) => !query || r.value.toLowerCase().includes(query.toLowerCase()));
   const listed = all.some((r) => r.value.toLowerCase() === query.toLowerCase());
   const creates =
-    !query || listed ? null : LOCAL_NAME.test(query) ? "local" : draft.any && GITHUB_REPO.test(query) ? "repo" : null;
+    !query || listed ? null : LOCAL_NAME.test(query) ? "local" : draft.any && looksLikeRepo(query) ? "repo" : null;
   const pick = (repo: string) => {
     codeDraft.update((d) => ({ ...d, repo }));
     router.back();

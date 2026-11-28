@@ -1,25 +1,31 @@
 import { and, type Executor, eq, type SQL, schema, sql } from "@agenteschat/db";
 import type { Agent } from "../agents";
-import { runAuthorityById } from "../authority";
+import { fromApp, runAuthorityById } from "../authority";
 import type { AgentRun } from "../runs";
 import { audienceAllowsSql } from "./serves";
 
 const { machineAccounts } = schema;
 
-/** Who a run answers besides its agent's owner: the person behind it, null when that is the owner or nobody. */
+/**
+ * Who a run answers besides its agent's owner: the person behind it, null when that is the owner or nobody. A run an
+ * integration app's message started (ADR 0251) answers someone outside: `app:<id>`, nobody's id, so only an account
+ * whose audience is everyone takes it.
+ */
 export async function runAsker(
   db: Executor,
   agent: Pick<Agent, "ownerUserId">,
   run: Pick<AgentRun, "orgId" | "id">,
 ): Promise<string | null> {
-  const person = (await runAuthorityById(db, run.orgId, run.id).catch(() => null))?.personId ?? null;
+  const authority = await runAuthorityById(db, run.orgId, run.id).catch(() => null);
+  if (fromApp(authority)) return `app:${authority.appId ?? ""}`;
+  const person = authority?.personId ?? null;
   return person && person !== agent.ownerUserId ? person : null;
 }
 
 /**
  * "Atender todos" at a run's start: an agent thinking with a plan account answers someone besides its own owner only
  * when the account's `reply` audience takes them. A run nobody is behind (a routine, a webhook) answers its owner's
- * work. The right hand follows "Usar em agentes" instead (`thinkingAgent`). Null: it may think.
+ * work; one an integration app's message started answers an outsider (`runAsker`). The right hand follows "Usar em agentes" instead (`thinkingAgent`). Null: it may think.
  */
 export async function replyRefusal(
   db: Executor,

@@ -15,6 +15,7 @@ import {
   agentAccountsDir,
   grantOf,
   loginFailureOf,
+  parseAgyLoginEmail,
   parseAgyLoginUrl,
   parseAgyStatus,
 } from "../../runner/accounts";
@@ -187,6 +188,35 @@ test("a chat turn's guard: init with our server's tools alone; a tool of its own
   const sub = { event: "step_update", step_update: { step_type: "agent_response", subagent_info: { subagents: [] } } };
   expect(antigravityChatBreach(sub, true)).toContain("another agent");
   expect(isOurAgyTool(`evil_${CODEX_MCP_SERVER}/x`)).toBe(false);
+  // Antigravity CLI 1.5.x lists static built-in tools in init even when --agent agenteschat-chat strips them,
+  // and calls MCP tools lazily via call_mcp_tool(ServerName: agenteschat_agentes).
+  expect(
+    antigravityChatBreach(
+      {
+        event: "init",
+        conversation_id: FIRST,
+        init: { agent: AGY_CHAT_AGENT, tools: ["run_command", "call_mcp_tool"] },
+      },
+      false,
+    ),
+  ).toBeNull();
+  expect(
+    antigravityChatBreach(
+      { event: "init", conversation_id: FIRST, init: { agent: "other", tools: ["run_command"] } },
+      false,
+    ),
+  ).toContain("run_command");
+  const lazyCall = (server: unknown) => ({
+    event: "step_update",
+    step_update: {
+      step_type: "tool",
+      tool_name: "call_mcp_tool",
+      tool_info: { name: "call_mcp_tool", parameters: server ? { ServerName: server, ToolName: "post_message" } : {} },
+    },
+  });
+  expect(antigravityChatBreach(lazyCall(CODEX_MCP_SERVER), true)).toBeNull();
+  expect(antigravityChatBreach(lazyCall("evil_server"), true)).toContain("call_mcp_tool");
+  expect(antigravityChatBreach(lazyCall(undefined), true)).toContain("call_mcp_tool");
 });
 
 test("a turn that went wrong: AGY_ERROR's quota is a plan limit with its reset, a refused sign-in, anything else", () => {
@@ -202,6 +232,8 @@ test("a turn that went wrong: AGY_ERROR's quota is a plan limit with its reset, 
   expect(antigravityProblem("Error: authentication required")[0]).toMatchObject({ code: "not_logged_in" });
   expect(antigravityProblem("boom")[0]).toMatchObject({ code: "antigravity_failed" });
   expect(parseAgyError("plain failure")).toBeNull();
+  // Nothing it knows to read: the line itself, never a made-up reason.
+  expect(parseAgyError('AGY_ERROR: {"reason":"sandbox setup"}')?.message).toBe('{"reason":"sandbox setup"}');
 });
 
 test("the CLI's words: its models, its sign-in status, its sign-in link and its /usage quotas", () => {
@@ -229,7 +261,18 @@ test("the CLI's words: its models, its sign-in status, its sign-in link and its 
   expect(parseAgyStatus(0, "Fetching available models...\n", null)).toEqual({ loggedIn: false });
   const login =
     "Open this link in a browser to log in with Google:\r\n\r\n  https://accounts.google.com/o/oauth2/auth?client_id=agy&state=s1\r\n\r\nThen paste the authorization code";
-  expect(parseAgyLoginUrl(login)).toBe("https://accounts.google.com/o/oauth2/auth?client_id=agy&state=s1");
+  // Google always asks which account: a browser signed in to one would otherwise take it for a second sign-in too.
+  expect(parseAgyLoginUrl(login)).toBe(
+    "https://accounts.google.com/o/oauth2/auth?client_id=agy&state=s1&prompt=select_account",
+  );
+  expect(
+    parseAgyLoginUrl("https://accounts.google.com/o/oauth2/auth?client_id=agy&prompt=consent&state=s1\n", true),
+  ).toBe("https://accounts.google.com/o/oauth2/auth?client_id=agy&prompt=consent+select_account&state=s1");
+  expect(parseAgyLoginUrl("https://accounts.google.com/o/oauth2/auth?prompt=select_account&state=s1\n", true)).toBe(
+    "https://accounts.google.com/o/oauth2/auth?prompt=select_account&state=s1",
+  );
+  expect(parseAgyLoginEmail("\r\nLogged in as ana@example.com.\r\n")).toBe("ana@example.com");
+  expect(parseAgyLoginEmail(login)).toBeUndefined();
   expect(parseAgyLoginUrl("https://evil.example/accounts.google.com\n", true)).toBeNull();
   // Why a sign-in failed, by the CLI's words.
   expect(loginFailureOf('couldn\'t log in: token exchange failed: oauth2: "invalid_grant" "Bad Request"')).toBe(
@@ -333,6 +376,12 @@ test.skipIf(!posix)(
       command === "agy" && args[0] === "--version" ? { status: 0, stdout: "agy 1.5.14\n" } : none();
     expect((await detectExecutors(run, {}, {}, undefined, () => [], rootOnly)).found.broken).toBeUndefined();
     expect((await detectExecutors(none, {}, {}, undefined, () => [])).found.broken).toBeUndefined();
+    // Every coding CLI, by its own command: Claude Code's installer puts `claude` in root's ~/.local/bin too.
+    const rootClis = (bin: string) => bin === "claude" || bin === "opencode";
+    expect((await detectExecutors(none, {}, {}, undefined, () => [], rootClis)).found.broken).toEqual({
+      claude: CLI_HOME_ONLY,
+      opencode: CLI_HOME_ONLY,
+    });
   },
 );
 
@@ -486,7 +535,20 @@ test.skipIf(!posix)(
     const limited = await run(ctx, turn({ runId: RUN.replace(/1$/, "6"), prompt: "LIMIT" }));
     expect(limited.find((e) => e.type === "limit")).toMatchObject({ resetsAt: expect.any(String) });
     expect(limited.at(-1)).toMatchObject({ type: "error", code: "plan_limit" });
-    expect(await final({}, { ...ctx, platform: "win32" })).toMatchObject({ code: "unsupported" });
+    // Windows: the turn runs `agy.exe` by its path, its CLI's home (`USERPROFILE`, which Go reads there) the account's
+    // folder.
+    const exe = path.join(root, "agy.exe");
+    writeFileSync(exe, "");
+    const started: string[] = [];
+    const winSpawn = ((file, args, options) => {
+      started.push(file);
+      return spawn(process.execPath, [FAKE, ...args], options);
+    }) as Spawn;
+    const win = { ...ctx, platform: "win32", bin: exe, spawn: winSpawn };
+    expect(await final({ runId: RUN.replace(/1$/, "9") }, win)).toMatchObject({ type: "done" });
+    expect(started).toEqual([exe]);
+    expect(accountEnv("antigravity", accountDir, {}, "win32").USERPROFILE).toBe(accountDir);
+    expect(accountEnv("antigravity", accountDir, {}, "linux").USERPROFILE).toBeUndefined();
   },
   20_000,
 );
@@ -514,6 +576,37 @@ test.skipIf(!posix)(
     process.env.FAKE_AGY_TOOLS = `${CODEX_MCP_SERVER}/post_message,run_command`;
     const listed = await run(ctx, turn({ ...chat, runId: RUN.replace(/1$/, "8"), prompt: "BRIDGE_ONLY" }));
     expect(listed.at(-1)).toMatchObject({ code: "tools_not_locked", message: expect.stringContaining("run_command") });
+    delete process.env.FAKE_AGY_TOOLS;
+    // CLI 1.5.x chat turn: init confirms agenteschat-chat and MCP calls go through call_mcp_tool.
+    const lazyChat = await run(ctx, turn({ ...chat, runId: RUN.replace(/1$/, "9"), prompt: "BRIDGE_ONLY LAZY_MCP" }));
+    expect(lazyChat.at(-1)).toMatchObject({ type: "done" });
+    expect(lazyChat.filter((e) => e.type === "tool_call")).toEqual([]);
+    const lazyOther = await run(
+      ctx,
+      turn({ ...chat, runId: RUN.replace(/1$/, "a"), prompt: "BRIDGE_ONLY LAZY_MCP OTHER_MCP" }),
+    );
+    expect(lazyOther.at(-1)).toMatchObject({
+      type: "error",
+      code: "tools_not_locked",
+      message: expect.stringContaining("call_mcp_tool"),
+    });
+    // With the locked agent confirmed at init, a built-in tool or a subagent is still stopped at its step.
+    const lazyOwn = await run(ctx, turn({ ...chat, runId: RUN.replace(/1$/, "c"), prompt: "LAZY_MCP" }));
+    expect(lazyOwn.at(-1)).toMatchObject({ code: "tools_not_locked", message: expect.stringContaining("run_command") });
+    const lazySub = await run(
+      ctx,
+      turn({ ...chat, runId: RUN.replace(/1$/, "d"), prompt: "BRIDGE_ONLY LAZY_MCP SUBAGENT" }),
+    );
+    expect(lazySub.at(-1)).toMatchObject({
+      code: "tools_not_locked",
+      message: expect.stringContaining("another agent"),
+    });
+    // Work turn: our lazy MCP call is skipped as our bridge tool (not double-emitted as native tool_call).
+    const lazyWork = await run(ctx, turn({ runId: RUN.replace(/1$/, "b"), prompt: "LAZY_MCP" }));
+    expect(lazyWork.at(-1)).toMatchObject({ type: "done" });
+    expect(lazyWork.filter((e) => e.type === "tool_call").map((e) => (e as { name: string }).name)).toEqual([
+      "run_command",
+    ]);
   },
   20_000,
 );
@@ -539,7 +632,7 @@ test.skipIf(!posix)(
     managers.push(m);
     const id = "0193eeee-0000-7000-8000-0000000000d2";
     const begun = await m.begin("antigravity", id, false, undefined, "enterprise");
-    expect(begun.url).toBe("https://accounts.google.com/o/oauth2/auth?client_id=agy&state=s1");
+    expect(begun.url).toBe("https://accounts.google.com/o/oauth2/auth?client_id=agy&state=s1&prompt=select_account");
     expect(typeof begun.publicKey).toBe("string");
     expect(agyAuthOf(path.join(home, "accounts", "antigravity", id))).toBe("oauth-business");
     const aad = accountCodeAad(id, ORG);
@@ -548,13 +641,23 @@ test.skipIf(!posix)(
     // `agy models` lists its models split by a tab: signed in.
     expect(m.status(id)).toMatchObject({
       state: "done",
-      account: { kind: "antigravity", loggedIn: true, provider: "enterprise" },
+      // `agy models` never names the account: the sign-in's own "Logged in as" line does.
+      account: { kind: "antigravity", loggedIn: true, provider: "enterprise", email: "ana@example.com" },
     });
-    // Windows keeps every sign-in in the user's one Credential Manager: refused.
-    const win = new AccountManager({ root: path.join(home, "win"), orgId: () => ORG, platform: "win32" });
+    // Windows keeps the sign-in in the user's one Credential Manager: one account a computer, signed in in a
+    // terminal of its own (ConPTY there) like elsewhere; a second is refused with the way out.
+    const win = new AccountManager({
+      root: path.join(home, "win"),
+      orgId: () => ORG,
+      platform: "win32",
+      commands: { antigravity: [process.execPath, FAKE] },
+    });
     managers.push(win);
-    await expect(win.begin("antigravity", "0193eeee-0000-7000-8000-0000000000d3")).rejects.toMatchObject({
+    const first = await win.begin("antigravity", "0193eeee-0000-7000-8000-0000000000d3");
+    expect(first.url).toBe("https://accounts.google.com/o/oauth2/auth?client_id=agy&state=s1&prompt=select_account");
+    await expect(win.begin("antigravity", "0193eeee-0000-7000-8000-0000000000d4")).rejects.toMatchObject({
       code: "bad_request",
+      message: expect.stringContaining("one Gemini account at a time"),
     });
   },
   20_000,
@@ -600,6 +703,41 @@ test.skipIf(!posix)(
       { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)" },
       flash,
     ]);
+  },
+  20_000,
+);
+
+test.skipIf(!posix)(
+  "system mode: a Gemini account lent before any look lists its models as it is lent, never after",
+  async () => {
+    const home = tempDir("agy-accounts-");
+    dirs.push(home);
+    const log = path.join(home, "agy.log");
+    process.env.FAKE_AGY_LOG = log;
+    const root = path.join(home, "accounts");
+    // Signed in, with nothing listed for it yet: the computer's own `agy models` says "Please sign in".
+    const dir = path.join(root, "antigravity", ACCOUNT);
+    mkdirSync(path.dirname(path.join(dir, AGY_SIGN_IN_FILE)), { recursive: true });
+    writeFileSync(path.join(dir, AGY_SIGN_IN_FILE), JSON.stringify({ ...TOKEN, home: dir }));
+    const m = new AccountManager({
+      root,
+      orgId: () => ORG,
+      platform: "linux",
+      commands: { antigravity: [process.execPath, FAKE] },
+      lending: { chown: async () => {} },
+    });
+    managers.push(m);
+    expect(m.listedModels("antigravity")).toBeUndefined();
+    expect(await m.lendTo("antigravity", ACCOUNT, 21001)).toBe(true);
+    expect(m.listedModels("antigravity")).toEqual([
+      { id: "gemini-4-argon-high", label: "Gemini 4 Argon (High)" },
+      { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)" },
+    ]);
+    const looks = () => logOf(log).filter((l) => l.args[0] === "models").length;
+    expect(looks()).toBe(1);
+    // Lent to another agent: listed already, its folder is never run on again.
+    expect(await m.lendTo("antigravity", ACCOUNT, 21002)).toBe(true);
+    expect(looks()).toBe(1);
   },
   20_000,
 );
@@ -725,6 +863,7 @@ test.skipIf(!posix)(
       id: ACCOUNT,
       kind: "antigravity" as const,
       loggedIn: true,
+      email: "ana@example.com",
       shared: true,
       authMethod: "cli_login" as const,
     };
@@ -738,7 +877,9 @@ test.skipIf(!posix)(
     expect(existsSync(path.join(dir, ".check"))).toBe(false);
     expect(await m.lendTo("antigravity", ACCOUNT, 21001)).toBe(false);
     m.invalidate();
-    expect(await m.list()).toEqual([account]);
+    // A later look can't name the account (`agy models`): the server keeps the email the sign-in said.
+    const { email: _said, ...looked } = account;
+    expect(await m.list()).toEqual([looked]);
     // Its plan's usage, from its CLI in root's folder, which refreshes the sign-in in place meanwhile: a turn's copy is
     // read once the file is whole again, never as an empty one that would sign every agent out.
     process.env.FAKE_AGY_REFRESH_MS = "500";

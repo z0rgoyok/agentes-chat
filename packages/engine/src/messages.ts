@@ -36,15 +36,21 @@ import {
   publishMessageCreated,
   publishUserEvent,
 } from "./events";
-import { cutText, inertLinks } from "./format";
+import { cutText, inertLinks, splitMarkdown } from "./format";
 import { pictureSize } from "./image-size";
+import {
+  appAuthorOf,
+  authorIdOf,
+  INTEGRATION_DELIVERY_ATTEMPTS,
+  INTEGRATION_DELIVERY_JOB,
+} from "./integrations/author";
 import { type EveryoneAnswer, everyoneShape, type Judge, personMentionAddressees } from "./judge";
 import { PLATFORM_CAP } from "./limits";
 import { admitFileAgents, type LiveAskSelection, type LiveRef, liveRefFor, liveRefOf } from "./live/conversation";
 import { isMediaAfterReply, isStickerMood, type MessageMedia, mediaOf, mediaSettings, type StickerMood } from "./media";
 import { type MessageMemory, memoriesFor } from "./message-memories";
 import { readableBody, voiceOf } from "./message-preview";
-import { quietNoticeSql } from "./notices";
+import { agentOnlyNoticeSql, quietNoticeSql } from "./notices";
 import { can } from "./organizations";
 import { maySql } from "./permissions";
 import { afterReplyAnswered } from "./questions";
@@ -58,7 +64,17 @@ import {
   workKeepsThread,
   workTakesPersonMessage,
 } from "./run-scope";
-import { computerWaitSql, KEPT_ON_HOLD, NO_AI, outageParkedSql, passedSql, runErrorDetail, usageWaitSql } from "./runs";
+import {
+  computerWaitSql,
+  KEPT_ON_HOLD,
+  NO_AI,
+  noAiDetail,
+  noAiWhySql,
+  outageParkedSql,
+  passedSql,
+  runErrorDetail,
+  usageWaitSql,
+} from "./runs";
 import { accountInUse, closedRefusal } from "./standing";
 import { afterSteered } from "./steering";
 import type { Talker } from "./talker";
@@ -79,9 +95,13 @@ const { messages, agents, channelMembers, channels, agentRuns, outbox, agentQues
 
 export type Message = typeof messages.$inferSelect;
 
+/** A message just written: an agent's text longer than one message also wrote `before` ahead of it (`insertLongAgentMessage`). */
+export type PostedMessage = Message & { before?: Message[] };
+
 /**
  * The longest message, in characters. The whole text is indexed for search as one `tsvector`, which Postgres caps at
- * 1 MB: 100,000 characters of short distinct words stay near 0.6 MB. Longer texts go as a file.
+ * 1 MB: 100,000 characters of short distinct words stay near 0.6 MB. A person's longer text goes as a file; an agent's
+ * as several messages (`insertLongAgentMessage`).
  * Mirrored in packages/client/src/lib/message-length.ts.
  */
 export const MAX_MESSAGE_LENGTH = 100_000;
@@ -90,7 +110,8 @@ export interface MessageView {
   id: string;
   channelId: string;
   threadId: string | null;
-  author: { type: "person" | "agent"; id: string | null };
+  /** An app's id is its `meta.app.id` (ADR 0251): its name, color and sender are in `meta.app`. */
+  author: { type: "person" | "agent" | "app"; id: string | null };
   body: string;
   mentionedAgentIds: string[];
   /** People mentioned by handle (`@ana`) who are in the channel. */
@@ -125,6 +146,8 @@ export interface MessageView {
   handedWorks?: WorkView[];
   /** `meta.liveRef` as the chat reads it (ADR 0199): the live file the message is about and what was selected in it. */
   liveRef?: LiveRef;
+  /** Only as just written: the parts of an agent's text too long for one message, posted ahead of this, its last. */
+  before?: MessageView[];
   createdAt: string;
 }
 
@@ -159,7 +182,7 @@ export interface ReplyRef {
   messageId: string;
   /** The quoted message's thread (null = main timeline). */
   threadId: string | null;
-  author: { type: "person" | "agent"; id: string | null };
+  author: { type: "person" | "agent" | "app"; id: string | null };
   authorName: string;
   excerpt: string;
   /** The quoted message's GIF, sticker (ADR 0091) or voice (ADR 0100): a quote of one with no text still says what it was. */
@@ -196,14 +219,15 @@ export interface MessageUsage {
 }
 
 /** A message as the people who read its conversation see it: a sealed one with its words (`unsealed`, ADR 0190). */
-export const messageView = (stored: Message): MessageView => {
+export const messageView = (stored: PostedMessage): MessageView => {
   const m = unsealed(stored);
   const liveRef = liveRefOf(m.meta);
   return {
+    ...(stored.before?.length ? { before: stored.before.map(messageView) } : {}),
     id: m.id,
     channelId: m.channelId,
     threadId: m.threadId,
-    author: { type: m.authorType, id: m.authorType === "person" ? m.authorUserId : m.authorAgentId },
+    author: { type: m.authorType, id: authorIdOf(m) },
     body: m.body,
     mentionedAgentIds: m.mentionedAgentIds,
     mentionedUserIds: m.mentionedUserIds,
@@ -225,7 +249,10 @@ export interface Receipts {
     status: "queued" | "running" | "waiting_approval" | "waiting_input" | "done" | "failed" | "canceled";
     /** `no_ai`: it failed for want of an AI to think with. */
     reason?: typeof NO_AI;
-    /** `failed` for another reason: why, for the app to word (`runErrorDetail`). */
+    /**
+     * `failed` for another reason: why, for the app to word (`runErrorDetail`). With `no_ai`: why it had nothing to
+     * think with (`noAiDetail`).
+     */
     errorCode?: string;
     errorParams?: Record<string, string>;
     /** `waiting_input` parked on a provider outage: it retries by itself. */
@@ -282,6 +309,7 @@ export async function receiptsFor(db: Database, orgId: string, list: Message[]):
     computer: computerWaitSql,
     usage: usageWaitSql,
     passed: passedSql,
+    noAiWhy: noAiWhySql,
   };
   const [decisions, runs, steeredRuns, answeredRuns] = await Promise.all([
     db
@@ -346,7 +374,7 @@ export async function receiptsFor(db: Database, orgId: string, list: Message[]):
         runId: r.id,
         // Asking its computer from the line it still waits, as `computer` says.
         status: r.computer === "queued" ? ("waiting_input" as const) : r.status,
-        ...(r.error === NO_AI ? { reason: NO_AI } : {}),
+        ...(r.error === NO_AI ? { reason: NO_AI, ...noAiDetail(r.noAiWhy?.code, r.noAiWhy?.model) } : {}),
         ...(r.status === "failed" && r.error !== NO_AI ? runErrorDetail(r.error) : {}),
         ...(r.outage ? { outage: true as const } : {}),
         ...(r.computer ? { computer: r.computer } : {}),
@@ -596,6 +624,8 @@ export const FLOOR_WINDOW_MS = 30 * 60_000;
  */
 export type MessageAuthor =
   | { type: "person"; userId: string }
+  /** An integration app posting as itself (ADR 0251): `meta.app` names it, the caller writes it. */
+  | { type: "app"; appId: string }
   | { type: "agent"; agentId: string; runId: string; hop: number }
   | {
       type: "agent";
@@ -617,6 +647,11 @@ export interface NewMessage {
   author: MessageAuthor;
   body: string;
   meta?: Record<string, unknown>;
+  /**
+   * How it reached the server (`MessageOrigin`, ADR 0250). A person's message defaults to `app` (typed in our own apps):
+   * whatever posts one from anywhere else (a token, an AI app, a bridge, the server itself) says so here.
+   */
+  origin?: schema.MessageOrigin;
   /** Placed at this time instead of now (an agent's text that came before a card already posted). */
   createdAt?: Date;
   /**
@@ -647,7 +682,7 @@ export async function pruneMessageClientIds(db: Executor, olderThanMs = MESSAGE_
  * channel; an agent never mentions itself. No permission checks: callers
  * (`postPersonMessage`, the run executor) do them.
  */
-export async function insertMessage(tx: Executor, input: NewMessage): Promise<Message> {
+export async function insertMessage(tx: Executor, input: NewMessage): Promise<PostedMessage> {
   return (await insertMessageWithRuns(tx, input, { startRuns: false })).message;
 }
 
@@ -667,6 +702,7 @@ interface RawMessage {
   stretch_id: string | null;
   agent_run_id: string | null;
   meta: Record<string, unknown> | string | null;
+  origin: schema.MessageOrigin;
   edited_at: Date | string | null;
   deleted_at: Date | string | null;
   runs: { id: string; agentId: string; replyInThread: boolean }[] | string | null;
@@ -695,6 +731,59 @@ const parseUuidArray = (v: string[] | string | null) =>
 const parseJson = <T>(v: T | string | null, fallback: T): T =>
   typeof v === "string" ? (JSON.parse(v) as T) : (v ?? fallback);
 
+/** What shows once with a reply (its files, a GIF, its work, its checks, whom it missed): on a long one's last part. */
+const LAST_PART_META = [
+  "artifacts",
+  "media",
+  "work",
+  "teamChecks",
+  "unreachedAgents",
+  "unreachedPeople",
+  "memoryUpdates",
+  "feedbackOffer",
+];
+
+/**
+ * An agent's text longer than one message (a long reply, a cut one that went on, a CLI's, a post tool's): consecutive
+ * messages in the same place, cut between paragraphs and never inside a code block (`splitMarkdown`), each written as
+ * any message is, a quote on the first. Not a file: this needs only the database, the words read in the chat as any
+ * reply, and the agent reads them back in its context the same way. Returns the last, carrying the others (`before`)
+ * for the apps to hear first (`publishMessageCreated`).
+ */
+async function insertLongAgentMessage(
+  tx: Executor,
+  input: NewMessage,
+  body: string,
+  options: Parameters<typeof insertMessageWithRuns>[2],
+): ReturnType<typeof insertMessageWithRuns> {
+  const parts = splitMarkdown(body, MAX_MESSAGE_LENGTH);
+  // Apart by a millisecond each, so no page of the conversation cuts between equal times.
+  const at = (input.createdAt ?? new Date()).getTime();
+  const { replyTo, ...meta } = input.meta ?? {};
+  const ahead = Object.fromEntries(Object.entries(meta).filter(([key]) => !LAST_PART_META.includes(key)));
+  const before: Message[] = [];
+  for (const [i, part] of parts.entries()) {
+    const last = i === parts.length - 1;
+    const out = await insertMessageWithRuns(
+      tx,
+      {
+        ...input,
+        body: part,
+        meta: { ...(last ? meta : ahead), ...(i === 0 && replyTo !== undefined ? { replyTo } : {}) },
+        createdAt: new Date(at + i),
+      },
+      {
+        ...options,
+        part: { first: i === 0 && (options.part?.first ?? true), last: last && (options.part?.last ?? true) },
+      },
+    );
+    before.push(...(out.message.before ?? []));
+    if (last) return { ...out, message: { ...out.message, before } };
+    before.push(out.message);
+  }
+  throw new Error("splitMarkdown returned no part");
+}
+
 /**
  * Writes a message in ONE statement (the database may be far away): thread
  * check, mention resolution (active agents that are members of the
@@ -711,9 +800,13 @@ export async function insertMessageWithRuns(
    * `deliver: false`: a person's message written on their behalf (a routine's trigger) answers no open
    * question and joins no run in progress; only the runs its caller starts read it.
    */
-  options: { startRuns: boolean; deliver?: boolean },
+  /**
+   * `part`: one of an agent's long text's messages (`insertLongAgentMessage`): only the first notifies and only the
+   * last is routed and assessed, so the reply rings and routes once; a part's own mentions still do both.
+   */
+  options: { startRuns: boolean; deliver?: boolean; part?: { first: boolean; last: boolean } },
 ): Promise<{
-  message: Message;
+  message: PostedMessage;
   /** `replyInThread`: it answers under the message (ADR 0214). */
   runs: { id: string; agentId: string; replyInThread: boolean }[];
   blocked: string[];
@@ -740,6 +833,10 @@ export async function insertMessageWithRuns(
   // The sticker or GIF an agent adds after its own reply is silent (ADR 0091 §4): it notifies nobody, and a thread
   // waits for the reply's own assessment.
   const silent = isMediaAfterReply(input.meta);
+  const notFirst = options.part ? !options.part.first : false;
+  const notLast = options.part ? !options.part.last : false;
+  if (body.length > MAX_MESSAGE_LENGTH && input.author.type === "agent")
+    return insertLongAgentMessage(tx, input, body, options);
   if (body.length > MAX_MESSAGE_LENGTH)
     throw new ValidationError(`Message is longer than ${MAX_MESSAGE_LENGTH} characters`, "message.too_long", {
       length: body.length,
@@ -747,10 +844,14 @@ export async function insertMessageWithRuns(
     });
   const mentions = await currentHandles(tx, input.orgId, parseMentionHandles(body));
   const person = input.author.type === "person";
+  // An integration app's message (ADR 0251) addresses agents as a person's does (mentions, routing, runs), but it is
+  // nobody's: it answers no question, mentions no one for everyone, and joins only the runs answering that same app.
+  const appId = input.author.type === "app" ? input.author.appId : null;
+  const speaker = person || appId !== null;
   // A task's conversation (ADR 0145): an agent another agent mentions there joins it when it sees the task, as with a
   // person's mention (`postPersonMessage`), so the mention wakes it (hop limits as anywhere); a live file's (ADR 0199)
   // when it may work on the file. Elsewhere it adds no one.
-  if (!person && mentions.length > 0) {
+  if (input.author.type === "agent" && mentions.length > 0) {
     await admitTaskAgents(tx, input.orgId, input.channelId, { handles: mentions });
     await admitFileAgents(tx, input.orgId, input.channelId, { handles: mentions });
   }
@@ -764,13 +865,16 @@ export async function insertMessageWithRuns(
   const stretchId =
     (input.author.type === "agent" && input.author.runId === null ? input.author.stretchId : null) ?? null;
   const threadId = input.threadId ?? null;
+  const origin: schema.MessageOrigin = person ? (input.origin ?? "app") : appId ? "integration" : "agent";
   const channelNames = parseChannelNames(body);
   // `@todos` (any language's word, `mentionsEveryone`) from a person who may `mention_everyone`: every member of the
   // conversation is mentioned, but in a DM (plain text there). Never an agent's: one mentioning everyone would wake
   // every agent here, and they would answer each other.
   const everyone = person && mentionsEveryone(body);
-  const startRuns = options.startRuns && person && !mediaOnly;
-  const deliver = person && options.deliver !== false && !mediaOnly;
+  const startRuns = options.startRuns && speaker && !mediaOnly;
+  const deliver = speaker && options.deliver !== false && !mediaOnly;
+  // Only a person's reply answers an agent's question.
+  const answers = deliver && person;
   // Agents the person only referenced (`classifyAddressees`): mentioned, but no run and no steering.
   const referenced = `{${(person ? referencedOf(input.meta ?? {}) : []).filter((v) => UUID.test(v)).join(",")}}`;
   // A quote reply to an agent's message is for that agent (`replyRefFor` wrote it, never the client).
@@ -787,7 +891,8 @@ export async function insertMessageWithRuns(
   /**
    * SQL: a reply in a thread joins run `r` only when the person talks to its agent there: not for another agent, and
    * it quotes that agent, the run answers this person, or that agent spoke last in the thread. A run another agent
-   * started by naming it is not who the person talks to while the agent that named it spoke last.
+   * started by naming it is not who the person talks to while the agent that named it spoke last, and a notice only
+   * its agent reads is nobody speaking.
    */
   const talkingTo = (r: SQL) => sql`(not ${forAnother(sql`${r}.agent_id`)} and (
     ${r}.agent_id = ${quotedAgentId}::uuid
@@ -796,6 +901,7 @@ export async function insertMessageWithRuns(
     or ${r}.agent_id = coalesce(
       (select lm.author_agent_id from ${messages} lm where lm.org_id = ${input.orgId}::uuid
         and lm.channel_id = ${input.channelId}::uuid and lm.thread_id = ${threadId}::uuid and lm.author_type = 'agent'
+        and not ${agentOnlyNoticeSql(sql`lm.meta`)}
         order by lm.created_at desc limit 1),
       (select rm.author_agent_id from ${messages} rm where rm.org_id = ${input.orgId}::uuid
         and rm.id = ${threadId}::uuid))))`;
@@ -821,9 +927,10 @@ export async function insertMessageWithRuns(
   const sealedWords = ofRunId ? inertLinks(body) : body;
   const rows = rowsOf<RawMessage>(
     await tx.execute(sql`with archived as (
-        -- An archived thread is read only for people (ADR 0029); an agent's run already going still lands.
+        -- An archived thread is read only for people and integration apps (ADR 0029); an agent's run already going
+        -- still lands.
         select 1 from ${threads} th
-        where ${person}::boolean and ${threadId}::uuid is not null and th.org_id = ${input.orgId}::uuid
+        where ${speaker}::boolean and ${threadId}::uuid is not null and th.org_id = ${input.orgId}::uuid
           and th.root_message_id = ${threadId}::uuid and th.state = 'archived'
       ), claimed as (
         -- Only when the message will be written (same checks as m): a refused send claims nothing.
@@ -851,7 +958,7 @@ export async function insertMessageWithRuns(
           not exists (select 1 from ${schema.missionParticipants} mo
             where mo.mission_id = mi.id and mo.user_id = ${userId}) as outsider
         from ${schema.missions} mi
-        where ${person}::boolean and not ${mediaOnly}::boolean and ${threadId}::uuid is not null
+        where ${speaker}::boolean and not ${mediaOnly}::boolean and ${threadId}::uuid is not null
           and mi.org_id = ${input.orgId}::uuid
           and mi.thread_root_id = ${threadId}::uuid and mi.status in ('proposed', 'active', 'paused', 'awaiting_close')
           and mi.owner_id is distinct from ${userId}
@@ -893,7 +1000,7 @@ export async function insertMessageWithRuns(
         -- someone else.
         update ${agentQuestions} q set status = 'answered', answer = ${body}, answered_by_user_id = ${userId},
           answered_at = now()
-        where ${deliver}::boolean and q.status = 'open' and not exists (select 1 from archived)
+        where ${answers}::boolean and q.status = 'open' and not exists (select 1 from archived)
           and exists (select 1 from fresh) and q.id = (
             select oq.id from ${agentQuestions} oq
             where oq.org_id = ${input.orgId}::uuid and oq.channel_id = ${input.channelId}::uuid
@@ -1001,6 +1108,9 @@ export async function insertMessageWithRuns(
           and not r.background
           -- Background work (ADR 0121) never holds a person's message while it works: a reply turn answers it.
           and ${workTakesPersonMessage(sql`r`, userId)}
+          -- An app's message reaches only a run started by that app's own message (ADR 0251).
+          and (${appId}::uuid is null or exists (select 1 from ${messages} am where am.org_id = ${input.orgId}::uuid
+            and am.id = r.trigger_message_id and am.author_type = 'app' and am.meta -> 'app' ->> 'id' = ${appId}::text))
           and r.agent_id not in (select agent_id from answered)
           and r.agent_id not in (select agent_id from muted)
           and r.agent_id <> all(${referenced}::uuid[])
@@ -1060,7 +1170,7 @@ export async function insertMessageWithRuns(
                 and r.channel_id = ${input.channelId}::uuid and r.thread_id is null)) as thread
       ), m as (
         insert into ${messages} (id, created_at, org_id, channel_id, thread_id, author_type, author_user_id,
-          author_agent_id, agent_run_id, hop, stretch_id, body, mentioned_agent_ids, mentioned_user_ids, meta)
+          author_agent_id, agent_run_id, hop, stretch_id, body, mentioned_agent_ids, mentioned_user_ids, meta, origin)
         select ${id}::uuid, coalesce(${input.createdAt?.toISOString() ?? null}::timestamptz, now()), ${input.orgId}::uuid, ${input.channelId}::uuid,
           coalesce(${threadId}::uuid, (select thread from sealed)),
           ${input.author.type}::author_type, ${userId}, ${agentId}::uuid, ${runId}::uuid,
@@ -1098,7 +1208,8 @@ export async function insertMessageWithRuns(
             || case when (select yes from sealed) then jsonb_build_object('confidential', true)
                 || case when ${body}::text <> '' then jsonb_build_object('sealedBody', ${sealedWords}::text)
                   else '{}'::jsonb end
-              else '{}'::jsonb end
+              else '{}'::jsonb end,
+          ${origin}
         where ${threadOk}
           -- An archived thread is read only for people (ADR 0029); an agent's run already going still lands.
           and not exists (select 1 from archived)
@@ -1152,16 +1263,26 @@ export async function insertMessageWithRuns(
           -- An agent's message without a mention goes to the router too: another agent may chime in (ADR 0034).
           -- A GIF or a sticker alone goes to nobody, an agent's silent one after its reply included (ADR 0091).
           where not ${mediaOnly}::boolean and (m.author_type = 'person' or cardinality(m.mentioned_agent_ids) > 0
-            or m.hop < ${AGENT_CHIME_IN_MAX_HOP})
+            or (m.hop < ${AGENT_CHIME_IN_MAX_HOP} and not ${notLast}::boolean))
         union all
         -- In-app notifications: people mentioned, a reply in a thread, a person's DM, an agent's answer to whoever
         -- is behind its run (ADR 0071), a routine's report (it may have no mention and no run).
         select gen_random_uuid(), ${input.orgId}::uuid, 'notifications.message', jsonb_build_object('messageId', m.id),
           'notifications.message:' || m.id, 4 from m
-          where not ${silent}::boolean and (cardinality(m.mentioned_user_ids) > 0 or m.thread_id is not null
+          where not ${silent}::boolean and (cardinality(m.mentioned_user_ids) > 0 or (not ${notFirst}::boolean and (m.thread_id is not null
             or m.agent_run_id is not null or m.meta -> 'routine' is not null
             or (m.author_type = 'person' and exists (
-              select 1 from ${channels} dc where dc.id = ${input.channelId}::uuid and dc.kind = 'dm')))
+              select 1 from ${channels} dc where dc.id = ${input.channelId}::uuid and dc.kind = 'dm')))))
+        union all
+        -- An agent's message where an integration app reads, for the app's webhook (ADR 0251). Notices and a
+        -- confidential thread's words never leave.
+        select gen_random_uuid(), ${input.orgId}::uuid, ${INTEGRATION_DELIVERY_JOB},
+          jsonb_build_object('appId', ia.id, 'messageId', m.id), ${INTEGRATION_DELIVERY_JOB} || ':' || ia.id || ':' || m.id,
+          ${INTEGRATION_DELIVERY_ATTEMPTS}
+        from m join ${schema.integrationAppChannels} iac on iac.channel_id = m.channel_id
+        join ${schema.integrationApps} ia on ia.id = iac.app_id
+        where m.author_type = 'agent' and m.body <> '' and ia.webhook_url is not null and ia.token_hash is not null
+          and m.meta -> 'notice' is null and coalesce(m.meta ->> 'confidential', '') <> 'true'
         on conflict do nothing
         returning id
       ), assess as (
@@ -1172,7 +1293,7 @@ export async function insertMessageWithRuns(
         select gen_random_uuid(), ${input.orgId}::uuid, 'threads.assess',
           jsonb_build_object('threadRootId', m.thread_id, 'messageId', m.id), 'threads.assess:' || m.id, 2,
           now() + ${THREAD_ASSESS_DELAY_MS / 1000}::int * interval '1 second'
-        from m where m.thread_id is not null and not ${silent}::boolean
+        from m where m.thread_id is not null and not ${silent}::boolean and not ${notLast}::boolean
         on conflict do nothing
         returning id
       )
@@ -1198,7 +1319,7 @@ export async function insertMessageWithRuns(
       }
     }
     // Only on the failure path: tell an archived thread from a wrong thread id.
-    if (threadId && person && (await isThreadArchived(tx, input.orgId, threadId))) {
+    if (threadId && speaker && (await isThreadArchived(tx, input.orgId, threadId))) {
       throw new ConflictError("This thread is archived: unarchive it to reply", "thread.archived");
     }
     throw new ValidationError("threadId must be a top-level message of this channel");
@@ -1219,6 +1340,7 @@ export async function insertMessageWithRuns(
     stretchId: row.stretch_id,
     agentRunId: row.agent_run_id,
     meta: parseJson(row.meta, {}),
+    origin: row.origin,
     editedAt: asDate(row.edited_at),
     deletedAt: asDate(row.deleted_at),
   };
@@ -1335,6 +1457,8 @@ export async function postPersonMessage(
      * with the file's kind and title. Only that conversation's own file (`message.live_ref` otherwise).
      */
     liveRef?: { artifactId: string; selection?: LiveAskSelection } | null;
+    /** How it reached the server (ADR 0250): `app` by default, for what the person typed in our own apps. */
+    origin?: "app" | "mcp" | "surface";
   },
 ): Promise<MessageView> {
   // One access check (membership + channel) instead of two round trips. It reads a workspace being deleted; posting
@@ -1374,33 +1498,17 @@ export async function postPersonMessage(
   // A resend found before the judge call (no cost again); a resend racing the first send is caught by the insert.
   const resent = clientId ? await sentWithClientId(deps.db, orgId, userId, clientId) : null;
   if (resent) return resendView(deps, orgId, resent);
-  // Quote, files and media: checked and resolved here, so the run's context reads them from the meta (no query there).
-  const [replyTo, files, media] = await Promise.all([
+  const judged = { orgId, channelId, userId, body: input.body, threadId: input.threadId };
+  const [replyTo, files, media, addressees, everyone] = await Promise.all([
+    // Quote, files and media: checked and resolved here, so the run's context reads them from the meta (no query there).
     input.replyTo ? replyRefFor(deps.db, orgId, channelId, input.replyTo, input.threadId) : null,
     input.attachments?.length ? attachmentRefsFor(deps.db, userId, orgId, channelId, input.attachments) : null,
     input.media ? resolveMedia(deps, orgId, input.media) : null,
+    // Several agents mentioned: who is asked to act now, who is only referenced (no run for those).
+    deps.judge ? classifyAddressees(deps.db, deps.judge, judged) : null,
+    // A mention of everyone: one answer for the room, one each, or none (`classifyEveryone`).
+    deps.judge && channel.kind !== "dm" ? classifyEveryone(deps.db, deps.judge, judged) : null,
   ]);
-  // Several agents mentioned: who is asked to act now, who is only referenced (no run for those).
-  const addressees = deps.judge
-    ? await classifyAddressees(deps.db, deps.judge, {
-        orgId,
-        channelId,
-        userId,
-        body: input.body,
-        threadId: input.threadId,
-      })
-    : null;
-  // A mention of everyone: one answer for the room, one each, or none (`classifyEveryone`).
-  const everyone =
-    deps.judge && channel.kind !== "dm"
-      ? await classifyEveryone(deps.db, deps.judge, {
-          orgId,
-          channelId,
-          userId,
-          body: input.body,
-          threadId: input.threadId,
-        })
-      : null;
   const referencedIds = [...new Set([...(addressees?.referenced ?? []), ...(everyone?.referenced ?? [])])];
   const meta =
     replyTo || files || media || referencedIds.length > 0 || everyone || liveRef
@@ -1424,6 +1532,7 @@ export async function postPersonMessage(
       threadId: input.threadId,
       author: { type: "person", userId },
       body: input.body,
+      origin: input.origin ?? "app",
       clientId,
       meta:
         clientId || meta || input.steer === "now"
@@ -1732,8 +1841,14 @@ export async function classifyEveryone(
         limit 1`),
     ).length > 0;
   const ids = targets.map((t) => t.id);
+  // One answer for everyone comes from the channel's responsible agent when it is one of them (ADR 0095).
+  const [here] = await db
+    .select({ leadAgentId: channels.leadAgentId })
+    .from(channels)
+    .where(and(eq(channels.orgId, input.orgId), eq(channels.id, input.channelId)));
+  const lead = here?.leadAgentId && ids.includes(here.leadAgentId) ? here.leadAgentId : null;
   const decide = (answer: EveryoneAnswer, best: string, error?: string) => {
-    const by = answer === "one" && !named ? best : null;
+    const by = answer === "one" && !named ? (lead ?? best) : null;
     const runs = answer === "each" ? ids : by ? [by] : [];
     return {
       strategy: `everyone-${judge.name}`,
@@ -1845,8 +1960,8 @@ async function replyRefFor(
   return {
     messageId: row.id,
     threadId: row.threadId,
-    author: { type: row.authorType, id: person ? row.authorUserId : row.authorAgentId },
-    authorName: (person ? row.userName : row.agentName) ?? "",
+    author: { type: row.authorType, id: authorIdOf(row) },
+    authorName: (person ? row.userName : row.authorType === "app" ? appAuthorOf(row.meta)?.name : row.agentName) ?? "",
     // A file with no words is quoted by its name, so people and agents still see what is answered.
     excerpt: replyExcerpt(readableBody(row.body, row.meta) || fileNameOf(row.meta)),
     // A voice message with typed text is quoted by that text (`readableBody`), else named as one.

@@ -340,13 +340,9 @@ html:not([data-pointer]) .issues-col__unfold:focus-visible {
 .issues-col__head .issues-col__grow {
   flex: 1;
 }
-.issues-col__rename.ac-input {
+/* Its name renamed where it stands (the kit's InlineName in the h2): the head's whole width. */
+.issues-col__head .issues-col__naming {
   flex: 1;
-  min-width: 0;
-  height: var(--control-h-sm);
-  border-radius: var(--control-r-sm);
-  font-size: 13px;
-  font-weight: 650;
 }
 .issues-col__cards {
   display: flex;
@@ -1313,13 +1309,13 @@ html:not([data-pointer]) .issues-dest:focus-visible {
   margin: -2px -36px -2px 4px;
   vertical-align: top;
 }
-.issue-bartitle > .issue-inplace__title {
+.issue-bartitle > .issue-inplace__title.ac-inlinename {
   flex: 1;
   min-width: 0;
   margin-inline: 0;
 }
 .issue-bartitle .issue-details__title,
-.issue-bartitle .issue-inplace__title {
+.issue-bartitle .issue-inplace__title.ac-inlinename {
   font-size: 20px;
   line-height: 28px;
   letter-spacing: -0.01em;
@@ -1357,25 +1353,17 @@ html:not([data-pointer]) .issues-dest:focus-visible {
 .issue-inplace:focus-within .issue-inplace__pen {
   opacity: 1;
 }
-/* The title's field: the same size and place as the title it replaces (a channel's name field, larger). */
-.issue-inplace__title {
-  box-sizing: border-box;
-  width: calc(100% + 20px);
+/* The title's field (the kit's InlineName): the same size and place as the title it replaces, its edge where the
+   hover plate's was, so the words don't move when it opens. */
+.issue-inplace__title.ac-inlinename {
+  width: 100%;
   margin: -6px -10px;
   padding: 6px 10px;
-  border: 0;
   border-radius: var(--radius-md);
-  background: var(--field-bg);
-  box-shadow:
-    inset 0 0 0 1px var(--field-line),
-    var(--field-ring);
-  color: var(--ink);
-  font: inherit;
   font-size: 26px;
   font-weight: 650;
   line-height: 1.2;
   letter-spacing: -0.02em;
-  outline: none;
 }
 /* A criterion: its pencil shows on hover (or when the keyboard reaches it). */
 .issue-criterion__pen {
@@ -1431,8 +1419,19 @@ html:not([data-pointer]) .issues-dest:focus-visible {
   flex: none;
   translate: 0 calc(9px - var(--cap-mid) - 50%);
 }
+/* Its words trimmed to their capitals and padded back to the line (`.ac-chip__text`): the first line's capitals sit
+   at its middle, with no --cap-mid to make up. */
+@supports (text-box: trim-both cap alphabetic) {
+  @supports (top: 1lh) {
+    .issue-props .issue-github__chip > svg {
+      translate: 0 calc(9px - 50%);
+    }
+  }
+}
+/* Wrapped words end in no "…", so they need no clip: with one, the descent trimmed off their last line would scroll
+   inside it. */
 .issue-props .issue-github__chip > .ac-chip__text {
-  text-overflow: clip;
+  overflow: visible;
 }
 .issue-props .issue-link {
   color: var(--ink2);

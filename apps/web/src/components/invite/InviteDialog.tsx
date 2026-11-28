@@ -74,6 +74,7 @@ import {
   rolesToSend,
   useInviteChoices,
 } from "./InviteFields";
+import { LocalOnlyInvites } from "./InviteLinkPanel";
 import "./invite.css";
 
 /**
@@ -344,6 +345,7 @@ function InviteDialog({ request, open, onClose }: { request: InviteRequest; open
       <Locked when={pending}>
         <DialogBody className="invite-dialog" onKeyDown={onKeys}>
           <FormStack>
+            <LocalOnlyInvites />
             <MembersFull />
             <OnlyYouNote orgId={org.id} viewerId={me.user.id} />
             {!byLink && (

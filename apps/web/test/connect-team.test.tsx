@@ -78,7 +78,7 @@ async function withPopup(run: () => Promise<void>) {
 /**
  * Settings › AI accounts with Ada, Atlas and Lia, all Walter's and none with an AI: Ada and Atlas on the MacBook, Lia
  * there too or on another computer (`liaElsewhere`). `hand`: the team's right hand too, listed first as the onboarding
- * and the first-run list name it. `ready`: agents that already think. "Conectar uma IA" opened.
+ * and the first-run list name it. `ready`: agents that already think. Connect opened from Settings' "Add account".
  */
 async function team({
   hand = false,
@@ -122,7 +122,7 @@ async function team({
   api.agents.brain = async (orgId, agentId) => ({ ...(await viewOf(orgId, agentId)), ownSignIn: false });
   const { services } = await renderApp(`/org/${ORG_ID}/settings/keys`, { api });
   await settle(6);
-  await click(screen().getByRole("button", { name: "Conectar uma IA" }));
+  await click(screen().getByRole("button", { name: "Adicionar conta" }));
   await settle(4);
   return { state, machines, services, dialog: screen().getByRole("dialog") };
 }
@@ -354,9 +354,11 @@ describe("the team dialog's styles", () => {
   });
 
   test("a choice's title and its line sit as one block on the tile's middle, with what ends the card", async () => {
-    const css = await stylesheet("../src/components/arrival/arrival.css");
-    const rule = css.split(/\n\.arrival-opts \.ac-option \{/)[1]?.split("}")[0] ?? "";
+    // The choices are the kit's rows (OptionLinks): the row centres the tile, the text and the chevron.
+    const kit = await stylesheet("../../../packages/ui/src/styles/components.css");
+    const rule = kit.split(/\n\.ac-optrow \{/)[1]?.split("}")[0] ?? "";
     expect(rule).toContain("align-items: center");
+    const css = await stylesheet("../src/components/arrival/arrival.css");
     // No nudge pulling the title up to the tile's top any more.
     expect(css).not.toContain(
       ".arrival-opts .ac-option > :is(.ac-brand, .arrival-opts__tile):first-child + .ac-option__text > .ac-option__title {",

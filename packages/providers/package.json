@@ -9,6 +9,8 @@
     ".": "./src/index.ts",
     "./catalog": "./src/catalog.ts",
     "./plans": "./src/plans.ts",
+    "./cli-floors": "./src/cli-floors.ts",
+    "./cli-pins": "./src/cli-pins.ts",
     "./context-limits": "./src/context-limits.ts",
     "./images": "./src/images.ts",
     "./testing": "./src/fake.ts"

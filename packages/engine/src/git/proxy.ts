@@ -12,12 +12,9 @@ import { toolMachineId } from "../right-hand-seats";
 import { standingRefusal } from "../standing";
 import { CONNECTOR_ALL, freshGrantedKeys, grantKey, isAllowed, toolAccess } from "../tools/scopes";
 import {
-  BRANCH_PUSH_TOOL,
   branchBlock,
-  branchFacts,
-  DELETE_BRANCHES_TOOL,
-  githubHeaders,
   githubToken,
+  hostConnectionToken,
   type PushGrant,
   pushGrantKey,
   pushGrants,
@@ -26,15 +23,32 @@ import {
 import { machineGitGen, verifyGitToken } from "./credential";
 import type { GitHubAppConfig } from "./github-app";
 import { appMissMessage } from "./github-call";
+import {
+  basic,
+  GIT_HOSTS,
+  type GitHostId,
+  type GitVerb,
+  gitHostOf,
+  gitToolName,
+  type HostAt,
+  refInList,
+  repoPathOn,
+  repoRefName,
+} from "./hosts";
+import { hostAt } from "./hosts/reach";
 import { parseReceivePackRequest, pkt, type RefCommand, readPack, walkToOld, ZERO_OID } from "./pack";
-import { agentRepositoryList, repoInList } from "./repos";
+import { personAccountOfPush } from "./person-account";
+import { agentRepositoryList } from "./repos";
 
 const { machines, agents, connectorConnections } = schema;
 
-export const GIT_SCOPES = {
-  read: connectorScope("github", "git.read"),
-  write: connectorScope("github", "git.write"),
-};
+/** An agent's git scopes on a host's connection (`gitlab:git.read`). */
+export const gitScopes = (host: GitHostId) => ({
+  read: connectorScope(host, "git.read"),
+  write: connectorScope(host, "git.write"),
+});
+
+export const GIT_SCOPES = gitScopes("github");
 
 export const GIT_LIMITS = {
   /** A push request (commands + pack). */
@@ -80,11 +94,21 @@ export function parseGitPath(path: string) {
   return { owner, repo, action };
 }
 
+/** `{path}(.git)/(info/refs|git-upload-pack|git-receive-pack)` on a host → the repository's path and the action. */
+export function parseHostGitPath(host: GitHostId, path: string) {
+  const m = /^(.+?)\/(info\/refs|git-upload-pack|git-receive-pack)$/.exec(path);
+  if (!m) return null;
+  // The computer's remote ends in `.git` whatever the host (`git.sync`): the one it added comes off here.
+  const repo = repoPathOn(host, (m[1] as string).replace(/\.git$/, ""));
+  return repo ? { path: repo, action: m[2] as string } : null;
+}
+
 /** What an agent may do with git on a connection: its git scopes, or "every tool of this connection". */
-export function gitAccess(keys: Set<string>, connectionId: string) {
+export function gitAccess(keys: Set<string>, connectionId: string, host: GitHostId = "github") {
+  const scopes = gitScopes(host);
   const all = keys.has(grantKey(connectionId, CONNECTOR_ALL));
-  const write = all || keys.has(grantKey(connectionId, GIT_SCOPES.write));
-  return { read: write || keys.has(grantKey(connectionId, GIT_SCOPES.read)), write };
+  const write = all || keys.has(grantKey(connectionId, scopes.write));
+  return { read: write || keys.has(grantKey(connectionId, scopes.read)), write };
 }
 
 /**
@@ -98,9 +122,21 @@ export type RefVerdict =
   | { grant: string }
   | { refused: string; kind: "tag" | "delete" | "ref" | "create" };
 
-export function refRule(cmd: RefCommand, handle: string, previousHandles: string[] = []): RefVerdict {
+export function refRule(
+  cmd: RefCommand,
+  handle: string,
+  previousHandles: string[] = [],
+  host: GitHostId = "github",
+): RefVerdict {
   if (cmd.ref.startsWith("refs/tags/")) return { refused: "tags can't be pushed by agents", kind: "tag" };
-  if (cmd.newOid === ZERO_OID) return { refused: `branches are deleted with ${DELETE_BRANCHES_TOOL}`, kind: "delete" };
+  if (cmd.newOid === ZERO_OID) {
+    return {
+      refused: GIT_HOSTS[host].deleteBranch
+        ? `branches are deleted with ${gitToolName(host, "delete_branches")}`
+        : "agents don't delete branches here",
+      kind: "delete",
+    };
+  }
   for (const h of [handle, ...previousHandles]) {
     const own = `refs/heads/agentes/${h}/`;
     if (cmd.ref.startsWith(own) && cmd.ref.length > own.length) return { ok: true };
@@ -191,12 +227,12 @@ export async function readBody(req: Request, max: number) {
 /**
  * Smart-HTTP git for agents' computers (ADR 0024): `/api/git/{orgId}/{connectionId}/{owner}/{repo}.git/…`.
  * - The computer authenticates with our short-lived per-computer credential.
- * - Policy is checked here: the agent's `github:git.read` / `github:git.write`
- *   grants on that connection (and repo list, when set); pushes to
+ * - Policy is checked here, the same on every git host (ADR 0227; the host is the connection's): the agent's
+ *   `git.read` / `git.write` grants on that connection (and repo list, when set); pushes to
  *   `agentes/{handle}/*`, or to another existing branch a person approved
- *   (`request_branch_push`) that GitHub says isn't the default or protected;
+ *   (`request_branch_push`) that its host says isn't the default or protected;
  *   fast-forward only, no tags or deletes; size limits and at most 100 refs.
- * - The request goes to GitHub with the org's token added here (a GitHub App
+ * - The request goes to the host with the org's token added here (on GitHub, a GitHub App
  *   installation token when configured), never logged, never sent back.
  * - Fetches and pushes are audited.
  */
@@ -224,23 +260,22 @@ async function proxyGit(
   params: { orgId: string; connectionId: string; path: string },
 ): Promise<Response> {
   const limits = { ...GIT_LIMITS, ...deps.limits };
-  const parsed = parseGitPath(params.path);
-  if (!parsed) return text(404, "agentes: not a git repository path");
+  // Which path is a repository's depends on the host, and the host on the connection: read once the caller is known.
+  const action = /(?:^|\/)(info\/refs|git-upload-pack|git-receive-pack)$/.exec(params.path)?.[1];
+  if (!action) return text(404, "agentes: not a git repository path");
   const url = new URL(req.url);
   const service: Service | null =
-    parsed.action === "info/refs"
-      ? ((url.searchParams.get("service") as Service | null) ?? null)
-      : (parsed.action as Service);
+    action === "info/refs" ? ((url.searchParams.get("service") as Service | null) ?? null) : (action as Service);
   if (service !== "git-upload-pack" && service !== "git-receive-pack") {
     return text(403, "agentes: only smart HTTP (upload-pack / receive-pack) is supported");
   }
-  if (parsed.action !== "info/refs" && req.method !== "POST") return text(405, "method not allowed");
+  if (action !== "info/refs" && req.method !== "POST") return text(405, "method not allowed");
 
   // 1. Who: our credential (git sends it as the password of HTTP Basic).
   const auth = req.headers.get("authorization") ?? "";
-  const basic = /^Basic\s+(.+)$/i.exec(auth);
-  const password = basic
-    ? Buffer.from(basic[1] as string, "base64")
+  const given = /^Basic\s+(.+)$/i.exec(auth);
+  const password = given
+    ? Buffer.from(given[1] as string, "base64")
         .toString("utf8")
         .split(":")
         .slice(1)
@@ -297,53 +332,81 @@ async function proxyGit(
         isNull(connectorConnections.revokedAt),
       ),
     );
-  if (connection?.connector !== "github") return text(404, "agentes: GitHub is not connected in this organization");
+  // The workspace's connection to a git host (ADR 0227): a person's own account is never a proxy's connection.
+  const host = connection && !connection.ownerUserId ? gitHostOf(connection.connector) : null;
+  if (!connection || !host) return text(404, "agentes: no git host is connected here in this organization");
+  const parsed = parseHostGitPath(host.id, params.path);
+  if (!parsed) return text(404, "agentes: not a git repository path");
+  const scopes = gitScopes(host.id);
   const keys = await freshGrantedKeys(deps.db, claims.orgId, claims.agentId);
-  const { read: canRead, write: canWrite } = gitAccess(keys, connection.id);
-  const repoName = `${parsed.owner}/${parsed.repo}`;
-  if (!canRead) return text(403, `agentes: ${agent.handle} has no git access to GitHub (scope github:git.read)`);
+  const { read: canRead, write: canWrite } = gitAccess(keys, connection.id, host.id);
+  /** The repository as it is stored and audited: `owner/name` on GitHub, `gitlab:group/project` anywhere else. */
+  const repoName = repoRefName({ host: host.id, path: parsed.path });
+  if (!canRead) return text(403, `agentes: ${agent.handle} has no git access to ${host.label} (scope ${scopes.read})`);
   // The agent's repositories (`agent_repositories`): none = all; reads count too.
-  if (!repoInList(await agentRepositoryList(deps.db, claims.orgId, claims.agentId), parsed.owner, parsed.repo)) {
+  if (!refInList(await agentRepositoryList(deps.db, claims.orgId, claims.agentId), repoName)) {
     return text(
       403,
       `agentes: ${repoName} isn't one of ${agent.handle}'s repositories (ask whoever can edit it to add it)`,
     );
   }
   if (service === "git-receive-pack" && !canWrite) {
-    return text(403, `agentes: ${agent.handle} can't push (scope github:git.write)`);
+    return text(403, `agentes: ${agent.handle} can't push (scope ${scopes.write})`);
   }
 
-  // 3. GitHub's credential, added here only.
-  const upstream = deps.upstream ?? { gitUrl: "https://github.com", apiUrl: "https://api.github.com", fetch };
-  const github = { fetch: upstream.fetch, apiUrl: upstream.apiUrl };
+  // 3. The host's credential, added here only.
+  const at: HostAt =
+    host.id === "github" && deps.upstream
+      ? { fetch: deps.upstream.fetch, api: deps.upstream.apiUrl, git: deps.upstream.gitUrl, site: "github.com" }
+      : hostAt(host, connection.serverUrl, { http: deps.upstream?.fetch, resolveHost: deps.connectors.resolveHost });
   const write = service === "git-receive-pack";
-  const bearer = await githubToken(
-    deps,
-    github,
-    { db: deps.db, orgId: claims.orgId },
-    connection,
-    parsed,
-    // Workflow files too where the installation grants it (ADR 0156): an older installation has contents alone.
-    write ? [{ contents: "write", workflows: "write" }, { contents: "write" }] : { contents: "read" },
-  );
+  const [owner = "", repo = ""] = parsed.path.split("/");
+  const bearer =
+    host.id === "github"
+      ? await githubToken(
+          deps,
+          { fetch: at.fetch, apiUrl: at.api },
+          { db: deps.db, orgId: claims.orgId },
+          connection,
+          { owner, repo },
+          // Workflow files too where the installation grants it (ADR 0156): an older installation has contents alone.
+          write ? [{ contents: "write", workflows: "write" }, { contents: "write" }] : { contents: "read" },
+        )
+      : await hostConnectionToken(deps.connectors, connection).catch(() => null);
   if (!bearer) {
     return connection.authType === GITHUB_APP_AUTH
       ? text(403, `agentes: ${appMissMessage(repoName, "not_installed")}`)
-      : text(502, "agentes: the organization's GitHub connection has no usable token");
+      : text(502, `agentes: the organization's ${host.label} connection has no usable token`);
   }
-  const upstreamAuth = `Basic ${Buffer.from(`x-access-token:${bearer}`).toString("base64")}`;
-  const target = `${upstream.gitUrl}/${parsed.owner}/${parsed.repo}.git/${parsed.action}${url.search}`;
-  const forward = (body?: Uint8Array) => {
-    const headers: Record<string, string> = { authorization: upstreamAuth, "user-agent": "git/agentes-proxy" };
+  /** What the computer's own guard says of GitHub's tools, in this host's names. */
+  const onHost = (told: string) =>
+    host.id === "github"
+      ? told
+      : told
+          .replace(/\b(delete_branches|request_branch_push)\b/g, (verb) => gitToolName(host.id, verb as GitVerb))
+          .replace(/\bon GitHub\b/g, `on ${host.label}`)
+          .replace(/\ba pull request\b/g, `a ${host.request}`);
+  const upstreamAuth = basic(host.gitLogin(bearer));
+  const target = `${host.remote(at, parsed.path)}/${parsed.action}${url.search}`;
+  const forward = (body?: Uint8Array, authorization = upstreamAuth) => {
+    const headers: Record<string, string> = { authorization, "user-agent": "git/agentes-proxy" };
     for (const h of ["content-type", "accept", "git-protocol"]) {
       const v = req.headers.get(h);
       if (v) headers[h] = v;
     }
-    return upstream.fetch(target, { method: req.method, headers, body, redirect: "manual" });
+    return at.fetch(target, { method: req.method, headers, body, redirect: "manual" });
   };
   const relay = async (res: Response, max: number) => {
+    // The host saying no is a permission, not an outage: a 5xx sends the agent waiting for a fix that never comes.
     if (res.status === 401 || res.status === 403) {
-      return text(502, "agentes: GitHub refused the organization's credential for this repository");
+      await res.body?.cancel().catch(() => undefined);
+      const why =
+        connection.authType === GITHUB_APP_AUTH
+          ? appMissMessage(repoName, "refused")
+          : write && res.status === 403
+            ? `${host.label} refused the workspace's credential for pushing to ${repoName}: the account connected in Settings › Connectors can't write there. Push the branch to a fork that account can write and open the ${host.request} from there.`
+            : `${host.label} refused the workspace's credential for ${repoName}: the account connected in Settings › Connectors can't reach it, or its sign-in ended. Tell the person: an admin reconnects ${host.label} there with an account that has access to ${repoName}.`;
+      return text(403, `agentes: ${why}`);
     }
     const headers: Record<string, string> = { "cache-control": "no-cache" };
     const type = res.headers.get("content-type");
@@ -386,51 +449,58 @@ async function proxyGit(
   /** Someone else's branches by ref: pushed with a grant, or named once to the agent. */
   const others = new Map<string, string>();
   for (const cmd of request.commands) {
-    const verdict = refRule(cmd, agent.handle, agent.previousHandles);
+    const verdict = refRule(cmd, agent.handle, agent.previousHandles, host.id);
     if ("refused" in verdict) {
       reasons.set(cmd.ref, verdict.refused);
-      told.add(verdict.kind === "delete" ? DELETE_BRANCHES_POINTER : verdict.refused);
+      told.add(verdict.kind === "delete" && host.deleteBranch ? onHost(DELETE_BRANCHES_POINTER) : verdict.refused);
     } else if ("grant" in verdict) others.set(cmd.ref, verdict.grant);
   }
-  const at = { orgId: claims.orgId, agentId: claims.agentId, connectionId: connection.id };
+  const pushTool = gitToolName(host.id, "request_branch_push");
+  const granting = { orgId: claims.orgId, agentId: claims.agentId, connectionId: connection.id, host: host.id };
   // A denied request_branch_push grants nothing: no rule or approval is read (ADR 0015).
-  const mayAsk = isAllowed(
-    toolAccess(keys, { name: BRANCH_PUSH_TOOL, scope: GIT_SCOPES.write, connectionId: connection.id }),
-  );
+  const mayAsk = isAllowed(toolAccess(keys, { name: pushTool, scope: scopes.write, connectionId: connection.id }));
   const grants =
     others.size > 0 && mayAsk
       ? await pushGrants(
           deps.db,
-          at,
-          [...others.values()].map((b) => pushGrantKey(parsed, b)),
+          granting,
+          [...others.values()].map((b) => pushGrantKey(repoName, b)),
           now,
         )
       : new Map<string, PushGrant>();
   const granted = new Map<string, { branch: string; grant: PushGrant }>();
   const ungranted: string[] = [];
   for (const [ref, branch] of others) {
-    const grant = grants.get(pushGrantKey(parsed, branch));
+    const grant = grants.get(pushGrantKey(repoName, branch));
     if (grant) granted.set(ref, { branch, grant });
     else {
-      reasons.set(ref, `not your branch (ask with ${BRANCH_PUSH_TOOL})`);
+      reasons.set(ref, `not your branch (ask with ${pushTool})`);
       ungranted.push(branch);
     }
   }
-  if (ungranted.length > 0) told.add(otherBranchPointer(ungranted, agent.handle));
-  // A granted branch may have become the default or protected since: GitHub says so now, and no answer refuses.
+  if (ungranted.length > 0) told.add(onHost(otherBranchPointer(ungranted, agent.handle)));
+  // A granted branch may have become the default or protected since: its host says so now, and no answer refuses.
   if (reasons.size === 0 && granted.size > 0) {
-    const facts = await branchFacts(github, bearer, parsed, [...new Set([...granted.values()].map((g) => g.branch))]);
+    const facts = await host.branchFacts(at, bearer, parsed.path, [
+      ...new Set([...granted.values()].map((g) => g.branch)),
+    ]);
     for (const [ref, { branch }] of granted) {
       const block = facts ? branchBlock(facts, branch, false) : "unknown";
       if (!block) continue;
       const [short, long] =
         block === "unknown"
-          ? ["GitHub didn't answer", `GitHub didn't say whether ${branch} is protected: nothing was pushed, try again`]
+          ? [
+              `${host.label} didn't answer`,
+              `${host.label} didn't say whether ${branch} is protected: nothing was pushed, try again`,
+            ]
           : block === "missing"
-            ? ["not on GitHub", `${branch} isn't on GitHub: an approval covers updating a branch, never creating one`]
+            ? [
+                `not on ${host.label}`,
+                `${branch} isn't on ${host.label}: an approval covers updating a branch, never creating one`,
+              ]
             : [
                 block === "default" ? "the default branch" : "protected",
-                `${branch} is ${block === "default" ? "the default branch" : "protected"}: push to agentes/${agent.handle}/<topic> and open a pull request; merging is a separate step`,
+                `${branch} is ${block === "default" ? "the default branch" : "protected"}: push to agentes/${agent.handle}/<topic> and open a ${host.request}; merging is a separate step`,
               ];
       reasons.set(ref, short);
       told.add(long);
@@ -456,13 +526,9 @@ async function proxyGit(
       let ok = walk.reached;
       for (const oid of walk.outside.slice(0, 5)) {
         if (ok) break;
-        const res = await upstream
-          .fetch(`${upstream.apiUrl}/repos/${parsed.owner}/${parsed.repo}/compare/${cmd.oldOid}...${oid}`, {
-            headers: githubHeaders(bearer),
-          })
-          .catch(() => null);
-        const status = res?.ok ? ((await res.json()) as { status?: string }).status : undefined;
-        ok = status === "ahead" || status === "identical";
+        // A commit the push didn't carry is on the host already: the host says whether it descends from the old tip.
+        // A host with no such answer takes only a push that carries its own history.
+        ok = host.descends ? await host.descends(at, bearer, parsed.path, cmd.oldOid, oid).catch(() => false) : false;
       }
       if (!ok) {
         const why = "not a fast-forward (force pushes are not allowed)";
@@ -481,7 +547,21 @@ async function proxyGit(
     }).catch(() => undefined);
     return refusal(request.commands, reasons, told, request.capabilities);
   }
-  const res = await forward(body);
+  // A code session's branch, pushed while a person is behind its run, goes to the host as that person, by the account
+  // they connected as their own (ADR 0215 §13). The host refusing their token (no access to this repository, a token
+  // that ended) sends it as the workspace, as every other push goes.
+  const person = await personAccountOfPush(deps.db, {
+    orgId: claims.orgId,
+    agentId: claims.agentId,
+    repo: repoName,
+    refs: request.commands.map((c) => c.ref),
+  }).catch(() => null);
+  const personToken =
+    person?.host === host.id ? await hostConnectionToken(deps.connectors, person.connection).catch(() => null) : null;
+  let res = personToken ? await forward(body, basic(host.gitLogin(personToken))) : null;
+  const asPerson = res !== null && res.status !== 401 && res.status !== 403 && res.status !== 404;
+  if (res && !asPerson) await res.body?.cancel().catch(() => undefined);
+  if (!res || !asPerson) res = await forward(body);
   if (res.ok) {
     await recordAudit(deps.db, {
       orgId: claims.orgId,
@@ -490,6 +570,7 @@ async function proxyGit(
       target: { type: "git_repo", id: repoName },
       details: {
         connectionId: connection.id,
+        ...(asPerson && person ? { asPersonId: person.personId } : {}),
         ...where,
         refs: request.commands.map((c) => ({ ref: c.ref, from: c.oldOid, to: c.newOid })),
         commits,

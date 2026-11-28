@@ -383,6 +383,35 @@ describe("work one agent handed another (ADR 0084 addendum)", () => {
   });
 });
 
+test("work in someone else's DM says it is private to who can't read it, and where to the one who can", async () => {
+  f = await setup();
+  const bia = await addMember(f.db, f.org.id, "member", "bia");
+  const dm = await openPersonAgentDm(f.db, f.org.id, bia.id, f.agent.id);
+  const asked = await insertMessage(f.db, {
+    orgId: f.org.id,
+    channelId: dm.id,
+    author: { type: "person", userId: bia.id },
+    body: "olha o relatório de ontem",
+  });
+  await f.db.insert(schema.agentRuns).values({
+    orgId: f.org.id,
+    agentId: f.agent.id,
+    channelId: dm.id,
+    threadRootId: asked.id,
+    triggerMessageId: asked.id,
+    trigger: "dm",
+    hop: 1,
+    status: "running",
+    startedAt: new Date(),
+    heartbeatAt: new Date(),
+  });
+  // The owner (an admin, who reads every channel) never reads Bia's DM: no place, and the line says why.
+  expect(await workOf(f.owner.id, f.agent.id)).toMatchObject({ state: "working", channelId: null, private: true });
+  const hers = await workOf(bia.id, f.agent.id);
+  expect(hers).toMatchObject({ state: "working", channelId: dm.id, channelKind: "dm" });
+  expect(hers?.private).toBeUndefined();
+});
+
 test("how one run stands: in line, at work, waiting on someone, or nothing for a wait on its plan", () => {
   const run = { onMachine: false, outage: false, waitCode: null, you: false };
   expect(workStateOf({ ...run, status: "queued" })).toBe("queued");

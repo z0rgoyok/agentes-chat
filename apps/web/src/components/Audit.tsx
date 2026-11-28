@@ -36,6 +36,7 @@ import {
   Icon,
   Menu,
   MenuItem,
+  Refreshing,
   Segmented,
   Select,
   Toolbar,
@@ -119,65 +120,67 @@ export function AuditSection({ agent }: { agent?: string }) {
         />
       </Toolbar>
 
-      {audit.isPending ? (
-        <LoadingList count={6} trailing />
-      ) : audit.isError ? (
-        <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
-      ) : rows.length === 0 ? (
-        show === "all" && agentId === ANY ? (
-          <EmptyState size="page" agent={look} mood="deal" title={t("audit.emptyTitle")}>
-            {t("audit.empty")}
-          </EmptyState>
+      <Refreshing busy={audit.isPlaceholderData} label={t("common.loading")}>
+        {audit.isPending ? (
+          <LoadingList count={6} trailing />
+        ) : audit.isError ? (
+          <ErrorState error={audit.error} onRetry={() => void audit.refetch()} />
+        ) : rows.length === 0 ? (
+          show === "all" && agentId === ANY ? (
+            <EmptyState size="page" agent={look} mood="deal" title={t("audit.emptyTitle")}>
+              {t("audit.empty")}
+            </EmptyState>
+          ) : (
+            <EmptyState
+              size="panel"
+              actions={
+                <Button
+                  onClick={() => {
+                    setShow("all");
+                    setAgentId(ANY);
+                  }}
+                >
+                  {t("filters.clearAll")}
+                </Button>
+              }
+            >
+              {t("audit.emptyFiltered")}
+            </EmptyState>
+          )
         ) : (
-          <EmptyState
-            size="panel"
-            actions={
-              <Button
-                onClick={() => {
-                  setShow("all");
-                  setAgentId(ANY);
-                }}
-              >
-                {t("filters.clearAll")}
-              </Button>
-            }
-          >
-            {t("audit.emptyFiltered")}
-          </EmptyState>
-        )
-      ) : (
-        <div className="ac-groups">
-          {days.map(([label, list]) => (
-            <div key={label}>
-              <GroupHeading level={3} title={label} />
-              <ul className="audit__list">
-                {list.map((row) => (
-                  <li key={row.id}>
-                    <button
-                      type="button"
-                      className="audit-row"
-                      aria-pressed={row.id === openId}
-                      onClick={() => setOpenId(row.id)}
-                    >
-                      <Face row={row} />
-                      <span className="audit-row__text">
-                        <span className="audit-row__title">
-                          <Sentence row={row} />
+          <div className="ac-groups">
+            {days.map(([label, list]) => (
+              <div key={label}>
+                <GroupHeading level={3} title={label} />
+                <ul className="audit__list">
+                  {list.map((row) => (
+                    <li key={row.id}>
+                      <button
+                        type="button"
+                        className="audit-row"
+                        aria-pressed={row.id === openId}
+                        onClick={() => setOpenId(row.id)}
+                      >
+                        <Face row={row} />
+                        <span className="audit-row__text">
+                          <span className="audit-row__title">
+                            <Sentence row={row} />
+                          </span>
+                          <span className="audit-row__sub">{auditSubLine(t, row, i18n.language)}</span>
                         </span>
-                        <span className="audit-row__sub">{auditSubLine(t, row, i18n.language)}</span>
-                      </span>
-                      <OutcomeChip row={row} />
-                      <time className="audit-row__time" dateTime={row.at}>
-                        {formatTime(i18n.language, row.at)}
-                      </time>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-      )}
+                        <OutcomeChip row={row} />
+                        <time className="audit-row__time" dateTime={row.at}>
+                          {formatTime(i18n.language, row.at)}
+                        </time>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        )}
+      </Refreshing>
       {audit.hasNextPage && (
         <div className="audit__more">
           <Button loading={audit.isFetchingNextPage} onClick={() => void audit.fetchNextPage()}>

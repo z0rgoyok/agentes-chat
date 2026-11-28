@@ -42,7 +42,8 @@
     border-radius: 0;
     box-shadow: none;
   }
-  .shell__work > .outages {
+  .shell__work > .outages,
+  .shell__notices > .ac-morph__in > .outages {
     margin-bottom: 0;
     border-radius: 0;
     box-shadow: none;
@@ -193,6 +194,11 @@
     --msg-inline: 12px;
     column-gap: 10px;
   }
+  /* The working row keeps the rows' edges and gap. */
+  .channel__messages .working-tail {
+    padding-inline: 12px;
+    column-gap: 10px;
+  }
   /* No room left of a grouped row's receipt for its time here: the receipt's popover says when it went out. */
   .channel__messages .ac-msg__gutter--aside > .ac-msg__gutter-time {
     display: none;
@@ -275,7 +281,6 @@
      follow its keys goes with them. */
   .sidebar__jump .ac-kbd,
   .sidebar__goto-keys,
-  .titlebar__search .ac-kbd,
   .wiki-suggest .ac-kbd,
   .newag__hint:has(> .ac-kbd) {
     display: none;

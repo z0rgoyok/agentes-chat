@@ -1,5 +1,6 @@
 import {
   ApiError,
+  cardsInto,
   type Message,
   type MessagePin,
   type ReplyRef,
@@ -7,6 +8,7 @@ import {
   type useApi,
 } from "@agenteschat/client";
 import { canTalk } from "@agenteschat/client/lib/audience";
+import { useQueryClient } from "@tanstack/react-query";
 import { type ComponentProps, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { useTranslation } from "react-i18next";
 import type { useToast } from "@/ui";
@@ -102,6 +104,7 @@ export function useConversationActions({
     | "top"
   >;
 }) {
+  const qc = useQueryClient();
   const { aimAt, letGo, listRef, shownRows, toEnd } = follow;
   const {
     channel,
@@ -184,16 +187,32 @@ export function useConversationActions({
       const gone = error === undefined || (error instanceof ApiError && error.status === 404);
       toast({ title: gone ? t("channel.jumpMissing") : t("common.loadFailed"), icon: "x" });
     };
-    // A thread holds all it can show; a page read around it that still doesn't show it: deleted or not visible.
-    if (isThread || (around?.id === seek && around.done)) {
+    // A page read around it that still doesn't show it: deleted or not visible.
+    if (around?.id === seek && around.done) {
       // A cached page refreshing may still bring it.
       if (!seekRefreshing) missing();
       return;
     }
     if (around?.id === seek) return;
+    // A thread holds all of its thread: a message of the conversation outside it (a long work's report, posted where
+    // it was asked) opens in the conversation, at it, and only one there is nowhere says it is gone.
+    if (isThread) {
+      if (seekRefreshing) return;
+      setAround({ id: seek, done: false });
+      api.chat
+        .messages(orgId, channelId, { around: seek, limit: 1 })
+        .then((page) => {
+          setAround({ id: seek, done: true });
+          if (!page.some((m) => m.id === seek)) return missing();
+          setSeek(null);
+          router.push(chatHref(channelId, null, seek));
+        })
+        .catch(missing);
+      return;
+    }
     setAround({ id: seek, done: false });
     api.chat
-      .messages(orgId, channelId, { around: seek, limit: SEEK_PAGE })
+      .messages(orgId, channelId, { around: seek, limit: SEEK_PAGE, onCards: cardsInto(qc, orgId) })
       .then((page) => {
         showAround(page);
         setAround({ id: seek, done: true });
@@ -207,6 +226,7 @@ export function useConversationActions({
     isThread,
     around,
     api,
+    qc,
     orgId,
     channelId,
     showAround,

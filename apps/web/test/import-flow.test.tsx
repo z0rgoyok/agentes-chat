@@ -1102,9 +1102,9 @@ describe("Configurações → Importar e exportar", () => {
       await go();
       await click(button("OpenBot.run"), 6);
       const ways = sheetOf("Trazer o time do OpenBot");
-      const rows = [...ways.querySelectorAll(".imp-paths .imp-row__open")].map((b) => b.textContent);
+      const rows = [...ways.querySelectorAll(".imp-paths .ac-optrow")].map((b) => b.textContent);
       expect(rows).toEqual([
-        "Com um comando o mais completoTraz tudo, até arquivos e workflows. Pelo assistente de código ou terminal",
+        "Com um comandoO mais completoTraz tudo, até arquivos e workflows. Pelo assistente de código ou terminal",
         "Conectando o OpenBotEle cria os agentes aqui pelo MCP. Sem arquivos nem workflows",
         "Pedindo ao OpenBotEle escreve o que sabe, você cola aqui. Sem arquivos nem workflows",
       ]);

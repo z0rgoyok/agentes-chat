@@ -1,10 +1,11 @@
 import { and, count, type Database, type Executor, eq, gt, gte, isNotNull, isNull, schema, sql } from "@agenteschat/db";
+import { enqueueMemberContacts } from "./account-contacts";
 import { caches } from "./cache";
 import { ConflictError } from "./errors";
 import { formatBytes } from "./format";
 import type { Judge } from "./judge";
 import { recordOperatorEvent } from "./operator-events";
-import { can, requirePermission } from "./organizations";
+import { can, lockOrgMembers, requirePermission } from "./organizations";
 import { RouterSkip, type RouterStrategy } from "./router";
 import { storedBytes, usesOwnBucket } from "./storage";
 import { monthStartUtc } from "./usage";
@@ -98,7 +99,7 @@ export async function getOrgLimits(db: Executor, orgId: string): Promise<OrgLimi
 /**
  * Sets all the limits (the operator API), whatever the workspace's standing; one left out is none. Setting what is already set changes
  * nothing, `updatedAt` included. A new platform cap applies at once in this process, within a minute in the others.
- * Null when there is no such workspace.
+ * A payer named or cleared syncs every member's contact (`plan`). Null when there is no such workspace.
  */
 export async function setOrgLimits(
   db: Database,
@@ -108,27 +109,40 @@ export async function setOrgLimits(
   const nanoOf = (usd: number | null | undefined) => (usd == null ? null : Math.round(usd * NANO_PER_USD));
   const nanoUsd = nanoOf(limits.platformUsdPerMonth);
   const connectorNano = nanoOf(limits.connectorUsdPerMonth);
-  const [row] = await db
-    .update(organizations)
-    .set({
-      limitMembers: limits.members,
-      limitMembersMax: limits.membersMax,
-      payerUserId: limits.payerUserId,
-      limitStorageBytes: limits.storageBytes,
-      limitUploadBytesPerDay: limits.uploadBytesPerDay,
-      limitPlatformNanoUsd: nanoUsd,
-      limitConnectorNanoUsd: connectorNano,
-      // The right side of SET reads the row as it was.
-      limitsUpdatedAt: sql`case when (${organizations.limitMembers}, ${organizations.limitMembersMax},
+  const row = await db.transaction(async (tx) => {
+    // The lock a join takes: a member joining meanwhile is either among those synced here or reads the new payer.
+    await lockOrgMembers(tx, orgId);
+    const [before] = await tx
+      .select({ payer: organizations.payerUserId })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .for("update");
+    const [after] = await tx
+      .update(organizations)
+      .set({
+        limitMembers: limits.members,
+        limitMembersMax: limits.membersMax,
+        payerUserId: limits.payerUserId,
+        limitStorageBytes: limits.storageBytes,
+        limitUploadBytesPerDay: limits.uploadBytesPerDay,
+        limitPlatformNanoUsd: nanoUsd,
+        limitConnectorNanoUsd: connectorNano,
+        // The right side of SET reads the row as it was.
+        limitsUpdatedAt: sql`case when (${organizations.limitMembers}, ${organizations.limitMembersMax},
         ${organizations.payerUserId}, ${organizations.limitStorageBytes}, ${organizations.limitUploadBytesPerDay},
         ${organizations.limitPlatformNanoUsd}, ${organizations.limitConnectorNanoUsd})
         is not distinct from (${limits.members}::integer, ${limits.membersMax}::integer, ${limits.payerUserId}::text,
         ${limits.storageBytes}::bigint, ${limits.uploadBytesPerDay}::bigint, ${nanoUsd}::bigint,
         ${connectorNano}::bigint)
         then ${organizations.limitsUpdatedAt} else now() end`,
-    })
-    .where(eq(organizations.id, orgId))
-    .returning(LIMIT_COLUMNS);
+      })
+      .where(eq(organizations.id, orgId))
+      .returning(LIMIT_COLUMNS);
+    if (before && after && (before.payer === null) !== (after.payerUserId === null)) {
+      await enqueueMemberContacts(tx, orgId);
+    }
+    return after;
+  });
   caches.platformSpend.delete(`${orgId}:`);
   return row ? limitsOf(row) : null;
 }

@@ -64,6 +64,7 @@ export function WebhookCard({ routine: r, runs }: { routine: Routine; runs: Rout
   const action = useRoutineHookAction(orgId, r.id);
   const save = useRoutineAction(orgId);
   const [secret, setSecret] = useState<string | null>(null);
+  const [pasting, setPasting] = useState(false);
   const data = hook.data;
   // While the address loads, its rows' shape; if it can't, why, with Retry.
   if (!data) {
@@ -131,6 +132,12 @@ export function WebhookCard({ routine: r, runs }: { routine: Routine; runs: Rout
           disabled={action.isPending}
           onPress={() => (data.signed ? ask("secret") : run("secret"))}
         />
+        <GroupedRow
+          icon="key"
+          label={t("routines.webhook.pasteSecret")}
+          disabled={action.isPending}
+          onPress={() => setPasting(!pasting)}
+        />
         {data.signed ? (
           <GroupedRow
             icon="x"
@@ -140,6 +147,15 @@ export function WebhookCard({ routine: r, runs }: { routine: Routine; runs: Rout
           />
         ) : null}
       </GroupedList>
+      {pasting ? (
+        <PasteSecret
+          routine={r}
+          onDone={() => {
+            setPasting(false);
+            setSecret(null);
+          }}
+        />
+      ) : null}
       <GroupedFooter>{t(data.signed ? "routines.webhook.signedOn" : "routines.webhook.signedOff")}</GroupedFooter>
       {secret && data.signed ? (
         <>
@@ -255,6 +271,56 @@ function GroupBy({ routine: r, groupBy }: { routine: Routine; groupBy: string | 
       <GroupedFooter>
         {groupBy ? t("routines.webhook.groupByOn", { path: groupBy }) : t("routines.webhook.groupByOff")}
       </GroupedFooter>
+    </>
+  );
+}
+
+/** The service's own signing secret (Linear makes its own), the web's field for the phone: never shown back. */
+function PasteSecret({ routine: r, onDone }: { routine: Routine; onDone: () => void }) {
+  const { t } = useTranslation();
+  const c = useColors();
+  const orgId = useOrgId();
+  const toast = useToast();
+  const failed = useFailed();
+  const action = useRoutineHookAction(orgId, r.id);
+  const [value, setValue] = useState("");
+  const submit = () => {
+    if (!value.trim() || action.isPending) return;
+    action.mutate(
+      { paste: value.trim() },
+      {
+        onSuccess: () => {
+          toast({ title: t("routines.webhook.secretPasted"), icon: "check" });
+          onDone();
+        },
+        onError: failed,
+      },
+    );
+  };
+  return (
+    <>
+      <GroupedHeader>{t("routines.webhook.pasteLabel")}</GroupedHeader>
+      <GroupedList>
+        <TextInput
+          value={value}
+          onChangeText={setValue}
+          onSubmitEditing={submit}
+          secureTextEntry
+          autoCapitalize="none"
+          autoCorrect={false}
+          maxLength={512}
+          returnKeyType="done"
+          editable={!action.isPending}
+          accessibilityLabel={t("routines.webhook.pasteLabel")}
+          style={[fieldText("callout"), styles.input, { color: c.ink }]}
+        />
+        <GroupedRow
+          icon="check"
+          label={t("common.save")}
+          disabled={!value.trim() || action.isPending}
+          onPress={submit}
+        />
+      </GroupedList>
     </>
   );
 }

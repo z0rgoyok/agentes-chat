@@ -23,7 +23,7 @@ const as = (role: "owner" | "member", state = seedState()) => {
   return state;
 };
 /**
- * Acme where Ada answers only João, her owner, and is Integrations' only agent; #eng sits in Engenharia, and
+ * Acme where Ada answers only João, her owner, and is Integrations' only agent; #eng sits in the sector Engenharia, and
  * Diretoria holds only private channels I'm not in (the server leaves them out of my list). I am Walter, with a DM
  * with each agent (Atlas's the latest).
  */
@@ -31,12 +31,12 @@ function acme(role: "owner" | "member") {
   const state = as(role);
   const ada = state.agents.find((a) => a.id === ADA_ID);
   if (ada) ada.audience = { mode: "owner", userIds: [] };
-  state.agentGroups = [{ id: INTEGRATIONS, name: "Integrations", agentIds: [ADA_ID] }];
-  state.channelCategories = [
-    { id: ENGINEERING, name: "Engenharia", position: 0 },
-    { id: BOARD, name: "Diretoria", position: 1 },
+  state.agentGroups = [
+    { id: INTEGRATIONS, name: "Integrations", agentIds: [ADA_ID] },
+    { id: ENGINEERING, name: "Engenharia", agentIds: [] },
+    { id: BOARD, name: "Diretoria", agentIds: [] },
   ];
-  for (const c of state.channels) if (c.id === ENG_ID) c.categoryId = ENGINEERING;
+  for (const c of state.channels) if (c.id === ENG_ID) c.groupId = ENGINEERING;
   seedDm(state, { type: "agent", id: ADA_ID }, { ago: 2 });
   seedDm(state, { type: "agent", id: ATLAS_ID }, { ago: 1 });
   return state;
@@ -64,9 +64,9 @@ describe("what a member's sidebar lists", () => {
     expect(within(nav()).getByRole("link", { name: "Equipe" })).toBeTruthy();
   });
 
-  test("no category whose channels are all private ones they're not in", async () => {
+  test("no sector in the list at all: Canais and Mensagens diretas, sectors stay on Equipe (ADR 0260)", async () => {
     await go(acme("member"));
-    expect(sections()).toEqual(["Canais", "Engenharia", "Agentes", "Mensagens diretas"]);
+    expect(sections()).toEqual(["Canais", "Mensagens diretas"]);
   });
 
   test("@ offers only the agents that answer them", async () => {
@@ -146,28 +146,25 @@ describe("what a member's sidebar lists", () => {
     );
   });
 
-  test("owners and admins see every category, and the agents that talk to them until they show the rest", async () => {
+  test("owners and admins see the agents that talk to them until they show the rest, no sector either way", async () => {
     await go(acme("owner"));
-    expect(sections()).toEqual(["Canais", "Engenharia", "Diretoria", "Agentes", "Mensagens diretas"]);
+    expect(sections()).toEqual(["Canais", "Mensagens diretas"]);
     expect(agentRows()).toEqual(["Atlas"]);
     cleanup();
     const state = acme("owner");
     state.sidebarView = { agentSort: "workspace", showAllAgents: true, pins: null };
     await go(state);
-    expect(sections()).toEqual(["Canais", "Engenharia", "Diretoria", "Agentes", "Integrations", "Mensagens diretas"]);
+    expect(sections()).toEqual(["Canais", "Mensagens diretas"]);
     expect(agentRows()).toEqual(["Atlas", "Ada"]);
-    // The lock explains itself: the line under the name says who it talks to.
+    // The lock explains itself: its title says who it talks to.
     const ada = within(nav()).getByRole("link", { name: /^Ada/ });
     expect(within(ada).getByRole("img", { name: "Pessoal" })).toBeTruthy();
-    expect(ada.querySelector(".sidebar__item-role")?.textContent).toBe("só fala com João");
-    // Who it talks to is words, not the role's tag.
-    expect(ada.querySelector(".sidebar__item-role")?.classList.contains("ac-tag")).toBe(false);
   });
 });
 
-describe("Equipe, a tool row of its own", () => {
+describe("Equipe, a tile of the tool column", () => {
   const team = () =>
-    within(nav().querySelector(".sidebar__tools") as HTMLElement).getByRole("link", { name: "Equipe" });
+    within(within(nav()).getByRole("toolbar", { name: "Ferramentas" })).getByRole("link", { name: "Equipe" });
 
   test("among the tools, marked while the page is open", async () => {
     await go(acme("owner"));
@@ -178,7 +175,7 @@ describe("Equipe, a tool row of its own", () => {
     expect(team().getAttribute("data-status")).toBe("active");
   });
 
-  test("the icon rail keeps it with the other tools", async () => {
+  test("collapsed, the column keeps it with the other tools", async () => {
     await go(acme("owner"));
     const toggle = () => within(nav()).getByRole("button", { name: /barra lateral$/ });
     await act(async () => fireEvent.click(toggle()));
@@ -217,7 +214,7 @@ describe("bringing agents from another app, where agents are made", () => {
 });
 
 describe("an agent's row", () => {
-  test("the role on its own line under the name, and the lock alone at the row's end", async () => {
+  test("one line: its name and the IA tag, the role in its title, and the lock alone at the row's end", async () => {
     const state = acme("owner");
     const ada = state.agents.find((a) => a.id === ADA_ID);
     if (ada) Object.assign(ada, { role: "Assistente de e-mails e agenda da diretoria", ownerUserId: "u-walter" });
@@ -230,12 +227,10 @@ describe("an agent's row", () => {
     };
     await go(state);
     const row = nav().querySelector(`[data-agent-row="${ADA_ID}"] .sidebar__item`);
-    const text = row?.querySelector(":scope > .sidebar__item-text");
-    // A name over a role is a face line: the name's capitals on the face's top.
-    expect([...(text?.children ?? [])].map((el) => [el.className, el.textContent])).toEqual([
-      ["sidebar__item-label ac-captop", "Ada"],
-      ["sidebar__item-role ac-tag", "Assistente de e-mails e agenda da diretoria"],
-    ]);
+    expect(row?.querySelector(":scope > .sidebar__item-label")?.textContent).toBe("Ada");
+    expect(row?.querySelector(":scope > .sidebar__kind")?.textContent).toBe("IA");
+    expect(row?.querySelector(".sidebar__item-role")).toBeNull();
+    expect(row?.getAttribute("title")).toContain("Assistente de e-mails e agenda da diretoria");
     // Nothing at the row's end shares the name's line with the role: only the lock.
     const end = row?.querySelector(":scope > .sidebar__item-meta");
     expect(end?.textContent).toBe("");

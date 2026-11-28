@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { addChannelMember, askAdmins, ConflictError, createChannel, listNotifications } from "../src";
+import { schema } from "@agenteschat/db";
+import { addChannelMember, askAdmins, ConflictError, createChannel, listNotifications, speechOwnerIn } from "../src";
 import { addMember, type Fixture, setup } from "./fixtures";
 
 let f: Fixture;
@@ -42,4 +43,18 @@ test("someone who may do it is told to, and a webhook ask names its service", as
   const bia = await addMember(f.db, f.org.id, "member", "bia");
   await askAdmins(deps(), bia.id, f.org.id, { what: "webhook", provider: "github" });
   expect((await asks(f.owner.id))[0]).toMatchObject({ waiting: false, latest: { reason: "webhook", title: "GitHub" } });
+});
+
+test("an ask to turn on voice reaches the server's owner alone, who can't ask themselves", async () => {
+  f = await setup();
+  const admin = await addMember(f.db, f.org.id, "admin", "ana");
+  const bia = await addMember(f.db, f.org.id, "member", "bia");
+  await f.db.insert(schema.instanceTelemetry).values({ ownerUserId: f.owner.id });
+  expect(await speechOwnerIn(f.db, f.org.id)).toEqual({ userId: f.owner.id, name: f.owner.name });
+
+  expect(await askAdmins(deps(), bia.id, f.org.id, { what: "voice" })).toEqual({ sent: 1 });
+  expect((await asks(f.owner.id))[0]).toMatchObject({ latest: { reason: "voice" }, actors: [{ id: bia.id }] });
+  // An admin of the workspace can't choose it: only who runs the server.
+  expect(await asks(admin.id)).toEqual([]);
+  await expect(askAdmins(deps(), f.owner.id, f.org.id, { what: "voice" })).rejects.toBeInstanceOf(ConflictError);
 });

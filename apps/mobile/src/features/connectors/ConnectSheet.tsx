@@ -22,6 +22,7 @@ import {
   type ConnectedItem,
   connectedItems,
   connectionActs,
+  isGitHostConnector,
   itemName,
   orgAccessChange,
   outcomeText,
@@ -91,6 +92,7 @@ import {
 import { OwnClient } from "./OwnClient";
 import { Problem } from "./Problem";
 import { RequestHeaders } from "./RequestHeaders";
+import { RoutineOfferGroup, useRoutineOffer, useStartRoutine } from "./RoutineOffer";
 import { ADDRESS_STEPS, CATALOG_STEPS, doneSummary, firstStep, reviewTarget, STEP_KEYS, type Step } from "./review";
 import { ReviewStep } from "./ToolReview";
 import { openTools } from "./ToolsScreen";
@@ -537,6 +539,9 @@ function DoneStep({
   const [failed, setFailed] = useState<string | null>(null);
   const summary = doneSummary(t, reviewTarget(connectionId, def, servers.data, servers.isFetching));
   const waiting = summary?.waiting ?? null;
+  // The routine it brings (ADR 0242); a server still waiting for its tools brings none yet.
+  const offer = useRoutineOffer(waiting ? null : def?.id);
+  const startRoutine = useStartRoutine();
   const apply = (server: CustomServer) => {
     setFailed(null);
     save.mutate(
@@ -557,17 +562,27 @@ function DoneStep({
     <>
       <ConnectedNote
         name={name}
-        text={personal && summary && !waiting ? t("connectors.personal.done") : (summary?.text ?? null)}
+        text={
+          personal && summary && !waiting
+            ? t(isGitHostConnector(def?.id) ? "connectors.personal.githubDone" : "connectors.personal.done")
+            : (summary?.text ?? null)
+        }
       />
       {summary?.unreadable ? <Problem text={t("toolReview.unreadable", { reason: summary.unreadable })} /> : null}
       {failed ? <Problem key={failed} text={failed} /> : null}
+      {summary && !waiting ? <RoutineOfferGroup offer={offer} /> : null}
       <Button
         variant="primary"
         wide
         label={waiting ? t("connectFlow.next") : t("connectFlow.done.ok")}
         disabled={!summary}
-        loading={save.isPending}
-        onPress={() => (waiting ? apply(waiting) : sheet.close())}
+        // Done waits for the routine's rows to load: pressed now, it would make nothing.
+        loading={save.isPending || (!waiting && offer.loading)}
+        onPress={() => {
+          if (waiting) return apply(waiting);
+          startRoutine(offer);
+          sheet.close();
+        }}
       />
       <Button
         variant="secondary"
@@ -655,7 +670,7 @@ export function ConnectedNote({ name, text }: { name: string; text: string | nul
         {/* The page's own color on the green: white on dark's light green was hard to read. */}
         <Icon name="check" size={16} color={colors.bg} />
       </Animated.View>
-      <View style={styles.grow}>
+      <View style={[styles.grow, styles.noteText]}>
         <Text variant="body" style={styles.bold}>
           {t("mobile.connectors.connectedTitle", { name })}
         </Text>
@@ -735,7 +750,9 @@ function ConnectStep({
   const access = useGithubAccess(orgId, githubOrgs);
   const githubApp = useGitHubApp(orgId);
   const installer = useInstallGitHubAppHere();
-  const appOffered = def?.id === "github" && !viaComposio && !accountOnly && githubApp.data?.installable === true;
+  // The app is the workspace's GitHub: a person's own account is always a sign-in.
+  const appOffered =
+    def?.id === "github" && !viaComposio && !accountOnly && !theirs && githubApp.data?.installable === true;
   const [via, setVia] = useState<"app" | "account">("app");
   const how = def ? connectHow(def) : "either";
   // Reconectar: the headers the account has, by name. They stay unless new ones are typed or "Remover" drops them.
@@ -761,7 +778,15 @@ function ConnectStep({
   const shownName = name || serverUrl.replace(/^https:\/\//, "").split("/")[0] || "";
   // A Telegram bot connects with the token @BotFather gives, not an API key.
   const telegram = def?.id === "telegram";
-  const keyLabel = telegram ? t("connectFlow.telegram.token") : t("mobile.connectors.keyLabel", { name: shownName });
+  // A git host (GitLab, Bitbucket, a git server) connects with an access token, and may run at its own address.
+  const gitHost = def?.id === "gitlab" || def?.id === "bitbucket" || def?.id === "git" ? def.id : null;
+  const [address, setAddress] = useState("");
+  const typedAddress = def?.address ? address.trim() : "";
+  const keyLabel = telegram
+    ? t("connectFlow.telegram.token")
+    : gitHost
+      ? t("connectFlow.git.token")
+      : t("mobile.connectors.keyLabel", { name: shownName });
   // The service's name: the server names another account after it ("Stripe 2"). A catalog entry's goes in English,
   // so each viewer reads a name nobody changed in their own language.
   const first = fixed ? (servers.data ?? []).find((s) => sameServer(s.serverUrl, fixed)) : undefined;
@@ -874,6 +899,9 @@ function ConnectStep({
     setError(null);
     setRefused(null);
     if (askUrl && !isHttpsUrl(url)) return oops(t("mobile.connectors.addressInvalid"));
+    if (def?.address && (typedAddress ? !isHttpsUrl(typedAddress) : def.address === "required")) {
+      return oops(t("mobile.connectors.addressInvalid"));
+    }
     if (key.trim().length < 8) return oops(t("mobile.connectors.keyShort"));
     try {
       if (byAddress) {
@@ -890,7 +918,12 @@ function ConnectStep({
         return fail();
       }
       if (!def) return;
-      const conn = await withKey.mutateAsync({ connector: def.id, apiKey: key.trim(), ...mine });
+      const conn = await withKey.mutateAsync({
+        connector: def.id,
+        apiKey: key.trim(),
+        ...(typedAddress ? { serverUrl: typedAddress } : {}),
+        ...mine,
+      });
       // One account per catalog connector: connecting it again is its new sign-in.
       await connected(conn.id, name, reconnect ? "reconnected" : "connected");
     } catch (error) {
@@ -1010,10 +1043,39 @@ function ConnectStep({
         />
       ) : (
         <>
+          {def?.address && gitHost ? (
+            <Locked when={busy} style={styles.fieldBox}>
+              <InfoHint
+                name={t("common.about", { label: t("connectFlow.git.address") })}
+                text={t(`connectFlow.git.addressHelp.${gitHost === "git" ? "git" : "gitlab"}`)}
+                variant="footnote"
+              >
+                <Text variant="footnote" tone="faint">
+                  {t("connectFlow.git.address")}
+                </Text>
+              </InfoHint>
+              <TextInput
+                value={address}
+                onChangeText={setAddress}
+                keyboardType="url"
+                autoCapitalize="none"
+                autoCorrect={false}
+                placeholder={def.address === "optional" ? "https://gitlab.com" : "https://"}
+                accessibilityLabel={t("connectFlow.git.address")}
+                style={field}
+              />
+            </Locked>
+          ) : null}
           <Locked when={busy} style={styles.fieldBox}>
             <InfoHint
               name={t("common.about", { label: keyLabel })}
-              text={telegram ? t("connectFlow.telegram.steps") : t("mobile.connectors.keyHelp")}
+              text={
+                telegram
+                  ? t("connectFlow.telegram.steps")
+                  : gitHost
+                    ? t(`connectFlow.git.tokenHelp.${gitHost}`)
+                    : t("mobile.connectors.keyHelp")
+              }
               variant="footnote"
             >
               <Text variant="footnote" tone="faint">
@@ -1145,13 +1207,16 @@ const styles = StyleSheet.create({
   },
   keyRow: { flexDirection: "row", alignItems: "center", gap: 8 },
   note: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
-  // A neutral card with a colored badge: the outcome of connecting (`Problem` draws what went wrong the same).
+  // A neutral card with a colored badge: the outcome of connecting (`Problem` draws what went wrong the same). The
+  // words wrap: their first line sits at the badge's middle, the badge never in the middle of the words.
   notice: {
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
     padding: 12,
     borderRadius: 14,
     borderWidth: StyleSheet.hairlineWidth,
   },
   badge: { width: 28, height: 28, borderRadius: 14, alignItems: "center", justifyContent: "center" },
+  // The title's line (22) at the badge's (28) middle.
+  noteText: { paddingTop: 3 },
 });

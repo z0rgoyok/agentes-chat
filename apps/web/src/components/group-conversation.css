@@ -1,0 +1,148 @@
+/*
+ * A personal workspace's group conversation (ADR 0159, amendment of 2026-11-26): its face (`GroupFace`, its agents'
+ * tiles in the box of one face), its name beside that face when it is created, and its cover at the start of the
+ * conversation, as an agent's page has one.
+ */
+.group-face {
+  /* The box's side: a size given to the face, else a message face's. */
+  --group-face-side: var(--group-face, var(--name-face, 32px));
+  --group-face-gap: max(2px, calc(var(--group-face-side) / 18));
+  --group-face-cell: calc((var(--group-face-side) - var(--group-face-gap)) / 2);
+  position: relative;
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(2, var(--group-face-cell));
+  grid-template-rows: repeat(2, var(--group-face-cell));
+  gap: var(--group-face-gap);
+  width: var(--group-face-side);
+  height: var(--group-face-side);
+}
+.group-face__cell,
+.group-face__more {
+  display: grid;
+  width: var(--group-face-cell);
+  height: var(--group-face-cell);
+}
+.group-face__cell > .ac-avatar {
+  width: 100%;
+  height: 100%;
+}
+/* One agent: its face, whole. Two: on a diagonal. Three: two over one. */
+.group-face[data-count="1"] {
+  --group-face-cell: var(--group-face-side);
+  grid-template-columns: var(--group-face-cell);
+  grid-template-rows: var(--group-face-cell);
+}
+.group-face[data-count="2"] > :nth-child(1) {
+  grid-area: 1 / 1;
+}
+.group-face[data-count="2"] > :nth-child(2) {
+  grid-area: 2 / 2;
+}
+.group-face[data-count="3"] > :nth-child(3) {
+  grid-column: 1 / span 2;
+  justify-self: center;
+}
+/*
+ * "+N", and the face of a group with no agent yet: New agent's empty face (`.sidebar__new-agent-face`), the tile's
+ * hairline and faint top highlight; with no agent, one box (not the grid's four) with the people mark at its middle.
+ */
+.group-face__more,
+.group-face--empty {
+  place-items: center;
+  border-radius: 30%;
+  background: var(--plate-soft, var(--plate));
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    inset 0 1px 0 rgba(255, 255, 255, 0.55);
+  color: var(--muted);
+}
+[data-theme="dark"] :is(.group-face__more, .group-face--empty) {
+  box-shadow:
+    inset 0 0 0 1px var(--line),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+.group-face__more {
+  font-size: calc(var(--group-face-side) * 0.22);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.group-face--empty {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+}
+.group-face--empty > .ac-icon {
+  width: 40%;
+  height: 40%;
+}
+
+/* Creating one: its face beside its name, from the label's top to the box's foot (62: the label, its gap and a 40 box),
+   where it stays when a line under the box says what is wrong. */
+.group-namerow {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+.group-namerow > :not(.group-face) {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Its header: the face where a DM's face is (`.dm-who__text > .ac-avatar`). */
+.dm-who__text > .group-face {
+  float: left;
+  margin-right: var(--space-3);
+}
+
+/*
+ * Its cover, at the start of the conversation: the sky of an agent's page (`.agp-cover`), the group's face on its foot
+ * cut out by a ring of the conversation's own ground, its name and who is in it beside the face.
+ */
+.group-cover {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: var(--space-6);
+}
+.group-cover__band.agp-cover {
+  border-radius: var(--radius-lg);
+}
+.group-cover__row {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-4);
+  padding: 0 var(--space-6);
+}
+.group-cover__face {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: none;
+  margin-top: -44px;
+  padding: 6px;
+  border-radius: 22px;
+  background: var(--pane);
+}
+.group-cover__ident {
+  min-width: 0;
+  padding-bottom: var(--space-2);
+}
+.group-cover__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 650;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+.group-cover__who {
+  margin: 4px 0 0;
+  font-size: 14px;
+  color: var(--muted);
+}
+.group-cover__hint {
+  margin: var(--space-4) var(--space-6) 0;
+  font-size: 14px;
+  color: var(--muted);
+}

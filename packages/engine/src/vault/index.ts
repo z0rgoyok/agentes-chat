@@ -24,9 +24,11 @@ export { importVaultCsv } from "./csv";
 export {
   createVaultItem,
   deleteVaultItem,
+  deleteVaultItems,
   getVaultItem,
   listVault,
   moveVaultItem,
+  setVaultItemsAccess,
   updateVaultItem,
 } from "./items";
 export { importVaultKeys } from "./keys";

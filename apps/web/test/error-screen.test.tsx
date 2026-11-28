@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, spyOn, test } from "bun:test";
+import { afterEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { setupDom } from "@agenteschat/ui/testing/dom";
 
 setupDom();
@@ -14,7 +14,7 @@ import { ErrorScreen } from "@/components/ErrorScreen";
 import { ErrorState } from "@/components/Loading";
 import { createI18n } from "@/i18n";
 import { createVersionWatch, reloadForNewVersion, resetVersionReload, startVersionWatch } from "@/lib/app-version";
-import { catchEarlyErrors, type ErrorSdk, reportError, startErrorReports } from "@/lib/error-reports";
+import { catchEarlyErrors, type ErrorSdk, foreignStack, reportError, startErrorReports } from "@/lib/error-reports";
 import { Route as RootRoute } from "@/routes/__root";
 import { createFakeApi } from "./fake-api";
 import { renderPage, screen, settle } from "./render";
@@ -23,7 +23,11 @@ afterEach(() => cleanup());
 
 const CONFIG = { dsn: "https://public@example.invalid/2", environment: "production", release: "2026.10.31.4" };
 const TEXT = "Recarregue a página para continuar.";
-const withCode = (id: string | undefined) => `${TEXT} Se pedir ajuda, informe o código ${id?.slice(0, 8)}.`;
+/** The report's code on its line under Recarregar, or null when the screen gives none. */
+const shownCode = () => {
+  const line = screen().queryByText("Código para o suporte");
+  return line ? (line.querySelector("b")?.textContent ?? "") : null;
+};
 
 type Load = NonNullable<Parameters<typeof startErrorReports>[1]>;
 
@@ -72,13 +76,39 @@ describe("the error screen (ADR 0104)", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]?.error).toBe(error);
     expect(sent[0]?.id).toMatch(/^[0-9a-f]{32}$/);
-    expect(screen().getByText(withCode(sent[0]?.id))).toBeTruthy();
+    expect(screen().getByText(TEXT)).toBeTruthy();
+    expect(shownCode()).toBe(sent[0]?.id.slice(0, 8) ?? "");
     expect(document.body.textContent).not.toContain("destructure");
     // The same error again (another boundary, a second render) is the same report.
     expect(reportError(error)).toBe(sent[0]?.id ?? "");
     expect(sent).toHaveLength(1);
     // Every page that breaks gets it: the root route's boundary catches what its pages throw.
     expect(RootRoute.options.errorComponent).toBe(ErrorScreen);
+  });
+
+  test("in the sign-in's look: the agent dizzy, and Copiar puts the code on the clipboard", async () => {
+    const { sent, load } = fakeSdk();
+    await startErrorReports(CONFIG, load);
+    const copied: string[] = [];
+    const own = Object.getOwnPropertyDescriptor(navigator, "clipboard");
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (text: string) => void copied.push(text) },
+    });
+    try {
+      await renderPage(broken(new Error("broke")), { api: createFakeApi() });
+      // The frame of the screens outside a workspace (AuthFrame), never the workspace's page with an empty box.
+      expect(document.querySelector(".auth .auth__notice")).not.toBeNull();
+      expect(document.querySelector(".ac-empty")).toBeNull();
+      expect(document.querySelector('.auth__face [data-mood="dizzy"]')).not.toBeNull();
+      const code = sent[0]?.id.slice(0, 8) ?? "";
+      await act(async () => fireEvent.click(screen().getByRole("button", { name: "Copiar" })));
+      expect(copied).toEqual([code]);
+      expect(screen().getByRole("button", { name: "Copiado" })).toBeTruthy();
+    } finally {
+      if (own) Object.defineProperty(navigator, "clipboard", own);
+      else delete (navigator as { clipboard?: unknown }).clipboard;
+    }
   });
 
   test("errors before the server says where reports go wait for it, and the screen gives its code once it is sent", async () => {
@@ -92,12 +122,13 @@ describe("the error screen (ADR 0104)", () => {
     expect(sent).toEqual([]);
     // No code for a report that may never go.
     expect(screen().getByText(TEXT)).toBeTruthy();
+    expect(shownCode()).toBeNull();
     await later.answer();
     expect(sent).toEqual([
       { error: early, id: reportError(early) ?? "" },
       { error: stray, id: expect.stringMatching(/^[0-9a-f]{32}$/) },
     ]);
-    expect(screen().getByText(withCode(sent[0]?.id))).toBeTruthy();
+    expect(shownCode()).toBe(sent[0]?.id.slice(0, 8) ?? "");
   });
 
   test("a report that never goes (the SDK didn't load, or dropped it as a repeat) shows no code", async () => {
@@ -107,6 +138,7 @@ describe("the error screen (ADR 0104)", () => {
     await renderPage(broken(new Error("broke while waiting")), { api: createFakeApi() });
     await later.answer();
     expect(screen().getByText(TEXT)).toBeTruthy();
+    expect(shownCode()).toBeNull();
     cleanup();
 
     // An SDK that takes nothing (its dedupe dropped the event): the code would lead nowhere.
@@ -114,6 +146,7 @@ describe("the error screen (ADR 0104)", () => {
     await startErrorReports(CONFIG, silent);
     await renderPage(broken(new Error("broke again")), { api: createFakeApi() });
     expect(screen().getByText(TEXT)).toBeTruthy();
+    expect(shownCode()).toBeNull();
   });
 
   test("without a DSN the SDK never loads and the screen has no code", async () => {
@@ -127,6 +160,7 @@ describe("the error screen (ADR 0104)", () => {
     await renderPage(broken(new Error("broke")), { api: createFakeApi() });
     expect(screen().getByRole("heading", { name: "Algo deu errado" })).toBeTruthy();
     expect(screen().getByText(TEXT)).toBeTruthy();
+    expect(shownCode()).toBeNull();
   });
 
   test("a page's file from before a deploy: the boot sky while the new version loads, and no report", async () => {
@@ -216,6 +250,9 @@ describe("a request that got no answer, or only the proxy's", () => {
       expect(screen().getByRole("heading", { name: "Sem conexão com o agentes.chat" })).toBeTruthy();
       expect(screen().getByText(UNREACHABLE)).toBeTruthy();
       expect(screen().getByRole("button", { name: "Tentar de novo" })).toBeTruthy();
+      // It opens again by itself, and says it is waiting; the agent sleeps while the server restarts.
+      expect(screen().getByRole("status").textContent).toBe("Esperando a conexão voltar");
+      expect(document.querySelector('.auth__face [data-state="sleeping"]')).not.toBeNull();
       expect(document.body.textContent).not.toMatch(/código|Bad Gateway|Failed to fetch|Service Unavailable/);
       cleanup();
     }
@@ -236,6 +273,8 @@ describe("a request that got no answer, or only the proxy's", () => {
       expect(screen().getByRole("heading", { name: "Você está sem internet" })).toBeTruthy();
       expect(screen().getByText("Esta página abre sozinha quando a internet voltar.")).toBeTruthy();
       expect(screen().getByRole("button", { name: "Tentar de novo" })).toBeTruthy();
+      expect(screen().getByRole("status").textContent).toBe("Esperando a conexão voltar");
+      expect(document.querySelector('.auth__face [data-state="thinking"]')).not.toBeNull();
       online = true;
       await act(async () => window.dispatchEvent(new Event("online")));
       expect(screen().getByRole("heading", { name: "Sem conexão com o agentes.chat" })).toBeTruthy();
@@ -319,6 +358,104 @@ describe("a request that got no answer, or only the proxy's", () => {
   });
 });
 
+describe("what fails in code the app doesn't serve", () => {
+  const EXTENSION = "chrome-extension://abcdefghijklmnopabcdefghijklmnop";
+  const app = (file: string) => `${location.origin}/assets/${file}`;
+  /** A report as the SDK gives it to `beforeSend`: an exception (and each of its causes) with the files of its frames. */
+  const report = (...stacks: (string | undefined)[][]) => ({
+    exception: { values: stacks.map((files) => ({ stacktrace: { frames: files.map((filename) => ({ filename })) } })) },
+  });
+
+  test("a stack with none of the app's files isn't sent; one with any, or with no stack, is", () => {
+    expect(foreignStack(report([`${EXTENSION}/inpage.js`, `${EXTENSION}/inpage.js`]))).toBe(true);
+    // A script an extension injected into the page: its frames name the pages it was injected at.
+    expect(foreignStack(report([`${location.origin}/org/1/drive`, `${location.origin}/org/1/dm/person/2`]))).toBe(true);
+    // The engine's own frames say nothing either way.
+    expect(foreignStack(report(["<anonymous>", `${EXTENSION}/evm.js`]))).toBe(true);
+
+    expect(foreignStack(report([app("main-AbC123.js"), app("main-AbC123.js")]))).toBe(false);
+    // Thrown in an extension's code the app called, or with a cause in the app's files: the app's to look at.
+    expect(foreignStack(report([app("main-AbC123.js"), `${EXTENSION}/inpage.js`]))).toBe(false);
+    expect(foreignStack(report([`${EXTENSION}/inpage.js`], [app("calendar-DeF456.js")]))).toBe(false);
+
+    expect(foreignStack({})).toBe(false);
+    expect(foreignStack(report([]))).toBe(false);
+    expect(foreignStack(report(["[native code]", undefined]))).toBe(false);
+  });
+
+  test("the SDK's wrapper around a timer's or a listener's callback says nothing either way", () => {
+    const sdk = app("error-sdk-GhI789.js");
+    expect(foreignStack(report([sdk, `${EXTENSION}/inpage.js`]), sdk)).toBe(true);
+    expect(foreignStack(report([sdk, `${location.origin}/org/1/drive`]), sdk)).toBe(true);
+    expect(foreignStack(report([sdk, app("main-AbC123.js")]), sdk)).toBe(false);
+    expect(foreignStack(report([sdk]), sdk)).toBe(false);
+  });
+
+  let options: { beforeSend: (event: object) => object | null } | undefined;
+  /** The SDK started with its own `beforeSend`: what that gives back is sent, null is not. */
+  const startedSdk = async (taken: (id: string) => void = () => {}) => {
+    mock.module("@sentry/browser", () => ({
+      init: (given: typeof options) => {
+        options = given;
+      },
+      captureException: () => {},
+      setTags: () => {},
+      setUser: () => {},
+    }));
+    const { startSdk } = await import("@/lib/error-sdk");
+    startSdk(CONFIG, taken);
+    return (event: object) => options?.beforeSend(event);
+  };
+
+  test("the SDK sends none of them, and gives the code only of what it sends", async () => {
+    const taken: string[] = [];
+    const beforeSend = await startedSdk((id) => taken.push(id));
+    const send = (id: string, ...files: string[]) => beforeSend({ event_id: id, ...report(files) }) !== null;
+    // The SDK's file: in a build, its chunk, among the app's files.
+    const sdk = new URL("../src/lib/error-sdk.ts", import.meta.url).href;
+    expect(send("1", `${EXTENSION}/inpage.js`)).toBe(false);
+    expect(send("2", sdk, `${EXTENSION}/inpage.js`)).toBe(false);
+    expect(send("3", sdk, app("main-AbC123.js"))).toBe(true);
+    expect(send("4", sdk)).toBe(true);
+    expect(taken).toEqual(["3", "4"]);
+  });
+
+  test("frames that name the app's pages (an inline or injected script's) go as their pattern, its files and others' as they are", async () => {
+    const beforeSend = await startedSdk();
+    const org = `${location.origin}/org/0b0e5b55-7e6c-4b51-9c3c-2f1d8f5a7c01`;
+    // As the SDK's dedupe keeps it, to drop a repeat: `beforeSend` gets a shallow copy, with the same exception.
+    const kept = {
+      exception: {
+        values: [
+          {
+            type: "Error",
+            value: "no access for someone@example.com",
+            stacktrace: {
+              frames: [
+                { filename: `${org}/wiki/plano-de-ferias`, abs_path: `${org}/wiki/plano-de-ferias` },
+                { filename: `${org}/dm/person/notarealuseridnotarealuserid0001` },
+                { filename: app("main-AbC123.js"), abs_path: app("main-AbC123.js") },
+                { filename: `${EXTENSION}/inpage.js` },
+              ],
+            },
+          },
+        ],
+      },
+    };
+    const asItCame = structuredClone(kept);
+    const sent = beforeSend({ ...kept }) as typeof kept;
+    expect(sent.exception.values[0]?.stacktrace.frames).toEqual([
+      { filename: `${location.origin}/org/:id/wiki/:id`, abs_path: `${location.origin}/org/:id/wiki/:id` },
+      { filename: `${location.origin}/org/:id/dm/person/:id` },
+      { filename: app("main-AbC123.js"), abs_path: app("main-AbC123.js") },
+      { filename: `${EXTENSION}/inpage.js` },
+    ]);
+    expect(sent.exception.values[0]?.value).toBe("no access for [email]");
+    // Scrubbed in place, a repeat of it would no longer match and be sent again.
+    expect(kept).toEqual(asItCame);
+  });
+});
+
 describe("a render error above the router (the app's providers)", () => {
   function Throws({ when }: { when: boolean }): null {
     if (when) throw new Error("the theme provider broke");
@@ -372,5 +509,27 @@ describe("a render error above the router (the app's providers)", () => {
     expect(heard).toEqual([new Error("the theme provider broke"), "string"]);
     fireEvent.click(screen().getByRole("button", { name: "the theme provider broke" }));
     expect(screen().getByRole("button", { name: "fine" })).toBeTruthy();
+  });
+});
+
+describe("a crash in the current version", () => {
+  test("Recarregar loads the newest version: the page from the server again, then the reload", async () => {
+    const order: string[] = [];
+    const fetched = spyOn(globalThis, "fetch").mockImplementation((async (_url: string, init?: RequestInit) => {
+      order.push(`fetch:${init?.cache}`);
+      return new Response("");
+    }) as unknown as typeof fetch);
+    const reload = spyOn(window.location, "reload").mockImplementation(() => {
+      order.push("reload");
+    });
+    try {
+      await renderPage(broken(new TypeError("x is undefined")), { api: createFakeApi() });
+      fireEvent.click(screen().getByRole("button", { name: "Recarregar" }));
+      await waitFor(() => expect(order).toContain("reload"));
+      expect(order.filter((o) => o.startsWith("fetch:reload") || o === "reload")).toEqual(["fetch:reload", "reload"]);
+    } finally {
+      fetched.mockRestore();
+      reload.mockRestore();
+    }
   });
 });

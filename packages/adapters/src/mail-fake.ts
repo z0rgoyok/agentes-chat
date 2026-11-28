@@ -308,6 +308,8 @@ export function createFakeComposioClient(
     /** Files tools link to, by URL; `fetched`: the URLs downloaded. */
     files: new Map<string, Uint8Array>(),
     fetched: [] as string[],
+    /** Files put where an action reads them (`uploadFile`), in order. */
+    uploads: [] as { toolkit: string; slug: string; name: string; mimetype: string; data: Uint8Array }[],
     failWith: null as Error | null,
   };
   let seq = 0;
@@ -357,6 +359,11 @@ export function createFakeComposioClient(
       const answer = state.answers.get(slug);
       if (answer instanceof Error) throw answer;
       return typeof answer === "function" ? answer(args) : (answer ?? {});
+    },
+    async uploadFile(input) {
+      if (state.failWith) throw state.failWith;
+      state.uploads.push(input);
+      return { name: input.name, mimetype: input.mimetype, s3key: `uploads/${state.uploads.length}/${input.name}` };
     },
     async fetchFile(url) {
       const file = state.files.get(url);

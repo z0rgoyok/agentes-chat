@@ -3,7 +3,7 @@ import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 import { RefreshControl, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, LayoutAnimationConfig } from "react-native-reanimated";
-import { GroupedHeader, GroupedList, GroupedRow, MEDIA_ROW, SkeletonList, useReducedMotion } from "@/ui";
+import { GroupedHeader, GroupedList, GroupedRow, MEDIA_ROW, SCREEN_X, SkeletonList, useReducedMotion } from "@/ui";
 import { router } from "@/ui/navigation";
 import { AgentFace } from "../shared/Face";
 import { FirstUse, LoadFailed } from "../shared/FirstUse";
@@ -137,5 +137,6 @@ function SessionRow({
 }
 
 const styles = StyleSheet.create({
-  in: { paddingBottom: 24 },
+  // The groups in the grouped list's column, at the screen's sides (as Rotinas').
+  in: { paddingHorizontal: SCREEN_X, paddingTop: 8, paddingBottom: 24 },
 });

@@ -48,6 +48,20 @@ const agentMessages = async () =>
 const beforeMessage = (events: RealtimeEvent[]) => JSON.stringify(events.filter((e) => e.type !== "message.created"));
 const runRow = async () => (await f.db.select().from(schema.agentRuns))[0];
 
+/** A read-only tool: calling it changes nothing people would see. */
+const LOOK: ToolSource = {
+  name: "look",
+  tools: async () => [
+    {
+      name: "look_up",
+      description: "Look up",
+      scope: "",
+      inputSchema: { type: "object" },
+      execute: async () => ({ content: "3 notes" }),
+    },
+  ],
+};
+
 /** A person's message in #general without a mention, and the router bringing the agent in. */
 async function routed(body: string, over: { background?: boolean; trigger?: "router" | "mention" } = {}) {
   const message = await insertMessage(f.db, {
@@ -98,6 +112,40 @@ describe("a run that must answer never posts the silence word", () => {
     expect(run?.status).toBe("failed");
     expect(run?.error).toBe("empty_reply");
   });
+
+  test('a read-only tool call, then no words: asked for its answer, never a stand-in "Done."', async () => {
+    f = await setup({
+      toolSources: [LOOK],
+      reply: (req, call) =>
+        call === 1
+          ? { chunks: [], toolUses: [{ name: "look_up", input: {} }] }
+          : { chunks: lastText(req).includes(ANSWER_NUDGE) ? ["Achei 3 notas."] : [] },
+    });
+    await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, { body: "@dev busca" });
+    await drainOutbox(f.db, f.handlers);
+    expect(await agentMessages()).toEqual(["Achei 3 notas."]);
+    expect((await runRow())?.status).toBe("done");
+  });
+
+  test.each([
+    ["end_turn", "empty_reply"],
+    ["max_tokens", "empty_reply_limit"],
+  ] as const)(
+    "no words even when asked (last call %s): the run fails with %s, nothing posted",
+    async (stopReason, error) => {
+      f = await setup({
+        toolSources: [LOOK],
+        reply: (_req, call) =>
+          call === 1 ? { chunks: [], toolUses: [{ name: "look_up", input: {} }] } : { chunks: [], stopReason },
+      });
+      await postPersonMessage({ db: f.db, pubsub: f.pubsub }, f.owner.id, f.org.id, f.general.id, {
+        body: "@dev busca",
+      });
+      await drainOutbox(f.db, f.handlers);
+      expect(await agentMessages()).toEqual([]);
+      expect((await runRow())?.error).toBe(error);
+    },
+  );
 
   test("a mention can't pass: the tool isn't offered (and calling it anyway is refused)", async () => {
     f = await setup({ toolSources: [createPassToolSource()], reply: () => ({ chunks: ["Feito."] }) });

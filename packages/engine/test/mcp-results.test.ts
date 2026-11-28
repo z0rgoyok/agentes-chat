@@ -41,6 +41,36 @@ test("a file sent as an embedded resource reaches the agent as its text; a binar
   await s.close();
 });
 
+const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0xff]);
+
+test("an image block reaches the agent as the picture itself; one no AI reads, or past the size, says why", async () => {
+  const server = new McpServer({ name: "charts", version: "1" });
+  const big = Buffer.concat([PNG, Buffer.alloc(3_600_000)]);
+  server.registerTool("render_chart", { description: "Render a chart" }, async () => ({
+    content: [
+      { type: "text" as const, text: "Sales by month" },
+      // Wrapped in lines, as some servers send base64: the picture goes on as one line.
+      { type: "image" as const, data: PNG.toString("base64").replace(/(.{4})/g, "$1\n"), mimeType: "image/png" },
+      { type: "image" as const, data: Buffer.from("<svg/>").toString("base64"), mimeType: "image/svg+xml" },
+      { type: "image" as const, data: big.toString("base64"), mimeType: "image/png" },
+    ],
+  }));
+  const [client, transport] = InMemoryTransport.createLinkedPair();
+  await server.connect(transport);
+  const s = await mcpSessionOver(client);
+  const out = await s.callTool("render_chart", {});
+  expect(out.images).toEqual([{ mediaType: "image/png", data: PNG.toString("base64") }]);
+  expect(out.content).toBe(
+    [
+      "Sales by month",
+      "[image: shown to you with this result]",
+      "[image (image/svg+xml): not a PNG, JPEG, GIF or WebP, so not shown to you]",
+      "[image of 3.4 MB: past the 3.3 MB of pictures an AI is shown at once, so not shown to you]",
+    ].join("\n"),
+  );
+  await s.close();
+});
+
 /** Twenty tools, each with an output schema of 40 columns a row. */
 async function reports() {
   const server = new McpServer({ name: "reports", version: "1" });

@@ -439,6 +439,44 @@ export const helpPl: Partial<Record<HelpSlug, HelpDocument>> = {
         ],
       },
       {
+        id: "tool-levels",
+        heading: "Każde narzędzie podłączonej aplikacji",
+        blocks: [
+          "Każde narzędzie aplikacji podłączonej przez adres ma własny poziom, który wybierasz w **Ustawienia\u00a0›\u00a0Konektory**, przy narzędziach tego połączenia. Na stronie agenta **Narzędzia i dostęp** pokazuje, z jakich aplikacji i narzędzi może korzystać.",
+          {
+            list: [
+              "**Tylko patrzy**: czyta i niczego nie zmienia. Nigdy nie pyta.",
+              "**Zmienia rzeczy**: tworzy i edytuje bez pytania. Agent na poziomie **Zawsze pytaj** i tak pyta.",
+              "**Prosi o twoje zatwierdzenie**: pyta w rozmowie przed każdym użyciem.",
+              "**Wyłączone**: agenci go nie dostają.",
+            ],
+          },
+          "**Nigdy nie pytaj** na stronie agenta stoi ponad tym wszystkim: agent na tym poziomie o nic nie prosi, także przy narzędziu na **Prosi o twoje zatwierdzenie**. Gdy poziom zmieni się, kiedy prośby czekają, te, które już by nie pytały, zostają anulowane, a agent wykonuje je ponownie bez karty.",
+        ],
+      },
+      {
+        id: "sensitive",
+        heading: "Narzędzia wrażliwe",
+        blocks: [
+          "Narzędzie, które serwer aplikacji oznacza jako usuwające, wysyłające lub płacące, może być tylko na **Prosi o twoje zatwierdzenie** albo **Wyłączone**.",
+        ],
+      },
+      {
+        id: "order",
+        heading: "W jakiej kolejności działają zatwierdzone akcje",
+        blocks: [
+          "W jednej turze agent wykonuje akcje w kolejności, w jakiej o nie prosił, bez względu na to, w jakiej kolejności je zatwierdzasz. Wiadomość wysłana, gdy agent czeka, zaczyna nową turę, a jej akcje działają po prośbach, o których agent wiedział, że już czekają. Prośby z różnych rozmów nigdy nie czekają na siebie nawzajem.",
+          "Prośba, która czeka na człowieka dłużej niż 30 minut, niczego nie wstrzymuje. Zatwierdzona akcja, która czeka, mówi, na co, z przyciskami **Zatwierdź** i **Odrzuć** dla tamtej prośby oraz **Uruchom teraz**, by pójść dalej bez niej.",
+        ],
+      },
+      {
+        id: "many",
+        heading: "Wiele naraz",
+        blocks: [
+          "Tam, gdzie prośby czekają na ciebie, w przeglądarce i w telefonie, **Zatwierdź wszystkie** i **Odrzuć wszystkie** rozstrzygają naraz wszystkie prośby jednego agenta.",
+        ],
+      },
+      {
         id: "who",
         heading: "Kto zatwierdza",
         blocks: [
@@ -840,7 +878,7 @@ export const helpPl: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "data",
         heading: "Co wysyła",
         blocks: [
-          "Raz dziennie serwer wysyła do agentes.chat anonimowe statystyki użycia: liczby takie jak osoby, agenci, rozmiary maszyn, zużyte tokeny AI i ile danych wysyłają i odbierają przeglądarki agentów. Nigdy wiadomości, pliki, nazwy ani strony. `docker compose run --rm agentes telemetry` pokazuje dokładnie, co zostałoby wysłane. Właściciel wyłącza to w **Ustawienia\u00a0›\u00a0Ogólne** albo przez `TELEMETRY=off` w `.env`.",
+          "Raz dziennie serwer wysyła do agentes.chat anonimowe statystyki użycia: liczby takie jak osoby, agenci, rozmiary maszyn, zużyte tokeny AI, ile danych wysyłają i odbierają przeglądarki agentów oraz jak szybko aplikacje się otwierają i działają. Nigdy wiadomości, pliki, nazwy ani strony. `docker compose run --rm agentes telemetry` pokazuje dokładnie, co zostałoby wysłane. Właściciel wyłącza to w **Ustawienia\u00a0›\u00a0Ogólne** albo przez `TELEMETRY=off` w `.env`.",
           "Raporty błędów nigdzie nie trafiają, chyba że ustawisz `SENTRY_DSN` na wybrany przez siebie serwer zgodny z Sentry. Raport zawiera błąd i miejsce, w którym wystąpił, nigdy wiadomości, e-maile, adresy IP, ciasteczka ani tokeny.",
         ],
       },
@@ -849,6 +887,57 @@ export const helpPl: Partial<Record<HelpSlug, HelpDocument>> = {
         heading: "Pełny przewodnik",
         blocks: [
           "Wszystkie ustawienia, własne proxy takie jak nginx, działanie bez Dockera, instrukcja dla agentów AI, którzy instalują go sami, i co robić, gdy coś zawiedzie, są w `SELF_HOSTING.md`, w repozytorium agentes.chat.",
+        ],
+      },
+    ],
+  },
+  "integration-apps": {
+    title: "Aplikacje integracyjne",
+    summary:
+      "Połącz bota wsparcia, formularz lub monitoring, który publikuje w twoich kanałach jako on sam, nigdy jako osoba.",
+    sections: [
+      {
+        id: "what",
+        heading: "Jak to działa",
+        blocks: [
+          "Aplikacja integracyjna ma własny token. Publikuje w kanałach, które jej dasz, pod własną nazwą z etykietą **Aplikacja**, i może przekazać imię osoby z zewnątrz. Agenci odpowiadają jej jak osobie: gdy ich wspomni albo gdy wybierze ich router.",
+          "Wprowadzaj tak rozmowy z zewnątrz, nigdy osobistym tokenem kogoś: te wiadomości wyglądałyby jak wiadomości tej osoby.",
+        ],
+      },
+      {
+        id: "connect",
+        heading: "Łączenie bota wsparcia",
+        blocks: [
+          {
+            list: [
+              "W **Ustawienia › Konektory › Integracje** kliknij **Połącz aplikację**, nadaj jej nazwę i wybierz kanały.",
+              "Opcjonalnie dodaj adres webhooka: każda odpowiedź agenta w jej kanałach trafia tam, podpisana przez [Standard Webhooks](https://www.standardwebhooks.com).",
+              "Skopiuj token i sekret webhooka. Są pokazywane tylko raz.",
+              "Pierwszą wiadomość każdej rozmowy z zewnątrz publikuj bez `thread_id`, a resztę z jej `id` jako `thread_id`. Odpowiedzi w tym wątku odsyłaj do tej osoby.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "api",
+        heading: "API",
+        blocks: [
+          "Wysyłaj token jako `Authorization: Bearer agi_…`.",
+          {
+            list: [
+              "`GET /api/v1/channels`: kanały aplikacji.",
+              "`POST /api/v1/messages`: `channel_id`, `text` oraz opcjonalnie `thread_id`, `sender` i `idempotency_key`.",
+              "`GET /api/v1/messages?after=<id>`: to, co napisano od tego czasu, z `in_reply_to` przy każdej odpowiedzi agenta.",
+            ],
+          },
+          "Te same wywołania są narzędziami MCP pod `/mcp`. Pełna dokumentacja jest w `/api/openapi.json`.",
+        ],
+      },
+      {
+        id: "safety",
+        heading: "Czego aplikacja nie może",
+        blocks: [
+          "Aplikacja nigdy nie jest członkiem ani osobą. Agenci odpowiadają na to, co publikuje, ale nie przyjmują od niej żadnej reguły, pamięci, zmiany instrukcji, rutyny, zatwierdzenia ani uprawnienia. Unieważnienie tokenu od razu ją zatrzymuje. Odpowiadając aplikacji, agent sam czyta tylko tę rozmowę i sieć: wszystko inne z twojego workspace'u czeka na zatwierdzenie przez człowieka.",
         ],
       },
     ],

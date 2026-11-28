@@ -2,9 +2,33 @@ import type { Widen } from "@agenteschat/i18n/widen";
 
 /** The desktop app's own strings in English, the source: every other language follows this shape. */
 export const desktopEn = {
+  permissionAsk: {
+    title: "agentes.chat needs {{permission}}",
+    done: "I allowed it",
+    later: "Not now",
+    trayTitle: "Waiting for {{permission}}",
+    why: {
+      app_management: "Agents need it to change apps on this {{device}}.",
+      screen: "Agents need it to take screenshots of this {{device}}.",
+      accessibility: "Agents need it to click and type in apps on this {{device}}.",
+      disk: "Agents need it to open your files without macOS asking for each folder.",
+      network: "Agents need it to reach phones and devices on your network.",
+      camera: "Agents need it to use this {{device}}'s camera.",
+      microphone: "Agents need it to use this {{device}}'s microphone.",
+      automation: "Agents need it to control other apps on this {{device}}.",
+    },
+  },
   device: { mac: "Mac", windows: "PC", linux: "computer" },
   /** The app's own windows by name (the Dock's list, the Window menu, Mission Control). */
   windowTitle: { welcome: "Welcome", prefs: "Preferences" },
+  /** The notification the first time someone closes the main window: the app keeps running (background.rs). */
+  background: {
+    title: "agentes.chat is still running",
+    /** A Mac: the icon at the top right of the screen. */
+    bodyMac: "Find it in the menu bar at the top of the screen. Open it or quit it from there.",
+    /** Windows and Linux. */
+    bodyTray: "Find it in the system tray. Open it or quit it from there.",
+  },
   common: {
     cancel: "Cancel",
     close: "Close",
@@ -64,6 +88,12 @@ export const desktopEn = {
         capturing: "taking a screenshot",
         tabs: "switching tabs",
       },
+    },
+    apps: {
+      title: "{{agent}} is using {{app}}",
+      detail: "Your mouse and keyboard stay yours",
+      stop: "Stop",
+      stopped: "{{agent}} stopped using your apps",
     },
     label: "agentes.chat",
     now: "Now",
@@ -131,12 +161,19 @@ export const desktopEn = {
     allowedOne: "{{folder}} allowed for {{agent}}",
     allowedAll: "{{folder}} allowed for all agents",
     denied: "Declined. {{agent}} lets them know in the chat.",
+    /** The computer's own reason, in English (a folder that no longer exists, a system folder, too many folders). */
+    answerFailed: "Couldn't answer this request: {{message}}",
     notifTitle: "{{agent}} wants to use the folder {{folder}}",
     allowedTitle: "{{name}} turned on {{tool}} from agentes.chat",
     allowedBody: "If it wasn't you, undo it here.",
     allowedUndo: "Undo",
     allowedOk: "OK",
     allowedUndone: "Off again: {{tool}}",
+    /** Someone asked from agentes.chat (the site or the phone) for a folder here: the popover's card and the notification. */
+    pickTitle: "{{name}} asks for a folder for the agents",
+    pickTitleAgent: "{{name}} asks for a folder for {{agent}}",
+    pickBody: "Choose which folder to allow on this {{device}}.",
+    pickChoose: "Choose folder",
     quitTitle: "Quit agentes.chat?",
     quitBody:
       "Agents can't use this {{device}} while the app is closed. What is already running finishes and sends the result when you open it again.",
@@ -252,7 +289,7 @@ export const desktopEn = {
     getTailscale: "Get Tailscale",
     usage: "Send anonymous usage statistics to agentes.chat",
     usageText:
-      "Counts such as people, agents, machine sizes, AI tokens used and how much data the agents' browsers send and receive. Never messages, files, names or sites.",
+      "Counts such as people, agents, machine sizes, AI tokens used, how much data the agents' browsers send and receive, and how fast the apps open and run. Never messages, files, names or sites.",
     start: "Start",
     setting: "Getting everything ready",
     /** Under the form, beside a sleeping agent: what closing the app does. */
@@ -509,6 +546,23 @@ export const desktopEn = {
     linkBody: "If you didn't ask for this, choose Not now.",
     waiting: "Waiting for {{by}} to let it in…",
     done: "Connected to {{org}}",
+    /** Once it's in: one switch, off, that lets the whole workspace use it (Preferences › This Mac holds the rest). */
+    share: "Let the whole workspace use it",
+    /** A workspace with its own computer opens websites through this one's internet (ADR 0237); on by default. */
+    internet: "Agents use this computer's internet",
+    internetOn: "Sites and servers the agents reach see your location",
+    internetOff: "Off: agents use their usual connection",
+    internetHint:
+      "The workspace's agents go online through this computer's connection: websites, git, SSH, databases and other TCP connections. Never anything on your own network, nor email on port 25. The agents' AI, name lookups, calls and other UDP traffic use their usual connection, and so does everything while this computer is offline.",
+    /** The same on a self-hosted server, where agents reach it through proxy settings (ADR 0237). */
+    internetHintProxy:
+      "The workspace's agents' browsers and the programs that follow proxy settings (git over HTTPS, curl, most command-line tools) go online through this computer's connection. SSH, database clients and other programs that ignore proxy settings use their usual connection, and so do the agents' AI, name lookups and UDP traffic. Never anything on your own network, nor email on port 25. While this computer is offline, everything uses the usual connection.",
+    /** Nested under `internet` while it is on (ADR 0237, amendment 2026-11-27 c). */
+    internetOnly: "Use only this computer's internet",
+    internetOnlyHint:
+      "Agents use only this computer's internet, their AI included, and never the usual connection. While it's offline, they have no internet until it's back.",
+    shareOff: "Only you for now",
+    shareHint: "Everyone's agents in {{org}} can run tasks on it, as your user.",
     addFolders: "Add folders",
     expired: "This link expired. Make a new one in Devices.",
     openDevices: "Open Devices",
@@ -564,6 +618,11 @@ export const desktopEn = {
     grokDesc: "Writes and changes code in the allowed folders, with your Grok account.",
     antigravityName: "Antigravity CLI",
     antigravityDesc: "Writes and changes code in the allowed folders, with your Gemini account.",
+    devinName: "Devin CLI",
+    devinDesc: "Writes and changes code in the allowed folders, with your Devin account.",
+    /** On Windows, in place of its install line: the Devin CLI isn't pinned there (ADR 0253). */
+    devinWindows:
+      "Devin doesn't run on Windows yet: here its CLI can't keep each account's sign-in apart. Agents think with Devin on a Mac or Linux computer.",
     found: "Found",
     notFound: "Not found",
     loggedOut: "Not signed in",
@@ -869,6 +928,8 @@ export const desktopEn = {
       brainMax: "Open conversations",
       brainMaxDesc: "How many stay open in each workspace. More of them answer faster but use more memory.",
       brainIdle: "Close an idle conversation after",
+      /** Under a limit whose number differs between the workspaces this computer works for. `values`: "Acme 3, Beta 12". */
+      mixed: "Not the same everywhere: {{values}}. A change here sets all of them.",
       folder: "Agents' folder",
       folderDesc: "One folder per workspace, with a folder for each agent.",
     },

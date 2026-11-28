@@ -28,7 +28,7 @@ import { useDirectory } from "@/hooks/useDirectory";
 import { usePersonalView } from "@/hooks/usePersonalView";
 import type { Field } from "@/lib/agent-edit";
 import { planMeterText, usageShown } from "@/lib/plan-usage";
-import { useRoutineControls } from "@/pages/RoutinesPage";
+import { isDoneOnce, useRoutineControls } from "@/pages/RoutinesPage";
 import { AgentAsksLine, agentConnectorTools } from "./AgentTools";
 import { ComputerNow } from "./ComputerNow";
 import { useAgentEdit } from "./context";
@@ -90,7 +90,8 @@ export function Ficha() {
   // edits how the right hand works (ADR 0137).
   const editorsShown = !isRightHand(agent) && (!solo || editorsMode(editorsOf(agent)) === "people");
   const channels = (detail.data?.channels ?? []).filter((c) => saved.channels?.includes(c.id) ?? true);
-  const mine = (routines.data ?? []).filter((r) => r.agentId === agent.id);
+  // A one-off that already fired and finished is past: Routines keeps it under its done ones.
+  const mine = (routines.data ?? []).filter((r) => r.agentId === agent.id && !isDoneOnce(r));
   const next = mine
     .flatMap((r) => (r.nextRunAt ? [r.nextRunAt] : []))
     .sort()

@@ -545,7 +545,7 @@ describe("a refresh that waits (ADR 0135 §6)", () => {
     expect(widgetWaitText(t, "en", { ...base, code: "computer" }, "Theo", now)).toBe("Waiting for Theo's computer");
     expect(widgetWaitText(t, "en", { ...base, code: "busy" }, "Theo", now)).toBe("Waiting for room on Theo's computer");
     expect(widgetWaitText(t, "en", { ...base, code: "outage", resetsAt }, "Theo", now)).toBe(
-      `Waiting for Theo's AI provider, next try ${when}`,
+      `Waiting for Theo's AI to answer, next try ${when}`,
     );
   });
 

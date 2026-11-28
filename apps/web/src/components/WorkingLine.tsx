@@ -9,6 +9,7 @@ import {
   facesOf,
   listNames,
   markedPieces,
+  markFaced,
   markInk,
   peopleGroups,
 } from "@agenteschat/client/lib/activity";
@@ -52,7 +53,7 @@ export function boldNames(text: string): ReactNode[] {
 /** The sentence with names in bold (its text content equals `activityText`). */
 export function WorkingWords({ entries }: { entries: ActivityEntry[] }) {
   const { t } = useTranslation();
-  return <>{boldNames(activitySentence(t, entries, markInk))}</>;
+  return <>{boldNames(activitySentence(t, entries, markInk, markFaced))}</>;
 }
 
 /**
@@ -63,7 +64,7 @@ export function WorkingWords({ entries }: { entries: ActivityEntry[] }) {
  */
 export function BarPhrase({ entries }: { entries: ActivityEntry[] }) {
   const { t } = useTranslation();
-  const [agents, sep, typers, typing, voiceSep, recorders, recording] = barWords(t, entries, markInk);
+  const [agents, sep, typers, typing, voiceSep, recorders, recording] = barWords(t, entries, markInk, markFaced);
   const people = (names: string, doing: string, after = "") => (
     <span className="ac-typing__people">
       <span className="ac-typing__typers">{boldNames(names)}</span>

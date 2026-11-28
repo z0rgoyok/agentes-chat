@@ -44,6 +44,7 @@ import {
   GroupedRow,
   type IconName,
   LineIcon,
+  Refreshing,
   SCREEN_X,
   SkeletonList,
   Text,
@@ -141,46 +142,48 @@ export function AuditScreen({ agentId: first = null }: { agentId?: string | null
               </GroupedList>
             </>
           ) : null}
-          {audit.isPending ? <SkeletonList rows={4} /> : null}
-          {audit.isError && !audit.data ? <LoadFailed onRetry={() => void audit.refetch()} /> : null}
-          {audit.isSuccess && rows.length === 0 ? (
-            show === "all" && !agentId ? (
-              <EmptyState
-                size="panel"
-                agent={look}
-                mood="deal"
-                title={t("mobile.empty.audit.title")}
-                subtitle={t("mobile.empty.audit.text")}
-              />
-            ) : (
-              <EmptyState
-                size="inline"
-                title={t("audit.emptyFiltered")}
-                action={
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    label={t("filters.clearAll")}
-                    onPress={() => {
-                      setShow("all");
-                      setAgentId(null);
-                    }}
-                  />
-                }
-              />
-            )
-          ) : null}
-          {days.map(([day, list]) => (
-            <Fragment key={day}>
-              <GroupedHeader>{day}</GroupedHeader>
-              <GroupedList>
-                {list.map((row) => (
-                  // The list's kept clock format (`useWhen`), not a new one per row.
-                  <AuditRowView key={row.id} row={row} time={when.time(row.at)} />
-                ))}
-              </GroupedList>
-            </Fragment>
-          ))}
+          <Refreshing busy={audit.isPlaceholderData} label={t("common.loading")}>
+            {audit.isPending ? <SkeletonList rows={4} /> : null}
+            {audit.isError && !audit.data ? <LoadFailed onRetry={() => void audit.refetch()} /> : null}
+            {audit.isSuccess && rows.length === 0 ? (
+              show === "all" && !agentId ? (
+                <EmptyState
+                  size="panel"
+                  agent={look}
+                  mood="deal"
+                  title={t("mobile.empty.audit.title")}
+                  subtitle={t("mobile.empty.audit.text")}
+                />
+              ) : (
+                <EmptyState
+                  size="inline"
+                  title={t("audit.emptyFiltered")}
+                  action={
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      label={t("filters.clearAll")}
+                      onPress={() => {
+                        setShow("all");
+                        setAgentId(null);
+                      }}
+                    />
+                  }
+                />
+              )
+            ) : null}
+            {days.map(([day, list]) => (
+              <Fragment key={day}>
+                <GroupedHeader>{day}</GroupedHeader>
+                <GroupedList>
+                  {list.map((row) => (
+                    // The list's kept clock format (`useWhen`), not a new one per row.
+                    <AuditRowView key={row.id} row={row} time={when.time(row.at)} />
+                  ))}
+                </GroupedList>
+              </Fragment>
+            ))}
+          </Refreshing>
           {audit.hasNextPage ? (
             <>
               <Gap />

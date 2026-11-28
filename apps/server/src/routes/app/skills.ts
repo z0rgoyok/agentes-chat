@@ -1,29 +1,45 @@
 import { connectorOAuthApps } from "@agenteschat/config";
+import { and, eq, schema } from "@agenteschat/db";
 import {
   agentMadeSkills,
   agentSkillList,
+  agentSkillSuggestions,
   approveSkillUpdate,
   deleteSkill,
   dismissSkillUpdate,
+  draftSkill,
+  ForbiddenError,
   getSkill,
   getSkillFile,
   getSkillSettings,
   importPickedSkills,
+  importPickedZipSkills,
   importSkillFromUrl,
-  importSkillZip,
+  importSkillsFromFile,
+  importSkillsZip,
   listSkills,
+  NotFoundError,
   parseSkillMarkdown,
+  publishAgentsChanged,
   reopenSkillUpdate,
   restoreSkill,
   revertSkillChange,
+  rewriteSkill,
   SKILL_LIMITS,
+  SKILLS_PER_ARCHIVE,
   type SkillDeps,
+  saveDraftedSkill,
   saveSkill,
+  setAgentLearnsSkills,
   setAgentSkills,
   setSkillAgentsImprove,
   setSkillAutoUpdate,
   setSkillLocked,
   setSkillSettings,
+  setSkillTitle,
+  skillHistory,
+  skillRecentUses,
+  skillZip,
   undoSkillUpdate,
   updateSkill,
   updateSkillFromSource,
@@ -99,6 +115,7 @@ const Skill = z
         waited: z.boolean().openapi({
           description: "A person chose this update while it waited: undoing it makes it wait again.",
         }),
+        byUserId: z.string().nullable().openapi({ description: "A change a person asked for in words: who asked." }),
       })
       .nullable()
       .openapi({
@@ -108,6 +125,16 @@ const Skill = z
       description:
         "Agents change it at once when they fix it (a new version, with undo) instead of proposing; files that run always wait. Null: the workspace's setting.",
     }),
+    title: z.string().nullable().openapi({
+      description:
+        "A name a person gave it (renaming it, or the draft of one taught in words). Null: show its own `name`.",
+    }),
+    summary: z
+      .string()
+      .nullable()
+      .openapi({ description: "When to use it, one short line for people; null until written." }),
+    icon: z.string().nullable().openapi({ description: "One of the app's icons that fits it; null until written." }),
+    titleByPerson: z.boolean().openapi({ description: "A person named it: new versions keep the title." }),
     createdAt: z.string(),
     updatedAt: z.string(),
   })
@@ -166,6 +193,10 @@ const SkillChoice = z
       description:
         "A skill of this name is installed (this becomes a new version of it, for every agent that has it) or was removed (it comes back on for none of its old agents).",
     }),
+    sameName: z.literal(true).optional().openapi({
+      description:
+        "Another skill the link holds has this name with other content: only one of them may be picked. Copies of one skill are offered once.",
+    }),
   })
   .openapi("SkillChoice");
 const SkillSkipped = z
@@ -179,7 +210,57 @@ const SkillSkipped = z
 const SkillParams = OrgParams.extend({ skillId: z.uuid() });
 const SkillListItem = Skill.extend({
   agentsCount: z.number().openapi({ description: "Active agents with this skill turned on." }),
+  agentIds: z.array(z.uuid()).openapi({ description: "Those agents, by name." }),
+  weekUses: z.number().openapi({ description: "How many times agents loaded it in the last 7 days." }),
 }).openapi("SkillListItem");
+const SkillUse = z
+  .object({
+    at: z.string(),
+    agentId: z.uuid(),
+    channelId: z.uuid().nullable().openapi({ description: "Null where the viewer isn't in that conversation." }),
+    channelKind: z.string().nullable().openapi({ description: "`channel`, `dm` or `task`." }),
+    channelName: z.string().nullable(),
+    threadId: z.uuid().nullable(),
+    messageId: z.uuid().nullable().openapi({ description: "The message that started the run." }),
+    excerpt: z.string().nullable().openapi({ description: "The first words of that message." }),
+  })
+  .openapi("SkillUse");
+const SkillEvent = z
+  .object({
+    id: z.string(),
+    at: z.string(),
+    kind: z.enum(["created", "installed", "edited", "rewritten", "link", "agent", "restored", "undone"]),
+    by: z.object({ type: z.enum(["person", "agent"]), id: z.string() }).nullable(),
+    words: z.string().nullable().openapi({ description: "What the person asked, for `rewritten`." }),
+    before: z.string().nullable(),
+    after: z.string().nullable(),
+    undoable: z.boolean().openapi({ description: "The newest change still in place: `…/update/undo` takes it back." }),
+    undone: z.boolean(),
+  })
+  .openapi("SkillEvent");
+const SkillPage = SkillDetail.extend({
+  agentIds: z.array(z.uuid()).openapi({ description: "Active agents with it on." }),
+  weekUses: z.number(),
+  uses: z.array(SkillUse).openapi({ description: "Its last uses, newest first." }),
+  history: z.array(SkillEvent).openapi({ description: "What changed, newest first." }),
+}).openapi("SkillPage");
+const SkillDraft = z
+  .object({
+    name: z.string(),
+    title: z.string(),
+    summary: z.string(),
+    icon: z.string(),
+    description: z.string(),
+    body: z.string(),
+    apps: z.array(
+      z.object({
+        id: z.string(),
+        label: z.string(),
+        missing: z.array(z.uuid()).openapi({ description: "The chosen agents that don't use this app yet." }),
+      }),
+    ),
+  })
+  .openapi("SkillDraft");
 
 const Personal = z.boolean().optional().openapi({
   description: "The person's own skill, which any member adds, instead of the team's (who manages agents).",
@@ -328,7 +409,7 @@ export function skillRoutes(deps: AppDeps) {
       tags,
       security,
       summary:
-        "Import a skill: a GitHub link (a skill's folder or a file in it, or a folder holding several to pick from) or a zip of the folder (base64)",
+        "Import a skill: a GitHub link (a skill's folder or a file in it, or a folder holding several to pick from), a zip of the folder or of several to pick from (base64), or such a zip sent in a conversation (a Drive file)",
       description:
         "A private repository (github.com answers 404) is read through the workspace's GitHub: the GitHub App's token for it, else the GitHub connection's, never sent to the app. `github.repo_missing` says in `connection` how the GitHub connection fared (`none`; `refused`: GitHub no longer takes its token; `ok`: it works and can't see the repository) and in `app` whether the GitHub App is installed on some account for the workspace. `github.unreachable`: GitHub didn't answer, try again.",
       request: {
@@ -340,7 +421,7 @@ export function skillRoutes(deps: AppDeps) {
               paths: z
                 .array(z.string().max(500))
                 .min(1)
-                .max(100)
+                .max(SKILLS_PER_ARCHIVE)
                 .optional()
                 .openapi({ description: "The skills picked among the link's `choices` (their `path`)." }),
               list: z.boolean().optional().openapi({
@@ -357,8 +438,34 @@ export function skillRoutes(deps: AppDeps) {
                 .string()
                 .max(SKILL_ZIP_BASE64_CHARS)
                 .openapi({
-                  description: `The skill folder as a zip, base64 (≤ ${SKILL_LIMITS.maxBytes / 1024 / 1024} MB of text and scripts and ${SKILL_LIMITS.assetBytes / 1024 / 1024} MB of other files unzipped).`,
+                  description: `A skill's folder as a zip, or several skills' folders, base64 (each skill ≤ ${SKILL_LIMITS.maxBytes / 1024 / 1024} MB of text and scripts and ${SKILL_LIMITS.assetBytes / 1024 / 1024} MB of other files unzipped).`,
                 }),
+              paths: z
+                .array(z.string().max(500))
+                .min(1)
+                .max(SKILLS_PER_ARCHIVE)
+                .optional()
+                .openapi({ description: "The skills picked among the zip's `choices` (their `path`)." }),
+              personal: Personal,
+            }),
+            z.object({
+              fileId: z.uuid().openapi({
+                description:
+                  "A .zip of skills in Drive, as the installer reads it: the file an agent's card (`offer_install_skill`) names.",
+              }),
+              paths: z
+                .array(z.string().max(500))
+                .min(1)
+                .max(SKILLS_PER_ARCHIVE)
+                .optional()
+                .openapi({ description: "The skills picked among the file's `choices` (their `path`)." }),
+              list: z.boolean().optional().openapi({
+                description: "Answer with the skills the file holds to pick, even one, installing none.",
+              }),
+              forAgentId: z.uuid().optional().openapi({
+                description:
+                  "The agent whose card opened the install: what installs goes on for it when the installer may change its skills.",
+              }),
               personal: Personal,
             }),
           ]),
@@ -371,7 +478,7 @@ export function skillRoutes(deps: AppDeps) {
             skipped: z.array(SkillSkipped).optional(),
             via: z.enum(["github_app", "github"]).optional(),
           }),
-          "The link holds several skills (or `list`): nothing installed, send the ones picked in `paths`. `skipped`: those that can't be installed, with why. `via`: which of the workspace's GitHub connections read it",
+          "The link or the zip holds several skills (or `list`): nothing installed, send the ones picked in `paths` (with the zip again). `skipped`: those that can't be installed, with why. `via`: which of the workspace's GitHub connections read it",
         ),
         201: json(
           z.union([SkillDetail, z.object({ skills: z.array(SkillDetail) })]),
@@ -402,13 +509,26 @@ export function skillRoutes(deps: AppDeps) {
         });
         return "choices" in result ? c.json(result, 200) : c.json(result, 201);
       }
+      if ("fileId" in input) {
+        const { fileId, ...options } = input;
+        const result = await importSkillsFromFile(skills(), actor, orgId, fileId, options);
+        if (Array.isArray(result)) return c.json({ skills: result }, 201);
+        return "choices" in result ? c.json(result, 200) : c.json(result, 201);
+      }
       let zip: Uint8Array;
       try {
         zip = new Uint8Array(Buffer.from(input.zipBase64, "base64"));
       } catch {
         throw new ValidationError("zipBase64 is not valid base64");
       }
-      return c.json(await importSkillZip(skills(), actor, orgId, zip, { personal: input.personal }), 201);
+      if (input.paths) {
+        const installed = await importPickedZipSkills(skills(), actor, orgId, zip, input.paths, {
+          personal: input.personal,
+        });
+        return c.json({ skills: installed }, 201);
+      }
+      const result = await importSkillsZip(skills(), actor, orgId, zip, { personal: input.personal });
+      return "choices" in result ? c.json(result, 200) : c.json(result, 201);
     },
   );
 
@@ -418,13 +538,132 @@ export function skillRoutes(deps: AppDeps) {
       path: "/organizations/{orgId}/skills/{skillId}",
       tags,
       security,
-      summary: "A skill with its body and files",
+      summary: "A skill with its body and files, who uses it, its last uses and what changed",
       request: { params: SkillParams },
-      responses: { 200: json(SkillDetail), ...errors },
+      responses: { 200: json(SkillPage), ...errors },
     }),
     async (c) => {
       const { orgId, skillId } = c.req.valid("param");
-      return c.json(await getSkill(db, c.get("user").id, orgId, skillId), 200);
+      const actor = c.get("user").id;
+      const detail = await getSkill(db, actor, orgId, skillId);
+      const [listed] = (await listSkills(db, actor, orgId)).filter((s) => s.id === skillId);
+      return c.json(
+        {
+          ...detail,
+          agentIds: listed?.agentIds ?? [],
+          weekUses: listed?.weekUses ?? 0,
+          uses: await skillRecentUses(db, actor, orgId, skillId),
+          history: await skillHistory(db, detail, orgId),
+        },
+        200,
+      );
+    },
+  );
+
+  // A skill's folder as a .zip (its SKILL.md and the files it keeps), downloaded by the browser with the session.
+  app.get("/organizations/:orgId/skills/:skillId/download", async (c) => {
+    const { name, data } = await skillZip(skills(), c.get("user").id, c.req.param("orgId"), c.req.param("skillId"));
+    return new Response(data, {
+      headers: {
+        "content-type": "application/zip",
+        "content-disposition": `attachment; filename="${name}.zip"`,
+        "x-content-type-options": "nosniff",
+        "cache-control": "no-store",
+      },
+    });
+  });
+
+  const unavailable = () =>
+    new ValidationError("No AI model can write skills on this server.", "skill.draft_unavailable");
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/skills/draft",
+      tags,
+      security,
+      summary: "Write a skill from a person's words (nothing saved)",
+      description:
+        "The workspace's summary model writes a skill (name, title, line, when to use, steps, icon) from how the person says the task is done, or makes `change` to `draft`. It says which apps it uses that the chosen agents don't have yet.",
+      request: {
+        params: OrgParams,
+        body: body(
+          z.object({
+            words: z.string().min(1).max(8000),
+            agentIds: z.array(z.uuid()).max(50).optional(),
+            personal: Personal,
+            draft: z
+              .object({ name: z.string().max(64), description: z.string().max(1024), body: z.string().max(50_000) })
+              .optional(),
+            change: z.string().max(2000).optional(),
+          }),
+        ),
+      },
+      responses: { 200: json(SkillDraft), ...errors },
+    }),
+    async (c) => {
+      const context = deps.extras?.context;
+      if (!context) throw unavailable();
+      return c.json(await draftSkill(context, c.get("user").id, c.req.valid("param").orgId, c.req.valid("json")), 200);
+    },
+  );
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/skills/drafted",
+      tags,
+      security,
+      summary: "Save a written skill and turn it on for the agents chosen",
+      request: {
+        params: OrgParams,
+        body: body(
+          z.object({
+            name: z.string().min(1).max(64),
+            title: z.string().max(80),
+            summary: z.string().max(200),
+            icon: z.string().max(40),
+            description: z.string().min(1).max(1024),
+            body: z.string().min(1).max(200_000),
+            agentIds: z.array(z.uuid()).max(50),
+            defaultForNewAgents: z.boolean().optional(),
+            personal: Personal,
+          }),
+        ),
+      },
+      responses: { 201: json(SkillDetail, "Created"), ...errors },
+    }),
+    async (c) => {
+      const { orgId } = c.req.valid("param");
+      const actor = c.get("user").id;
+      const input = c.req.valid("json");
+      const saved = await saveDraftedSkill(skills(), actor, orgId, input);
+      for (const agentId of input.agentIds) {
+        // An agent the person can't edit just doesn't get it; the skill stands.
+        await setAgentSkills(db, actor, orgId, agentId, [{ skillId: saved.id, enabled: true }]).catch((e: unknown) => {
+          if (!(e instanceof ForbiddenError || e instanceof NotFoundError)) throw e;
+        });
+      }
+      await publishAgentsChanged(deps.adapters.pubsub, orgId);
+      return c.json(await getSkill(db, actor, orgId, saved.id), 201);
+    },
+  );
+  app.openapi(
+    createRoute({
+      method: "post",
+      path: "/organizations/{orgId}/skills/{skillId}/rewrite",
+      tags,
+      security,
+      summary: "Change a skill as the person asks in words (a new version, with undo)",
+      request: { params: SkillParams, body: body(z.object({ words: z.string().min(1).max(2000) })) },
+      responses: { 200: json(SkillDetail), ...errors },
+    }),
+    async (c) => {
+      const context = deps.extras?.context;
+      if (!context) throw unavailable();
+      const { orgId, skillId } = c.req.valid("param");
+      return c.json(
+        await rewriteSkill(context, skills(), c.get("user").id, orgId, skillId, c.req.valid("json").words),
+        200,
+      );
     },
   );
 
@@ -483,6 +722,11 @@ export function skillRoutes(deps: AppDeps) {
               .nullable()
               .optional()
               .openapi({ description: "Agents improve it by themselves (null: as the workspace says)." }),
+            title: z
+              .string()
+              .max(80)
+              .optional()
+              .openapi({ description: "Its name for people; empty gives it back to the summary model." }),
           }),
         ),
       },
@@ -490,9 +734,13 @@ export function skillRoutes(deps: AppDeps) {
     }),
     async (c) => {
       const { orgId, skillId } = c.req.valid("param");
-      const { locked, autoUpdate, agentsImprove, ...rest } = c.req.valid("json");
+      const { locked, autoUpdate, agentsImprove, title, ...rest } = c.req.valid("json");
       const actor = c.get("user").id;
       let detail: Awaited<ReturnType<typeof getSkill>> | undefined;
+      if (title !== undefined) {
+        await setSkillTitle(skills(), actor, orgId, skillId, title);
+        detail = await getSkill(db, actor, orgId, skillId);
+      }
       if (locked !== undefined) detail = await setSkillLocked(db, actor, orgId, skillId, locked);
       if (autoUpdate !== undefined) detail = await setSkillAutoUpdate(db, actor, orgId, skillId, autoUpdate);
       if (agentsImprove !== undefined) detail = await setSkillAgentsImprove(db, actor, orgId, skillId, agentsImprove);
@@ -684,7 +932,11 @@ export function skillRoutes(deps: AppDeps) {
   );
 
   const AgentParams = OrgParams.extend({ agentId: z.uuid() });
-  const AgentSkill = Skill.extend({ enabled: z.boolean() });
+  const AgentSkill = Skill.extend({
+    enabled: z.boolean(),
+    agentWeekUses: z.number().openapi({ description: "How many times this agent loaded it in the last 7 days." }),
+    agentLastUsedAt: z.string().nullable().openapi({ description: "When this agent last loaded it." }),
+  });
   app.openapi(
     createRoute({
       method: "get",
@@ -722,11 +974,62 @@ export function skillRoutes(deps: AppDeps) {
       security,
       summary: "The org's skills with whether this agent has each one on",
       request: { params: AgentParams },
-      responses: { 200: json(z.object({ skills: z.array(AgentSkill) })), ...errors },
+      responses: {
+        200: json(
+          z.object({
+            skills: z.array(AgentSkill),
+            learnsSkills: z.boolean().openapi({
+              description: "It turns what it repeats into skills and fixes the ones it uses, on its own.",
+            }),
+          }),
+        ),
+        ...errors,
+      },
     }),
     async (c) => {
       const { orgId, agentId } = c.req.valid("param");
-      return c.json({ skills: await agentSkillList(db, c.get("user").id, orgId, agentId) }, 200);
+      const list = await agentSkillList(db, c.get("user").id, orgId, agentId);
+      const [agent] = await db
+        .select({ learnsSkills: schema.agents.learnsSkills })
+        .from(schema.agents)
+        .where(and(eq(schema.agents.id, agentId), eq(schema.agents.orgId, orgId)));
+      return c.json({ skills: list, learnsSkills: agent?.learnsSkills ?? true }, 200);
+    },
+  );
+  app.openapi(
+    createRoute({
+      method: "put",
+      path: "/organizations/{orgId}/agents/{agentId}/learns-skills",
+      tags,
+      security,
+      summary: "Whether the agent learns skills on its own (who edits it)",
+      request: { params: AgentParams, body: body(z.object({ on: z.boolean() })) },
+      responses: { ...noContent, ...errors },
+    }),
+    async (c) => {
+      const { orgId, agentId } = c.req.valid("param");
+      await setAgentLearnsSkills(db, c.get("user").id, orgId, agentId, c.req.valid("json").on);
+      return c.body(null, 204);
+    },
+  );
+  app.openapi(
+    createRoute({
+      method: "get",
+      path: "/organizations/{orgId}/agents/{agentId}/skill-suggestions",
+      tags,
+      security,
+      summary: "The library's skills that would help this agent, from its last week of work",
+      request: { params: AgentParams },
+      responses: {
+        200: json(z.object({ suggestions: z.array(z.object({ skillId: z.uuid(), why: z.string() })) })),
+        ...errors,
+      },
+    }),
+    async (c) => {
+      const context = deps.extras?.context;
+      if (!context) return c.json({ suggestions: [] }, 200);
+      const { orgId, agentId } = c.req.valid("param");
+      return c.json({ suggestions: await agentSkillSuggestions(context, c.get("user").id, orgId, agentId) }, 200);
     },
   );
 

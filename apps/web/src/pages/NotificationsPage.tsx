@@ -25,6 +25,7 @@ import {
 import { approvalCardItems } from "@agenteschat/client/lib/approval-card";
 import { approvalOriginWords } from "@agenteschat/client/lib/approval-origin";
 import { appCreatedLine } from "@agenteschat/client/lib/apps";
+import { computerOutageLine, isComputerOutage } from "@agenteschat/client/lib/computer-outage";
 import { deviceNoticeOf } from "@agenteschat/client/lib/devices";
 import { errorText, restrictionLine } from "@agenteschat/client/lib/errors";
 import { daysBetween, formatShortDate, formatTime, namesText, timeLeft } from "@agenteschat/client/lib/format";
@@ -76,6 +77,7 @@ import {
   PageHeader,
   PlanStrip,
   prefersReducedMotion,
+  Refreshing,
   Spinner,
 } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
@@ -102,7 +104,13 @@ import { useInboxWaiting } from "@/hooks/useInboxWaiting";
 import { matchesNow } from "@/hooks/useMatchMedia";
 import { lookOf } from "@/lib/look";
 import { useToast } from "@/lib/toast";
-import { ApprovalRow, approvalDecidedAt, decidedGroups } from "@/pages/ApprovalsPage";
+import {
+  ApprovalLinesProvider,
+  ApprovalRow,
+  ApproveAllByAgent,
+  approvalDecidedAt,
+  decidedGroups,
+} from "@/pages/ApprovalsPage";
 import { useLiveStore } from "@/realtime/context";
 import "./notifications.css";
 
@@ -193,6 +201,7 @@ function sourceOf(t: TFunction, n: AppNotification, channelName: (id: string) =>
     n.kind === "computer_ready" ||
     n.kind === "computer_disk_full" ||
     n.kind === "computer_no_chrome" ||
+    isComputerOutage(n) ||
     n.kind === "desktop_taken" ||
     (n.kind === "browser_handoff" && s.screen === "desktop")
   )
@@ -385,7 +394,7 @@ function ThreadReplies({
             <Face actor={actor} dir={dir} size="sm" className="nt-av22" />
             <div>
               <div className="nt-rep__head">
-                <b>{dir.authorName(m.author)}</b>
+                <b>{dir.authorName(m.author, m.meta)}</b>
                 <small>{whenText(t, i18n.language, m.createdAt)}</small>
               </div>
               <p>
@@ -548,7 +557,7 @@ function PlanTakeBack({ n }: { n: AppNotification }) {
 }
 
 /** What an item says under its headline: where it happened, what leads the line, and its words. */
-function itemWords(t: TFunction, n: AppNotification, dir: Dir, channelName: (id: string) => string) {
+function itemWords(t: TFunction, n: AppNotification, dir: Dir, channelName: (id: string) => string, locale: string) {
   const l = n.latest;
   // Asked while nobody watched (ADR 0053 §8): who asked leads an approval's line, its why follows.
   const origin = n.kind === "approval" ? approvalOriginWords({ origin: l.origin }) : null;
@@ -574,21 +583,25 @@ function itemWords(t: TFunction, n: AppNotification, dir: Dir, channelName: (id:
   const media = mediaKindOf(l.media);
   const text = restriction
     ? restrictionLine(t, restriction.code, restriction.facts)
-    : n.kind === "usage_limit"
-      ? usageLimitLine(t, n)
-      : widgetLine
-        ? widgetLine
-        : // What the right hand found is the headline itself: nothing under it says it again.
-          n.kind === "team_watch" || n.kind === "budget_paused"
-          ? null
-          : // What an agent applied (ADR 0219): the newest change, in a line.
-            n.kind === "proposal_applied"
-            ? (l.title ?? null)
-            : why
-              ? sayWords(t, why, l.text ?? "")
-              : media === "voice"
-                ? mediaWord(t, media)
-                : latestText(t, l) || (media ? mediaWord(t, media) : l.text);
+    : isComputerOutage(n)
+      ? computerOutageLine(t, n, locale)
+      : n.kind === "usage_limit"
+        ? usageLimitLine(t, n)
+        : n.kind === "device.internet_shared"
+          ? deviceNoticeLine(t, n)
+          : widgetLine
+            ? widgetLine
+            : // What the right hand found is the headline itself: nothing under it says it again.
+              n.kind === "team_watch" || n.kind === "budget_paused"
+              ? null
+              : // What an agent applied (ADR 0219): the newest change, in a line.
+                n.kind === "proposal_applied"
+                ? (l.title ?? null)
+                : why
+                  ? sayWords(t, why, l.text ?? "")
+                  : media === "voice"
+                    ? mediaWord(t, media)
+                    : latestText(t, l) || (media ? mediaWord(t, media) : l.text);
   const statusMove = n.kind === "issue_status" && (l.statusFrom || l.statusTo);
   // Where it happened and a task's move, in plain words.
   const where =
@@ -686,7 +699,7 @@ function InboxRow({
           ? t("notifications.wait.joinRequestNames", { names: namesText(t, asked.names, 2, asked.total) })
           : t("notifications.wait.joinRequest", { count: 1, name: asked.names[0] })
         : ((n.kind === "invitation_accepted" ? joinerOf(t, dir, n) : undefined) ?? name);
-  const words = itemWords(t, n, dir, channelName);
+  const words = itemWords(t, n, dir, channelName, i18n.language);
   const sub = n.waiting
     ? [words.where, waitingWords(t, n, dir)].filter(Boolean).join(" · ")
     : [words.where, words.lead, words.text].filter(Boolean).join(" · ");
@@ -731,6 +744,38 @@ function InboxRow({
       <span className={cx("ib-row__end", urgent && "is-urgent")}>
         {left ?? whenText(t, i18n.language, n.updatedAt)}
       </span>
+    </button>
+  );
+}
+
+/**
+ * One inbox item as Não lidas lists it (ADR 0260): the inbox's face, headline and line, and when (or how long is
+ * left); a click opens it (`onOpen`), where it is answered.
+ */
+export function InboxItemRow({ n, onOpen }: { n: AppNotification; onOpen: (n: AppNotification) => void }) {
+  const { t, i18n } = useTranslation();
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const channels = useChannels(org.id);
+  const channelName = (id: string) => channels.data?.find((c) => c.id === id)?.name ?? "";
+  const words = itemWords(t, n, dir, channelName, i18n.language);
+  const sub = n.waiting
+    ? [words.where, waitingWords(t, n, dir)].filter(Boolean).join(" · ")
+    : [words.where, words.lead, words.text].filter(Boolean).join(" · ");
+  const expires = n.waiting ? n.latest.expiresAt : undefined;
+  const left = expires ? timeLeft(t, expires) : null;
+  return (
+    <button type="button" className={cx("ib-row", n.readAt === null && "is-unread")} onClick={() => onOpen(n)}>
+      <span className="ib-row__face">
+        <ItemFace n={n} dir={dir} state={n.waiting ? "waiting" : undefined} />
+      </span>
+      <span className="ib-row__text">
+        <span className="ib-row__line nt-what">
+          <Headline n={n} dir={dir} channelName={channelName} />
+        </span>
+        {sub && <span className="ib-row__sub">{plainLine(sub)}</span>}
+      </span>
+      <span className="ib-row__end">{left ?? whenText(t, i18n.language, n.updatedAt)}</span>
     </button>
   );
 }
@@ -872,7 +917,7 @@ function InboxRead({
   const l = n.latest;
   const approvalId = n.kind === "approval" ? n.source.approvalId : undefined;
   const source = sourceOf(t, n, channelName);
-  const words = itemWords(t, n, dir, channelName);
+  const words = itemWords(t, n, dir, channelName, i18n.language);
   const found = teamWatchOf(n);
   const steps = l.steps && l.steps.total > 0 ? l.steps : null;
   const failed =
@@ -1606,7 +1651,8 @@ export function NotificationsPage({
     unreadTotal ? t("notifications.summaryUnread", { count: unreadTotal }) : "",
   ]
     .filter(Boolean)
-    .join(" · ");
+    // Tied to the part before it: a line that wraps beside the filter never starts with the dot.
+    .join("\u00a0· ");
   const back = () => {
     setReplying(null);
     setCur(null);
@@ -1631,93 +1677,96 @@ export function NotificationsPage({
           className="ib-head"
           title={title}
           meta={summary || undefined}
+          // In sight while something is unread: the menu keeps it too, with the other whole-list actions.
           actions={
-            <>
-              {/* In sight while something is unread: the menu keeps it too, with the other whole-list actions. */}
-              {!requestsView && !doneView && Boolean(counts?.unread) && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconOnly
-                  icon="checks"
-                  className="ib-readall"
-                  aria-label={t("notifications.readAll")}
-                  title={t("notifications.readAll")}
-                  disabled={action.isPending || bulk}
-                  onClick={readAll}
-                />
-              )}
-              <Menu
-                align="end"
+            !requestsView &&
+            !doneView &&
+            Boolean(counts?.unread) && (
+              <Button
+                variant="ghost"
+                size="sm"
+                iconOnly
+                icon="checks"
+                className="ib-readall"
+                aria-label={t("notifications.readAll")}
+                title={t("notifications.readAll")}
+                disabled={action.isPending || bulk}
+                onClick={readAll}
+              />
+            )
+          }
+          // At the end of the count's line: beside the title, a filter's name would squeeze it in the narrow list column.
+          metaActions={
+            <Menu
+              align="end"
+              label={t("notifications.filters")}
+              onClosed={() => {
+                const moved = movedByMenu.current ? keyState.current.cur : null;
+                if (moved) element(moved)?.focus({ preventScroll: true });
+                movedByMenu.current = false;
+              }}
+              trigger={
+                <Button variant="ghost" size="sm" className="ib-filter" aria-label={t("notifications.filters")}>
+                  {filterWords(filter)}
+                  <Icon name="chevronDown" size={14} />
+                </Button>
+              }
+            >
+              <MenuRadioGroup
                 label={t("notifications.filters")}
-                onClosed={() => {
-                  const moved = movedByMenu.current ? keyState.current.cur : null;
-                  if (moved) element(moved)?.focus({ preventScroll: true });
-                  movedByMenu.current = false;
+                value={filter}
+                onValueChange={(f) => {
+                  setFilter(f as InboxFilter);
+                  setCur(null);
+                  setReq(null);
                 }}
-                trigger={
-                  <Button variant="ghost" size="sm" className="ib-filter" aria-label={t("notifications.filters")}>
-                    {filterWords(filter)}
-                    <Icon name="chevronDown" size={14} />
-                  </Button>
-                }
-              >
-                <MenuRadioGroup
-                  label={t("notifications.filters")}
-                  value={filter}
-                  onValueChange={(f) => {
-                    setFilter(f as InboxFilter);
-                    setCur(null);
-                    setReq(null);
-                  }}
-                  options={INBOX_FILTERS.map((f) => ({
-                    value: f,
-                    label:
-                      f !== "requests" && f !== "done" && counts?.[f] ? (
-                        <span className="ib-menu__opt">
-                          {filterWords(f)}
-                          <span className="ib-menu__n">{counts[f]}</span>
-                        </span>
-                      ) : (
-                        filterWords(f)
-                      ),
-                  }))}
-                />
-                {!requestsView && (
-                  <>
-                    <MenuSeparator />
-                    <MenuItem
-                      icon="check"
-                      disabled={doneView || !counts?.unread || action.isPending || bulk}
-                      onSelect={readAll}
-                    >
-                      {t("notifications.readAll")}
-                    </MenuItem>
-                    <MenuItem
-                      icon="archive"
-                      disabled={!canClearAll(listFilter, counts, items) || action.isPending || bulk}
-                      onSelect={doneAll}
-                    >
-                      {t("notifications.doneAll")}
-                    </MenuItem>
-                    <MenuSeparator />
-                    <MenuHeading>{t("notifications.keys.title")}</MenuHeading>
-                    <MenuItem hint="J · K" disabled={items.length === 0} onSelect={() => menuPress("j")}>
-                      {t("notifications.keys.move")}
-                    </MenuItem>
-                    <MenuItem hint="E" disabled={!curItem} onSelect={() => menuPress("e")}>
-                      {t("notifications.keys.done")}
-                    </MenuItem>
-                    <MenuItem hint="R" disabled={!curItem} onSelect={() => menuPress("r")}>
-                      {t("notifications.keys.reply")}
-                    </MenuItem>
-                    <MenuItem hint="↵" disabled={!curItem} onSelect={() => menuPress("enter")}>
-                      {t("notifications.keys.open")}
-                    </MenuItem>
-                  </>
-                )}
-              </Menu>
-            </>
+                options={INBOX_FILTERS.map((f) => ({
+                  value: f,
+                  label:
+                    f !== "requests" && f !== "done" && counts?.[f] ? (
+                      <span className="ib-menu__opt">
+                        {filterWords(f)}
+                        <span className="ib-menu__n">{counts[f]}</span>
+                      </span>
+                    ) : (
+                      filterWords(f)
+                    ),
+                }))}
+              />
+              {!requestsView && (
+                <>
+                  <MenuSeparator />
+                  <MenuItem
+                    icon="check"
+                    disabled={doneView || !counts?.unread || action.isPending || bulk}
+                    onSelect={readAll}
+                  >
+                    {t("notifications.readAll")}
+                  </MenuItem>
+                  <MenuItem
+                    icon="archive"
+                    disabled={!canClearAll(listFilter, counts, items) || action.isPending || bulk}
+                    onSelect={doneAll}
+                  >
+                    {t("notifications.doneAll")}
+                  </MenuItem>
+                  <MenuSeparator />
+                  <MenuHeading>{t("notifications.keys.title")}</MenuHeading>
+                  <MenuItem hint="J · K" disabled={items.length === 0} onSelect={() => menuPress("j")}>
+                    {t("notifications.keys.move")}
+                  </MenuItem>
+                  <MenuItem hint="E" disabled={!curItem} onSelect={() => menuPress("e")}>
+                    {t("notifications.keys.done")}
+                  </MenuItem>
+                  <MenuItem hint="R" disabled={!curItem} onSelect={() => menuPress("r")}>
+                    {t("notifications.keys.reply")}
+                  </MenuItem>
+                  <MenuItem hint="↵" disabled={!curItem} onSelect={() => menuPress("enter")}>
+                    {t("notifications.keys.open")}
+                  </MenuItem>
+                </>
+              )}
+            </Menu>
           }
         />
 
@@ -1727,19 +1776,21 @@ export function NotificationsPage({
             {approvals.isSuccess && decided.length === 0 && (
               <EmptyState size="panel">{t("notifications.noneRequests")}</EmptyState>
             )}
-            {decidedGroups(decided).map(([day, rows]) => (
-              <section key={day} className="ib-group" aria-label={t(`approvals.groups.${day}`)}>
-                <GroupHeading title={t(`approvals.groups.${day}`)} />
-                <div className="ap-list__rows">
-                  {rows.map((a) => (
-                    <ApprovalRow key={a.id} approval={a} selected={req === a.id} onOpen={() => setReq(a.id)} />
-                  ))}
-                </div>
-              </section>
-            ))}
+            <ApprovalLinesProvider list={approvals.data ?? []}>
+              {decidedGroups(decided).map(([day, rows]) => (
+                <section key={day} className="ib-group" aria-label={t(`approvals.groups.${day}`)}>
+                  <GroupHeading title={t(`approvals.groups.${day}`)} />
+                  <div className="ap-list__rows">
+                    {rows.map((a) => (
+                      <ApprovalRow key={a.id} approval={a} selected={req === a.id} onOpen={() => setReq(a.id)} />
+                    ))}
+                  </div>
+                </section>
+              ))}
+            </ApprovalLinesProvider>
           </>
         ) : (
-          <>
+          <Refreshing busy={list.isPlaceholderData} label={t("common.loading")}>
             {list.isPending && <LoadingCards count={3} />}
             {list.isError && !list.data && <ErrorState error={list.error} onRetry={() => void list.refetch()} />}
             {list.isSuccess && items.length === 0 && (
@@ -1773,6 +1824,7 @@ export function NotificationsPage({
             {waiting.length > 0 && (
               <section className="ib-group nt-wait" aria-label={t("notifications.wait.title")}>
                 <GroupHeading title={t("notifications.wait.title")} count={waiting.length} />
+                <ApproveAllByAgent list={approvals.data ?? []} />
                 {waiting.map((n) => (
                   <InboxRow key={n.id} n={n} s={stateOf(n)} h={handlers} dir={dir} channelName={channelName} />
                 ))}
@@ -1804,7 +1856,7 @@ export function NotificationsPage({
                 </Button>
               </div>
             )}
-          </>
+          </Refreshing>
         )}
       </aside>
 

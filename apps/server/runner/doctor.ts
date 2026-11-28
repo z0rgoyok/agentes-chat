@@ -1,9 +1,8 @@
-import { spawnSync } from "node:child_process";
-import { accessSync, constants, readdirSync, readFileSync } from "node:fs";
+import { accessSync, constants, readdirSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { machineSize } from "@agenteschat/adapters/host-stats";
+import { cpuName, machineSize, systemName } from "@agenteschat/adapters/host-stats";
 import type { RunnerInfo, RunnerPhone, RunnerToolchains } from "@agenteschat/adapters/machine-protocol";
 import type { Term } from "@agenteschat/setup/src/term";
 import { TOOL_LABELS } from "./access";
@@ -136,7 +135,7 @@ function connectionChecks(s: DoctorSources): Check[] {
 /** `2.1.4 (Claude Code)` → `2.1.4`. */
 const versionOf = (line: string) => /\d+(?:\.\d+)+/.exec(line)?.[0] ?? line;
 
-const APPS = ["claude", "codex", "cursor", "opencode", "grok", "antigravity"] as const;
+const APPS = ["claude", "codex", "cursor", "opencode", "grok", "antigravity", "devin"] as const;
 
 function appChecks(found: Executors): Check[] {
   const checks = APPS.flatMap((name): Check[] => {
@@ -295,35 +294,6 @@ export async function runDoctor(o: DoctorOptions): Promise<number> {
 }
 
 // ── What it looks at, on this computer ──────────────────────────────────────────
-
-/** "macOS 26.1", "Ubuntu 24.04", "Windows 11". */
-function systemName(platform: NodeJS.Platform): string {
-  if (platform === "darwin") {
-    const v = spawnSync("sw_vers", ["-productVersion"], { encoding: "utf8" }).stdout?.trim();
-    return v ? `macOS ${v}` : "macOS";
-  }
-  if (platform === "win32") return Number(os.release().split(".")[2]) >= 22000 ? "Windows 11" : "Windows 10";
-  if (platform === "linux") {
-    try {
-      const text = readFileSync("/etc/os-release", "utf8");
-      const field = (k: string) => new RegExp(`^${k}="?([^"\\n]+)`, "m").exec(text)?.[1];
-      return [field("NAME"), field("VERSION_ID")].filter(Boolean).join(" ") || "Linux";
-    } catch {
-      return "Linux";
-    }
-  }
-  return os.type();
-}
-
-/** `AMD Ryzen 9 7950X 16-Core Processor` → `AMD Ryzen 9 7950X`; `Intel(R) Xeon(R) CPU E5-2680 @ 2.40GHz` → `Intel Xeon E5-2680`. */
-export const cpuName = (model: string) =>
-  model
-    .replace(/\((R|TM)\)/gi, "")
-    .replace(/\s*@.*$/, "")
-    .replace(/\s+\d+-Core Processor$/i, "")
-    .replace(/\bCPU\b/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
 
 export function systemLine(platform: NodeJS.Platform = process.platform): string {
   const size = machineSize(os.homedir());

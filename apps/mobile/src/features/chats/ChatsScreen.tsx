@@ -1,4 +1,4 @@
-import { keys, useAgentGroups, useChannels, useMuteChannel } from "@agenteschat/client";
+import { keys, useChannels, useMuteChannel, useSidebarView } from "@agenteschat/client";
 import { canTalk, listsAgent } from "@agenteschat/client/lib/audience";
 import { waitingComputerByAgent } from "@agenteschat/client/lib/machine-outages";
 import { isRightHand, rightHandOf } from "@agenteschat/client/lib/right-hand";
@@ -18,7 +18,6 @@ import {
   LargeTitleScreen,
   LIST_AVATAR,
   ListRow,
-  RoleMark,
   SkeletonList,
   SkeletonOver,
   useFirstLoad,
@@ -26,7 +25,7 @@ import {
 } from "@/ui";
 import { router } from "@/ui/navigation";
 import { workByAgent } from "../agents/logic";
-import { useRowMenus } from "../categories/menus";
+import { useRowMenus } from "../channel-sectors/menus";
 import { SetupNotice } from "../computer/SetupWait";
 import { chatHref } from "../links/logic";
 import { useOpenStart } from "../me/useStart";
@@ -34,6 +33,7 @@ import { useOpenDm } from "../new/useOpenDm";
 import { OutageNotices } from "../outages/OutageNotice";
 import { useMachineOutages } from "../outages/queries";
 import { RightHandAsk } from "../right-hand/Pin";
+import { teamArrivals } from "../right-hand/team-arrivals";
 import { FirstUse } from "../shared/FirstUse";
 import { useDirectory, useMeId, useOrgId, usePullRefresh } from "../shared/hooks";
 import { pickOne } from "../shared/PickerSheet";
@@ -52,12 +52,15 @@ import { HomeRow } from "./HomeRow";
 import { CollapsibleSection, LandRow, SeeAllRow, useCollapsedSections } from "./HomeSection";
 import { HomeServerError, HomeServerNotice } from "./HomeServerError";
 import { HomeWidgets } from "./HomeWidgets";
+import { InvitedNotice } from "./InvitedNotice";
 import {
   agentStarters,
   type ConversationRow,
+  closedUnread,
   type HomeSectorSection,
   type HomeView,
   homeViewOf,
+  keptWhenClosed,
   type ListKind,
   pinnedRows,
   RECENT_MAX,
@@ -91,8 +94,8 @@ const PEEK = Platform.OS === "ios";
 const ACCESSORY = alongInAccessory(Platform.OS, Platform.Version);
 
 /**
- * How Conversas lists a team's conversations (`HomeView`), remembered on this phone: Recentes, or Setores, grouped
- * as the web's sidebar groups the agents. A personal workspace has no sectors: always Recentes.
+ * How Conversas lists a team's conversations (`HomeView`), remembered on this phone: Recentes, or Seções, the person's
+ * own sections as the web's sidebar has them (ADR 0260). A personal workspace has none: always Recentes.
  */
 function useHomeView(personal: boolean): [HomeView, (next: HomeView) => void] {
   const [view, setView] = useState<HomeView>(() => homeViewOf(readValueSync(STORED.homeView)));
@@ -171,16 +174,23 @@ function Home() {
   const focused = useIsFocused();
   // What the person chose to open when the app starts goes over Conversas, once (ADR 0108).
   useOpenStart(focused);
+  // A team just made from Lodi's card: its conversations come in once, the next time Conversas shows.
+  const [fresh, setFresh] = useState<ReadonlySet<string>>(() => new Set());
+  useEffect(() => {
+    if (!focused) return;
+    const keys = teamArrivals.takeFresh();
+    if (keys.size > 0) setFresh(keys);
+  }, [focused]);
   const tabHeader = useTabHeader();
   const dir = useDirectory();
-  // A team's Conversas lists its conversations by latest activity or by sector: the choice is a glass button beside
+  // A team's Conversas lists its conversations by latest activity or by the person's sections: the choice is a glass button beside
   // "+" that opens the system's menu (Android: the app's picker). Its icon stays the same whichever view is on (one
   // that changed with the choice read as a different button each time); the menu's check says which.
   const personal = isPersonal(org);
   const [view, setView] = useHomeView(personal);
   const viewTitle = t("mobile.chats.view.title");
   const recentLabel = t("mobile.chats.recent");
-  const sectorsLabel = t("mobile.chats.view.sectors");
+  const sectorsLabel = t("mobile.chats.view.sections");
   const header = useMemo(() => {
     if (personal) return tabHeader;
     const viewAction: HeaderAction = {
@@ -230,7 +240,7 @@ function Home() {
   const { collapsed, toggle } = useCollapsedSections();
   // Setores' sections collapse on their own (keyed by sector), remembered apart from the home's.
   const sectorsFold = useCollapsedSections<string>(STORED.homeSectorsCollapsed, null);
-  const groups = useAgentGroups(orgId).data;
+  const ownSections = useSidebarView(orgId).sections;
   // The widgets' section is memoized: its toggle stays one function.
   const toggleWidgets = useCallback(() => toggle("widgets"), [toggle]);
   // An administrator reads every channel (ADR 0151): the ones they aren't in wait at the end of the home.
@@ -291,14 +301,10 @@ function Home() {
   const pins = usePins();
   // Recentes: every conversation by its latest activity, the pinned ones in their place (the strip holds the pins).
   const recent = recentRows(withoutQuietGeneral(pinned.rows, hideGeneral));
-  // Setores: the same conversations by the agents' sectors, each sector's agents never talked to as well (the web's
-  // sidebar lists every agent of a sector).
+  // Seções: the same conversations in the person's own sections, then the channels in none, then the DMs.
   const sectors = useMemo(
-    () =>
-      view === "sectors"
-        ? sectorSections([...withoutQuietGeneral(pinned.rows, hideGeneral), ...starters], groups ?? [])
-        : [],
-    [view, pinned.rows, hideGeneral, starters, groups],
+    () => (view === "sectors" ? sectorSections(withoutQuietGeneral(pinned.rows, hideGeneral), ownSections ?? []) : []),
+    [view, pinned.rows, hideGeneral, ownSections],
   );
   // In the split with nothing open yet, the most recent conversation opens beside the list (the right hand's after
   // every row of Recentes: it is never one of them).
@@ -334,24 +340,18 @@ function Home() {
       <RightHandAsk row={pinned.pin} onStart={startDm} faceMode={wake.mode} />
     ) : null;
 
-  const holdLabel = t("sidebarPins.pin");
-  // A section of Setores: the sector's name, or the agents in none, the direct messages, the channels.
+  const holdLabel = t("sidebarFavorites.add");
+  // A part of Seções: the section's name, or the channels in none, the direct messages.
   const sectionTitle = (section: HomeSectorSection) =>
     section.group
       ? section.group.name
-      : section.kind === "agents"
-        ? t(
-            sectors.some((s) => s.kind === "sector")
-              ? "mobile.agents.noGroupSection"
-              : modeKey(org, "mobile.agents.teamSection"),
-          )
-        : section.kind === "dms"
-          ? t("mobile.chats.view.dms")
-          : t("mobile.chats.view.channels");
+      : section.kind === "dms"
+        ? t("mobile.chats.view.dms")
+        : t("mobile.chats.view.channels");
   // The faces that move: the pinned ones at work first (the strip leads the list), then the first rows; none of a
   // closed section.
   let live = 0;
-  const strip = pinnedRows(pinned.rows, starters, pins.pins).map((r): PinnedItem => {
+  const strip = pinnedRows(pinned.rows, starters, pins.favorites).map((r): PinnedItem => {
     const facts = factsOf(r, agentStates.get(r.key));
     const moves = !collapsed.includes("pinned") && facts.face === "run" && live < LIVE_ROWS;
     if (moves) live++;
@@ -384,6 +384,7 @@ function Home() {
       ) : (
         <>
           <ConfirmEmailNotice />
+          <InvitedNotice />
           <SetupNotice />
           <OutageNotices />
         </>
@@ -423,47 +424,58 @@ function Home() {
                   onStart={startDm}
                   onHold={menus.openRowMenu}
                   holdActions={menus.rowActionsOf}
-                  holdLabel={t("sidebarPins.unpin")}
+                  holdLabel={t("sidebarFavorites.remove")}
                 />
               </LandRow>
               {view === "sectors"
-                ? sectors.map((section) => (
-                    <CollapsibleSection
-                      key={section.key}
-                      title={sectionTitle(section)}
-                      count={section.rows.length}
-                      {...(section.group
-                        ? {
-                            mark: (
-                              <RoleMark color={section.group.color ?? "graphite"} icon={section.group.icon} size={20} />
-                            ),
-                          }
-                        : {})}
-                      collapsed={sectorsFold.collapsed.includes(section.key)}
-                      onToggle={() => sectorsFold.toggle(section.key)}
-                    >
-                      {section.rows.map((r, i) => (
-                        <LandRow
-                          key={r.key}
-                          land={load.landing}
-                          index={2 + i}
-                          moves={section.rows.length <= MOVING_ROWS}
-                        >
-                          <HomeRow
-                            row={r}
-                            facts={factsOf(r, agentStates.get(r.key))}
-                            divider={i > 0}
-                            live={!sectorsFold.collapsed.includes(section.key) && live++ < LIVE_ROWS}
-                            pinLabel={menus.pinLabelOf(r)}
-                            onHold={menus.openRowMenu}
-                            holdLabel={holdLabel}
-                            holdActions={menus.rowActionsOf}
-                            onMute={muteRow}
-                          />
-                        </LandRow>
-                      ))}
-                    </CollapsibleSection>
-                  ))
+                ? sectors.map((section) => {
+                    const closed = sectorsFold.collapsed.includes(section.key);
+                    const rowOf = (r: ConversationRow, i: number, kept = false) => (
+                      <LandRow
+                        key={r.key}
+                        land={load.landing}
+                        fresh={fresh.has(r.key)}
+                        index={2 + i}
+                        moves={section.rows.length <= MOVING_ROWS}
+                      >
+                        <HomeRow
+                          row={r}
+                          facts={factsOf(r, agentStates.get(r.key))}
+                          divider={!kept && i > 0}
+                          live={!closed && live++ < LIVE_ROWS}
+                          pinLabel={menus.pinLabelOf(r)}
+                          onHold={menus.openRowMenu}
+                          holdLabel={holdLabel}
+                          holdActions={menus.rowActionsOf}
+                          onMute={muteRow}
+                        />
+                      </LandRow>
+                    );
+                    const unread = closedUnread(section.rows);
+                    return (
+                      <CollapsibleSection
+                        key={section.key}
+                        title={sectionTitle(section)}
+                        count={section.rows.length}
+                        {...(section.group
+                          ? {
+                              // Closed, a section keeps what calls on me in sight, and one count for its channels.
+                              kept: section.rows.filter(keptWhenClosed).map((r, i) => rowOf(r, i, true)),
+                              unread: {
+                                count: unread,
+                                hot: section.rows.some(
+                                  (r) => (r.kind === "dm" && r.unread > 0) || (r.kind === "channel" && r.mentions > 0),
+                                ),
+                              },
+                            }
+                          : {})}
+                        collapsed={closed}
+                        onToggle={() => sectorsFold.toggle(section.key)}
+                      >
+                        {section.rows.map((r, i) => rowOf(r, i))}
+                      </CollapsibleSection>
+                    );
+                  })
                 : null}
               {view === "sectors" ? null : (
                 <CollapsibleSection
@@ -487,7 +499,7 @@ function Home() {
                       // Swiped left: Fixar no topo (or Tirar do topo) and a channel's Silenciar; held: the menu
                       // (`HomeRow`). The row's key is on the box that travels: a conversation that goes to the top with
                       // a new message moves there, and the ones it passes move down.
-                      <LandRow key={r.key} land={load.landing} index={2 + i} moves>
+                      <LandRow key={r.key} land={load.landing} fresh={fresh.has(r.key)} index={2 + i} moves>
                         <HomeRow
                           row={r}
                           facts={factsOf(r, agentStates.get(r.key))}

@@ -8,11 +8,14 @@ import {
   useCodeSession,
 } from "@agenteschat/client";
 import { joinNames } from "@agenteschat/client/lib/format";
+import { groupFaceOf } from "@agenteschat/client/lib/group-conversations";
 import { issueWorkOf, taskConversationOf } from "@agenteschat/client/lib/issues";
 import { textOrMedia } from "@agenteschat/client/lib/media";
+import { isPersonal } from "@agenteschat/client/lib/workspace-mode";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { StyleSheet, View } from "react-native";
+import { useOrg } from "@/providers/org";
 import type { HeaderAction } from "@/ui";
 import { router } from "@/ui/navigation";
 import { threadTitle } from "../../chats/logic";
@@ -25,6 +28,7 @@ import { PushedHeader } from "../../shared/parts";
 import { AgentTasksButton, useDmAgentTasks } from "../../task-manager/AgentTasksButton";
 import { agentTasksHref } from "../../task-manager/logic";
 import { DmComputerWords, dmComputerAction } from "../DmComputerButton";
+import { useGroupConversation } from "../GroupCover";
 import { useLatest } from "./hooks";
 import { ChannelPill, DmPill, ThreadPill, who } from "./pills";
 import type { ChatData } from "./useChatData";
@@ -71,6 +75,8 @@ export function useChatTitle({
   >;
 }) {
   const { channel, dm, dmAgentId, isThread, list, mission, rightHand, roster, thread } = data;
+  const { org } = useOrg();
+  const groupConversation = Boolean(channel && isPersonal(org) && groupFaceOf(channel));
   // ── Header ──
   // The header is glass over the conversation: the system's
   // back and "…" circles, and in the middle a pill with who or where, its sky and what the agent is doing.
@@ -105,7 +111,11 @@ export function useChatTitle({
     : dm
       ? dm.with.name
       : channel
-        ? `#${channel.name}`
+        ? // A personal workspace's group conversation goes by its name as written (ADR 0159), from a server that
+          // keeps it so.
+          groupConversation
+          ? channel.name
+          : `#${channel.name}`
         : "";
   const agentsHere = (roster.data ?? []).filter((r) => r.type === "agent").length;
   const subtitle = isThread
@@ -267,6 +277,14 @@ export function ChatHeader({
   const channelColor = agentLook(dir.agentById.get(roster.data?.find((r) => r.type === "agent")?.id ?? "")).color;
   const dmColor = dmAgentId ? agentLook(dmAgent).color : undefined;
   const hereLine = roster.data ? t("mobile.chat.here", { count: roster.data.length }) : undefined;
+  // A personal workspace's group conversation (ADR 0159), from a server that lists its agents: its agents as its face
+  // and who is in it under its name ("Você, Ana, Teo e Rita"), as the web's header.
+  const groupTalk = useGroupConversation(channel, roster.data);
+  const group = useMemo(
+    () => (groupTalk ? { agentIds: groupTalk.agentIds, count: groupTalk.count } : null),
+    [groupTalk],
+  );
+  const groupLine = groupTalk?.who;
   // Reading far up, a DM's pill closes to the face (the screen is the messages); a new reply opens it again.
   const quietBelow = unseen.messages === 0;
   const pillInView = focused || peeking;
@@ -310,7 +328,8 @@ export function ChatHeader({
       ) : pillKind === "channel" && channel ? (
         <ChannelPill
           title={channel.name}
-          subtitle={hereLine}
+          subtitle={groupLine ?? hereLine}
+          group={group}
           color={channelColor}
           roster={roster.data}
           onPress={pressMembers}
@@ -350,6 +369,8 @@ export function ChatHeader({
       pressAgent,
       channel,
       hereLine,
+      group,
+      groupLine,
       channelColor,
       roster.data,
       pressMembers,

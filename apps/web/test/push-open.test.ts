@@ -219,11 +219,13 @@ const PUSHED: { kind: AppNotification["kind"]; n: Partial<AppNotification>; to: 
     to: "/org/$orgId/c/$channelId",
   },
   { kind: "computer_ready", n: { source: { machineId: "pc1" } }, to: "/org/$orgId/settings/computers/$machineId" },
+  { kind: "computer_down", n: { source: { machineId: "pc1" } }, to: "/org/$orgId/settings/computers/$machineId" },
+  { kind: "computer_back", n: { source: { machineId: "pc1" } }, to: "/org/$orgId/settings/computers/$machineId" },
   { kind: "join_request", n: { waiting: true, source: { label: "Acme" } }, to: "/org/$orgId/settings/$section" },
   {
     kind: "agent_reply",
     n: { actors: [{ type: "agent", id: "ag1" }], source: { channelId: "d1", dmId: "d1", messageId: "m1" } },
-    to: "/org/$orgId/dm/agent/$agentId",
+    to: "/org/$orgId/c/$channelId",
   },
   {
     kind: "agent_reply",
@@ -262,7 +264,7 @@ describe("every pushed kind opens a real page", () => {
     const target = openTarget(
       notification({ id: ID, kind: "dm", actors: [{ type: "agent", id: "ag1" }], source: { dmId: "d1" } }),
     );
-    expect(target).toEqual({ to: "/org/$orgId/dm/agent/$agentId", params: { agentId: "ag1" } });
+    expect(target).toEqual({ to: "/org/$orgId/c/$channelId", params: { channelId: "d1" } });
   });
 
   test("a stopped mission without its thread opens the missions tab", () => {
@@ -288,6 +290,9 @@ describe("a pushed notification that can't be read", () => {
       to: "/org/$orgId/settings/$section",
       params: { section: "computers" },
     });
+    expect(fallbackTarget(data({ kind: "computer_down" }))).toEqual(
+      fallbackTarget(data({ kind: "machine_connected" })),
+    );
     expect(fallbackTarget(data({ kind: "join_request" }))).toEqual({
       to: "/org/$orgId/settings/$section",
       params: { section: "invites" },

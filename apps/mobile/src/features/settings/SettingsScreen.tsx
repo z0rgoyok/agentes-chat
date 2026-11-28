@@ -15,6 +15,7 @@ import { AuditScreen } from "./AuditScreen";
 import { GeneralScreen } from "./GeneralScreen";
 import { usePersonalView } from "./hooks";
 import { ImportScreen } from "./ImportScreen";
+import { IntegrationsScreen } from "./IntegrationsScreen";
 import { MediaSettingsScreen } from "./MediaSettingsScreen";
 import { SkillsScreen } from "./SkillsScreen";
 import { StorageScreen } from "./StorageScreen";
@@ -37,6 +38,7 @@ const SETTINGS_PAGE_VIEWS = {
   "/settings/vault": () => <VaultScreen />,
   "/settings/access": () => <AccessScreen />,
   "/settings/apps": () => <AppsScreen />,
+  "/settings/integrations": () => <IntegrationsScreen />,
   "/settings/devices": () => <DevicesScreen />,
   "/settings/storage": () => <StorageScreen />,
   "/settings/import": () => <ImportScreen />,

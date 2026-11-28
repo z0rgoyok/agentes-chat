@@ -284,7 +284,9 @@ function rig(
     ios?: (env: NodeJS.ProcessEnv, root: string, now: () => number) => IosHelper;
     iosScreen?: IosScreenDriverFactory;
     openMs?: number;
+    startMs?: number;
     pnp?: () => Promise<string | null>;
+    emulatorStartMs?: number;
   } = {},
 ) {
   const root = tempDir("phones-");
@@ -322,7 +324,9 @@ function rig(
     ...(opts.readOnly ? { readOnly: true } : {}),
     ...(opts.iosScreen ? { iosScreen: opts.iosScreen } : {}),
     ...(opts.openMs ? { openMs: opts.openMs } : {}),
+    ...(opts.startMs ? { startMs: opts.startMs } : {}),
     ...(opts.pnp ? { pnp: opts.pnp } : {}),
+    ...(opts.emulatorStartMs ? { emulatorStartMs: opts.emulatorStartMs } : {}),
     pairPollMs: 5,
   });
   const calls = () =>
@@ -864,6 +868,55 @@ test("iOS simulator: install with its bundle id, launch, screenshot, record, flo
   expect(show.slice(-2)).toEqual(["--predicate", 'process == "Acme"']);
 });
 
+test("Ligar and Desligar: a simulator boots through simctl and shows in Simulator, an emulator starts from the SDK", async () => {
+  const OFF_SIM = "D54B1757-01C6-48BB-87F2-E6109AECE89A";
+  const power = (req: Parameters<PhoneManager["power"]>[0]) => r.manager.power(req);
+  const r = rig({ simctl: SIMCTL, avds: ["Pixel_8_API_35", "Tablet"] }, { emulatorStartMs: 300 });
+  const sdk = path.join(r.root, "Library", "Android", "sdk", "emulator");
+  mkdirSync(sdk, { recursive: true });
+  for (const [dir, tool] of [
+    [sdk, "emulator"],
+    [path.join(r.root, "bin"), "open"],
+  ] as const) {
+    writeFileSync(path.join(dir, tool), `#!/bin/sh\nexec "${process.execPath}" "${FAKE}" ${tool} "$@"\n`, {
+      mode: 0o755,
+    });
+  }
+  const sim = { platform: "ios", serial: OFF_SIM, model: "iPhone 17 Pro Max" };
+  expect(await power({ ...sim, on: true })).toEqual({ on: true });
+  expect(r.calls()).toContainEqual(["xcrun", "simctl", "boot", OFF_SIM]);
+  expect(r.calls()).toContainEqual(["open", "-a", "Simulator"]);
+  expect(await power({ ...sim, on: false })).toEqual({ on: false });
+  expect(r.calls()).toContainEqual(["xcrun", "simctl", "shutdown", OFF_SIM]);
+  // Already booted: simctl's refusal is the state asked for. Gone from Xcode, or anything else: its words.
+  r.setState({ simctl: SIMCTL, simPowerFail: "Unable to boot device in current state: Booted\n" });
+  expect(await power({ ...sim, on: true })).toEqual({ on: true });
+  r.setState({ simctl: SIMCTL, simPowerFail: "Invalid device: D54B1757\n" });
+  expect(await errorCode(() => power({ ...sim, on: true }))).toBe("phone_missing");
+  r.setState({ simctl: SIMCTL, simPowerFail: "An error was encountered processing the command\nNo space left\n" });
+  const failed = await power({ ...sim, on: true }).catch((e: RunnerError) => e);
+  expect(failed).toMatchObject({ code: "internal", message: "No space left" });
+
+  // The emulator its row showed (`Pixel 8 API 35`), on the port its serial names.
+  const emu = { platform: "android", serial: EMU, model: "Pixel 8 API 35" };
+  r.setState({ avds: ["Pixel_8_API_35", "Tablet"] });
+  expect(await power({ ...emu, on: true })).toEqual({ on: true });
+  expect(r.calls()).toContainEqual(["emulator", "-avd", "Pixel_8_API_35", "-port", "5554"]);
+  expect(await errorCode(() => power({ ...emu, model: "Pixel 9", on: true }))).toBe("phone_missing");
+  expect(await errorCode(() => power({ ...emu, serial: PIXEL, on: true }))).toBe("bad_request");
+  r.setState({ avds: ["Pixel_8_API_35"], emulatorFail: "INFO | booting\nPANIC: Missing system image for arm64\n" });
+  const panic = await power({ ...emu, on: true }).catch((e: RunnerError) => e);
+  expect(panic).toMatchObject({ code: "internal", message: "PANIC: Missing system image for arm64" });
+  // Running: `emu kill`.
+  r.setState({
+    adbDevices: `List of devices attached\n${EMU} device model:sdk_gphone64_arm64\n`,
+    facts: { [EMU]: EMU_FACTS },
+  });
+  await r.manager.poll();
+  expect(await power({ ...emu, on: false })).toEqual({ on: false });
+  expect(r.calls()).toContainEqual(["adb", "-s", EMU, "emu", "kill"]);
+});
+
 test("a real iPhone: install and launch through devicectl, the rest through its test helper once it's set up", async () => {
   const muxDir = tempDir("mux-");
   dirs.push(muxDir);
@@ -1388,6 +1441,29 @@ test("a screen that doesn't open in the server's wait (a first helper build) giv
   expect(opened).toMatchObject({ code: "phone_not_ready", message: OPENING_LATE });
   expect(dialed).toBe(0);
   expect(r.manager.list().find((p) => p.serial === SIM)?.holder).toBeUndefined();
+});
+
+test("control the server gives a start's wait opens once the helper's first picture comes, past an open's wait", async () => {
+  // A helper that comes up after the open's own wait (its first build, its launch).
+  const starting: PhoneScreenDriver = {
+    frame: async () => {
+      await wait(300);
+      return { jpeg: new Uint8Array([0xff, 0xd8, 1]), width: 402, height: 874 };
+    },
+    tap: async () => {},
+    swipe: async () => {},
+    text: async () => {},
+    key: async () => {},
+  };
+  const r = rig(ANDROID_STATE, { iosScreen: () => starting, openMs: 100, startMs: 5000 });
+  const sam = { runId: null, agentId: null, userId: "user-sam", since: "" };
+  const viewer = viewerSocket();
+  await r.manager.view({ platform: "ios", serial: SIM, holder: sam }, "control", async () => viewer.socket, {
+    start: true,
+  });
+  await until(() => viewer.sent.length > 0, "the first picture");
+  expect(viewer.closed).toEqual([]);
+  viewer.socket.close(1000, "done");
 });
 
 test("input lands where the person pressed, in the picture's own size; text is one quoted word for the phone's shell", async () => {

@@ -97,6 +97,62 @@ describe("chooseAutoModel", () => {
     expect(tier?.criteria.medium).toContain(acting);
   });
 
+  test("a go-ahead, a next step or setup work is never the small tier, however short the message", async () => {
+    const judge = createFakeJudge(() => "medium");
+    await chooseAutoModel(judge, { ...input, message: "pode seguir" });
+    const tier = judge.calls[0]?.questions.tier as { criteria: Record<string, string> } | undefined;
+    for (const words of ["a go-ahead or 'continue'", "the next step of work already under way", "configuring"]) {
+      expect(tier?.criteria.small).toContain(words);
+      expect(tier?.criteria.medium).toContain(words);
+    }
+  });
+
+  test("the small tier only when the judge is sure, and never in a mission: else medium", async () => {
+    const unsure = (p: number): Judge => ({
+      name: "unsure",
+      ask: async () => ({
+        tier: { choice: "small", probabilities: { small: p, medium: 1 - p } },
+        effort: { choice: "low", probabilities: { low: 1 } },
+      }),
+    });
+    const quick = { ...input, mission: false, message: "valeu" };
+    expect(await chooseAutoModel(unsure(0.9), quick)).toMatchObject({ tier: "small", tierP: 0.9 });
+    const floored = await chooseAutoModel(unsure(0.6), quick);
+    expect(floored).toMatchObject({ tier: "medium", effort: "low", source: "judge" });
+    expect(floored.reason).toBe("Everyday work (small not sure enough (60%)); low effort.");
+    expect(floored.tierP).toBeUndefined();
+    expect(await chooseAutoModel(unsure(0.95), { ...quick, mission: true })).toMatchObject({
+      tier: "medium",
+      reason: "Everyday work (part of a mission); low effort.",
+    });
+    // A floored small in a conversation that ran bigger keeps that bigger tier for the hour.
+    const now = Date.now();
+    expect(
+      keptAutoChoice(floored, { updatedAt: new Date(now - 60_000), autoModel: { tier: "large", effort: "high" } }, now),
+    ).toMatchObject({ tier: "large", source: "conversation" });
+  });
+
+  test("high effort below the large tier only when the judge is sure, where a person waits: else medium", async () => {
+    const judged = (tier: "small" | "medium" | "large", p?: number): Judge => ({
+      name: "judged",
+      ask: async () => ({
+        tier: { choice: tier, probabilities: { [tier]: 0.9 } },
+        effort: { choice: "high", ...(p === undefined ? {} : { probabilities: { high: p, medium: 1 - p } }) },
+      }),
+    });
+    const asked = { ...input, mission: false, message: "corrige o teste que está falhando" };
+    const unsure = await chooseAutoModel(judged("medium", 0.55), asked);
+    expect(unsure).toMatchObject({ tier: "medium", effort: "medium", source: "judge" });
+    expect(unsure.reason).toBe("Everyday work (90%); medium effort (high not sure enough (55%)).");
+    expect(await chooseAutoModel(judged("medium", 0.6), asked)).toMatchObject({ effort: "high" });
+    // A judge that gives no probabilities is taken at its word.
+    expect(await chooseAutoModel(judged("medium"), asked)).toMatchObject({ effort: "high" });
+    // Hard work, a routine nobody waits on and a mission's plan keep the judge's pick.
+    expect(await chooseAutoModel(judged("large", 0.4), asked)).toMatchObject({ tier: "large", effort: "high" });
+    expect(await chooseAutoModel(judged("medium", 0.4), { ...asked, routine: true })).toMatchObject({ effort: "high" });
+    expect(await chooseAutoModel(judged("medium", 0.4), { ...asked, mission: true })).toMatchObject({ effort: "high" });
+  });
+
   test("never blocks the run: a timeout, a failure or an answer off the list is medium/medium, and says why", async () => {
     const slow: Judge = { name: "slow", ask: () => new Promise(() => {}) };
     expect(await chooseAutoModel(slow, { ...input, timeoutMs: 5 })).toEqual({
@@ -105,6 +161,9 @@ describe("chooseAutoModel", () => {
       reason: "The judge didn't answer in time: medium tier, medium effort.",
       source: "timeout",
     });
+    // Past 0.8 s the run doesn't wait for it.
+    const late: Judge = { name: "late", ask: () => Bun.sleep(900).then(() => ({})) };
+    expect(await chooseAutoModel(late, input)).toMatchObject({ source: "timeout" });
     const broken: Judge = {
       name: "broken",
       ask: async () => {

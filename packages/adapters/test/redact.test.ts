@@ -20,6 +20,23 @@ test("a crash's error line, without its stack frames or the Node.js version it e
   expect(errorLineOf("")).toBe("");
 });
 
+test("cmd.exe's not found wrapped over two lines comes whole, so it names the program", () => {
+  expect(
+    errorLineOf(
+      "'node' não é reconhecido como um comando interno\r\nou externo, um programa operável ou um arquivo em lotes.\r\n",
+    ),
+  ).toBe("'node' não é reconhecido como um comando interno ou externo, um programa operável ou um arquivo em lotes.");
+  expect(
+    errorLineOf("'node' is not recognized as an internal or external command,\r\noperable program or batch file.\r\n"),
+  ).toBe("'node' is not recognized as an internal or external command, operable program or batch file.");
+  expect(errorLineOf("Done.\nlast words")).toBe("last words");
+  expect(errorLineOf("first\nSecond")).toBe("Second");
+  expect(errorLineOf("first line\nsecond line")).toBe("second line");
+  expect(
+    errorLineOf('Der Befehl "node" ist entweder falsch geschrieben oder\r\nkonnte nicht gefunden werden.\r\n'),
+  ).toBe('Der Befehl "node" ist entweder falsch geschrieben oder konnte nicht gefunden werden.');
+});
+
 test("output full of spaces is read in linear time", () => {
   const spaces = " ".repeat(200_000);
   const started = performance.now();

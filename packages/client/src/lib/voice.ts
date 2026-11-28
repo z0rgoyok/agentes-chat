@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { MessageVoice } from "../api/types";
+import type { MessageVoice, OrgSettings } from "../api/types";
 
 /**
  * Voice messages (ADR 0100), the half the web and the phone app share. To people a voice message is its audio, with
@@ -123,4 +123,46 @@ export async function voiceAudioGone(url: string, request: typeof fetch = fetch)
   } finally {
     stop.abort();
   }
+}
+
+/**
+ * A sound's wave as a voice message draws it: the loudness (RMS) of `bars` equal slices of its samples, the loudest one
+ * at 1, so a quiet file still shows its shape.
+ */
+export function wavePeaks(samples: ArrayLike<number>, bars = VOICE_PEAKS): number[] {
+  const n = Math.min(bars, samples.length);
+  if (n === 0) return [];
+  const rms = Array.from({ length: n }, (_, i) => {
+    const from = Math.floor((i * samples.length) / n);
+    const to = Math.floor(((i + 1) * samples.length) / n);
+    let sum = 0;
+    for (let j = from; j < to; j++) sum += (samples[j] ?? 0) ** 2;
+    return Math.sqrt(sum / Math.max(1, to - from));
+  });
+  const top = Math.max(...rms);
+  return rms.map((r) => (top > 0 ? Math.round((r / top) * 1000) / 1000 : 0));
+}
+
+type VoiceSettings = Pick<OrgSettings, "voiceMessages" | "voiceAvailable" | "speechState" | "speechOwner">;
+
+/**
+ * Whether the composer shows the microphone: the workspace's switch. A server older than `speechState` records only
+ * with an engine (`voiceAvailable`).
+ */
+export const micShown = (s: VoiceSettings | undefined): boolean =>
+  Boolean(s && (s.speechState !== undefined || s.voiceAvailable) && s.voiceMessages);
+
+/**
+ * What the first press of the microphone asks where voice doesn't become text yet: the server's owner chooses what
+ * turns it into text, anyone else asks them (`owner`, null when they aren't here) or records anyway. Null: it records.
+ * `fresh`: this person hasn't answered it on this device yet.
+ */
+export function voiceSetupAsk(
+  s: VoiceSettings | undefined,
+  meId: string | null,
+  fresh: boolean,
+): { isOwner: boolean; owner: { userId: string; name: string } | null } | null {
+  if (!meId || !fresh || !s?.speechState || s.speechState === "ready") return null;
+  const owner = s.speechOwner ?? null;
+  return { isOwner: owner?.userId === meId, owner };
 }

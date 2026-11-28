@@ -9,6 +9,7 @@ import {
   GroupedHeader,
   GroupedList,
   GroupedRow,
+  type HeaderAction,
   SCREEN_X,
   SearchField,
   Segmented,
@@ -20,7 +21,14 @@ import { router } from "@/ui/navigation";
 import { LoadFailed } from "../shared/FirstUse";
 import { useOrgId, usePullRefresh } from "../shared/hooks";
 import { PushedHeader } from "../shared/parts";
-import { folderEntries, sessionDiffHref, sessionFileHref, sessionFolderHref, splitPath } from "./logic";
+import {
+  folderEntries,
+  sessionDiffHref,
+  sessionFileHref,
+  sessionFolderHref,
+  sessionTerminalHref,
+  splitPath,
+} from "./logic";
 import { useSessionMenu } from "./menu";
 import { ChangeTile } from "./parts";
 
@@ -43,13 +51,24 @@ export function SessionCodeScreen({ sessionId }: { sessionId: string }) {
   const s = session.data;
   const more = useSessionMenu(s ?? null);
   const [pane, setPane] = useState<Pane>("git");
+  // The web panel's Terminal switch, as the bar's button beside the "…" (once the session has its worktree).
+  const terminal: HeaderAction | null =
+    s?.worktree.state === "ready"
+      ? {
+          icon: "codeBlock",
+          sf: "terminal",
+          label: t("codeSessions.panel.terminal"),
+          onPress: () => router.push(sessionTerminalHref(s.id) as never),
+        }
+      : null;
+  const actions = [terminal, more].filter((a): a is HeaderAction => a !== null);
   return (
     <>
       <PushedHeader
         title={s?.title ?? t("codeSessions.title")}
         {...(s?.branch ? { subtitle: s.branch } : {})}
         grouped
-        {...(more ? { actions: [more] } : {})}
+        {...(actions.length > 0 ? { actions } : {})}
       />
       {session.isLoading ? (
         <ScrollView contentInsetAdjustmentBehavior="automatic" style={{ backgroundColor: c.grouped }}>

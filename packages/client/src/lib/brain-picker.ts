@@ -1,3 +1,4 @@
+import { accountOnlyBrain } from "@agenteschat/providers/plans";
 import type { TFunction } from "i18next";
 import type {
   Agent,
@@ -282,9 +283,10 @@ export function brainPickOptions(
       );
     }
     if (on.length === 0) {
-      // Cursor (ADR 0114), OpenCode (ADR 0132), Grok (ADR 0142) and Gemini (ADR 0143) only where a computer runs
-      // them; Claude's and ChatGPT's plans say why they can't.
-      if (choice === "cursor" || choice === "zen" || choice === "grok" || choice === "gemini") return [];
+      // Cursor (ADR 0114), OpenCode (ADR 0132), Grok (ADR 0142), Gemini (ADR 0143) and Devin (ADR 0253) only where a
+      // computer runs them; Claude's and ChatGPT's plans say why they can't.
+      if (choice === "cursor" || choice === "zen" || choice === "grok" || choice === "gemini" || choice === "devin")
+        return [];
       return [
         {
           value: `none:${choice}`,
@@ -565,8 +567,8 @@ export interface PickerModel {
   textOnly: boolean;
 }
 
-/** How full an account is: its tightest window's use, unknown as empty. */
-const usedOf = (u: PlanUsage | null) => Math.max(0, ...(u?.windows.map((w) => w.usedPercent) ?? []));
+/** How full an account is: its tightest window's use; unmeasured ranks behind measured accounts. */
+const usedOf = (u: PlanUsage | null) => (u ? Math.max(0, ...u.windows.map((w) => w.usedPercent)) : 101);
 
 /**
  * The picker's tiles (web and phone): the plans the agent's computer runs that it has an account for (its owner's, or
@@ -595,6 +597,7 @@ export function modelPickerTiles(
   for (const o of view.options) {
     if (o.kind === "model" || !runs(o.kind)) continue;
     const k = o.kind as MachineAccountKind;
+    if (accountOnlyBrain(k)) continue;
     const own = view.brain === k && view.account === null;
     // The computer's own sign-in only where its runner reported it signed in (`ownSignInReady`): a CLI being there, or
     // coming with the first sign-in (the Antigravity CLI the runner brings), isn't a sign-in.
@@ -611,7 +614,10 @@ export function modelPickerTiles(
     if (!accounts?.length) return [];
     const inUse = (a: PickerAccount) => view.brain !== "model" && (a.id ?? null) === (view.account ?? null);
     const sorted = [...accounts].sort(
-      (a, b) => Number(inUse(b)) - Number(inUse(a)) || usedOf(a.usage) - usedOf(b.usage),
+      (a, b) =>
+        Number(inUse(b)) - Number(inUse(a)) ||
+        usedOf(a.usage) - usedOf(b.usage) ||
+        Number(a.id === null) - Number(b.id === null),
     );
     return [
       {

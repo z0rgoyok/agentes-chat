@@ -13,7 +13,7 @@ afterEach(closeWorlds);
 
 const consultations = (w: World) => w.db.select().from(schema.agentConsultations);
 
-scenario("S13", "a note's reply comes back to the agent for the person, and both legs can act", async () => {
+scenario("S13", "a note's work reports to the person where they asked, and both legs can act", async () => {
   const w = await world({
     agents: ["ada", "rui"],
     setup: { toolSources: [openPullRequestTool()] },
@@ -21,7 +21,6 @@ scenario("S13", "a note's reply comes back to the agent for the person, and both
       ada: [
         { calls: [{ name: "tell_agent", input: { agent: "@rui", message: "Roda a migração 0141, por favor." } }] },
         { text: "Pedi ao Rui para rodar a migração." },
-        { text: "Ana, o Rui rodou a migração 0141 e abriu o PR." },
       ],
       rui: [
         { calls: [{ name: "open_pull_request", input: { repo: "acme/app", title: "Migração 0141" } }] },
@@ -33,10 +32,13 @@ scenario("S13", "a note's reply comes back to the agent for the person, and both
   await w.say("@ada pede pro rui rodar a migração");
   await w.settle();
   expect((await w.calls("rui")).map((c) => [c.name, c.isError])).toEqual([["open_pull_request", false]]);
-  const adaRuns = await w.runs("ada");
-  expect(adaRuns).toHaveLength(2);
-  expect((await runAuthority(w.db, adaRuns[1] as NonNullable<(typeof adaRuns)[1]>)).kind).toBe("person");
-  expect((await w.posts("ada")).filter((m) => m.body.includes("rodou"))).toHaveLength(1);
+  // Rui's work acts for the person and reports to them itself: a plain delegation wakes Ada for nothing to relay
+  // (ADR 0095, addenda of 2026-11-15 and 2026-11-23).
+  const ruiRuns = await w.runs("rui");
+  expect((await runAuthority(w.db, ruiRuns[0] as NonNullable<(typeof ruiRuns)[0]>)).kind).toBe("person");
+  const home = (await w.posts("rui")).filter((m) => m.channelId === w.channelId && m.body.includes("Rodei a migração"));
+  expect(home).toHaveLength(1);
+  expect(await w.runs("ada")).toHaveLength(1);
   await assertInvariants(w);
 });
 
@@ -176,6 +178,8 @@ scenario(
   async () => {
     const w = await world({
       agents: ["bia", "vera"],
+      // A failed part nobody else picks up leaves Bia a step (ADR 0095, addendum of 2026-11-23).
+      judge: { handOffNext: 0.9 },
       script: {
         bia: [
           { calls: [{ name: "tell_agent", input: { agent: "@vera", message: "Gera as imagens do release." } }] },

@@ -1228,6 +1228,8 @@ export class IosHelper {
     }
     let said = "";
     let run: WdaRun | null = null;
+    // Its calls failed before its exit came in: the exit still says why it stopped.
+    let lost = false;
     /** iOS refused UI testing while the helper runs: it can't act, so it's let go and the phone says why. */
     let refused: PhoneReason | null = null;
     // The tail: why it stopped comes last, after a long run's output.
@@ -1277,7 +1279,10 @@ export class IosHelper {
     const client = new WdaClient(`http://127.0.0.1:${http}`, this.opts.fetch, {
       onGone: (reason) => {
         if (reason && !sim) this.fail(key, { reason, detail: reason, check: true, unknown: false });
-        if (run && this.running.get(udid) === run) this.drop(udid, run);
+        if (run && this.running.get(udid) === run) {
+          lost = true;
+          this.drop(udid, run);
+        }
       },
       onActed: () => {
         if (!sim) this.acted(key);
@@ -1306,11 +1311,13 @@ export class IosHelper {
     run = up;
     this.running.set(udid, up);
     void started.done.then(() => {
-      if (this.running.get(udid) !== up) return;
+      const current = this.running.get(udid);
+      // A new helper already up: this one's exit would mark a working phone failed.
+      if (current !== up && (!lost || current)) return;
       const reason = helperReason(said);
       this.opts.log(`iPhone test helper stopped (${udid}): ${failureLine(said) || "no words"}`);
       if (reason && !sim) this.fail(key, { reason, detail: failureLine(said), check: true, unknown: false });
-      this.drop(udid, up);
+      if (current === up) this.drop(udid, up);
     });
     return up;
   }

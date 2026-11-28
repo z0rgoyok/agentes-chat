@@ -164,8 +164,8 @@ export function CodeLines({
   ));
 }
 
-/** Copy, then "Copiado" with a check for a moment. */
-function CopyCode({ text }: { text: string }) {
+/** Copy, then "Copied" with a check for a moment. A Markdown table's card (`TableCard`) copies its cells with it. */
+export function CopyCode({ text }: { text: string }) {
   const { t } = useTranslation();
   const [done, setDone] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);

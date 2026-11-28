@@ -117,3 +117,18 @@ in the thread under the message that made it, as bots do in other chat apps (iss
   asker; the thread's root names the asker for every run that answers under it.
 - **A message calling several agents joins any of them already at work, the rest answering under it.** One message
   then opened two threads, its answer split between the earlier request's thread and its own.
+
+## Addendum (2026-11-25): who a channel starts with sets its default
+
+A thread keeps the main timeline clear for the other people reading it. A channel made with no one but its creator,
+or any channel of a personal workspace (ADR 0159), has nobody else, and every answer one click away in a thread only
+got in the way. So `createChannel` writes `reply_in_threads = false` when no other person is among the members it is
+made with (`members`, added right after the creator with `addChannelMember`'s checks; the web's new-channel dialog and
+the right hand's `create_channel` pass who they pick) or when the workspace is personal; a personal workspace's
+`#general` starts off too (`createOrganization`). Otherwise the column's default stays. It is only the starting
+value: people joining or leaving later change nothing, and the switch, or an agent, changes it like any other choice.
+
+Agents change it with the workspace action `update_channel` (`reply_in_threads`, applied at once with Undo, under the
+same `manage_channels` as the rest of the action); its card says "Agents reply in threads" or "Agents reply in the
+channel".
+

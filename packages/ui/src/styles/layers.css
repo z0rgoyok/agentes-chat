@@ -14,8 +14,18 @@
   --z-raised: 1;
   --z-lifted: 2;
   --z-sticky: 1;
+  /* Fixed to the window over the page, and under the shared layer: a dialog open before it still covers it. */
+  --z-docked: 49;
   --z-scrim: 50;
   --z-dialog: 50;
   --z-floating: 50;
   --z-toast: 60;
+  /* An agent's pointer over the whole window (Lodi's cursor): over the page, under dialogs and toasts. */
+  --z-cursor: 49;
+  /*
+   * The room at the window's top that isn't the page's to cover: the Mac app's close, minimize and zoom buttons are
+   * drawn over it (apps/web desktop.css sets it there). Whatever reaches the window's top (a dialog, a sheet, a full
+   * window overlay) starts under it. 0 everywhere else.
+   */
+  --window-top: 0px;
 }

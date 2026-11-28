@@ -25,7 +25,10 @@ test("on agentes.chat Cloud: a sign-up becomes a contact with its creation date;
   await signUp(ana, "ana@example.com");
   await t.drain();
   expect(t.email.contacts).toEqual([
-    { email: "ana@example.com", properties: { account_created_at: expect.any(String), locale: expect.any(String) } },
+    {
+      email: "ana@example.com",
+      properties: { account_created_at: expect.any(String), plan: null, locale: expect.any(String) },
+    },
   ]);
   expect((await ana("/api/app/me", { method: "PATCH", json: { locale: "fr", auto: false } })).status).toBe(204);
   await t.drain();

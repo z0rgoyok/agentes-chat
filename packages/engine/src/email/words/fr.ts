@@ -649,6 +649,28 @@ export const words: EmailWords = {
       why: (surface) => `Tu reçois cet e-mail parce que ${surface} était lié à ton compte agentes.chat.`,
       picture: "Ton assistant, plus sur ton téléphone",
     },
+    pinReset: {
+      subject: (surface) => `Choisis ton code PIN ${surface}`,
+      preheader: "Choisis le code PIN qui approuve les actions depuis ton app de chat.",
+      headline: (surface) => `Choisis ton code PIN ${surface}`,
+      body: (surface) =>
+        `Quelqu'un a demandé un lien pour choisir le code PIN que tu utilises pour approuver des actions depuis ${surface}. Si c'était toi, choisis-le sur la page que ce bouton ouvre.`,
+      button: "Choisir mon code PIN",
+      small:
+        "Le lien fonctionne une fois, pendant une heure. Si ce n'était pas toi, ignore cet e-mail. Rien ne change.",
+      why: (surface) => `Tu reçois cet e-mail parce que ${surface} est lié à ton compte agentes.chat.`,
+    },
+    pinLocked: {
+      subject: (surface) => `Ton code PIN ${surface} est bloqué`,
+      preheader: "Trois codes PIN incorrects d'affilée. Approuver depuis ton app de chat est en pause pour l'instant.",
+      headline: (surface) => `Ton code PIN ${surface} est bloqué`,
+      body: (surface, time) =>
+        `Quelqu'un a saisi un code PIN incorrect trois fois d'affilée pour approuver une action depuis ${surface}. Approuver depuis ${surface} est en pause pendant ${time}.`,
+      lockedFor: ["15 minutes", "1 heure", "24 heures"],
+      small: (surface) =>
+        `Si c'était toi, réessaie plus tard. Sinon, dissocie ${surface} dans tes réglages de notifications, pour que personne ne puisse approuver depuis là.`,
+      button: "Ouvrir les réglages de notifications",
+    },
   },
   supportReply: {
     subject: "Une réponse à votre demande d’aide",

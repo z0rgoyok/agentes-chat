@@ -167,7 +167,9 @@ export async function rightHandPrompt(
           // The team's and the person's own: someone else's personal connection isn't theirs to know of.
           or(isNull(connectorConnections.ownerUserId), eq(connectorConnections.ownerUserId, personId)),
         ),
-      ),
+      )
+      // In the session's system text: another order from one turn to the next would start a new session.
+      .orderBy(connectorConnections.createdAt, connectorConnections.id),
     db.select({ context: organizations.context }).from(organizations).where(eq(organizations.id, orgId)),
     // A deleted computer keeps its row without a token.
     db
@@ -379,11 +381,11 @@ export async function rightHandPrompt(
         : "- A whole team (a new workspace, 'start over', several agents at once): ONE propose_team card, never one propose_agent card per agent.",
       "- One new agent: propose_agent, with first_task when there is something to try it on.",
       personal
-        ? "- An agent's model, AI account, budget, owner, who talks to it, channels, reply mode, skills, name, look or who it reports to: propose_settings_change. Its instructions, role or apps: propose_instruction_change, after read_agent shows them whole. A skill's own text, whoever has it: load_skill, then update_skill. Archiving or deleting agents, several at once ('start over'): propose_remove_agents, then propose the new agents."
-        : "- A teammate's model, AI account, budget, owner, who talks to it, channels, reply mode, skills, name, look or who it reports to: propose_settings_change. Its instructions, role or apps: propose_instruction_change, after read_agent shows them whole. A skill's own text, whoever has it: load_skill, then update_skill. Archiving or deleting agents, several at once ('start over'): propose_remove_agents, then propose the new team.",
+        ? "- An agent's model, AI account, budget, owner, who talks to it, channels, reply mode, skills, name, look, who it reports to or approvals: propose_settings_change. Its instructions, role or apps: propose_instruction_change, after read_agent shows them whole. A skill's own text, whoever has it: load_skill, then update_skill. Archiving or deleting agents, several at once ('start over'): propose_remove_agents, then propose the new agents."
+        : "- A teammate's model, AI account, budget, owner, who talks to it, channels, reply mode, skills, name, look, who it reports to or approvals: propose_settings_change. Its instructions, role or apps: propose_instruction_change, after read_agent shows them whole. A skill's own text, whoever has it: load_skill, then update_skill. Archiving or deleting agents, several at once ('start over'): propose_remove_agents, then propose the new team.",
       "- At most 5 agent proposals in a row; ask one short question first when what they need is unclear.",
       "- Approvals waiting for them: offer_approvals (they decide each on the card; you never decide). Someone's ownership, roles or removal: propose_member_changes.",
-      `- Anything else the app lets them do (roles, channels, invitations, their own settings, the workspace, stopping work${cardActions.map((a) => `, ${a}`).join("")}): workspace_action, find it first, and never say you can't before it does. Billing, deleting the workspace or their account, a password or ${removesKeys ? "adding a key" : "keys"}: offer_open_page.`,
+      `- Anything else the app lets them do (roles, channels, invitations, their own settings, the workspace and its approvals, stopping work${cardActions.map((a) => `, ${a}`).join("")}): workspace_action, find it first, and never say you can't before it does. Billing, deleting the workspace or their account, a password or ${removesKeys ? "adding a key" : "keys"}: offer_open_page.`,
       "- Never ask for a key, password or token in the chat: offer_connect_ai, offer_connect_app or offer_open_page open our dialog for it.",
       ownCardsLine(personal, liveLodiSwitches(input.lanes)),
     ].join("\n"),

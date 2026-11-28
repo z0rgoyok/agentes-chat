@@ -8,6 +8,7 @@ import {
   gt,
   inArray,
   isNull,
+  lt,
   lte,
   or,
   rowsOf,
@@ -30,11 +31,20 @@ import type { MemoryUpdate } from "../events";
 import { cutText } from "../format";
 import { type DescribedMessage, describeMessages, messageIdOf } from "../message-links";
 import { announceMessageMemories } from "../message-memories";
+import { ownTyped } from "../message-origin";
+import type { ReplyRef } from "../messages";
 import { quietNoticeSql } from "../notices";
 import { can, getMembership } from "../organizations";
 import { personWords, runReadOutsideById, UNASKED_DESTINATION, unaskedDestination } from "../outside";
-import { personBehindCall, wikiActorOfCall } from "../requester";
-import { isRightHandId, rightHandReader } from "../right-hand";
+import {
+  personBehindCall,
+  relayedRefusal,
+  relayedRequest,
+  triggerPerson,
+  typedPersonBehindCall,
+  wikiActorOfCall,
+} from "../requester";
+import { isRightHandId, readsAlone, rightHandReader } from "../right-hand";
 import {
   agentSearchChannels,
   agentVisibleChannels,
@@ -71,14 +81,17 @@ import {
   personSaid,
   RECHECK_AFTER_DAYS,
   savedReceiptLine,
+  saysSentences,
+  saysWords,
   supersede,
   TEAM_KINDS,
   teamMemorySql,
   teamWideSql,
+  wordList,
 } from "./items";
 import { kindFamily, overlap } from "./judgments";
 import { learnTrust, ownWords } from "./learn";
-import { CARD_MAX_AGENTS, proposeChange } from "./proposals";
+import { askedWords, CARD_MAX_AGENTS, proposeChange } from "./proposals";
 import { type ContextDeps, ensureThreadSummary, judgeOf, memoryJudging } from "./summaries";
 
 const { agentRuns, contextItems, messages, outcomes } = schema;
@@ -399,7 +412,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
       },
     },
     {
-      name: "get_summary",
+      name: GET_SUMMARY_TOOL,
       description: "Get a summary of a thread (default: the current one). Generates it if missing or outdated.",
       scope: "context:read",
       inputSchema: {
@@ -691,8 +704,11 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
           // A rule's authority is the person who wrote this run's message: another agent's or a page's words give none.
           if (rule && !said) return { content: NOT_THEIR_RULE, isError: true };
           // Trust comes from the item's own source (ADR 0167): the person's own message vouches for it, also in a run
-          // that read outside content, where their exact words are what agents read and the agent's only the title.
-          const quote = said && outside ? quoteOf(author?.body ?? "") : null;
+          // that read outside content, where only text the person wrote or agreed to is kept (`vouchedText`).
+          const vouched = said && outside ? await vouchedText(ctx, author?.body ?? "", content) : null;
+          if (vouched === "neither") return { content: NOT_VOUCHED, isError: true };
+          const quote = vouched === "theirs" || vouched === "message";
+          const text = vouched === "message" ? quoteOf(author?.body ?? "") : content;
           // Another agent's words carry no person's (ADR 0167): a copy kept here would hold only in this DM.
           if (!said && input.basis !== "found" && (await triggerFromAgent(ctx)))
             return { content: RELAYED_SAVE, isError: true };
@@ -703,8 +719,8 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
               kind: str(input.kind),
               title: quote ? str(input.title) || cutText(content, 200) : str(input.title),
               subject: str(input.key).trim() || str(input.title) || content.slice(0, 120),
-              content: quote ?? content,
-              quoted: quote !== null,
+              content: text,
+              quoted: quote,
               everywhere: input.everywhere !== false,
               words: author?.body ?? "",
             });
@@ -721,7 +737,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
               agentId: ctx.agentId,
               title: quote ? str(input.title) || cutText(content, 200) : str(input.title),
               subject: str(input.key).trim() || str(input.title) || content.slice(0, 120),
-              content: quote ?? content,
+              content: text,
               sourceIds: [ctx.triggerMessageId],
               // A rule about the agent's own conduct holds in every conversation: no channel keeps it out of a run.
               // Only when a person said it. What the right hand keeps for a person stays in their DM with it.
@@ -792,7 +808,8 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
         additionalProperties: false,
       },
       async execute(input, ctx) {
-        const requester = await personRequester(ctx);
+        // Only what a person typed changes memory as theirs (ADR 0250): a relayed request changes the agent's own alone.
+        const requester = await typedPersonBehindCall(ctx);
         const item = await changeableItem(ctx, str(input.item_id), requester);
         if (typeof item === "string") return { content: item, isError: true };
         try {
@@ -806,11 +823,20 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
               words: asked?.body ?? "",
             });
           const trust = requester ? ("high" as const) : learned.trust;
-          // Like `remember` (ADR 0167): after outside content, the person's own message is the new text, after the old
-          // one when that was a person's words too (a rule's change reads with the rule it changes).
+          // Like `remember` (ADR 0167): after outside content, the new text is one the person wrote or agreed to.
           const author = learned.outside ? asked : null;
-          const said = author?.id === requester ? quoteOf(author.body) : null;
-          const quote = said && item.trust === "high" && personSaid(item) ? `${item.content}\n${said}` : said;
+          const vouched =
+            author && author.id === requester ? await vouchedText(ctx, author.body, str(input.content)) : null;
+          if (vouched === "neither") return { content: NOT_VOUCHED, isError: true };
+          const quote = vouched === "theirs" || vouched === "message";
+          // Their whole message after the old text, when that was a person's words too: a change reads with what it
+          // changes.
+          const said = author && vouched === "message" ? quoteOf(author.body) : null;
+          const text = said
+            ? item.trust === "high" && personSaid(item)
+              ? `${item.content}\n${said}`
+              : said
+            : str(input.content);
           const next = await ctx.db.transaction(async (tx) => {
             const row = await supersede(tx, item, {
               orgId: ctx.orgId,
@@ -821,7 +847,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
               subject: item.subjectKey,
               // A title describing the old text would be shown above the new one: none rather than a stale one.
               title: quote ? str(input.title).trim() || cutText(str(input.content), 200) : str(input.title).trim(),
-              content: quote ?? str(input.content),
+              content: text,
               sourceIds: [...item.sourceIds, ctx.triggerMessageId],
               channelIds: item.kind === "rule" ? [] : [...new Set([...item.channelIds, ctx.channelId])],
               trust,
@@ -875,7 +901,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
         additionalProperties: false,
       },
       async execute(input, ctx) {
-        const requester = await personRequester(ctx);
+        const requester = await typedPersonBehindCall(ctx);
         const item = await changeableItem(ctx, str(input.item_id), requester);
         if (typeof item === "string") return { content: item, isError: true };
         await ctx.db.transaction(async (tx) => {
@@ -953,6 +979,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
       async execute(input, ctx) {
         const requester = await personRequester(ctx);
         if (!requester) return notRequested;
+        if (await relayedRequest(ctx)) return relayedRefusal();
         const fail = (content: string) => ({ content, isError: true });
         try {
           const target = str(input.target);
@@ -988,7 +1015,12 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
             ctx.db,
             ctx.orgId,
             access.map((a) => a.app),
+            requester,
           );
+          if (apps.personal.length > 0)
+            return fail(
+              `${apps.personal.join(", ")}: the person asking connected it as their own, and only they give it to an agent, on the Access tab of an agent they own or manage. For any other agent, someone who manages connectors connects it for the team. Apps you can name: ${apps.choices.join(", ")}.`,
+            );
           if (apps.unknown.length > 0)
             return fail(`Unknown app: ${apps.unknown.join(", ")}. Apps you can name: ${apps.choices.join(", ")}.`);
           const lines = access.map((a) => ({
@@ -1008,6 +1040,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
             rationale: str(input.reason),
             requesterId: requester,
             atOnce: (await ownWords(ctx)) === requester ? ctx : undefined,
+            words: await askedWords(ctx.db, ctx, requester),
           });
           const done = applied.length
             ? `Applied ${applied.length} of it at once: the person sees it with Undo under your reply, so say it is done. `
@@ -1056,6 +1089,7 @@ export function createContextToolSource(deps: ContextDeps): ToolSource {
 const personRequester = (ctx: ToolContext): Promise<string | null> => personBehindCall(ctx);
 
 export const READ_CONVERSATION_TOOL = "read_conversation";
+export const GET_SUMMARY_TOOL = "get_summary";
 const CONVERSATION_MAX = 40;
 const CONVERSATION_MESSAGE_CHARS = 1500;
 
@@ -1177,11 +1211,17 @@ async function handedReach(ctx: ToolContext, person: string): Promise<string[]> 
 async function askerDm(ctx: ToolContext): Promise<{ channelId: string; name: string } | null> {
   if (!UUID.test(ctx.runId) || !UUID.test(ctx.triggerMessageId)) return null;
   const [trigger] = await ctx.db
-    .select({ authorType: messages.authorType, authorUserId: messages.authorUserId, meta: messages.meta })
+    .select({
+      authorType: messages.authorType,
+      authorUserId: messages.authorUserId,
+      meta: messages.meta,
+      origin: messages.origin,
+    })
     .from(messages)
     .where(and(eq(messages.orgId, ctx.orgId), eq(messages.id, ctx.triggerMessageId)));
-  const person = trigger?.authorType === "person" ? trigger.authorUserId : null;
-  if (!person || trigger?.meta?.readOutside === true || (await personBehindCall(ctx)) !== person) return null;
+  // Typed by them in our apps (ADR 0250): a relayed message would carry their private DM to whoever wrote it.
+  const person = trigger && ownTyped(trigger) ? trigger.authorUserId : null;
+  if (!person || (await personBehindCall(ctx)) !== person) return null;
   const dms = schema.channels;
   const [row] = await ctx.db
     .select({ id: dms.id, name: schema.users.name })
@@ -1211,19 +1251,69 @@ const notRequested = {
 };
 
 /**
- * Who wrote the message this run answers, when a person did in their own words: one sent through an AI app carries
- * `meta.readOutside` and counts as outside content (ADR 0119).
+ * In a run that read outside content, what vouches for the text to keep (ADR 0167): `theirs` when the person's own
+ * message says it in whole sentences (`saysSentences`), `agreed` when the message of this agent's they answered (the
+ * one they quoted, else the one right before theirs) proposed it, `message` when their whole message is to be kept as
+ * their words instead, and `neither` when that can't be it: a quote reply to this agent, or a message with fewer
+ * words than the text (a "yes, keep it").
+ * Case, accents, punctuation and markdown don't count.
  */
-async function triggerPerson(ctx: ToolContext): Promise<{ id: string; body: string } | null> {
+async function vouchedText(
+  ctx: ToolContext,
+  words: string,
+  text: string,
+): Promise<"theirs" | "agreed" | "message" | "neither"> {
+  if (saysSentences(words, text)) return "theirs";
+  const answered = await answeredProposal(ctx);
+  if (saysWords(answered.body, text)) return "agreed";
+  // ponytail: word count tells a confirmation from a statement; a model judging the reply would catch more.
+  return answered.quoted || wordList(words).length < wordList(text).length ? "neither" : "message";
+}
+
+/** This agent's message that the person's message answers (`body` "" when none), and whether they quoted it. */
+async function answeredProposal(ctx: ToolContext): Promise<{ body: string; quoted: boolean }> {
   const [m] = await ctx.db
-    .select({ type: messages.authorType, userId: messages.authorUserId, meta: messages.meta, body: messages.body })
+    .select({
+      channelId: messages.channelId,
+      threadId: messages.threadId,
+      createdAt: messages.createdAt,
+      meta: messages.meta,
+    })
     .from(messages)
     .where(and(eq(messages.orgId, ctx.orgId), eq(messages.id, ctx.triggerMessageId)));
-  return m?.type === "person" && m.meta.readOutside !== true && m.userId ? { id: m.userId, body: m.body } : null;
+  if (!m) return { body: "", quoted: false };
+  const quoted = (m.meta.replyTo as ReplyRef | undefined)?.messageId;
+  const [answered] = await ctx.db
+    .select({ body: messages.body, agentId: messages.authorAgentId })
+    .from(messages)
+    .where(
+      and(
+        eq(messages.orgId, ctx.orgId),
+        eq(messages.channelId, m.channelId),
+        isNull(messages.deletedAt),
+        quoted
+          ? eq(messages.id, quoted)
+          : and(
+              // In a thread, its root too: a reply under the agent's proposal answers it.
+              m.threadId
+                ? or(eq(messages.threadId, m.threadId), eq(messages.id, m.threadId))
+                : isNull(messages.threadId),
+              lt(messages.createdAt, m.createdAt),
+            ),
+      ),
+    )
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  return answered?.agentId === ctx.agentId
+    ? { body: answered.body, quoted: Boolean(quoted) }
+    : { body: "", quoted: false };
 }
 
 /** A person's message as a memory's text (ADR 0167): their words as written, within an item's length. */
 const quoteOf = (body: string) => cutText(body.trim(), 2000);
+
+const NOT_VOUCHED =
+  "Not saved: this conversation read outside content, so a memory keeps only text the person wrote or agreed to, and this text is neither in their message nor in the message of yours they answered. Copy the part to keep exactly as they wrote it, or show them the exact text you would save and save it once they agree.";
 
 /** The message this run answers is another agent's (`tell_agent`, `ask_agent`, a mention). */
 async function triggerFromAgent(ctx: ToolContext) {
@@ -1241,7 +1331,8 @@ async function triggerFromAgent(ctx: ToolContext) {
 async function rightHandKeeps(ctx: ToolContext): Promise<{ person: string | null } | { refused: string }> {
   if (!(await isRightHandId(ctx.db, ctx.orgId, ctx.agentId))) return { person: null };
   const person = await rightHandReader(ctx);
-  return person
+  // A routine of theirs reads for them too, from a room their DM's memory never reaches.
+  return person && (await readsAlone(ctx.db, ctx.channelId, person, ctx.agentId))
     ? { person }
     : { refused: "You keep memory only in a person's own private conversation with you: others read this one." };
 }
@@ -1298,6 +1389,7 @@ async function saveForTeam(
       change: input.content,
       rationale: "Asked to keep it for the whole team.",
       requesterId: input.person,
+      words: input.words,
     });
     const [first] = proposals;
     if (!first) return { content: "Not proposed: the team already keeps this.", isError: true };

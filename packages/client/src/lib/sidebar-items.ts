@@ -11,6 +11,7 @@ export const SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "routines",
   "calendar",
   "team",
+  "skills",
   "dashboards",
   "code",
   "taskManager",
@@ -29,6 +30,7 @@ export const SIDEBAR_DEFAULTS: Record<SidebarItem, SidebarPlace> = {
   routines: "more",
   calendar: "more",
   team: "always",
+  skills: "more",
   dashboards: "more",
   taskManager: "more",
   // Code sessions (ADR 0215): in More, and only where it has anything (`offersCode`).
@@ -52,6 +54,7 @@ export const PERSONAL_SIDEBAR_DEFAULTS: Record<SidebarItem, SidebarPlace> = {
   routines: "more",
   calendar: "more",
   team: "more",
+  skills: "more",
   dashboards: "more",
   taskManager: "more",
   // Code sessions (ADR 0215): in More, and only where it has anything (`offersCode`).
@@ -74,6 +77,7 @@ export const PERSONAL_SIDEBAR_ITEMS: readonly SidebarItem[] = [
   "issues",
   "threads",
   "team",
+  "skills",
   "wiki",
   "dashboards",
   "code",

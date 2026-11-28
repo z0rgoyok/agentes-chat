@@ -7,8 +7,11 @@ import {
   useAiStatus,
   useApi,
   useCatalog,
+  useChannels,
+  useCloseSetup,
   useConfirmSetup,
   useCredentials,
+  useDms,
   useModels,
   usePlatformKey,
   useRoles,
@@ -76,6 +79,7 @@ import {
   Textarea,
   Token,
   TokenList,
+  useMorph,
 } from "@agenteschat/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -91,6 +95,7 @@ import {
 } from "@/components/AccessLevels";
 import { AgentAvatar } from "@/components/AgentAvatar";
 import { ModelSelect, modelOptions, NO_OWNER, OwnerSelect } from "@/components/AgentFields";
+import { useOpenAgentPanel } from "@/components/agent-panel-context";
 import { PlanReplies } from "@/components/ai/PlanReplies";
 import { usePlanHold } from "@/components/ai/plan-hold";
 import { ConnectFlow, type FlowState } from "@/components/ConnectFlow";
@@ -135,6 +140,26 @@ export function useSetupSteps(agent: Agent | undefined): AgentSetupStep[] {
     : [];
   // Alone in a personal workspace there are no group conversations in sight either: no "where" (ADR 0164).
   return solo ? steps.filter((s) => s !== "who" && s !== "where") : steps;
+}
+
+/**
+ * Whether what the checklist reads has come (or failed), read as its agent's DM opens: the DM holds its conversation
+ * until then, so the checklist draws once, done or not, instead of turning over above the messages.
+ */
+export function useSetupSettled(agent: Agent | undefined): boolean {
+  const { org } = useOrg();
+  const dir = useDirectory(org.id);
+  const steps = useSetupSteps(agent);
+  const on = agent !== undefined && steps.length > 0;
+  const status = useAiStatus(org.id, on);
+  const detail = useAgentDetail(org.id, agent?.id ?? "", on);
+  const channels = useChannels(org.id);
+  const dms = useDms(org.id);
+  const apps = on && agent !== undefined && managesAgent(agent) && steps.includes("apps");
+  const access = useAgentAccess(org.id, agent?.id ?? "", apps);
+  if (!on) return true;
+  const read = [status, detail, channels, dms, ...(apps ? [access] : [])];
+  return !dir.loading && read.every((q) => !q.isPending);
 }
 
 /**
@@ -237,14 +262,16 @@ const roleWord = (name: string, locale: string) =>
 
 /**
  * The checklist card. `dm`: under the agent's greeting, in its voice ("Pra eu começar"); `profile`: on its page
- * ("Para o Leo começar"), gone once everything is done.
+ * ("Para o Leo começar"), gone once everything is done or closed with its ×.
  */
 export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "profile" }) {
   const { t, i18n } = useTranslation();
   const { org, me } = useOrg();
   const navigate = useNavigate();
   const actions = useChannelActions();
+  const openPanel = useOpenAgentPanel();
   const connect = useConnectAi();
+  const ai = useAiStatus(org.id).data;
   const dir = useDirectory(org.id);
   const { steps, done, doneHere, all, ready, held, connectors, granted, inChannels, visible } = useSetupProgress(agent);
   const catalog = useCatalog();
@@ -257,8 +284,9 @@ export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "
   const said = useDoneSay(ready, doneHere, steps.length, agent.appearance?.color, burstRef, (step) =>
     t(`agentSetup.say.${step}`, agentGrammar(agent.name)),
   );
+  const close = useCloseSetup(org.id, agent.id);
 
-  if (steps.length === 0 || (place === "profile" && all)) return null;
+  if (steps.length === 0 || (place === "profile" && (all || agent.setup?.closed))) return null;
 
   const names = (list: AccessResource[]) =>
     joinNames(
@@ -301,9 +329,24 @@ export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "
       personal: isPersonal(org),
     });
 
+  // Others of the person's agents with no AI, the right hand aside: Connect signs in once for all of them.
+  const othersWait = (ai?.agents ?? []).some((a) => {
+    const other = a.agentId !== agent.id ? dir.agentById.get(a.agentId) : undefined;
+    return a.state === "no_ai" && other?.ownerUserId === me.user.id && !isRightHand(other);
+  });
   const act = (step: AgentSetupStep) => {
-    if (step === "ai") connect?.open({ agentId: agent.id, chat: true });
-    else setOpen(step);
+    // Its AI is its "Quem pensa", on the account list ("Adicionar conta" at its foot): in the panel beside the
+    // conversation, else on its page. With others waiting too, Connect, for all of them.
+    if (step === "ai") {
+      if (othersWait && connect) connect.open({ agentId: agent.id, chat: true });
+      else if (openPanel) openPanel(agent.id, "settings", "brain:switch");
+      else
+        void navigate({
+          to: "/org/$orgId/agents/$agentId",
+          params: { orgId: org.id, agentId: agent.id },
+          search: { tab: "settings", sec: "brain", brain: "switch" },
+        });
+    } else setOpen(step);
   };
   const confirmed = () => setOpen(null);
 
@@ -336,6 +379,8 @@ export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "
       done={counted.filter((s) => done.has(s)).length}
       total={counted.length}
       place={place}
+      // On its page it may go before everything is done; in its chat it is the first message and stays.
+      {...(place === "profile" ? { onClose: () => close.mutate() } : {})}
       burstRef={burstRef}
       band={
         inChat && (
@@ -363,7 +408,6 @@ export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "
             desc: planOnly ? t("agentSetup.who.todoPlanDesc") : undefined,
             action: { label: row.action, onClick: () => act(s) },
           };
-        const acts = s !== "ai" || Boolean(connect);
         // On a hold it waits for the plan, whose one button is the hold's banner.
         if (s === "ai" && held && !isDone) {
           return {
@@ -383,15 +427,11 @@ export function AgentSetupCard({ agent, place }: { agent: Agent; place: "dm" | "
           title: row.title,
           desc: row.desc,
           saying: said?.step === s ? said.text : null,
-          ...(acts
-            ? {
-                action: {
-                  label: connectFirst ? t("agentSetup.firstRun.apps.connect") : row.action,
-                  primary: s === next,
-                  onClick: () => act(s),
-                },
-              }
-            : {}),
+          action: {
+            label: connectFirst ? t("agentSetup.firstRun.apps.connect") : row.action,
+            primary: s === next,
+            onClick: () => act(s),
+          },
         };
       })}
       foot={
@@ -448,6 +488,7 @@ export function SetupCardView({
   rows,
   foot,
   band,
+  onClose,
   burstRef,
   children,
 }: {
@@ -457,19 +498,38 @@ export function SetupCardView({
   place: "dm" | "profile";
   rows: SetupCardRow[];
   foot?: ReactNode;
+  /** Its × after the count: the card goes, whatever is left. */
+  onClose?: () => void;
   /** On top of the card: a new agent's sky in its chat (`SetupBand`, ADR 0164). */
   band?: ReactNode;
   burstRef?: RefObject<HTMLCanvasElement | null>;
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
+  // A row checked or a step added: the card glides to its new height.
+  const box = useRef<HTMLElement>(null);
+  useMorph(box);
   return (
-    <section className="setup-cl" aria-label={title} data-place={place}>
+    <section ref={box} className="setup-cl" aria-label={title} data-place={place}>
       <canvas ref={burstRef} className="setup-cl__burst" aria-hidden="true" tabIndex={-1} />
       {band}
       <div className="setup-cl__head">
         <b>{title}</b>
         <small>{t("agentSetup.count", { done, total })}</small>
+        {onClose && (
+          <span className="setup-cl__close ac-acts">
+            <Button
+              variant="ghost"
+              size="sm"
+              iconOnly
+              icon="close"
+              className="ac-btn--glyph"
+              aria-label={t("common.close")}
+              title={t("common.close")}
+              onClick={onClose}
+            />
+          </span>
+        )}
       </div>
       <div className="setup-cl__meter" aria-hidden="true">
         {rows

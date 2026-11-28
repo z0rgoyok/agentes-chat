@@ -10,6 +10,7 @@ import {
   customModelId,
   type ModelMessage,
   type ModelProvider,
+  PROVIDERS,
   type ToolImage,
 } from "@agenteschat/providers";
 import {
@@ -179,6 +180,20 @@ function brains(): Brain[] {
       ),
     },
     {
+      name: "DeepSeek Flash (DeepSeek's own endpoint)",
+      reads: "pictures",
+      send: via(
+        (fetch) =>
+          createAnthropicProvider({
+            fetch,
+            maxRetries: 0,
+            compat: PROVIDERS.deepseek.compat,
+            baseURL: "https://api.example.com/anthropic",
+          }),
+        "deepseek-flash",
+      ),
+    },
+    {
       name: "Claude on a workspace endpoint",
       reads: "all",
       send: via(
@@ -247,16 +262,20 @@ describe("attachments reach every brain", () => {
       for (const brain of brains()) {
         const body = await brain.send(turn(out.content, out.images));
         expect(body.length).toBeGreaterThan(0);
-        const readsIt = brain.reads === "all";
+        const seesPictures = brain.reads !== "text";
+        const readsPdf = brain.reads === "all";
         let got: string;
         if (file.shown === "picture") {
-          expect(PICTURE_BLOCK.test(body)).toBe(readsIt);
-          if (!readsIt) expect(body).toContain("The picture is not shown to you: this agent's AI (");
-          got = readsIt ? "picture" : "note";
+          expect(PICTURE_BLOCK.test(body)).toBe(seesPictures);
+          if (!seesPictures) expect(body).toContain("The picture is not shown to you: this agent's AI (");
+          got = seesPictures ? "picture" : "note";
         } else if (file.shown === "pdf") {
-          expect(PDF_BLOCK.test(body)).toBe(readsIt);
-          if (!readsIt) expect(body).toContain("The PDF is not shown to you");
-          got = readsIt ? "pdf" : "note";
+          // Where the PDF itself can't go, its text does.
+          expect(PDF_BLOCK.test(body)).toBe(readsPdf);
+          expect(body.includes("Vendas subiram")).toBe(!readsPdf);
+          if (!readsPdf) expect(body).toContain("The PDF relatorio.pdf is not shown to you as pages");
+          expect(body).not.toContain("The PDF is not shown to you");
+          got = readsPdf ? "pdf" : "pdf text";
         } else {
           // Text, and every exact cause, reach every brain as they are.
           expect(body).toContain(JSON.stringify(file.has).slice(1, -1));

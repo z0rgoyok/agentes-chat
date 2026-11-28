@@ -40,9 +40,9 @@ test("the right hand is its own row, its DM's unread kept, never a row of Recent
   const { pin, rows: rest } = rightHandPin(rows, rightHandOf([theo, lodi]));
   expect(pin).toMatchObject({ kind: "dm", channelId: "d-a-lodi", unread: 2 });
   expect(recentRows(rest).map((r) => r.key)).toEqual(["d:d-a-theo"]);
-  // Even pinned (on the web), it holds no place on the strip: its field is right above.
-  const pins = { agents: [lodi.id, theo.id], channels: [], people: [] };
-  expect(pinnedRows(rest, agentStarters([theo]), pins).map((r) => r.key)).toEqual(["d:d-a-theo"]);
+  // Even a favorite (on the web), it holds no place on the strip: its field is right above.
+  const favorites = [`agent:${lodi.id}`, `agent:${theo.id}`];
+  expect(pinnedRows(rest, agentStarters([theo]), favorites).map((r) => r.key)).toEqual(["d:d-a-theo"]);
 });
 
 test("Conversas asks the right hand from its own field under the greeting, never one of Agentes' rows", () => {

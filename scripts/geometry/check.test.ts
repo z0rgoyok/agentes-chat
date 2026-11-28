@@ -15,6 +15,7 @@ import {
   playwrightChromes,
   SELF_TESTED,
 } from "./check";
+import { LIMIT, SCROLL_TWINS, scoreOf, scrollFaults, TWINS } from "./shifts";
 
 describe("geometry check", () => {
   test("a new offender is new at its width, and words or size never make one", () => {
@@ -135,6 +136,46 @@ describe("geometry check", () => {
       expect(fixture).toContain(`bad-${rule}`);
       expect(fixture).toContain(`good-${rule}`);
       expect(`${rules}${check}`).toContain(`rule: "${rule}"`);
+    }
+  });
+
+  test("layout shifts: a screen's score is Chromium's shifts plus the jumps, and every fixture case has its twin", () => {
+    const moved = (value: number) => ({ at: 0, value, sources: ["article.ac-msg"] });
+    const score = scoreOf({ entries: [moved(0.001)], jumps: [moved(0.05), moved(0.0005)] });
+    expect(score.total).toBeCloseTo(0.0515, 6);
+    expect(score.total).toBeGreaterThan(LIMIT);
+    expect(score.worst.map((w) => [w.kind, w.value])).toEqual([
+      ["jump", 0.05],
+      ["shift", 0.001],
+      ["jump", 0.0005],
+    ]);
+    expect(scoreOf({ entries: [], jumps: [] }).total).toBe(0);
+    const fixture = readFileSync(join(import.meta.dir, "shifts-fixture.html"), "utf8");
+    for (const twin of TWINS) {
+      expect(fixture).toContain(twin);
+      expect(TWINS).toContain(twin.startsWith("bad-") ? twin.replace("bad-", "good-") : twin.replace("good-", "bad-"));
+    }
+  });
+
+  test("scrolling: rows moving by themselves and waits at the top fail anywhere, rows drawn late only with no anchoring", () => {
+    const still = { off: 0, worst: 0, wall: 0, resized: 0, frames: 900 };
+    expect(scrollFaults(still, true)).toEqual([]);
+    expect(scrollFaults({ ...still, off: 476, worst: 416 }, false)).toEqual([
+      "rows on screen moved 476 px by themselves (at most 416 px in a frame)",
+    ]);
+    expect(scrollFaults({ ...still, wall: 24 }, false)).toEqual(["waited 24 frames at the top for older messages"]);
+    // Chromium draws a skipped row before it reaches the screen and anchors the list: only its height changed.
+    expect(scrollFaults({ ...still, resized: 238 }, false)).toEqual([]);
+    expect(scrollFaults({ ...still, resized: 238 }, true)).toEqual([
+      "238 times a row changed height as it came into view",
+    ]);
+    expect(scrollFaults({ ...still, whole: 260 }, true)).toEqual(["260 rows laid out once and never skipped again"]);
+    const fixture = readFileSync(join(import.meta.dir, "shifts-fixture.html"), "utf8");
+    for (const twin of SCROLL_TWINS) {
+      expect(fixture).toContain(twin);
+      expect(SCROLL_TWINS).toContain(
+        twin.startsWith("bad-") ? twin.replace("bad-", "good-") : twin.replace("good-", "bad-"),
+      );
     }
   });
 

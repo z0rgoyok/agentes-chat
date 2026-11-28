@@ -62,9 +62,6 @@ describe("the workspace's settings: one header standard", () => {
     expect(flat("features/me/DeleteAccountScreen.tsx")).toContain("<LoadFailed onRetry={() => void plan.refetch()} />");
     expect(flat("features/me/PreferencePages.tsx")).toContain("<LoadFailed onRetry={() => void prefs.refetch()} />");
     expect(flat("features/me/ApprovalsPage.tsx")).toContain("<LoadFailed onRetry={() => void covers.refetch()} />");
-    expect(flat("features/categories/CategoryScreens.tsx")).toContain(
-      "<LoadFailed onRetry={() => void categories.refetch()} />",
-    );
   });
 });
 
@@ -149,11 +146,7 @@ describe("the standard components, never look-alikes", () => {
     );
   });
 
-  test("deleting a category asks through the app's one confirmation; forms ask before leaving with changes", () => {
-    const categories = src("features/categories/CategoryScreens.tsx");
-    expect(categories).not.toContain("Alert.alert(");
-    expect(categories).toContain("confirmAction({");
-    expect(categories.match(/useUnsavedGuard\(/g)?.length).toBe(2);
+  test("forms ask before leaving with changes", () => {
     expect(src("features/settings/SkillsScreen.tsx")).toContain("const leave = useUnsavedGuard(dirty);");
   });
 

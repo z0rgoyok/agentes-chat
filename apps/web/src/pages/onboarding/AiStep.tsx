@@ -1,10 +1,10 @@
 import { type Agent, type Me, type OrgSummary, useComputerSetup } from "@agenteschat/client";
 import { joinNames } from "@agenteschat/client/lib/format";
 import { agentGrammar } from "@agenteschat/client/lib/grammar";
-import { type AiChoice, gateDims, planLabel, planMark } from "@agenteschat/client/lib/no-ai";
+import { type AiChoice, gateDims, planLabel, planMark, planOffSystem } from "@agenteschat/client/lib/no-ai";
 import { can } from "@agenteschat/client/lib/permissions";
 import { isRightHand } from "@agenteschat/client/lib/right-hand";
-import { Button, Icon, ProviderLogo } from "@agenteschat/ui";
+import { Button, Chip, Icon, ProviderLogo } from "@agenteschat/ui";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { usePlanGates } from "@/components/ai/ConnectAiSteps";
@@ -102,24 +102,28 @@ export function AiStep({
     return (
       <>
         {picked && (
-          <div className="arrival-opts">
-            <div className="ac-option onb-ai__connected">
-              {picked === "key" ? (
-                <span className="arrival-opts__tile" aria-hidden="true">
-                  <Icon name="key" />
-                </span>
-              ) : (
-                <ProviderLogo id={planMark(picked)} size="tile" />
-              )}
-              <span className="ac-option__text">
-                <span className="ac-option__title">
+          <div className="ac-optlist">
+            <div className="ac-optrow ac-optrow--lead onb-ai__connected">
+              <span className="ac-optrow__lead">
+                {picked === "key" ? (
+                  <span className="arrival-opts__tile" aria-hidden="true">
+                    <Icon name="key" />
+                  </span>
+                ) : (
+                  <ProviderLogo id={planMark(picked)} size="tile" />
+                )}
+              </span>
+              <span className="ac-optrow__text">
+                <span className="ac-optrow__title">
                   {picked === "key" ? t("connectAi.key.title") : planLabel(t, picked)}
                 </span>
-                <span className="ac-option__desc">
+                <span className="ac-optrow__desc">
                   {picked === "key" ? t("connectAi.key.sub") : t(`connectAi.plan.${picked}.tiers`)}
                 </span>
               </span>
-              <span className="arrival-opts__tag">{t("onboarding.flow.ai.connected")}</span>
+              <Chip tone="done" icon="check">
+                {t("onboarding.flow.ai.connected")}
+              </Chip>
             </div>
           </div>
         )}
@@ -144,6 +148,7 @@ export function AiStep({
         <ConnectChoices
           mayAddKey={can(org, "manage_credentials")}
           dims={(c) => reader !== undefined && gateDims(gates.gateOf(c))}
+          offSystem={(c) => (reader !== undefined ? planOffSystem(t, gates.gateOf(c)) : null)}
           onPick={(choice) =>
             connect?.open({ ...connectRequest(choice, ids), ...(onConnected ? { onConnected } : {}) })
           }

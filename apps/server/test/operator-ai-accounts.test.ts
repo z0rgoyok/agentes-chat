@@ -27,12 +27,12 @@ beforeAll(async () => {
     .returning({ id: schema.organizations.id });
   ada = orgs[0]?.id ?? "";
   lia = orgs[1]?.id ?? "";
-  const signedIn = { claude: { version: "2.1.0", loggedIn: true } };
+  const signedIn = { claude: { version: "2.1.300", loggedIn: true } };
   const m = await t.db
     .insert(schema.machines)
     .values([
       { orgId: ada, name: "Box", protocol: 50, runnerVersion: "1.2.3", executors: { mode: "system", ...signedIn } },
-      { orgId: ada, name: "Mac", protocol: 50, executors: { claude: { version: "2.1.0", loggedIn: false } } },
+      { orgId: ada, name: "Mac", protocol: 50, executors: { claude: { version: "2.1.300", loggedIn: false } } },
       { orgId: lia, name: "Lia box", protocol: 45, executors: signedIn },
       { orgId: lia, name: "Gone", executors: signedIn, deletedAt: new Date() },
     ])

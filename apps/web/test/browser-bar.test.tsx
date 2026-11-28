@@ -13,8 +13,8 @@ afterEach(() => {
   offScreen();
 });
 
-describe("the activity bar while an agent is in its browser", () => {
-  test("says 'No navegador'; a click on the bar brings the agent's browser card into view in the conversation", async () => {
+describe("the working row while an agent is in its browser", () => {
+  test("says 'No navegador'; a click on the row brings the agent's browser card into view in the conversation", async () => {
     const state = seedState();
     const r = await renderApp(`/org/${ORG_ID}/c/${ENG_ID}`, { api: createFakeApi(state) });
     await settle(5);
@@ -25,15 +25,16 @@ describe("the activity bar while an agent is in its browser", () => {
     const run = { threadId: null, runId: "r-browser", agentId: ADA_ID };
     await ev({ type: "agent.thinking", ...run });
     await settle();
-    const bar = () => document.querySelector(".ac-typing") as HTMLElement;
-    // Not in the browser yet: no hint, the bar isn't a link.
+    // The conversation's last row while it works.
+    const bar = () => document.querySelector(".working-tail") as HTMLElement;
+    // Not in the browser yet: no hint, the row isn't a link.
     expect(within(bar()).queryByRole("button", { name: "No navegador" })).toBeNull();
     expect(bar().dataset.browser).toBeUndefined();
 
     await ev({ type: "agent.tool", ...run, tool: "browser_open" });
     await settle();
     expect(bar().dataset.browser).toBe("true");
-    // Its row out of view (no layout here): the bar says its row's step.
+    // The row says its step.
     expect(bar().querySelector(".ac-typing__text")?.textContent).toStartWith("Ada ");
     expect(within(bar()).getByRole("button", { name: "No navegador" })).toBeTruthy();
 
@@ -44,7 +45,7 @@ describe("the activity bar while an agent is in its browser", () => {
     expect(card().classList.contains("is-open")).toBe(true);
     expect(card().querySelector(".brw-mf__now")?.textContent).toContain("Ada está abrindo o navegador");
 
-    // The pill itself is the target (its words), not only the button: the card comes into view, no page change.
+    // The row itself is the target (its words), not only the button: the card comes into view, no page change.
     let shown = false;
     card().scrollIntoView = () => {
       shown = true;

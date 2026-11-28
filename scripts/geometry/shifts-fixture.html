@@ -1,0 +1,150 @@
+<!doctype html>
+<!--
+  The twins `shifts.ts` checks its two measures on before any screen (`?case=<twin>`):
+  - bad-shift--grow: a box above a paragraph grows when its data "comes" (Chromium's layout shift).
+  - good-shift--grow: its placeholder already had the final size.
+  - bad-shift--pinned: a list pinned to its end, whose last card shrinks from a tile's size to a bar (the rows above
+    drop: a jump, which Chromium's API doesn't count).
+  - good-shift--pinned: the last card's placeholder already had the card's size.
+  - good-shift--overflow: a list that fits until its first row is drawn at its real size (content-visibility's
+    placeholder before it, as a DM's intro), scrolled to its end in that same frame: nothing moves on screen, though
+    Chromium's API reports its rows moved by the whole scroll.
+  - bad-shift--overflow: the same list scrolled to its end a frame late (the rows drop, then come back up).
+  - good-shift--fresh: the same list, whose last card is also drawn at content-visibility's placeholder first: in the
+    frame its rows first show, Chromium lays them out twice (placeholders, then real sizes) and reports them moved from
+    where the first pass put them, though that pass was never painted.
+  - bad-shift--fresh: the same list scrolled to its end a frame late: its rows were painted, then moved.
+  Read by `SCROLL` (scrolled up a wheel's worth a frame), as a browser with no scroll anchoring:
+  - bad-scroll--edge: a list whose tall rows stand at a placeholder's height until they reach the screen, as Safari
+    draws skipped rows: each grows as it crosses the top edge and pushes what is on screen down.
+  - good-scroll--edge: the same rows at their height from the start.
+  - bad-scroll--wall: older rows come only once the list reached its top, a moment later: it waits there.
+  - good-scroll--wall: they come three screens before the top, and the list keeps its place.
+-->
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { margin: 0; font: 16px/1.5 sans-serif; }
+      .channel__messages { height: 500px; overflow: auto; display: flex; flex-direction: column; }
+      .row { flex: none; height: 64px; padding: 8px 16px; box-sizing: border-box; border-bottom: 1px solid #ddd; }
+      .card { flex: none; margin: 8px 16px; background: #222; border-radius: 12px; }
+      .spacer { flex: 1 0 0; }
+      .box { background: #ccc; }
+    </style>
+  </head>
+  <body>
+    <main id="screen"></main>
+    <script>
+      const twin = new URLSearchParams(location.search).get("case");
+      const screen = document.getElementById("screen");
+      const later = (fn) => setTimeout(fn, 300);
+      if (twin === "bad-shift--grow" || twin === "good-shift--grow") {
+        const box = document.createElement("div");
+        box.className = "box";
+        box.style.height = twin === "good-shift--grow" ? "160px" : "0px";
+        const p = document.createElement("p");
+        p.textContent = "Um parágrafo sob a caixa, que não deve sair do lugar quando ela carrega.";
+        screen.append(box, p);
+        later(() => {
+          box.style.height = "160px";
+          box.textContent = "Carregado";
+        });
+      } else if (twin?.endsWith("-shift--overflow") || twin?.endsWith("-shift--fresh")) {
+        later(() => {
+          const list = document.createElement("section");
+          list.className = "channel__messages";
+          const spacer = document.createElement("div");
+          spacer.className = "spacer";
+          const intro = document.createElement("div");
+          intro.className = "card";
+          // Its height from what it holds, as a message's: 56 px while content-visibility skips it, 400 once drawn.
+          intro.style.cssText = "content-visibility: auto; contain-intrinsic-size: auto 56px";
+          intro.innerHTML = '<div style="height: 400px"></div>';
+          list.append(spacer, intro);
+          for (let i = 0; i < 3; i++) {
+            const row = document.createElement("div");
+            row.className = "row";
+            row.textContent = `Mensagem ${i + 1}`;
+            list.append(row);
+          }
+          if (twin.endsWith("--fresh")) {
+            const card = document.createElement("div");
+            card.className = "card";
+            card.style.cssText = "content-visibility: auto; contain-intrinsic-size: auto 24px";
+            card.innerHTML = '<div style="height: 120px"></div>';
+            list.append(card);
+          }
+          screen.append(list);
+          const pin = () => {
+            list.scrollTop = list.scrollHeight;
+          };
+          pin();
+          new ResizeObserver(() => (twin.startsWith("good-") ? pin() : requestAnimationFrame(pin))).observe(intro);
+        });
+      } else if (twin?.includes("-scroll--")) {
+        const list = document.createElement("section");
+        list.className = "channel__messages";
+        list.style.overflowAnchor = "none";
+        const row = (i) => {
+          const el = document.createElement("div");
+          el.className = "row ac-msg";
+          el.textContent = `Mensagem ${i}`;
+          return el;
+        };
+        for (let i = 0; i < 40; i++) {
+          const el = row(i);
+          if (twin.endsWith("--edge") && i % 3 === 0) {
+            el.style.height = twin === "good-scroll--edge" ? "300px" : "56px";
+            if (twin === "bad-scroll--edge")
+              new IntersectionObserver(([e]) => e.isIntersecting && (el.style.height = "300px"), { root: list }).observe(el);
+          }
+          list.append(el);
+        }
+        screen.append(list);
+        list.scrollTop = list.scrollHeight;
+        if (twin.endsWith("--wall")) {
+          let asked = false;
+          const prepend = () => {
+            const first = list.firstElementChild;
+            const top = first.offsetTop;
+            for (let i = 20; i > 0; i--) list.prepend(row(-i));
+            list.scrollTop += first.offsetTop - top;
+          };
+          list.addEventListener("scroll", () => {
+            if (asked) return;
+            if (twin === "good-scroll--wall" && list.scrollTop < list.clientHeight * 3) {
+              asked = true;
+              prepend();
+            } else if (twin === "bad-scroll--wall" && list.scrollTop === 0) {
+              asked = true;
+              setTimeout(prepend, 300);
+            }
+          });
+        }
+      } else {
+        const list = document.createElement("section");
+        list.className = "channel__messages";
+        for (let i = 0; i < 20; i++) {
+          const row = document.createElement("div");
+          row.className = "row";
+          row.textContent = `Mensagem ${i + 1}`;
+          list.append(row);
+        }
+        const card = document.createElement("div");
+        card.className = "card";
+        card.style.height = "230px";
+        list.append(card);
+        screen.append(list);
+        list.scrollTop = list.scrollHeight;
+        later(() => {
+          const loaded = document.createElement("div");
+          loaded.className = "card";
+          loaded.style.height = twin === "good-shift--pinned" ? "230px" : "50px";
+          card.replaceWith(loaded);
+          list.scrollTop = list.scrollHeight;
+        });
+      }
+    </script>
+  </body>
+</html>

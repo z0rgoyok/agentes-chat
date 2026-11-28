@@ -1,6 +1,7 @@
 import { type HostLook, useAuthConfig } from "@agenteschat/client";
 import { DOCS_SITE } from "@agenteschat/i18n/docs";
 import { Logo } from "@agenteschat/ui";
+import { hasLightInk } from "@agenteschat/ui/org-logo";
 import { type ReactNode, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { AuthHorizon } from "@/components/Sky";
@@ -72,7 +73,12 @@ function HostAccent({ accent }: { accent: string | null }) {
 /** A registered host's logo, or its name alone in the heading face when it has none. */
 function HostLockup({ host }: { host: HostLook }) {
   return host.logoUrl ? (
-    <img className="auth__host-logo" src={host.logoUrl} alt={host.name} />
+    <img
+      className="auth__host-logo"
+      src={host.logoUrl}
+      alt={host.name}
+      data-ink={hasLightInk(host.logoUrl) ? "light" : undefined}
+    />
   ) : (
     <span className="auth__host-name">{host.name}</span>
   );

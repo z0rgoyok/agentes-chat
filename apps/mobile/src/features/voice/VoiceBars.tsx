@@ -1,8 +1,22 @@
-import { Canvas, Group, LinearGradient, Path, Rect, rect, Skia, type SkPath, vec } from "@shopify/react-native-skia";
+import { playedBars, resamplePeaks, VOICE_BAR, VOICE_BAR_GAP } from "@agenteschat/ui/voice/bars";
+import {
+  Canvas,
+  Circle,
+  Group,
+  LinearGradient,
+  Path,
+  Rect,
+  rect,
+  rrect,
+  Skia,
+  type SkPath,
+  vec,
+} from "@shopify/react-native-skia";
 import { useState } from "react";
 import { type LayoutChangeEvent, StyleSheet, type ViewStyle } from "react-native";
 import { type SharedValue, useDerivedValue } from "react-native-reanimated";
 import {
+  BAR_HANDLE,
   WAVE_CELL as CELL,
   columnsIn,
   WAVE_HANDLE as HANDLE,
@@ -108,6 +122,58 @@ export function PixelWave({
         </Rect>
       ) : null}
       {handle ? <Rect x={handleX} y={height / 2 - HANDLE / 2} width={HANDLE} height={HANDLE} color={tones[0]} /> : null}
+    </Canvas>
+  );
+}
+
+/** A voice message's wave as the web's rounded bars (`playedBars`), each as tall as its peak, 3 at the least. */
+export function barWave(peaks: readonly number[], width: number, height: number): SkPath {
+  const path = Skia.PathBuilder.Make();
+  const { count, start } = playedBars(width);
+  resamplePeaks(peaks, count).forEach((level, i) => {
+    const bar = Math.max(3, Math.min(height, level * height));
+    const x = start + i * (VOICE_BAR + VOICE_BAR_GAP);
+    path.addRRect(rrect(rect(x, (height - bar) / 2, VOICE_BAR, bar), VOICE_BAR / 2, VOICE_BAR / 2));
+  });
+  return path.build();
+}
+
+/**
+ * A voice message's wave as the web draws it: the bars in `off`, those `progress` has passed in `on`, and the round
+ * handle at `progress` to grab and drag. Drawn by Skia on the UI thread, as `PixelWave`.
+ */
+export function BarWave({
+  path,
+  progress,
+  on,
+  off,
+  onWidth,
+  height,
+  handle = true,
+}: {
+  path: SharedValue<SkPath>;
+  progress: SharedValue<number>;
+  on: string;
+  off: string;
+  onWidth?: (width: number) => void;
+  height: number;
+  handle?: boolean;
+}) {
+  const [width, setWidth] = useState(0);
+  const layout = (e: LayoutChangeEvent) => {
+    const next = e.nativeEvent.layout.width;
+    setWidth(next);
+    onWidth?.(next);
+  };
+  const at = useDerivedValue(() => handleAt(progress.value, width, BAR_HANDLE) + BAR_HANDLE / 2);
+  const clip = useDerivedValue(() => rect(0, 0, at.value, height));
+  return (
+    <Canvas onLayout={layout} style={[styles.canvas, { height }]}>
+      <Path path={path} color={off} />
+      <Group clip={clip}>
+        <Path path={path} color={on} />
+      </Group>
+      {handle ? <Circle cx={at} cy={height / 2} r={BAR_HANDLE / 2} color={on} /> : null}
     </Canvas>
   );
 }

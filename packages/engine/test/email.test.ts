@@ -6,6 +6,7 @@ import { eq, schema } from "@agenteschat/db";
 import {
   createJobHandlers,
   defaultEmailFrom,
+  deliverQueuedEmail,
   drainOutbox,
   EMAIL_DARK_HEAD,
   EMAIL_PICTURES,
@@ -140,6 +141,8 @@ describe("every email, in both languages", () => {
       email_changed: true,
       surface_linked: true,
       surface_unlinked: true,
+      surface_pin_reset: true,
+      surface_pin_locked: true,
       workspace_deleting: true,
       workspace_restored: true,
       account_deleted: true,
@@ -803,6 +806,52 @@ describe("outbox delivery", () => {
     await expect(sendQueuedEmail(failing, { key: "k", to: ["a@b.c"], template: input.template })).rejects.toThrow(
       "bad",
     );
+  });
+
+  test("unsuppress: lifted first and logged; a provider with no such list just sends, and the reset's account says how it went", async () => {
+    f = await setup();
+    const email = "ana.lima@example.com";
+    await f.db.update(schema.users).set({ email }).where(eq(schema.users.id, f.owner.id));
+    const job = {
+      id: crypto.randomUUID(),
+      orgId: null,
+      payload: { key: "k", to: [email], template: { kind: "password_reset", url: "u" }, unsuppress: true },
+    };
+    const undelivered = async () =>
+      (await f.db.select().from(schema.users).where(eq(schema.users.id, f.owner.id)))[0]?.emailUndelivered;
+    const sender = createFakeEmailSender();
+    sender.refused.set(email, "rejected");
+    const said: unknown[] = [];
+    const log = { info: (_: string, data?: Record<string, unknown>) => said.push(data) };
+    await expect(deliverQueuedEmail(f.db, sender, job, art, log)).rejects.toThrow("refused");
+    expect(said).toEqual([{ jobId: job.id, kind: "password_reset", lifted: false }]);
+    expect(await undelivered()).toBe("rejected");
+
+    const plain = { id: "smtp", delivers: true, send: async () => ({ id: "m1" }) };
+    await deliverQueuedEmail(f.db, plain, job, art, log);
+    expect(said.length).toBe(1);
+    expect(await undelivered()).toBeNull();
+
+    // A provider that won't lift it (403) still gets the email, whose refusal marks the account; a 5xx retries.
+    const refusing = createFakeEmailSender();
+    refusing.refused.set(email, "suppressed");
+    refusing.removeSuppression = async () => {
+      throw new EmailError("forbidden", false, 403);
+    };
+    await expect(deliverQueuedEmail(f.db, refusing, job, art, log)).rejects.toThrow("refused");
+    expect(said.at(-1)).toEqual({ jobId: job.id, kind: "password_reset", lifted: "refused 403" });
+    expect(await undelivered()).toBe("suppressed");
+    refusing.removeSuppression = async () => {
+      throw new EmailError("down", true, 503);
+    };
+    await expect(deliverQueuedEmail(f.db, refusing, job, art, log)).rejects.toThrow("down");
+  });
+
+  test("a job queued with a template since removed sends nothing", async () => {
+    const sender = createFakeEmailSender();
+    const template = { kind: "computer_down", locale: "en", name: "pc", url: "u" } as unknown as EmailTemplate;
+    await sendQueuedEmail(sender, { key: "k", to: ["a@b.c"], template }, art);
+    expect(sender.sent).toEqual([]);
   });
 
   test("attached pictures go with the message as inline parts", async () => {

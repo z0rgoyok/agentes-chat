@@ -1,5 +1,5 @@
 import type { Actor, Message, ThreadInfo, ThreadStartMeta } from "@agenteschat/client";
-import { repliesUnder, runsInChannel, useChannelThreads } from "@agenteschat/client";
+import { repliesUnder, runsInChannel, useChannelThreads, usePrefetchConversation } from "@agenteschat/client";
 import {
   returnClock,
   type ThreadWorkState,
@@ -60,12 +60,14 @@ export const OpenThreadContext = createContext<string | null>(null);
  */
 function OpenThread({
   threadId,
+  channelId,
   reply,
   pressed,
   className,
   children,
 }: {
   threadId: string;
+  channelId: string;
   reply?: boolean;
   /** Open in the panel right now. */
   pressed?: boolean;
@@ -74,15 +76,27 @@ function OpenThread({
 }) {
   const { org } = useOrg();
   const actions = useChannelActions();
+  // Pointed at or focused: its replies load before the click, so it opens on them, at its end, in one paint.
+  const prefetch = usePrefetchConversation(org.id);
+  const warm = () => prefetch(channelId, threadId);
   if (actions?.openThread) {
     return (
-      <button type="button" className={className} aria-pressed={pressed} onClick={() => actions.openThread?.(threadId)}>
+      <button
+        type="button"
+        className={className}
+        aria-pressed={pressed}
+        onPointerEnter={warm}
+        onFocus={warm}
+        onClick={() => actions.openThread?.(threadId)}
+      >
         {children}
       </button>
     );
   }
   return (
     <Link
+      onPointerEnter={warm}
+      onFocus={warm}
       className={className}
       to="/org/$orgId/threads/$threadId"
       params={{ orgId: org.id, threadId }}
@@ -107,12 +121,12 @@ export function ThreadReplyLine({ thread, count }: { thread: ThreadInfo; count: 
     (s) => runsInChannel(s, thread.channelId).find((r) => r.threadId === thread.id && r.status !== "failed")?.agentId,
   );
   const state = thread.state === "open" ? threadWorkState(thread, Boolean(liveAgent)) : null;
-  const people = thread.participants.flatMap((p) => (p.id ? [{ type: p.type, id: p.id }] : []));
+  const people = thread.participants.flatMap((p) => (p.id && p.type !== "app" ? [{ type: p.type, id: p.id }] : []));
   const at = thread.lastMessage?.createdAt ?? thread.lastActivityAt;
   const replies = t("threads.line.replies", { count });
   const open = openId === thread.id;
   return (
-    <OpenThread threadId={thread.id} className="thread-line" pressed={open}>
+    <OpenThread threadId={thread.id} channelId={thread.channelId} className="thread-line" pressed={open}>
       <ThreadLineBody
         people={people}
         label={replies}
@@ -156,7 +170,7 @@ export function ThreadReplyingLine({ messageId, channelId }: { messageId: string
   if (!agentIds) return null;
   const people = agentIds.split(",").map((id) => ({ type: "agent" as const, id }));
   return (
-    <OpenThread threadId={messageId} className="thread-line" pressed={openId === messageId}>
+    <OpenThread threadId={messageId} channelId={channelId} className="thread-line" pressed={openId === messageId}>
       <ThreadLineBody
         people={people}
         label={t("threads.line.replying", {
@@ -267,7 +281,7 @@ export function ThreadStartLine({
   const moved = thread?.context?.moved ?? start.moved;
   const open = (
     <Button size="sm" variant={moved ? "default" : "ghost"} asChild>
-      <OpenThread threadId={message.id}>
+      <OpenThread threadId={message.id} channelId={message.channelId}>
         <Icon name="thread" size={16} />
         {t("threads.line.open")}
       </OpenThread>
@@ -284,7 +298,7 @@ export function ThreadStartLine({
           {t("threads.line.moved", { count, title })}
           <small>
             {t("threads.line.by", {
-              name: dir.authorName(message.author),
+              name: dir.authorName(message.author, message.meta),
               time: formatTime(i18n.language, message.createdAt),
             })}
           </small>
@@ -299,7 +313,7 @@ export function ThreadStartLine({
       <Icon name="link" size={14} />
       <span>{t("threads.line.context", { title })}</span>
       <span aria-hidden="true">·</span>
-      <OpenThread className="thread-marker__open" threadId={message.id}>
+      <OpenThread className="thread-marker__open" threadId={message.id} channelId={message.channelId}>
         {t("threads.line.open")}
       </OpenThread>
     </div>
@@ -317,10 +331,12 @@ export function ClosedThreadLine({ thread }: { thread: ThreadInfo }) {
       </span>
       <span className="thread-closed__actions">
         <Button variant="link" asChild>
-          <OpenThread threadId={thread.id}>{t("threads.line.openShort")}</OpenThread>
+          <OpenThread threadId={thread.id} channelId={thread.channelId}>
+            {t("threads.line.openShort")}
+          </OpenThread>
         </Button>
         <Button variant="link" asChild>
-          <OpenThread threadId={thread.id} reply>
+          <OpenThread threadId={thread.id} channelId={thread.channelId} reply>
             {t("threads.line.reply")}
           </OpenThread>
         </Button>

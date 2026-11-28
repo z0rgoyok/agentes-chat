@@ -1,6 +1,6 @@
 # 0074. Who answers a message nobody mentioned: the chain
 
-- Status: Accepted (built: the engine, the runner's `brain.route`, the shared client's receipts and status; the screens follow)
+- Status: Accepted (built: the engine, the runner's `brain.route`, the shared client's receipts and status; the screens follow); amended 2026-11-23 by ADR 0095 (in a channel with a responsible agent, that agent takes R5's default pick and what the policy gave several agents)
 - Date: 2026-10-27
 - Amends: ADR 0013 (failures and strategies), ADR 0034 §4 (agents' messages), ADR 0059 §5 (a personal plan answers its owner)
 - Code: `packages/engine/src/router.ts` (`routeMessage`, `smallModelFor`, the rules), `packages/engine/src/router-jev.ts` (`routeChain`), `packages/engine/src/router-plan.ts` (`planSignInsOf`, `createPlanRouterStrategy`), `packages/engine/src/ai-status.ts` (`orgRouting`), `packages/providers/src/catalog.ts` (`router`, `leastThinking`, `routerModelOf`), `apps/server/runner/brain-route.ts`
@@ -101,3 +101,17 @@ The plan step no longer runs on new installations: the cheap pick of who answers
 A person's message that went into an agent's task in a channel, and that the triage then found for someone else (ADR 0112 addendum of 2026-11-19, 2), comes back to the router (`ROUTE_RELEASED_JOB`) with two differences (`routeMessage`'s options):
 - **`except`:** the agent whose task it left isn't a candidate. The lower bar for the agent the person was just talking to would hand it straight back.
 - **`forSomeoneElse`:** only an agent the message speaks to answers it: the step's `addressee`, or an agent the message names. Not the agent the step finds best placed to answer, and no rule supplies one: not R5's "a message for the agents always gets one", the channel's one agent (R2), a follow-up, or the fallback after a step's failure. Otherwise a line to a person the workspace doesn't know went to the best placed agent.
+
+## Addendum (2026-11-24): fewer social reactions
+
+Agents reacted 👋, ☀️ or 🌙 to nearly every hello: a greeting to the room went to the agent the person talks with, else
+the best placed one, every time.
+
+1. **A greeting to the room gets no reaction.** A hello, good morning or good night (👋 ☀️ 🌙) gets one only when it
+   speaks to an agent: the step's addressee, the one agent named, the one that just answered this person, or the
+   agent a rule held back. The fallback to the agent they talk with or the best placed one now serves only a
+   congratulation to the room.
+2. **One every 12 hours** (`SOCIAL_REACTION_WINDOW_MS`) per person and conversation: no new social reaction when an
+   agent already put one of `SOCIAL_REACTIONS` on that person's messages there since then. A thanks, an ok or a
+   congratulation for one agent (🙏 👍 🎉) says something and is never held back.
+3. The agents' own `react` tool is unchanged.

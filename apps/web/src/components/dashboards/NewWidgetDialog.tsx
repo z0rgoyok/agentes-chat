@@ -874,7 +874,9 @@ function NewWidgetBody({
       )}
       <div className="wg__body">{body}</div>
       <div className="wg__foot">{foot}</div>
-      {!asking && <WidgetBleed spec={shownSpec ?? built?.spec ?? null} color={color} size={layout} />}
+      {!asking && (
+        <WidgetBleed spec={shownSpec ?? built?.spec ?? null} color={color} size={layout} locale={i18n.language} />
+      )}
     </article>
   );
 

@@ -11,7 +11,7 @@ import { MessageRef } from "@/chat/MessageRef";
 import { MermaidOrCode } from "@/components/artifacts/Mermaid";
 import { ChartOrCode } from "@/components/ChartBlock";
 import { CodeBlock } from "@/components/CodeBlock";
-import { TableBox } from "@/components/TableBox";
+import { TableCard } from "@/components/TableCard";
 
 /**
  * A small, safe Markdown renderer for chat messages and artifact documents
@@ -299,8 +299,11 @@ export function Markdown({
       }
       case "list": {
         const L = b.ordered ? "ol" : "ul";
+        // A message draws its own numbers (layout.css `.md--message ol`): its counter starts where the list does.
+        const from =
+          message && b.ordered && b.start !== undefined ? { counterReset: `md-ol ${b.start - 1}` } : undefined;
         return (
-          <L key={k}>
+          <L key={k} start={b.start} style={from}>
             {b.items.map((item, j) => {
               // "- [ ] tarefa" / "- [x] feita": a task with our own (read-only) box.
               const task = item.match(TASK);
@@ -358,35 +361,7 @@ export function Markdown({
           </details>
         );
       case "table":
-        return (
-          <TableBox key={k}>
-            <table>
-              <thead>
-                <tr>
-                  {b.header.map((h, j) => (
-                    // biome-ignore lint/suspicious/noArrayIndexKey: static table
-                    <th key={j} style={{ textAlign: b.align[j] }}>
-                      {inline(h, `${k}-h${j}`)}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {b.rows.map((r, j) => (
-                  // biome-ignore lint/suspicious/noArrayIndexKey: static table
-                  <tr key={j}>
-                    {r.map((c, x) => (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: static table
-                      <td key={x} style={{ textAlign: b.align[x] }}>
-                        {inline(c, `${k}-${j}-${x}`)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </TableBox>
-        );
+        return <TableCard key={k} header={b.header} rows={b.rows} align={b.align} inline={inline} preview={message} />;
     }
     return null;
   });

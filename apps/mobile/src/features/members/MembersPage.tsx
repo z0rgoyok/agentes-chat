@@ -34,7 +34,7 @@ import { errorHaptic, Loaded, successHaptic, useLatest } from "../shared/parts";
 import { invitersOf, memberActions, memberLine, membersByName, outsideLine, whenWords } from "./logic";
 
 /** What leads each of a person's actions in their row's menu. */
-const ACT_ICON = { dm: "chat", roles: "shield", leave: "out", remove: "trash" } as const;
+const ACT_ICON = { roles: "shield", leave: "out", remove: "trash" } as const;
 /**
  * How long a removal's preview (what goes with the person) is reused: it is read as the row's menu opens, so Remove
  * confirms at once, and it is read again for any later removal.
@@ -79,9 +79,9 @@ export function MembersPage() {
   // Sorted once per list: the page draws again on every change of anyone's presence.
   const sorted = useMemo(() => (list ? membersByName(list, i18n.language) : []), [list, i18n.language]);
   // A row's menu, the same function for every row and render (the rows are memoized).
+  const message = useLatest((m: Person) => void openDm({ userId: m.userId }));
   const openMenu = useLatest((m: Person, acts: MemberAct[]) => {
     const run = {
-      dm: () => void openDm({ userId: m.userId }),
       roles: () => router.push(rolesHref.person(m.userId)),
       remove: () => void remove(m),
     };
@@ -92,15 +92,7 @@ export function MembersPage() {
       m.name,
       acts.map((a) => ({
         icon: ACT_ICON[a],
-        label: t(
-          a === "dm"
-            ? "profile.dm"
-            : a === "roles"
-              ? "rolesPage.rolesCta"
-              : a === "leave"
-                ? "members.remove.leave"
-                : "members.remove.item",
-        ),
+        label: t(a === "roles" ? "rolesPage.rolesCta" : a === "leave" ? "members.remove.leave" : "members.remove.item"),
         destructive: a === "remove" || a === "leave",
         onPress: run[a === "leave" ? "remove" : a],
       })),
@@ -145,6 +137,7 @@ export function MembersPage() {
                 cargos={givesCargos(m)}
                 ring={c.raised}
                 onMenu={openMenu}
+                onMessage={message}
                 leading
               />
             ))}
@@ -169,8 +162,8 @@ type MemberAct = ReturnType<typeof memberActions>[number];
 
 /**
  * A person on Members: their face with its presence, their name (marked as you on one's own row), their line and,
- * for an outside collaborator, whom they work for; a tap opens their actions. Drawn again only when what it shows
- * changes.
+ * for an outside collaborator, whom they work for; a message button for anyone else, and a tap opens the actions
+ * the viewer has on them, if any. Drawn again only when what it shows changes.
  */
 const MemberRow = memo(function MemberRow({
   person: m,
@@ -180,6 +173,7 @@ const MemberRow = memo(function MemberRow({
   cargos,
   ring,
   onMenu,
+  onMessage,
 }: {
   person: Person;
   mine: boolean;
@@ -189,6 +183,7 @@ const MemberRow = memo(function MemberRow({
   /** The surface the face's presence badge is ringed in. */
   ring: string;
   onMenu: (m: Person, acts: MemberAct[]) => void;
+  onMessage: (m: Person) => void;
   /** Always with a face: GroupedList reads it to start the hairline after the face's column, as a GroupedRow's. */
   leading: boolean;
 }) {
@@ -201,6 +196,11 @@ const MemberRow = memo(function MemberRow({
       label={mine ? `${m.name}${t("common.youSuffix")}` : m.name}
       sub={sub}
       {...(outside ? { belowText: outside } : {})}
+      {...(mine
+        ? {}
+        : {
+            buttons: [{ icon: "chat", label: t("profile.messageTo", { name: m.name }), onPress: () => onMessage(m) }],
+          })}
       {...(acts.length > 0 ? { more: true, onPress: () => onMenu(m, acts) } : {})}
     />
   );

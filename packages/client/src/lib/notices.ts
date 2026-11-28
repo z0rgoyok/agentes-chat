@@ -22,6 +22,11 @@ export const NOTICE_KINDS = [
   "github_event",
   "github_check",
   "work_follow_up",
+  "channel_work",
+  "hand_off",
+  "joined",
+  "left",
+  "member_joined",
 ] as const;
 export type NoticeKind = (typeof NOTICE_KINDS)[number];
 
@@ -45,12 +50,14 @@ export interface MessageNotice {
  * them, the agent says in its reply.
  */
 export const AGENT_ONLY_NOTICES: ReadonlySet<string> = new Set<NoticeKind>([
+  "channel_work",
   "agent_note",
   "wait_result",
   "proposal_result",
   "poll_result",
   "work_check_in",
   "work_follow_up",
+  "member_joined",
 ]);
 
 /** A message that is a notice only its agent reads: left out of the conversation. */
@@ -98,6 +105,24 @@ export function noticeAgentHandle(notice: MessageNotice): string | null {
 
 /** `wake_skipped`: the handles an agent's mention couldn't wake (ADR 0097), for the line's names. */
 export const skippedHandles = (notice: MessageNotice) => (notice.refs.agentHandles ?? "").split(",").filter(Boolean);
+
+/** Who joined or left a channel (`joined`, `left`): the members its line names, in order (`refs.members`). */
+export interface JoinLine {
+  kind: "joined" | "left";
+  members: { type: "person" | "agent"; id: string }[];
+  /** Who added them; absent when they joined by themselves. */
+  byUserId: string | null;
+}
+
+export function joinLineOf(meta: Meta): JoinLine | null {
+  const n = noticeOf(meta);
+  if (!n || (n.kind !== "joined" && n.kind !== "left")) return null;
+  const members = (n.refs.members ?? "").split(",").flatMap((ref) => {
+    const [type, id] = ref.split(":");
+    return (type === "person" || type === "agent") && id ? [{ type, id } as const] : [];
+  });
+  return { kind: n.kind === "joined" ? "joined" : "left", members, byUserId: n.refs.by ?? null };
+}
 
 /** An automatic line in the conversation (a notice): nothing groups with it. */
 export const isEventLine = (meta: Meta) => noticeOf(meta) !== null;
@@ -156,7 +181,14 @@ export function githubLineKey(r: Record<string, string>) {
 
 export function noticeView(
   m: { body: string; meta?: Meta | null },
-  names: { author: string; agentByHandle: (handle: string) => string | null },
+  names: {
+    author: string;
+    agentByHandle: (handle: string) => string | null;
+    /** A member's or a person's name by id (`joined`, `left`); absent: the line names its author. */
+    nameOf?: (member: { type: "person" | "agent"; id: string }) => string | null;
+    /** The names as one list in the reader's language ("Iara, Bento e Ada"). */
+    list?: (names: string[]) => string;
+  },
 ): NoticeView | null {
   const notice = noticeOf(m.meta ?? undefined);
   if (!notice) return null;
@@ -238,12 +270,35 @@ export function noticeView(
       const key = r.number ? "chat.notice.github.checkFailed" : "chat.notice.github.checkFailedCommit";
       return line(key, values, said ? { content: said } : null);
     }
+    // Another agent's request, in the DM of the agent it went to (the apps draw it as its pair row, `handOffOf`).
+    case "hand_off": {
+      const handle = noticeAgentHandle(notice);
+      return line("chat.notice.handOff", {
+        from: handle ? (names.agentByHandle(handle) ?? handle) : "",
+        to: names.author,
+      });
+    }
+    // Who joined or left the channel: everyone's line, with who added them.
+    case "joined":
+    case "left": {
+      const join = joinLineOf(m.meta ?? undefined);
+      const who = (join?.members ?? []).map((x) => names.nameOf?.(x) ?? null).filter((x): x is string => Boolean(x));
+      const values = {
+        who: who.length > 0 ? (names.list?.(who) ?? who.join(", ")) : names.author,
+        count: String(Math.max(1, join?.members.length ?? 1)),
+      };
+      if (kind === "left") return line("chat.notice.left", values);
+      const by = join?.byUserId ? names.nameOf?.({ type: "person", id: join.byUserId }) : null;
+      return by ? line("chat.notice.joinedBy", { ...values, by }) : line("chat.notice.joined", values);
+    }
     // A return's line is the bar's (`isReturnLine`), never one of the conversation's.
     case "follow_up":
+    case "member_joined":
     case "proposal_result":
     case "poll_result":
     case "work_check_in":
     case "work_follow_up":
+    case "channel_work":
     case "talker_reply":
     case "run_stopped":
       return line("chat.notice.other", { name: names.author });

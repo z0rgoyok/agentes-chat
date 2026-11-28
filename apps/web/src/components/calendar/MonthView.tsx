@@ -11,7 +11,7 @@ const PER_DAY = 3;
 /**
  * Mês: 6 weeks; each day lists its first items as rows (all day first, then
  * by time: the owner's face, the time, the name) and "+N mais" opens the rest
- * in a popover. A routine's runs are rows like the rest.
+ * in a popover.
  */
 export function MonthView({
   days,
@@ -44,7 +44,6 @@ export function MonthView({
       item={e.item}
       variant="line"
       now={now}
-      day={e.day}
       open={openKey === e.key}
       onOpenChange={(o) => onOpenKey(o ? e.key : null)}
       details={details(e.item)}

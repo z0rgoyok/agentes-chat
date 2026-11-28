@@ -1,6 +1,7 @@
 import type { Message } from "@agenteschat/client";
 import { voiceAudioGone, voiceAudioUrl, voiceClock, voiceExpired, voiceOf } from "@agenteschat/client/lib/voice";
 import { Skia } from "@shopify/react-native-skia";
+import type { AudioSource } from "expo-audio";
 import { memo, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { useTranslation } from "react-i18next";
 import { ActivityIndicator, Pressable, StyleSheet, View } from "react-native";
@@ -11,8 +12,9 @@ import { appHeaders, authedFetch, lastCookie } from "@/lib/auth";
 import { serverUrl } from "@/lib/server";
 import { Icon, PressScale, Text, TOUCH } from "@/ui";
 import { useColors, useOrgId } from "../shared/hooks";
-import { nextSpeed, spokenWords, waveAt } from "./logic";
+import { BAR_HANDLE, BAR_WAVE_H, nextSpeed, spokenWords, waveAt } from "./logic";
 import {
+  lengthOf,
   placeOf,
   playingId,
   seekPlayback,
@@ -24,14 +26,15 @@ import {
   subscribePlayback,
 } from "./playback";
 import { setVoiceSpeed, subscribeVoiceSpeed, voiceSpeed } from "./speed";
-import { PixelWave, wavePaths } from "./VoiceBars";
+import { BarWave, barWave } from "./VoiceBars";
 
-/** Six rows of the sky's cells. */
-const WAVE = 24;
-/** The speed chip's height. */
+/** The speed chip, as the web's: one width for 1×, 1,5× and 2×, so nothing beside it moves as the speed goes round. */
 const SPEED_H = 22;
+const SPEED_W = 36;
 /** The play button: big enough to hit at a glance, its glyph filled. */
 const PLAY = 36;
+/** Between the play button, the wave, the clock and the speed. */
+const ROW_GAP = 12;
 /** Past this many characters the first line is cut, so "Ver tudo" is offered without measuring the text. */
 const ONE_LINE = 40;
 /** The list recycles rows: what a message had open lives outside them (where a clip stands: `placeOf`). */
@@ -43,21 +46,70 @@ const expired = new Set<string>();
  * else; a tap opens the rest there. A recording the server no longer keeps stays as a dimmed wave with its words.
  */
 export const VoiceMessage = memo(function VoiceMessage({ message }: { message: Message }) {
-  const { t, i18n } = useTranslation();
-  const c = useColors();
   const orgId = useOrgId();
   const voice = voiceOf(message.meta);
-  const clipId = voice?.clipId ?? "";
-  const durationMs = voice?.durationMs ?? 0;
-  const sending = Boolean(message.local);
+  const words = useMemo(() => spokenWords(message), [message]);
+  if (!voice) return null;
+  const url = voiceAudioUrl(orgId, voice.clipId, serverUrl());
+  return (
+    <VoiceClip
+      clipId={voice.clipId}
+      rowKey={message.id}
+      // Read at the press: the session's cookie as it is then.
+      source={() => ({ uri: url, headers: appHeaders(lastCookie()) })}
+      peaks={voice.peaks}
+      durationMs={voice.durationMs}
+      words={words}
+      sending={Boolean(message.local)}
+      expiredAtStart={voiceExpired(voice)}
+      isGone={() => voiceAudioGone(url, authedFetch as typeof fetch)}
+    />
+  );
+});
+
+/**
+ * The player of a sound, as a voice message draws it: play, the wave (a tap or a drag moves through it), the clock and
+ * the speed every voice shares, with its words under it when it has some. An audio file plays in it too (`FileVoice`).
+ */
+export function VoiceClip({
+  clipId,
+  rowKey,
+  source,
+  peaks,
+  durationMs: givenMs,
+  words = null,
+  sending = false,
+  expiredAtStart = false,
+  isGone,
+  onFailed,
+}: {
+  /** The playback's id: one sound plays at a time, and each keeps its place. */
+  clipId: string;
+  /** What its words' open state is kept under, as the list recycles rows. */
+  rowKey: string;
+  source: () => AudioSource;
+  peaks: readonly number[];
+  /** 0 when not known yet: the player's own, once it has loaded. */
+  durationMs: number;
+  words?: string | null;
+  sending?: boolean;
+  expiredAtStart?: boolean;
+  /** Asked when it fails: true when the server no longer keeps it (it dims). */
+  isGone?: () => Promise<boolean>;
+  /** Given: a sound that can't play hands its place back instead of offering to try again. */
+  onFailed?: () => void;
+}) {
+  const { t, i18n } = useTranslation();
+  const c = useColors();
+  const learnt = useSyncExternalStore(subscribePlayback, () => lengthOf(clipId));
+  const durationMs = givenMs > 0 ? givenMs : learnt;
   const playing = useSyncExternalStore(subscribePlayback, playingId) === clipId;
   // Asked to play and not moving yet: the button spins from the tap on.
   const starting = useSyncExternalStore(subscribePlayback, startingId) === clipId;
   const progress = useSharedValue(placeOf(clipId));
   // A finger on the wave: what the player says meanwhile doesn't move it (the two fought over the handle).
   const scrubbing = useSharedValue(false);
-  const inner = useSharedValue(Skia.Path.Make());
-  const edge = useSharedValue(Skia.Path.Make());
+  const wave = useSharedValue(Skia.Path.Make());
   const [width, setWidth] = useState(0);
   // The clock, from the clip's place read whole once a second: its length while it has no place.
   const second = useSyncExternalStore(subscribePlace, () => {
@@ -66,17 +118,17 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
   });
   const time = second < 0 ? durationMs : second * 1000;
   const rate = useSyncExternalStore(subscribeVoiceSpeed, voiceSpeed);
-  const [gone, setGone] = useState(() => expired.has(clipId) || Boolean(voice && voiceExpired(voice)));
-  const [open, setOpen] = useState(() => opened.has(message.id));
+  const [gone, setGone] = useState(() => expired.has(clipId) || expiredAtStart);
+  const [open, setOpen] = useState(() => opened.has(rowKey));
   const [broken, setBroken] = useState(false);
 
   // A recycled row takes on another message.
   // biome-ignore lint/correctness/useExhaustiveDependencies: only when the row shows another recording
   useEffect(() => {
-    setGone(expired.has(clipId) || Boolean(voice && voiceExpired(voice)));
-    setOpen(opened.has(message.id));
+    setGone(expired.has(clipId) || expiredAtStart);
+    setOpen(opened.has(rowKey));
     setBroken(false);
-  }, [clipId, message.id]);
+  }, [clipId, rowKey]);
   // The wave follows its clip's place on every tick without a render (the UI thread draws it), from wherever it stands
   // as the row is drawn (a clip that kept playing while its row was away included); never under a scrubbing finger.
   useEffect(() => {
@@ -91,11 +143,9 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
     if (playing) setPlaybackSpeed(clipId, rate);
   }, [playing, rate, clipId]);
   useEffect(() => {
-    if (width <= 0 || !voice) return;
-    const wave = wavePaths(voice.peaks, width, WAVE);
-    inner.value = wave.inner;
-    edge.value = wave.edge;
-  }, [width, voice, inner, edge]);
+    if (width <= 0) return;
+    wave.value = barWave(peaks, width, BAR_WAVE_H);
+  }, [width, peaks, wave]);
 
   const lose = () => {
     expired.add(clipId);
@@ -109,15 +159,18 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
       return;
     }
     setBroken(false);
-    const url = voiceAudioUrl(orgId, clipId, serverUrl());
     // It plays at once; only a player that failed asks the server why (a player says nothing of it): a recording the
-    // server no longer keeps dims, anything else offers to try again.
+    // server no longer keeps dims, anything else offers to try again (or hands its place back, `onFailed`).
     const failed = () => {
-      void voiceAudioGone(url, authedFetch as typeof fetch).then((isGone) => (isGone ? lose() : setBroken(true)));
+      if (onFailed) {
+        onFailed();
+        return;
+      }
+      void (isGone?.() ?? Promise.resolve(false)).then((yes) => (yes ? lose() : setBroken(true)));
     };
     void startPlayback({
       id: clipId,
-      source: { uri: url, headers: appHeaders(lastCookie()) },
+      source: source(),
       durationMs,
       from: placeOf(clipId),
       speed: voiceSpeed(),
@@ -134,8 +187,8 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
   };
   const cycle = () => setVoiceSpeed(nextSpeed(rate));
   const flip = () => {
-    if (open) opened.delete(message.id);
-    else opened.add(message.id);
+    if (open) opened.delete(rowKey);
+    else opened.add(rowKey);
     setOpen(!open);
   };
 
@@ -148,11 +201,11 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
     onActivate: (e) => {
       "worklet";
       scrubbing.value = true;
-      if (width > 0) progress.value = waveAt(e.x, width);
+      if (width > 0) progress.value = waveAt(e.x, width, BAR_HANDLE);
     },
     onUpdate: (e) => {
       "worklet";
-      if (width > 0) progress.value = waveAt(e.x, width);
+      if (width > 0) progress.value = waveAt(e.x, width, BAR_HANDLE);
     },
     onDeactivate: (e) => {
       "worklet";
@@ -161,7 +214,7 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
         return;
       }
       // Where the finger let go, not the last frame drawn before it.
-      const at = width > 0 ? waveAt(e.x, width) : progress.value;
+      const at = width > 0 ? waveAt(e.x, width, BAR_HANDLE) : progress.value;
       progress.value = at;
       scheduleOnRN(endScrub, at);
     },
@@ -171,21 +224,19 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
     onDeactivate: (e) => {
       "worklet";
       if (e.canceled || width <= 0) return;
-      const at = waveAt(e.x, width);
+      const at = waveAt(e.x, width, BAR_HANDLE);
       progress.value = at;
       scheduleOnRN(seek, at);
     },
   });
   const scrub = useExclusiveGestures(pan, tap);
 
-  const words = useMemo(() => spokenWords(message), [message]);
   // The speed as the language writes it ("1,5×" in Portuguese).
   const speedFormat = useMemo(
     () => new Intl.NumberFormat(i18n.language, { maximumFractionDigits: 1 }),
     [i18n.language],
   );
   const more = words && !open && (words.length > ONE_LINE || words.includes("\n"));
-  if (!voice) return null;
   return (
     <View style={styles.box}>
       <View style={[styles.card, { backgroundColor: c.raised, borderColor: c.line }]}>
@@ -216,14 +267,13 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
           )}
           <GestureDetector gesture={scrub}>
             <View style={[styles.wave, gone && styles.dim]} accessible={false}>
-              <PixelWave
-                inner={inner}
-                edge={edge}
+              <BarWave
+                path={wave}
                 progress={progress}
-                tones={[c.ink, c.ink]}
+                on={c.ink}
                 off={gone ? c.line2 : c.faint}
                 onWidth={setWidth}
-                height={WAVE}
+                height={BAR_WAVE_H}
                 handle={!gone}
               />
             </View>
@@ -233,7 +283,7 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
               {t("voice.expired")}
             </Text>
           ) : (
-            <Text variant="caption" tone="muted" style={styles.time}>
+            <Text variant="footnote" tone="muted" style={styles.time}>
               {voiceClock(time)}
             </Text>
           )}
@@ -247,7 +297,7 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
               accessibilityValue={{ text: `${speedFormat.format(rate)}×` }}
               // 22 drawn, the 44 a finger needs.
               hitSlop={(TOUCH - SPEED_H) / 2}
-              style={[styles.speed, { backgroundColor: c.sunken }]}
+              style={[styles.speed, { backgroundColor: c.plate }]}
               contentStyle={styles.speedIn}
             >
               <Text variant="caption" tone="muted" style={styles.speedText}>
@@ -294,33 +344,34 @@ export const VoiceMessage = memo(function VoiceMessage({ message }: { message: M
       ) : null}
     </View>
   );
-});
+}
 
 const styles = StyleSheet.create({
   box: { gap: 6, maxWidth: 320 },
-  // The chat's card (files, tools, media): 14 round, the corner cut at the bottom left.
+  // The web's voice card: 16 round, the corner cut at the bottom left.
   card: {
-    gap: 4,
-    padding: 8,
-    borderTopLeftRadius: 14,
-    borderTopRightRadius: 14,
-    borderBottomRightRadius: 14,
-    borderBottomLeftRadius: 6,
+    gap: 6,
+    paddingVertical: 8,
+    paddingLeft: 10,
+    paddingRight: 14,
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    borderBottomRightRadius: 16,
+    borderBottomLeftRadius: 4,
     borderWidth: StyleSheet.hairlineWidth,
   },
-  player: { flexDirection: "row", alignItems: "center", gap: 10, minHeight: PLAY },
+  player: { flexDirection: "row", alignItems: "center", gap: ROW_GAP, minHeight: PLAY },
   play: { width: PLAY, height: PLAY, borderRadius: PLAY / 2 },
   playNudge: { marginLeft: 2 },
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
-  wave: { flex: 1, minWidth: 0, height: WAVE, flexDirection: "row" },
+  wave: { flex: 1, minWidth: 0, height: BAR_WAVE_H, flexDirection: "row" },
   dim: { opacity: 0.5, marginLeft: 6 },
   time: { minWidth: 30, textAlign: "right", fontVariant: ["tabular-nums"] },
-  // A count chip: the number on a sunken pill.
-  speed: { height: SPEED_H, minWidth: 32, borderRadius: 11 },
-  speedIn: { paddingHorizontal: 7, alignItems: "center", justifyContent: "center" },
-  speedText: { fontVariant: ["tabular-nums"], fontWeight: "600" },
+  speed: { width: SPEED_W, height: SPEED_H, borderRadius: 6 },
+  speedIn: { alignItems: "center", justifyContent: "center" },
+  speedText: { fontVariant: ["tabular-nums"], fontWeight: "700" },
   pressed: { opacity: 0.6 },
   retry: { fontWeight: "600", textDecorationLine: "underline" },
-  // Under the wave, past the play button (its 36 and the row's 10); "Ver tudo" on its own line below the words.
-  words: { paddingLeft: PLAY + 10, paddingBottom: 2, gap: 2 },
+  // Under the wave, past the play button and the row's gap; "Ver tudo" on its own line below the words.
+  words: { paddingLeft: PLAY + ROW_GAP, paddingBottom: 2, gap: 2 },
 });

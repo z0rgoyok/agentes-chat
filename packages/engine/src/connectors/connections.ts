@@ -8,7 +8,8 @@ import { caches } from "../cache";
 import { openSecret, randomToken, sealSecret, sha256 } from "../crypto";
 import { ConflictError, ForbiddenError, MisconfiguredError, NotFoundError, ValidationError } from "../errors";
 import { forgetInstallationTokens } from "../git/github-app";
-import { outboundFetch, type ResolveHost } from "../net-guard";
+import { gitHostOf, tokenOfSecret } from "../git/hosts";
+import { assertPublicHttpsUrl, outboundFetch, type ResolveHost } from "../net-guard";
 import { can, requireChangePermission, requirePermission } from "../organizations";
 import { enqueue } from "../outbox";
 import { CONNECTOR_ALL } from "../tools/scopes";
@@ -21,6 +22,7 @@ import { NATIVE_SERVICES } from "./native/services";
 import { NativeError } from "./native/types";
 import { clientAuth, getOAuthClient, type McpOAuthDeps, probeMcpServer } from "./oauth-mcp";
 import { oauthReturnTo } from "./oauth-return";
+import { isOwnGitAccount } from "./own-github";
 import {
   auditLabel,
   connectionFor,
@@ -380,7 +382,8 @@ async function storeConnection(
         },
       });
     }
-    if (!previous) await grantToEveryAgent(tx, input.orgId, input.actorId, row);
+    // A person's own git account goes on no agent: it has no tools (`isOwnGitAccount`).
+    if (!previous && !isOwnGitAccount(row)) await grantToEveryAgent(tx, input.orgId, input.actorId, row);
     caches.connections.delete(`${input.orgId}:active`);
     caches.scopes.deletePrefix(`${input.orgId}:`);
     // Over GitHub through the app alone, an account is a first connection to people: never a "Reconectar".
@@ -399,15 +402,18 @@ export async function createApiKeyConnection(
   deps: ConnectorDeps,
   actorId: string,
   orgId: string,
-  input: { connector: string; apiKey?: string; label?: string; personal?: boolean },
+  input: { connector: string; apiKey?: string; label?: string; personal?: boolean; serverUrl?: string },
 ) {
-  await requireConnect(deps.db, actorId, orgId, input.personal === true, input.connector);
+  await requireConnect(deps.db, actorId, orgId, input.personal === true);
   const def = connectorDefinition(input.connector);
-  const serverUrl = checkServerUrl(def.serverUrl);
+  const serverUrl = await gitServerUrl(deps, def, input.serverUrl);
   const apiKey = input.apiKey?.trim();
   if (apiKey !== undefined && apiKey.length < 8) throw new ValidationError("apiKey looks too short");
   const secret = apiKey ? { apiKey } : null;
-  const account = secret ? await nativeAccount(deps, input.connector, secret) : null;
+  const account = secret
+    ? ((await nativeAccount(deps, input.connector, secret)) ??
+      (await gitAccount(deps, input.connector, serverUrl, secret, input.personal === true)))
+    : null;
   const { connection } = await storeConnection(deps, {
     orgId,
     actorId,
@@ -442,6 +448,55 @@ async function nativeAccount(deps: ConnectorDeps, connector: string, secret: Con
     }
     throw error;
   }
+}
+
+/**
+ * The account a token is of on its git host (ADR 0227), kept on the connection: for a person's own connection it is
+ * who their code sessions' commits are authored as (ADR 0215 §13). A token the host doesn't answer for is theirs to
+ * fix, so it fails the connect. Null where nothing is asked: the workspace's GitHub (its app or its sign-in name it),
+ * and a host with no such question.
+ */
+async function gitAccount(
+  deps: ConnectorDeps,
+  connector: string,
+  serverUrl: string,
+  secret: ConnectionSecret,
+  personal: boolean,
+) {
+  const host = gitHostOf(connector);
+  const token = tokenOfSecret(secret);
+  if (!host?.account || !token || (host.id === "github" && !personal)) return null;
+  let failed = false;
+  const typed = Boolean(CONNECTOR_CATALOG[connector]?.address);
+  const network = deps.http ?? (typed ? outboundFetch({ resolveHost: deps.resolveHost }) : fetch);
+  const http = (async (...args: Parameters<typeof fetch>) => {
+    const res = await network(...args);
+    if (!res.ok && res.status !== 401 && res.status !== 403) failed = true;
+    return res;
+  }) as typeof fetch;
+  const account = await host.account(host.at(serverUrl, http), token).catch(() => {
+    failed = true;
+    return null;
+  });
+  if (account) return { label: account.login, id: account.id };
+  // Bitbucket's access tokens belong to a workspace or a repository, never an account: the team's connects without one.
+  if (host.id === "bitbucket" && !personal && !failed) return null;
+  throw new ValidationError(
+    `${host.label} didn't say which account this is`,
+    failed ? "connector.busy" : "connector.key_refused",
+  );
+}
+
+/** A git host's own address, where its connector takes one: https, public, no sign-in, query or fragment in it. */
+async function gitServerUrl(deps: ConnectorDeps, def: ConnectorDefinition, given: string | undefined) {
+  const typed = given?.trim();
+  if (!def.address || !typed) {
+    if (def.address === "required") throw new ValidationError("serverUrl is required");
+    return checkServerUrl(def.serverUrl);
+  }
+  // A typed address is checked as every other one (`assertPublicHttpsUrl`): never a private network's, unless allowed.
+  const url = await assertPublicHttpsUrl(/^https?:\/\//i.test(typed) ? typed : `https://${typed}`, deps.resolveHost);
+  return `${url.origin}${url.pathname.replace(/\/+$/, "")}`;
 }
 
 /** What a connector of our own sets up once stored (Telegram's webhook), its secret sealed again when it changed. */
@@ -635,7 +690,9 @@ export async function revokeConnection(
       .where(and(eq(connectorConnections.id, connectionId), activeOf(orgId)))
       .for("update");
     if (!current) throw new NotFoundError("Connection not found");
-    const accounts = current.connector === "github" ? await installationAccounts(tx, orgId) : [];
+    // The team's GitHub over the app stays as the app alone; a person's own account just goes.
+    const accounts =
+      current.connector === "github" && !current.ownerUserId ? await installationAccounts(tx, orgId) : [];
     if (accounts.length > 0 && current.authType !== GITHUB_APP_AUTH) {
       await tx
         .update(connectorConnections)
@@ -759,7 +816,7 @@ export async function syncGitHubAppConnection(
   const [current] = await tx
     .select()
     .from(connectorConnections)
-    .where(and(activeOf(orgId), eq(connectorConnections.connector, "github")))
+    .where(and(activeOf(orgId), eq(connectorConnections.connector, "github"), connectionsOf(null)))
     .for("update");
   const label = accounts.join(", ");
   if (current && current.authType !== GITHUB_APP_AUTH) return;
@@ -842,7 +899,7 @@ export async function startOAuth(
   options: { returnTo?: string; personal?: boolean } = {},
 ): Promise<{ authorizeUrl: string; state: string }> {
   const personal = options.personal === true;
-  await requireConnect(deps.db, actorId, orgId, personal, connector);
+  await requireConnect(deps.db, actorId, orgId, personal);
   const def = connectorDefinition(connector);
   const app = deps.oauthApps?.[connector];
   const serverUrl = checkServerUrl(def.serverUrl);
@@ -884,7 +941,10 @@ export async function startOAuth(
   if (app.configId) {
     url.searchParams.set("config_id", app.configId);
     url.searchParams.set("override_default_response_type", "true");
-  } else url.searchParams.set("scope", def.oauth.scopes.join(def.oauth.scopeSeparator ?? " "));
+  } else if (def.oauth.scopes.length > 0) {
+    // A vendor whose app carries its own scopes (Bitbucket) is sent none.
+    url.searchParams.set("scope", def.oauth.scopes.join(def.oauth.scopeSeparator ?? " "));
+  }
   url.searchParams.set("state", state);
   if (def.oauth.pkce !== false) {
     url.searchParams.set("code_challenge", challenge);
@@ -1090,7 +1150,9 @@ export async function completeOAuth(
     token.expires_in = long.expiresIn;
   }
   const signedIn: ConnectionSecret = { accessToken: token.access_token, refreshToken: token.refresh_token };
-  const account = await nativeAccount(deps, row.connector, signedIn);
+  const account =
+    (await nativeAccount(deps, row.connector, signedIn)) ??
+    (await gitAccount(deps, row.connector, row.serverUrl ?? def.serverUrl, signedIn, row.personal));
   const stored = await storeConnection(deps, {
     orgId: row.orgId,
     actorId: user.id,
@@ -1316,8 +1378,9 @@ async function nativeAuthorizeUrl(
   returnTo?: string,
   personal = false,
 ) {
-  const probe = await probeMcpServer(deps, serverUrl).catch(() => null);
-  if (probe?.kind !== "oauth") return null;
+  // Its failures say their own cause (unreachable, an error status, unreadable OAuth details), not "no OAuth".
+  const probe = await probeMcpServer(deps, serverUrl);
+  if (probe.kind !== "oauth") return null;
   const started = await beginMcpOAuth(deps, actorId, orgId, {
     connector,
     serverUrl,
@@ -1326,8 +1389,12 @@ async function nativeAuthorizeUrl(
     scopes: probe.scopes,
     returnTo,
     personal,
+  }).catch((error) => {
+    // A server that also lets in without a sign-in: one it can't start is no OAuth, as before it was read.
+    if (probe.optional && error instanceof ValidationError) return null;
+    throw error;
   });
-  return started.status === "oauth" ? started.authorizeUrl : null;
+  return started?.status === "oauth" ? started.authorizeUrl : null;
 }
 
 /** Callback of an MCP-native authorization: token with PKCE and `resource`, then the connection. */

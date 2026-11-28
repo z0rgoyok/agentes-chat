@@ -100,7 +100,13 @@ test("one socket to the browser endpoint: each target attached as Chrome tells o
   );
   cdp.attach("worker-1", "worker");
   const network = { maxPostDataSize: 1, maxResourceBufferSize: 1, maxTotalBufferSize: 1 };
-  expect(cdp.sent.slice(1).map(({ method, params, sessionId }) => ({ method, params, sessionId }))).toEqual([
+  // The tab's passkey refusal is its own test's; here, what every session gets.
+  expect(
+    cdp.sent
+      .slice(1)
+      .filter((m) => !m.method.startsWith("WebAuthn."))
+      .map(({ method, params, sessionId }) => ({ method, params, sessionId })),
+  ).toEqual([
     { method: "Network.enable", params: network, sessionId: "page-1" },
     { method: "Target.setAutoAttach", params: RELATED, sessionId: "page-1" },
     { method: "Network.enable", params: network, sessionId: "frame-1" },
@@ -110,7 +116,13 @@ test("one socket to the browser endpoint: each target attached as Chrome tells o
   ]);
   // It never resumes or pauses a target, and asks for nothing else.
   expect(new Set(cdp.sent.map((m) => m.method))).toEqual(
-    new Set(["Target.setDiscoverTargets", "Target.setAutoAttach", "Network.enable"]),
+    new Set([
+      "Target.setDiscoverTargets",
+      "Target.setAutoAttach",
+      "Network.enable",
+      "WebAuthn.enable",
+      "WebAuthn.addVirtualAuthenticator",
+    ]),
   );
   // Auto-attach only under a target: at the browser's level it holds the release of a press that opens a window.
   expect(cdp.sent.every((m) => m.method !== "Target.setAutoAttach" || m.sessionId)).toBe(true);
@@ -536,4 +548,36 @@ test("a phone is mobile with touch and Chrome on Android of the same version; a 
   // Chrome's version unknown: the size and touch, never a made-up version.
   const unknown = emulationCommands({ device: "phone", width: 390, height: 844 }, null);
   expect(unknown[2]).toEqual({ method: "Emulation.setUserAgentOverride", params: { userAgent: "" } });
+});
+
+test("every tab refuses passkeys at once: a virtual authenticator that never consents, before anything else; frames and workers get none", () => {
+  const { cdp } = counter();
+  cdp.onopen?.();
+  const webAuthn = (sessionId: string) =>
+    cdp.sent
+      .filter((m) => m.sessionId === sessionId && m.method.startsWith("WebAuthn."))
+      .map(({ method, params }) => ({ method, params }));
+  cdp.attach("page-1");
+  expect(cdp.sent.find((m) => m.sessionId === "page-1")?.method).toBe("WebAuthn.enable");
+  expect(webAuthn("page-1")).toEqual([
+    { method: "WebAuthn.enable", params: { enableUI: false } },
+    {
+      method: "WebAuthn.addVirtualAuthenticator",
+      params: {
+        options: {
+          protocol: "ctap2",
+          ctap2Version: "ctap2_1",
+          transport: "internal",
+          hasResidentKey: true,
+          hasUserVerification: true,
+          isUserVerified: false,
+          isUserConsenting: false,
+        },
+      },
+    },
+  ]);
+  cdp.event("Target.attachedToTarget", { sessionId: "frame-1", targetInfo: { type: "iframe" } }, "page-1");
+  cdp.attach("worker-1", "service_worker");
+  expect(webAuthn("frame-1")).toEqual([]);
+  expect(webAuthn("worker-1")).toEqual([]);
 });

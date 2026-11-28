@@ -281,7 +281,20 @@ test("a reserved browser port held by another uid fails before or after the kern
     const pc = computer({
       ss: (scan) => (scan === onScan ? "LISTEN 0 0 127.0.0.1:10002 0.0.0.0:* uid:20005 ino:1 sk:0" : ""),
     });
-    expect(() => ensureBrowserBindPolicy(user, runner, pc.opts)).toThrow("wrong listener owner");
+    expect(() => ensureBrowserBindPolicy(user, runner, pc.opts)).toThrow(
+      "Another agent listens on agent 20001's browser port 10002",
+    );
+  }
+});
+
+test("host software on an agent's own pair (root's or another user's) leaves its worker to start", () => {
+  for (const ss of [
+    "LISTEN 0 4096 0.0.0.0:10002 0.0.0.0:* ino:1 sk:0",
+    "LISTEN 0 4096 [::]:10003 [::]:* uid:1000 ino:2 sk:0",
+  ]) {
+    const pc = computer({ ss: () => ss });
+    ensureBrowserBindPolicy(user, runner, pc.opts);
+    expect(pc.calls.filter((c) => c.file === "/usr/bin/systemd-run")).toHaveLength(1);
   }
 });
 
@@ -311,6 +324,10 @@ test("a listener on a browser port must be its owner's: only that agent's pair i
   ].join("\n");
   expect(conflictingBrowserPorts(ss, [20001, 20001])).toEqual([10003]);
   expect(conflictingBrowserPorts(ss, [20000, 20999])).toEqual([10003, 10004]);
+  expect(conflictingBrowserPorts(ss, [20001, 20001], [20005, 20999])).toEqual([]);
+  expect(conflictingBrowserPorts(`${ss}\nLISTEN 0 0 0.0.0.0:10002 0.0.0.0:*`, [20001, 20001], [20000, 20999])).toEqual([
+    10003,
+  ]);
 });
 
 test("root's decoys: bound before Bun.listen returns, and a handshake completes while root waits on the probe", () => {

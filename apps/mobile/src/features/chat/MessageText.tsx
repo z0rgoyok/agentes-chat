@@ -9,9 +9,10 @@ import { tapHaptic } from "../shared/parts";
 import { ChartCard } from "./ChartCard";
 import { CodeCard } from "./CodeCard";
 import { keepOpen, keptOpen } from "./kept-sizes";
-import { blocksOf, CHAT_TEXT_MAX_SCALE, type Inline } from "./logic";
+import { blockGap, blocksOf, CHAT_TEXT_MAX_SCALE, type ChatText, type Inline } from "./logic";
 import { useRowLook } from "./look";
-import { Spans, Table } from "./MessageSpans";
+import { Spans } from "./MessageSpans";
+import { TableCard } from "./TableCard";
 
 /**
  * A message's text: paragraphs, lists, quotes, headings, bold, italic,
@@ -57,34 +58,52 @@ export const MessageText = memo(function MessageText({
   const fit = sized ? { maxFontSizeMultiplier: CHAT_TEXT_MAX_SCALE } : {};
   const spans = (inline: Inline[]) => <Spans inline={inline} channelRefs={channelRefs} everyone={everyone} ink={ink} />;
   const tone = muted ? "muted" : "ink";
+  // A list's marker stands in the middle of its first line.
+  const lineHeight = sized?.lineHeight ?? (small ? SMALL_LINE : styles.line.lineHeight);
+  const headed = [sized ? headingOf(sized) : small ? styles.headingSmall : styles.headingBody, styles.heading];
   return (
     <View style={styles.wrap}>
       {blocks.map((b, i) => {
+        // The room above each block by what it follows (`blockGap`): a list's items close together, a heading apart
+        // from what it ends and close to what it opens.
+        const gap = blockGap(blocks[i - 1]?.kind, b.kind);
+        const above = gap > 0 ? { marginTop: gap } : undefined;
         switch (b.kind) {
           case "code":
-            // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
-            return <Fenced key={i} lang={b.lang} text={b.text} accent={accent} />;
+            return (
+              // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
+              <View key={i} style={above}>
+                <Fenced lang={b.lang} text={b.text} accent={accent} />
+              </View>
+            );
           case "table":
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
-              <View key={i} style={ink ? [styles.cut, { backgroundColor: c.bg }] : undefined}>
-                <Table header={b.header} rows={b.rows} align={b.align} />
+              <View key={i} style={[above, ink ? [styles.cut, { backgroundColor: c.bg }] : null]}>
+                <TableCard header={b.header} rows={b.rows} align={b.align} />
               </View>
             );
           case "heading":
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
-              <Text key={i} variant={variant} tone="ink" style={[line, styles.heading, inked]} {...fit}>
+              <Text key={i} variant={variant} tone="ink" style={[line, headed, inked, above]} {...fit}>
                 {spans(b.inline)}
               </Text>
             );
           case "bullet":
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
-              <View key={i} style={styles.bullet}>
-                <Text variant={variant} tone="faint" style={[line, styles.mark, inked]} {...fit}>
-                  {b.ordinal ? `${b.ordinal}.` : "•"}
-                </Text>
+              <View key={i} style={[styles.bullet, above]}>
+                {b.ordinal ? (
+                  <Text variant={variant} tone="faint" style={[line, styles.ordinal, inked]} {...fit}>
+                    {`${b.ordinal}.`}
+                  </Text>
+                ) : (
+                  // The web's marker: a small square, in the middle of the item's first line.
+                  <View style={[styles.marker, { height: lineHeight }]}>
+                    <View style={[styles.square, { backgroundColor: ink ?? c.faint }]} />
+                  </View>
+                )}
                 <Text variant={variant} tone={tone} style={[line, styles.item, inked]} {...fit}>
                   {spans(b.inline)}
                 </Text>
@@ -93,7 +112,7 @@ export const MessageText = memo(function MessageText({
           case "details":
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
-              <View key={i} style={ink ? [styles.cut, { backgroundColor: c.bg }] : undefined}>
+              <View key={i} style={[above, ink ? [styles.cut, { backgroundColor: c.bg }] : null]}>
                 <Details summary={b.summary} body={b.body} muted={muted} accent={accent} channelRefs={channelRefs} />
               </View>
             );
@@ -102,7 +121,7 @@ export const MessageText = memo(function MessageText({
               // A quote reads on a plate a step off what is around it (on my solid bubble, its ink's), never a colored
               // bar at its left edge.
               // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
-              <View key={i} style={[styles.quote, { backgroundColor: ink ? `${ink}26` : c.plate }]}>
+              <View key={i} style={[styles.quote, { backgroundColor: ink ? `${ink}26` : c.plate }, above]}>
                 <Text variant={variant} tone="muted" style={[line, inked]} {...fit}>
                   {spans(b.inline)}
                 </Text>
@@ -111,7 +130,7 @@ export const MessageText = memo(function MessageText({
           default:
             return (
               // biome-ignore lint/suspicious/noArrayIndexKey: the blocks of one text, in order
-              <Text key={i} variant={variant} tone={tone} style={[line, inked]} selectable={selectable} {...fit}>
+              <Text key={i} variant={variant} tone={tone} style={[line, inked, above]} selectable={selectable} {...fit}>
                 {spans(b.inline)}
               </Text>
             );
@@ -120,6 +139,12 @@ export const MessageText = memo(function MessageText({
     </View>
   );
 });
+
+/** A page's footnote line (`small`): its list's markers stand in its middle. */
+const SMALL_LINE = 18;
+
+/** A heading in a conversation: two points over its words, on their line and one point more. */
+const headingOf = (text: ChatText) => ({ fontSize: text.fontSize + 2, lineHeight: text.lineHeight + 1 });
 
 /** A fenced block: a ```chart that reads as one is drawn; anything else is a code card. */
 function Fenced({ lang, text, accent }: { lang: string; text: string; accent?: AgentColorName }) {
@@ -185,7 +210,7 @@ function Details({
 }
 
 const styles = StyleSheet.create({
-  wrap: { gap: 8, marginTop: 1 },
+  wrap: { marginTop: 1 },
   /** Outside a conversation (a task's text, a document): the body's size on a line of ~1.42. */
   line: { lineHeight: 24 },
   flex: { flex: 1 },
@@ -194,9 +219,15 @@ const styles = StyleSheet.create({
    * wide as its words, and a basis of zero there leaves the item no width (a tall bubble with only the number).
    */
   item: { flexShrink: 1 },
-  heading: { fontWeight: "700" },
-  bullet: { flexDirection: "row", gap: 8, paddingLeft: 2 },
-  mark: { minWidth: 14 },
+  heading: { fontWeight: "600" },
+  // A heading a step over the words: 19 on 25 beside the body's 17, 15 on 20 beside a page's footnote.
+  headingBody: { fontSize: 19, lineHeight: 25 },
+  headingSmall: { fontSize: 15, lineHeight: 20 },
+  // The items' words start 22 in, the web's list: the marker (or the number, right aligned) in the room before them.
+  bullet: { flexDirection: "row" },
+  marker: { width: 22, paddingLeft: 6, justifyContent: "center" },
+  square: { width: 5, height: 5, borderRadius: 1 },
+  ordinal: { minWidth: 15, marginRight: 7, textAlign: "right", fontVariant: ["tabular-nums"] },
   // A plate in the words: the scale's item corner and the plates' room (12 at the sides, 10 above and under).
   quote: { paddingHorizontal: 12, paddingVertical: 10, borderRadius: RADIUS.md },
   /** On a solid bubble: a table or a collapsed block stays on the page's color, in the page's ink. */

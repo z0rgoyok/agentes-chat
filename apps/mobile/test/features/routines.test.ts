@@ -663,6 +663,15 @@ describe("Rotinas on the phone, as the web reads them", () => {
     expect(form).not.toContain("function StackedField");
   });
 
+  test("phone parity: a webhook run's calls on its line, and the service's own secret pasted", () => {
+    expect(read("RoutineScreen.tsx")).toContain("useRoutineRunCalls(orgId, r.id, open ? x.id : null)");
+    expect(read("RoutineScreen.tsx")).toContain("runCallText(c)");
+    const card = read("WebhookCard.tsx");
+    expect(card).toContain('t("routines.webhook.pasteSecret")');
+    expect(card).toContain("{ paste: value.trim() }");
+    expect(card).toContain("secureTextEntry");
+  });
+
   test("a routine's screen: the system's menu in its bar, its actions as rows, its state in words", () => {
     const screen = read("RoutineScreen.tsx");
     expect(screen).toContain("{...(menu ? { actions: [menu] } : {})}");

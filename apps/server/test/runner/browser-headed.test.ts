@@ -164,7 +164,7 @@ test("headed: maximized on the agent's display, no automation bars, the debuggin
   // chip asking to sign in to Chrome itself stays off (Chrome 147 at least to 155; later ones read the profile's
   // switch).
   expect(args).toContain("--force-prefers-reduced-motion");
-  expect(args).toContain("--disable-features=SigninPromoOnAvatarPill");
+  expect(args).toContain("--disable-features=SigninPromoOnAvatarPill,MacAppCodeSignClone");
   expect(args).not.toContain("--headless=new");
   expect(args.some((a) => a.startsWith("--window-size"))).toBe(false);
   // Its windows' class is the dock's Browser's, so the dock shows them on Browser.

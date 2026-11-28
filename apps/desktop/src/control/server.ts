@@ -1,4 +1,11 @@
-import { CLOUD_SERVER, isLoopback, isTailnet, normalizeServer, serverHost } from "@agenteschat/client/lib/server";
+import {
+  CLOUD_SERVER,
+  isLoopback,
+  isTailnet,
+  normalizeServer,
+  type ServerCheck,
+  serverHost,
+} from "@agenteschat/client/lib/server";
 import type { Home } from "./store";
 
 /** The servers this app opens (Rust keeps them in `servers.json`, `servers_get`). */
@@ -63,3 +70,11 @@ export const serverName = (server: string) => (server === CLOUD_SERVER ? "agente
 
 /** The server a home is paired with, as an origin. */
 export const homeServer = (h: Home) => (h.status?.server ? appServer(h.status.server) : null);
+
+/**
+ * A server of the list whose app API contract this app no longer speaks (`minApi` above `APP_API`), or not yet
+ * (`api` below it): what the cover says over its page each time it opens, and the popover while it is the one open.
+ */
+export type VersionProblem = "app-too-old" | "server-too-old";
+export const versionProblem = (check: ServerCheck | null): VersionProblem | null =>
+  check && !check.ok && (check.problem === "app-too-old" || check.problem === "server-too-old") ? check.problem : null;

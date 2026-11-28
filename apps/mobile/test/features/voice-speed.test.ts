@@ -18,14 +18,24 @@ mock.module("../../src/lib/voice-session", () => ({
   playSystemSound: () => false,
   systemSounds: false,
 }));
-// The app's one shared player, counting the speeds it is given. A test moves its clock (`currentTime`, of a 9 s clip)
-// and can hold its seeks until it lets them land.
+// The app's one shared player, counting the speeds it is given. A test moves its clock (`currentTime`, of a 9 s clip),
+// sets the length it reads (`duration`), says it ended (`finish`), and can hold its seeks until it lets them land.
 const rates: number[] = [];
-const clock = { currentTime: 0, holdSeeks: false, land: null as null | (() => void) };
+const clock = {
+  currentTime: 0,
+  duration: 9,
+  state: "ready",
+  holdSeeks: false,
+  land: null as null | (() => void),
+  status: null as null | ((status: { didJustFinish?: boolean; error?: string }) => void),
+};
+const finish = () => clock.status?.({ didJustFinish: true });
 mock.module("expo-audio", () => ({
   setAudioModeAsync: async () => undefined,
   createAudioPlayer: () => ({
-    addListener: () => undefined,
+    addListener: (_: string, listener: typeof clock.status) => {
+      clock.status = listener;
+    },
     replace: () => undefined,
     setPlaybackRate: (rate: number) => void rates.push(rate),
     seekTo: (seconds: number) =>
@@ -39,11 +49,15 @@ mock.module("expo-audio", () => ({
       }),
     play: () => undefined,
     pause: () => undefined,
-    currentStatus: { didJustFinish: false },
+    get currentStatus() {
+      return { didJustFinish: false, playbackState: clock.state };
+    },
     get currentTime() {
       return clock.currentTime;
     },
-    duration: 9,
+    get duration() {
+      return clock.duration;
+    },
   }),
 }));
 
@@ -180,7 +194,38 @@ describe("where a voice message stands lives in the playback module, not in its 
     await ticks();
     expect(placeOf("clip-f")).toBeCloseTo(0.5, 5);
     clock.currentTime = 9;
+    finish();
     await ticks();
     expect([placeOf("clip-f"), playingId(), ended]).toEqual([0, null, 1]);
+  });
+
+  test("a clip keeps playing to its own end when the player reads a shorter length (a file a browser recorded)", async () => {
+    // Android's player reads 1.2 s of a 17 s recording whose header carries no full length.
+    clock.currentTime = 0;
+    clock.duration = 1.2;
+    let ended = 0;
+    await startPlayback({ ...request("clip-g"), durationMs: 17_000, onEnd: () => ended++ });
+    clock.currentTime = 1.2;
+    await ticks();
+    expect(playingId()).toBe("clip-g");
+    expect(placeOf("clip-g")).toBeCloseTo(1.2 / 17, 5);
+    clock.currentTime = 16.9;
+    await ticks();
+    expect([playingId(), ended]).toEqual(["clip-g", 0]);
+    // Its end is the player's: Android's state says it before the event comes.
+    clock.state = "ended";
+    await ticks();
+    expect([placeOf("clip-g"), playingId(), ended]).toEqual([0, null, 1]);
+    clock.state = "ready";
+    clock.duration = 9;
+  });
+
+  test("an audio file with no length of its own plays by the player's", async () => {
+    clock.currentTime = 0;
+    await startPlayback({ ...request("clip-h"), durationMs: 0 });
+    clock.currentTime = 4.5;
+    await ticks();
+    expect(placeOf("clip-h")).toBeCloseTo(0.5, 5);
+    stopPlayback();
   });
 });

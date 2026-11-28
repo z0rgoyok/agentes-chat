@@ -25,6 +25,8 @@ export const liveKeys = {
   presence: (orgId: string, ids: readonly string[]) =>
     ["org", orgId, "live", "presence", [...new Set(ids)].sort().join(",")] as const,
   imageModels: (orgId: string) => ["org", orgId, "live", "image-models"] as const,
+  /** A file's own fonts (its font lists). */
+  fileFonts: (orgId: string, fileId: string) => ["org", orgId, "live", "fonts", fileId] as const,
   /** Under the Drive's: a new upload of the file refreshes its preview with the rest. */
   officePreview: (orgId: string, fileId: string, version?: number) =>
     [...keys.artifacts(orgId), "office-preview", fileId, version ?? "latest"] as const,
@@ -183,6 +185,29 @@ export function useUploadAsset(orgId: string, fileId: string) {
   const api = useApi();
   return useMutation({
     mutationFn: (file: File) => api.live.uploadAsset(orgId, fileId, file),
+  });
+}
+
+/** A file's own fonts, for its font lists; brought ones show once `useBringFont` adds them. */
+export function useFileFonts(orgId: string, fileId: string) {
+  const api = useApi();
+  return useQuery({
+    queryKey: liveKeys.fileFonts(orgId, fileId),
+    queryFn: () => api.live.fileFonts(orgId, fileId),
+    staleTime: 60_000,
+  });
+}
+
+/**
+ * A font brought from the Drive into the file (ADR 0220 §2): its asset, and the file's font list asked again. The
+ * server refuses a file that isn't a font it can read (`live.font_invalid`).
+ */
+export function useBringFont(orgId: string, fileId: string) {
+  const api = useApi();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (artifactId: string) => api.live.copyAsset(orgId, fileId, { artifactId }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: liveKeys.fileFonts(orgId, fileId) }),
   });
 }
 

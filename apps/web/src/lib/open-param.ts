@@ -80,6 +80,20 @@ export function threadSearch(search: Record<string, unknown>): { thread?: string
   };
 }
 
+/** A thread in its conversation: the conversation at `anchor` (`threadAnchor`), the thread in the panel beside it. */
+export function threadInConversationSearch(
+  threadId: string,
+  anchor: string | null,
+  at: { focus?: string; reply?: boolean } = {},
+) {
+  return {
+    ...(anchor ? { m: anchor } : {}),
+    thread: threadId,
+    ...(at.reply ? { reply: true as const } : {}),
+    ...(at.focus ? { tm: at.focus } : {}),
+  };
+}
+
 /**
  * The thread in a conversation's panel, kept in the URL (`?thread=…`) so a reload, a shared link and Back and Forward
  * keep it. Unlike `useOpenParam` each change is a history entry, so Back closes what was just opened; `replace` is for

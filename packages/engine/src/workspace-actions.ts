@@ -9,7 +9,7 @@ import {
   UNDO_WINDOW_MS,
 } from "./agent-actions";
 import type { AgentDeletionDeps } from "./agent-deletion";
-import { agentsByHandle } from "./agents";
+import { agentsByHandle, getAgent, updateAgent } from "./agents";
 import { recordAudit } from "./audit";
 import { cancelRun } from "./cancel";
 import { deleteChannel } from "./channel-deletion";
@@ -17,9 +17,12 @@ import { setChannelOverride } from "./channel-permissions";
 import {
   addChannelMember,
   archiveChannel,
+  channelNameIs,
   listChannels,
+  namesChannel,
   removeChannelMember,
   requireChannelAccess,
+  typedChannelName,
   unarchiveChannel,
 } from "./channels";
 import { findMember } from "./chat-tools";
@@ -27,6 +30,7 @@ import { cardPlace, NO_PERSON_READS } from "./consultations";
 import { ownWords } from "./context/learn";
 import { continueRun } from "./continue-run";
 import { deleteCredential, listCredentials } from "./credentials";
+import { updateComputerDevice } from "./devices";
 import { personAgentDmKey } from "./dms";
 import { queueInvitationEmail } from "./email";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "./errors";
@@ -61,7 +65,7 @@ import {
   ROLE_PERMISSIONS,
   type RolePermission,
 } from "./permissions";
-import { personBehindCall } from "./requester";
+import { personBehindCall, relayedRefusal, relayedRequest } from "./requester";
 import { liveLodiSwitches } from "./right-hand-lane";
 import {
   createRole,
@@ -79,7 +83,9 @@ import { bodyCode } from "./run-tools";
 import { AgentHeldError, OrgDeletingError, OrgPausedError } from "./standing";
 import { rankTools } from "./tools/directory";
 import { canonicalJson, type JsonSchema, validateJson } from "./tools/json-schema";
+import { APPROVALS_LEVELS, type ApprovalsLevel } from "./tools/run-policy";
 import type { ToolContext, ToolDefinition, ToolOutput } from "./tools/types";
+import { setWorkspaceApprovalsLevel, workspaceApprovalsLevel } from "./workspace-approvals";
 
 const {
   agentActions,
@@ -244,8 +250,8 @@ async function personNamed(ctx: Pick<ToolContext, "db" | "orgId">, who: string) 
 
 /** A channel the person sees, by name. */
 async function channelNamed(ctx: Pick<ToolContext, "db" | "orgId">, person: string, name: string) {
-  const wanted = name.trim().replace(/^#/, "").toLowerCase();
-  const channel = (await listChannels(ctx.db, person, ctx.orgId)).find((c) => c.name === wanted);
+  const wanted = typedChannelName(name);
+  const channel = (await listChannels(ctx.db, person, ctx.orgId)).find((c) => namesChannel(c.name, wanted));
   return channel ?? `They see no channel #${wanted}.`;
 }
 
@@ -1004,17 +1010,22 @@ const channelTarget = (c: Pick<ChannelRow, "id" | "name">): AgentActionTarget =>
   id: c.id,
   title: c.name,
 });
-/** With its roles' audience: made public, a private channel forgets them, and Undo gives them back. */
+/**
+ * With its roles' audience (made public, a private channel forgets them, and Undo gives them back), its responsible
+ * agent (ADR 0095) and whether its agents answer in threads (ADR 0214).
+ */
 const channelSnapshot = (c: ChannelRow) => ({
   name: c.name,
   topic: c.topic,
   visibility: c.visibility,
   audienceRoleIds: [...c.audienceRoleIds],
+  leadAgentId: c.leadAgentId,
+  replyInThreads: c.replyInThreads,
 });
 
 const updateChannelAction: WorkspaceAction = {
   id: "update_channel",
-  does: "Rename a channel, change its topic, or make it private (invite only) or public.",
+  does: "Rename a channel, change its topic, make it private (invite only) or public, choose the agent responsible for it, or have agents answer there in threads or in the channel.",
   input: {
     type: "object",
     properties: {
@@ -1022,6 +1033,17 @@ const updateChannelAction: WorkspaceAction = {
       name: { type: "string", minLength: 1, maxLength: 80, description: "Lower-case letters, digits, - or _." },
       topic: { type: "string", maxLength: 500 },
       private: { type: "boolean" },
+      responsible: {
+        type: "string",
+        maxLength: 64,
+        description:
+          'The @handle of an agent in the channel to make responsible for it: it answers what people say to the room for the team and takes the next step of work that ends there. One per channel. "" for none.',
+      },
+      reply_in_threads: {
+        type: "boolean",
+        description:
+          "true: agents called in its main timeline answer in the thread under that message; false: in the channel itself. Work already going stays where it is.",
+      },
     },
     required: ["channel"],
     additionalProperties: false,
@@ -1031,10 +1053,23 @@ const updateChannelAction: WorkspaceAction = {
   async resolve(ctx, person, input) {
     const channel = await channelNamed(ctx, person, str(input.channel));
     if (typeof channel === "string") return channel;
-    if (input.name === undefined && input.topic === undefined && input.private === undefined)
-      return "Say what changes: its name, topic or whether it is private.";
-    const { channel: _, ...rest } = input;
-    return { input: { ...rest, channelId: channel.id }, words: { channel: channel.name } };
+    if (
+      input.name === undefined &&
+      input.topic === undefined &&
+      input.private === undefined &&
+      input.responsible === undefined &&
+      input.reply_in_threads === undefined
+    )
+      return "Say what changes: its name, topic, whether it is private, the agent responsible for it or whether agents answer in threads.";
+    const { channel: _, responsible, ...rest } = input;
+    let lead: { leadAgentId?: string | null } = {};
+    if (typeof responsible === "string") {
+      const handle = responsible.trim();
+      const agent = handle ? (await agentsByHandle(ctx.db, ctx.orgId, [handle])).rows[0] : null;
+      if (handle && !agent) return `No agent ${handle.startsWith("@") ? handle : `@${handle}`} here.`;
+      lead = { leadAgentId: agent?.id ?? null };
+    }
+    return { input: { ...rest, ...lead, channelId: channel.id }, words: { channel: channel.name } };
   },
   async run(deps, actorId, orgId, input) {
     const row = await channelRow(deps.db, orgId, str(input.channelId));
@@ -1049,6 +1084,10 @@ const updateChannelAction: WorkspaceAction = {
         ...(str(input.name) ? { name: str(input.name).replace(/^#/, "") } : {}),
         ...(typeof input.topic === "string" ? { topic: input.topic } : {}),
         ...(typeof input.private === "boolean" ? { visibility: input.private ? "private" : "public" } : {}),
+        ...(input.leadAgentId !== undefined
+          ? { leadAgentId: typeof input.leadAgentId === "string" ? input.leadAgentId : null }
+          : {}),
+        ...(typeof input.reply_in_threads === "boolean" ? { replyInThreads: input.reply_in_threads } : {}),
       },
       deps,
     );
@@ -1064,12 +1103,15 @@ const updateChannelAction: WorkspaceAction = {
     const access = same([from.visibility, from.audienceRoleIds], [to.visibility, to.audienceRoleIds])
       ? {}
       : { visibility: to.visibility as "public" | "private", audienceRoleIds: list(to.audienceRoleIds) };
+    // Only when it changed: saving a lead checks it is still in the channel, and an archived one is kept, not saved.
+    const lead = same(from.leadAgentId, to.leadAgentId) ? {} : { leadAgentId: str(to.leadAgentId) || null };
+    const threads = from.replyInThreads === to.replyInThreads ? {} : { replyInThreads: to.replyInThreads === true };
     await updateChannel(
       deps.db,
       actorId,
       a.orgId,
       row.id,
-      { name: str(to.name), topic: String(to.topic ?? ""), ...access },
+      { name: str(to.name), topic: String(to.topic ?? ""), ...access, ...lead, ...threads },
       deps,
     );
     return undefined;
@@ -1112,7 +1154,7 @@ const archiveChannelAction: WorkspaceAction = {
   mode: "now",
   needs: "manage_channels",
   async resolve(ctx, person, input) {
-    const name = str(input.channel).replace(/^#/, "").toLowerCase();
+    const name = typedChannelName(str(input.channel));
     if (input.back === true) {
       const [row] = await ctx.db
         .select({
@@ -1126,7 +1168,7 @@ const archiveChannelAction: WorkspaceAction = {
           and(
             eq(channels.orgId, ctx.orgId),
             eq(channels.kind, "channel"),
-            eq(channels.name, name),
+            channelNameIs(name),
             isNotNull(channels.archivedAt),
             isNull(channels.deletedAt),
           ),
@@ -1382,7 +1424,7 @@ const resendInvitationAction: WorkspaceAction = {
     if (!deps.server) throw new Error("Sending an invitation needs the server's address");
     await requirePermission(deps.db, actorId, orgId, "invite_people");
     const row = await pendingInvitation(deps.db, orgId, str(input.email));
-    const { invitation, token } = await resendInvitation(
+    const { invitation, token, unsuppress } = await resendInvitation(
       deps.db,
       actorId,
       orgId,
@@ -1398,6 +1440,7 @@ const resendInvitationAction: WorkspaceAction = {
       url: `${deps.server.publicUrl.replace(/\/$/, "")}/invite/${token}`,
       inviterId: actorId,
       ...(deps.server.secret ? { secret: deps.server.secret } : {}),
+      unsuppress,
     });
     return {
       target: { type: "person", id: invitation.id, title: invitation.email },
@@ -1910,6 +1953,250 @@ const actionCheckAction: WorkspaceAction = {
   },
 };
 
+// ── Computers ────────────────────────────────────────────────────────────────
+
+type HelpUse = "first" | "help" | "off";
+const HELP_USES: readonly HelpUse[] = ["first", "help", "off"];
+const helpUseOf = (m: { spillOwn: boolean; spillFirst: boolean }): HelpUse =>
+  m.spillFirst ? "first" : m.spillOwn ? "help" : "off";
+const helpSpill = (use: HelpUse) => ({ own: use !== "off", first: use === "first" });
+/** Its sentence: `set_computer_help` (help), `_first` or `_off`. */
+const helpWords = (computer: string, use: HelpUse): Record<string, string> =>
+  use === "help" ? { computer } : { computer, variant: use };
+
+/** The computers this person connected that can help their agents: never the workspace's own, nor a server install. */
+async function ownHelpComputers(db: Database, orgId: string, person: string) {
+  const rows = await db
+    .select({
+      id: schema.machines.id,
+      name: schema.machines.name,
+      spillOwn: schema.machines.spillOwn,
+      spillFirst: schema.machines.spillFirst,
+      mode: sql<string | null>`${schema.machines.executors}->>'mode'`,
+    })
+    .from(schema.machines)
+    .where(
+      and(
+        eq(schema.machines.orgId, orgId),
+        eq(schema.machines.pairedByUserId, person),
+        eq(schema.machines.kind, "connected"),
+        isNull(schema.machines.deletedAt),
+      ),
+    );
+  return rows.filter((r) => r.mode !== "system");
+}
+
+const computerHelpAction: WorkspaceAction = {
+  id: "set_computer_help",
+  does: "How one of their own computers helps their agents. first: their agents' asks, routines and long work start there whenever it is free (a reply to a person still starts on the agent's own computer, unless that one is full or away). help: only when the agent's own computer is full or away. off: never. Runs there use their own AI sign-in on that computer, and missions, code sessions and agents with repositories stay on the agent's own computer. Use it when work waits in line on the team's computer and they have a computer of their own.",
+  input: {
+    type: "object",
+    properties: {
+      computer: {
+        type: "string",
+        minLength: 1,
+        maxLength: 120,
+        description: "Its name, as Settings › Devices shows it. Leave it out when they have one computer.",
+      },
+      use: { enum: [...HELP_USES] },
+    },
+    required: ["use"],
+    additionalProperties: false,
+  },
+  mode: "now",
+  needs: null,
+  self: true,
+  async resolve(ctx, person, input) {
+    const mine = await ownHelpComputers(ctx.db, ctx.orgId, person);
+    const name = str(input.computer).toLowerCase();
+    const hit = name ? mine.filter((m) => m.name.toLowerCase() === name) : mine;
+    if (mine.length === 0)
+      return "They have no computer of their own connected here that can help: they connect one in Settings › Devices.";
+    if (hit.length !== 1 || !hit[0])
+      return `${name ? `No computer of theirs is called "${str(input.computer)}"` : "They have several computers"}. Theirs: ${mine.map((m) => m.name).join(", ")}. Ask which one.`;
+    const use = HELP_USES.find((u) => u === input.use) ?? "help";
+    return { input: { machineId: hit[0].id, use }, words: helpWords(hit[0].name, use) };
+  },
+  async run(deps, actorId, orgId, input) {
+    const machineId = str(input.machineId);
+    const use = HELP_USES.find((u) => u === input.use) ?? "help";
+    const now = (await ownHelpComputers(deps.db, orgId, actorId)).find((m) => m.id === machineId);
+    if (!now) throw new NotFoundError("That computer isn't theirs anymore", "device.not_found");
+    if (helpUseOf(now) === use) throw new ValidationError("It already is like that");
+    await updateComputerDevice({ db: deps.db, pubsub: deps.pubsub }, actorId, orgId, machineId, {
+      spill: helpSpill(use),
+    });
+    return {
+      target: { type: "person", id: actorId },
+      words: helpWords(now.name, use),
+      before: { machineId, use: helpUseOf(now) },
+      after: { machineId, use },
+    };
+  },
+  async revert(deps, actorId, a, direction, changedSince) {
+    const [from, to] = direction === "undo" ? [obj(a.after), obj(a.before)] : [obj(a.before), obj(a.after)];
+    if (actorId !== a.targetId) throw new ForbiddenError("Only its owner changes how it helps", "action.not_allowed");
+    const now = (await ownHelpComputers(deps.db, a.orgId, actorId)).find((m) => m.id === from.machineId);
+    if (!now || helpUseOf(now) !== from.use) throw changedSince();
+    const use = HELP_USES.find((u) => u === to.use) ?? "help";
+    await updateComputerDevice({ db: deps.db, pubsub: deps.pubsub }, actorId, a.orgId, now.id, {
+      spill: helpSpill(use),
+    });
+    return undefined;
+  },
+};
+
+// ── Approvals ────────────────────────────────────────────────────────────────
+
+const LEVELS_SAID =
+  "always: asks before any change, here, on its computer or in an app. risky (the default): asks before deleting, sending or paying. never: asks nothing, merge, deploy, payments and routines included.";
+
+/**
+ * When agents ask comes from the person's own words alone (ADR 0250): never from text the run read, a colleague's
+ * message or a relayed one, which could make every agent act unasked. Null when it may be proposed.
+ */
+async function levelRefusal(ctx: ToolContext, person: string) {
+  if (await relayedRequest(ctx)) return relayedRefusal().content;
+  return (await ownWords(ctx)) === person
+    ? null
+    : "Nothing was proposed: when agents ask before acting changes only on the person's own message, typed here, and this run read or answered other words. Ask them to say it in a new message of their own.";
+}
+
+/** The agents with a level of their own, as Undo of "every agent" puts them back. */
+const ownLevels = (db: Database, orgId: string) =>
+  db
+    .select({ id: schema.agents.id, level: schema.agents.approvalsLevel })
+    .from(schema.agents)
+    .where(
+      and(eq(schema.agents.orgId, orgId), eq(schema.agents.approvalsLevelOwn, true), isNull(schema.agents.deletedAt)),
+    );
+
+const workspaceApprovalsAction: WorkspaceAction = {
+  id: "set_approvals_level",
+  does: `When the workspace's agents ask a person before acting (Settings › Aprovações), for every agent that follows the workspace; every_agent also clears each agent's own choice. ${LEVELS_SAID} Use it when a person says so for the team ("just approve everything from now on", "pode aprovar tudo daqui pra frente", "always ask me first").`,
+  input: {
+    type: "object",
+    properties: {
+      level: { enum: [...APPROVALS_LEVELS] },
+      every_agent: { type: "boolean", description: "True only when they said every agent, their own choices too." },
+    },
+    required: ["level"],
+    additionalProperties: false,
+  },
+  // How much every agent acts unasked: always a card someone confirms.
+  mode: "card",
+  needs: "administrator",
+  async resolve(ctx, person, input) {
+    const why = await levelRefusal(ctx, person);
+    if (why) return why;
+    const every = input.every_agent === true;
+    return {
+      input: { level: str(input.level), every },
+      words: { level: str(input.level), ...(every ? { variant: "every" } : {}) },
+    };
+  },
+  async run(deps, actorId, orgId, input) {
+    const level = APPROVALS_LEVELS.find((l) => l === input.level);
+    if (!level) throw new ValidationError(`level must be one of: ${APPROVALS_LEVELS.join(", ")}`);
+    const every = input.every === true;
+    const now = await workspaceApprovalsLevel(deps.db, orgId);
+    const own = every ? await ownLevels(deps.db, orgId) : [];
+    if (now === level && own.length === 0) throw new ValidationError("The workspace already is like that");
+    await setWorkspaceApprovalsLevel(deps.db, actorId, orgId, level, { everyAgent: every, pubsub: deps.pubsub });
+    const [org] = await deps.db
+      .select({ name: schema.organizations.name })
+      .from(schema.organizations)
+      .where(eq(schema.organizations.id, orgId));
+    return {
+      target: { type: "workspace", id: orgId, title: org?.name ?? "" },
+      words: { level, ...(every ? { variant: "every" } : {}) },
+      before: { level: now, own },
+      after: { level, every },
+    };
+  },
+  async revert(deps, actorId, a, direction, changedSince) {
+    const before = obj(a.before);
+    const after = obj(a.after);
+    const from = (direction === "undo" ? after : before).level;
+    if ((await workspaceApprovalsLevel(deps.db, a.orgId)) !== from) throw changedSince();
+    if (direction === "redo") {
+      await setWorkspaceApprovalsLevel(deps.db, actorId, a.orgId, after.level as ApprovalsLevel, {
+        everyAgent: after.every === true,
+        pubsub: deps.pubsub,
+      });
+      return undefined;
+    }
+    await setWorkspaceApprovalsLevel(deps.db, actorId, a.orgId, before.level as ApprovalsLevel, {
+      pubsub: deps.pubsub,
+    });
+    const own = (Array.isArray(before.own) ? before.own : []) as { id: string; level: ApprovalsLevel }[];
+    for (const o of own)
+      await updateAgent(deps.db, actorId, a.orgId, o.id, { approvalsLevel: o.level }, { pubsub: deps.pubsub });
+    return undefined;
+  },
+};
+
+/** An agent's own level, null while it follows the workspace's. */
+const agentLevel = (agent: { approvalsLevel: ApprovalsLevel; approvalsLevelOwn: boolean }) =>
+  agent.approvalsLevelOwn ? agent.approvalsLevel : null;
+
+/** Its sentence: `set_agent_approvals_level` with the level, or `_workspace` (null: it follows the workspace). */
+const agentLevelWords = (agent: string, level: string | null): Record<string, string> =>
+  level ? { agent, level } : { agent, variant: "workspace" };
+
+const agentApprovalsAction: WorkspaceAction = {
+  id: "set_agent_approvals_level",
+  does: `When one agent asks a person before acting (Aprovações on its page): its own choice, or "workspace" to follow the workspace's again. ${LEVELS_SAID} Use it when a person says so for one agent, you included ("you can approve everything from now on", "pode aprovar tudo daqui pra frente").`,
+  input: {
+    type: "object",
+    properties: { agent: agentRef, level: { enum: [...APPROVALS_LEVELS, "workspace"] } },
+    required: ["agent", "level"],
+    additionalProperties: false,
+  },
+  mode: "card",
+  needs: "manage_agents",
+  async resolve(ctx, person, input) {
+    const why = await levelRefusal(ctx, person);
+    if (why) return why;
+    const handle = str(input.agent);
+    const agent = (await agentsByHandle(ctx.db, ctx.orgId, [handle])).rows[0];
+    if (!agent) return `No agent ${handle.startsWith("@") ? handle : `@${handle}`} here.`;
+    const level = str(input.level);
+    return {
+      input: { agentId: agent.id, level: level === "workspace" ? null : level },
+      words: agentLevelWords(agent.name, level === "workspace" ? null : level),
+    };
+  },
+  async run(deps, actorId, orgId, input) {
+    const agent = await getAgent(deps.db, orgId, str(input.agentId));
+    if (!agent) throw new NotFoundError("The agent is gone", "action.target_gone");
+    const level = APPROVALS_LEVELS.find((l) => l === input.level) ?? null;
+    const before = agentLevel(agent);
+    if (before === level) throw new ValidationError(`${agent.name} already is like that`);
+    await updateAgent(deps.db, actorId, orgId, agent.id, { approvalsLevel: level }, { pubsub: deps.pubsub });
+    return {
+      target: { type: "agent", id: agent.id, title: agent.name },
+      words: agentLevelWords(agent.name, level),
+      before: { level: before },
+      after: { level },
+    };
+  },
+  async revert(deps, actorId, a, direction, changedSince) {
+    const [from, to] = direction === "undo" ? [obj(a.after), obj(a.before)] : [obj(a.before), obj(a.after)];
+    const agent = await getAgent(deps.db, a.orgId, a.targetId);
+    if (!agent || agentLevel(agent) !== (from.level ?? null)) throw changedSince();
+    await updateAgent(
+      deps.db,
+      actorId,
+      a.orgId,
+      agent.id,
+      { approvalsLevel: (to.level ?? null) as ApprovalsLevel | null },
+      { pubsub: deps.pubsub },
+    );
+    return undefined;
+  },
+};
+
 // ── The catalog ──────────────────────────────────────────────────────────────
 
 export const WORKSPACE_ACTIONS: readonly WorkspaceAction[] = [
@@ -1935,6 +2222,9 @@ export const WORKSPACE_ACTIONS: readonly WorkspaceAction[] = [
   continueWorkAction,
   updateWorkspaceAction,
   actionCheckAction,
+  computerHelpAction,
+  workspaceApprovalsAction,
+  agentApprovalsAction,
   invitePeopleAction,
   removeAiKeyAction,
 ];

@@ -100,6 +100,10 @@ describe("the wall", () => {
     expect(document.querySelector(".noai-banner")).toBeNull();
     await click(about, 2);
     expect(screen().getByRole("tooltip").textContent).toContain("O plano traz o computador dos agentes");
+    // A computer of one's own connected to the workspace isn't the free way: that is one's own server.
+    expect(screen().getByRole("tooltip").textContent).toContain(
+      "Um computador seu conectado aqui não substitui o plano. Rodar o agentes.chat no seu próprio servidor ou computador é grátis.",
+    );
   });
 
   test("a key saved before reads as ready and changes nothing: no answer starts, the wall stays", async () => {

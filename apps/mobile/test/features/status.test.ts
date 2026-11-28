@@ -108,7 +108,7 @@ describe("how a status reads in a row, a pill and a profile", () => {
     expect(agentWhyKey("online", true)).toBe("noAi");
   });
 
-  test("an agent's face: at work whatever its AI reads for this person, waiting on you, free; never busy or away", () => {
+  test("an agent's face: at work whatever its AI reads for this person, waiting on you, idle, free; never busy", () => {
     const row = (presence: AgentPresence, working?: boolean, work?: AgentStatus["work"]) => ({
       agentId: "lodi",
       presence,
@@ -117,9 +117,9 @@ describe("how a status reads in a row, a pill and a profile", () => {
       ...(working === undefined ? {} : { working }),
       ...(work === undefined ? {} : { work }),
     });
-    // Idle with no AI here (the right hand's is each person's own): offline; with one, free (never amber "Ausente").
+    // Idle with no AI here (the right hand's is each person's own): offline; with one, idle ("Inativo", never "Ausente").
     expect(agentPresenceShown(row("away"), false)).toBe("offline");
-    expect(agentPresenceShown(row("away"), true)).toBe("online");
+    expect(agentPresenceShown(row("away"), true)).toBe("away");
     // The list says it works: blue, never red "Ocupado".
     expect(agentPresenceShown(row("online", true), false)).toBe("working");
     expect(agentPresenceShown(row("busy", true), false)).toBe("working");

@@ -1,5 +1,6 @@
 import { and, type Executor, eq, schema } from "@agenteschat/db";
-import { fedByRoutine, type RunAuthority } from "../authority";
+import { fedByRoutine, fromApp, type RunAuthority } from "../authority";
+import { gitVerbOf } from "../git/hosts/refs";
 import { directoryRole } from "./directory";
 import type { JsonSchema } from "./json-schema";
 import type { ToolDefinition } from "./types";
@@ -18,6 +19,8 @@ import type { ToolDefinition } from "./types";
  *   `hand_off` nor a mission's tools; every write to a connected app asks a person, except, on the run its report
  *   or a teammate's answer to its question woke while that is all it read, the routine's own actions (`onOwnJob`,
  *   ADR 0053 addendum 2026-11-13).
+ * - `unattended` an integration app's message started (`fromApp`, ADR 0252): as one a routine's reading feeds, and
+ *   besides the web (`PUBLIC_READS`) every read, internal change and word elsewhere asks a person.
  * - `routine`: nothing that speaks for someone (reactions, GIFs and stickers, questions, reminders,
  *   routines, events, channels, secrets, permissions). It may come back to its own work (`follow_up`, `ROUTINE_RESUME`):
  *   blocked now, it resumes by itself where it reports, in a run that keeps its bounds. It reports through `hand_off`, whose message may carry a GIF
@@ -132,6 +135,7 @@ const ELSEWHERE = new Set([
   "delete_routine",
   "run_routine_now",
   "add_agent_to_channel",
+  "set_channel_lead",
   "create_channel",
   "request_secret",
   "request_permission",
@@ -151,6 +155,9 @@ const ROUTINE_RESUME = new Set(["follow_up", "cancel_follow_up"]);
 
 /** What a routine may use of `ELSEWHERE`, by name. */
 const ROUTINE_REACH = new Set(["post_message", "send_dm", "ask_agent", "tell_agent"]);
+
+/** What a run an integration app's message started reads without asking (ADR 0252): the web holds nothing of ours. */
+const PUBLIC_READS = new Set(["web_search", "web_fetch", "image_search"]);
 
 /** Speaks in the run's own conversation, by name. */
 const HERE = new Set([
@@ -203,10 +210,12 @@ const READS = new Set([
   "list_tasks",
   "task_status",
   "get_context",
+  "read_webhook_call",
   "web_search",
   "web_fetch",
   "image_search",
   "list_dashboards",
+  "team_status",
   "phone_screenshot",
   "phone_logs",
 ]);
@@ -257,10 +266,18 @@ const LOOKS_ONLY = new Set([
   "browser_profile",
   "desktop_read",
   "desktop_screenshot",
+  "apps_list",
+  "apps_read",
   "git_clone",
+  "gitlab_git_clone",
+  "bitbucket_git_clone",
+  "gitserver_git_clone",
+  "list_repositories",
+  "wait_for_code",
   "team_status",
   "offer_approvals",
   "offer_open_page",
+  "offer_voice_setup",
   // Their card is the question: what the person may change applies from it, anything else waits on it.
   "propose_member_changes",
   "propose_instruction_change",
@@ -315,8 +332,8 @@ export function toolKind(tool: PolicyTool): ToolKind {
   if (tool.name === "run_approved_action" && !tool.connectionId && tool.scope === "") return { kind: "directory" };
   // These Git tools carry a connection ID for credentials, but they are our own
   // workspace-changing actions. Their exact scopes distinguish them from MCP tools.
-  if (tool.name === "git_clone" && tool.scope === "github:git.read") return { kind: "internal", area: "code" };
-  if (tool.name === "open_pull_request" && tool.scope === "github:pr.write") return { kind: "internal", area: "code" };
+  const git = gitVerbOf(tool);
+  if (git === "git_clone" || git === "open_pull_request") return { kind: "internal", area: "code" };
   // Opening a pull request is the agent's own code work, like a push to its own branch, through any connected app:
   // nothing changes until someone merges it, and a merge is another tool.
   if (opensPullRequest(tool)) return { kind: "internal", area: "code" };
@@ -432,6 +449,13 @@ export function toolPolicy(
   if (authority.kind !== "routine" && !fed) {
     if (what.kind === "hand_off") return refuse(REFUSALS.handOffOnly);
     return asks ? APPROVE : ALLOW;
+  }
+  // Someone outside writes what feeds a run an app's message started and reads its reply (ADR 0252): any look at the
+  // workspace's data, an internal change and a word to another conversation or agent ask a person first, so an
+  // injected request can't carry the workspace out through the reply.
+  if (fromApp(authority)) {
+    if (what.kind === "read" && !PUBLIC_READS.has(tool.name)) return APPROVE;
+    if (what.kind === "internal" || (what.kind === "elsewhere" && ROUTINE_REACH.has(tool.name))) return APPROVE;
   }
   // What a routine read feeds a run its report or work woke (`fedByRoutine`): that run keeps the routine's
   // bounds, replies where it is, and asks a person before writing to a connected app.

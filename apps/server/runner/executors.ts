@@ -6,12 +6,21 @@ import {
   CLI_ERROR_MAX,
   CLI_GIT_MISSING,
   CLI_HOME_ONLY,
+  CURSOR_MODEL_LIMITS,
   type CursorModelInfo,
   parseExecutors,
   type RunnerExecutorInfo,
   type RunnerInfo,
 } from "@agenteschat/adapters/machine-protocol";
-import { isOpencodeFreeModel, OPENCODE_FREE_MODELS } from "@agenteschat/providers/plans";
+import {
+  DEVIN_FUSION_HELPER,
+  DEVIN_LEVELS,
+  devinVariantOf,
+  isOpencodeFreeModel,
+  OPENCODE_FREE_MODELS,
+} from "@agenteschat/providers/plans";
+import { type CodexSignIn, codexLoginStatusOf } from "./codex-sign-in";
+import { consoleText } from "./console-text";
 import { readSmallJson, writeJson } from "./json-file";
 import { usualDirs } from "./login-path";
 import { SHARED_BIN_ENV } from "./shared-folder";
@@ -30,12 +39,14 @@ export const EXECUTORS_RETRY_MS = 30_000;
 export const EXECUTORS_EXIT_STRIKES = 3;
 
 type Executors = NonNullable<RunnerInfo["executors"]>;
-type RunResult = { status: number | null; stdout: string; stderr?: string; error?: unknown };
+export type RunResult = { status: number | null; stdout: string; stderr?: string; error?: unknown };
 export type ExecutorRun = (command: string, args: string[]) => RunResult | Promise<RunResult>;
 type Run = ExecutorRun;
 
 /** Shells' "command not found" (127), "not executable" (126) and cmd.exe's (9009). */
 const NOT_FOUND_EXITS = new Set([126, 127, 9009]);
+/** cmd.exe's words for a program it can't find: the CLI, or the `node` an npm launcher runs. */
+const CMD_NOT_FOUND = /is not recognized as an internal or external command/i;
 
 /**
  * Only a binary that isn't there is missing: not found, or a shell saying so (Windows runs CLIs through cmd.exe, an
@@ -45,9 +56,14 @@ const NOT_FOUND_EXITS = new Set([126, 127, 9009]);
 const missing = (r: RunResult) =>
   (r.error as { code?: unknown } | undefined)?.code === "ENOENT" ||
   (r.status !== null && NOT_FOUND_EXITS.has(r.status)) ||
-  (process.platform === "win32" &&
-    r.status !== 0 &&
-    /is not recognized as an internal or external command/i.test(r.stderr ?? ""));
+  (process.platform === "win32" && r.status !== 0 && CMD_NOT_FOUND.test(r.stderr ?? ""));
+
+/**
+ * A CLI process that ended because it isn't there: the spawn's `ENOENT` (the runner's own prefix on its stderr), or
+ * cmd.exe's not found (exit 9009, its words), which a CLI started through cmd.exe on Windows ends with instead.
+ */
+export const endedNotFound = (stderr: string, exitCode: number | null) =>
+  stderr.startsWith("ENOENT") || exitCode === 9009 || CMD_NOT_FOUND.test(stderr);
 
 export const isExecutable = (file: string) => {
   try {
@@ -67,10 +83,14 @@ export function resolveCommand(
   command: string,
   pathList = process.env.PATH ?? "",
   sharedBin = process.env[SHARED_BIN_ENV],
+  platform: NodeJS.Platform = process.platform,
 ): string {
-  if (process.platform === "win32" || command.includes("/")) return command;
-  const picked = command === "codex" ? pickedCodex() : command === "agy" ? pickedAgy() : undefined;
+  const picked = pickedCommand(command);
   if (picked) return picked;
+  // On Windows a program by its full path, so a spawn never looks in the current folder first (`findOnWindowsPath`);
+  // a launcher (`.cmd`) stays a bare name for `cliSpawn`'s cmd.exe.
+  if (platform === "win32") return windowsExe(command, pathList) ?? command;
+  if (command.includes("/")) return command;
   const dirs = pathList.split(delimiter).filter((dir) => dir && dir !== sharedBin);
   const found = onPath(command, dirs);
   if (found) return found;
@@ -86,8 +106,11 @@ export function ownCommand(
   command: string,
   pathList = process.env.PATH ?? "",
   sharedBin = process.env[SHARED_BIN_ENV],
+  platform: NodeJS.Platform = process.platform,
 ): string | null {
-  if (process.platform === "win32") return null;
+  if (platform === "win32") {
+    return findOnWindowsPath(command, envValue(process.env, "PATH") ?? "", envValue(process.env, "PATHEXT"));
+  }
   return (
     onPath(
       command,
@@ -97,19 +120,33 @@ export function ownCommand(
 }
 
 /**
- * The Antigravity CLI the runner brought (`AgyCopy`, ADR 0143), where the person's own is older or missing:
- * `resolveCommand` starts this one for every `agy`, so its looks, sign-ins and turns all run the version reported.
+ * The copies of the coding CLIs the runner fetched (`CliCopies`, ADR 0228 §6), by command (`claude`, `agent`, `agy`…),
+ * where the person's own is older than the pin or missing: `resolveCommand` and `cliSpawn` start these for every look,
+ * sign-in and turn, so each runs the version reported.
  */
-let agyPick: string | undefined;
+const cliPicks = new Map<string, string>();
+/** Files a pick starts with before its own arguments (Cursor's Windows `node.exe` and its `index.js`). */
+const cliLaunch = new Map<string, string[]>();
 
-export function setAgyPick(file: string | undefined) {
-  agyPick = file;
+export function setCliPick(command: string, file: string | undefined, launch: readonly string[] = []) {
+  if (file) cliPicks.set(command, file);
+  else cliPicks.delete(command);
+  if (file && launch.length) cliLaunch.set(command, [...launch]);
+  else cliLaunch.delete(command);
 }
 
-/** The runner's own `agy`, while it is the one to run and still there. */
-export function pickedAgy(): string | undefined {
-  return agyPick && isExecutable(agyPick) ? agyPick : undefined;
+/** The file the runner starts for a bare `command` whatever the PATH: its own copy, or the `codex` its look chose. */
+export const pickedCommand = (command: string): string | undefined =>
+  command.includes("/") ? undefined : (pickedCli(command) ?? (command === "codex" ? pickedCodex() : undefined));
+
+/** The runner's own copy of `command`, while it is the one to run and still there. */
+export function pickedCli(command: string): string | undefined {
+  const file = cliPicks.get(command);
+  return file && isExecutable(file) ? file : undefined;
 }
+
+/** What the runner's own copy of `command` starts with before its arguments; none for most. */
+export const pickedLaunch = (command: string): string[] => [...(cliLaunch.get(command) ?? [])];
 
 /**
  * One argument on cmd.exe's command line, read back by the program as it was: in quotes, so an empty one stays an
@@ -137,6 +174,12 @@ export function envValue(
   const upper = name.toUpperCase();
   const key = Object.keys(env).find((k) => k.toUpperCase() === upper);
   return key === undefined ? undefined : env[key];
+}
+
+/** `name` on the Windows PATH when it is a program that starts by itself (`.exe`, `.com`); null: none, or a launcher. */
+function windowsExe(name: string, pathList: string): string | null {
+  const found = findOnWindowsPath(name, pathList, envValue(process.env, "PATHEXT", "win32"));
+  return found && /\.(?:exe|com)$/i.test(found) ? found : null;
 }
 
 /** The extensions of a program the runner starts on Windows, in PATHEXT's order (never a script host's `.js` or `.vbs`). */
@@ -208,13 +251,7 @@ export function windowsShellLine(
  */
 export function npmNativeLauncher(
   launcher: string,
-  read: (file: string) => string | null = (file) => {
-    try {
-      return statSync(file).size < 4096 ? readFileSync(file, "utf8") : null;
-    } catch {
-      return null;
-    }
-  },
+  read: (file: string) => string | null = readLauncher,
   exists: (file: string) => boolean = isFile,
 ): string | null {
   if (win32.extname(launcher).toLowerCase() !== ".cmd") return null;
@@ -229,6 +266,42 @@ export function npmNativeLauncher(
   const exe = win32.join(win32.dirname(launcher), target);
   return exists(exe) ? exe : null;
 }
+
+/** A launcher's text, when it is small enough to be one; null otherwise or unreadable. */
+function readLauncher(file: string): string | null {
+  try {
+    return statSync(file).size < 4096 ? readFileSync(file, "utf8") : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A Node script's launcher (npm's and pnpm's `claude.cmd`) runs the `node.exe` in its own folder, else a bare `node`
+ * from the PATH: true when it names that `node.exe` and neither is there.
+ */
+export function launcherNodeMissing(
+  launcher: string,
+  pathList: string,
+  pathExt: string | undefined,
+  read: (file: string) => string | null = readLauncher,
+  exists: (file: string) => boolean = isFile,
+): boolean {
+  if (!/%~?dp0%?\\node\.exe/i.test(read(launcher) ?? "")) return false;
+  return (
+    !exists(win32.join(win32.dirname(launcher), "node.exe")) && !findOnWindowsPath("node", pathList, pathExt, exists)
+  );
+}
+
+/**
+ * cmd.exe ending at once with its own code for a program it can't find (9009), and no words: its "not recognized"
+ * is in the system's language and comes with exit 1, so only this code reads as not installed everywhere.
+ */
+const notFoundRun = (): CliRun => ({
+  file: windowsShell(),
+  args: ["/d", "/c", "exit", "9009"],
+  env: { ...NO_CWD_LOOKUP },
+});
 
 /** How a CLI starts: the file, its argv, and what to add to its env (Windows: `windowsShellLine`'s). */
 export interface CliRun {
@@ -245,7 +318,8 @@ export interface CliRun {
  * `.cmd` launcher (npm's `claude.cmd`) through cmd.exe with every argument quoted (`windowsShellLine`), since Node's own
  * `shell: true` joins them as they are, so an empty one (`--setting-sources ""`) vanished and the next flag became its
  * value, and a path with a space split in two; unless the launcher only starts a native binary (`npmNativeLauncher`),
- * which then starts as an `.exe`. One not found still goes to cmd.exe, which says it isn't there (exit 9009).
+ * which then starts as an `.exe`. One not found, or a Node script's launcher with no `node` to run
+ * (`launcherNodeMissing`), ends as cmd.exe's not found (`notFoundRun`).
  * Elsewhere, and for a launcher: the file and its argv, no shell.
  */
 export function cliSpawn(
@@ -260,20 +334,27 @@ export function cliSpawn(
   } = {},
 ): CliRun {
   const [file = "", ...pre] = command;
+  const own = command.length === 1 ? pickedCli(file) : undefined;
+  // The runner's own copy (ADR 0228 §6), with what it starts with first: never a `.cmd` (cmd.exe's line is too short
+  // for a prompt), so it starts as it is.
+  if (own) {
+    const launch = pickedLaunch(file);
+    return platform === "win32"
+      ? { file: own, args: [...launch, ...args], env: { ...NO_CWD_LOOKUP } }
+      : { file: own, args: [...launch, ...args] };
+  }
   if (platform === "win32" && command.length === 1) {
-    const found = findOnWindowsPath(
-      file,
-      pathList ?? envValue(process.env, "PATH", platform) ?? "",
-      lookup.pathExt ?? envValue(process.env, "PATHEXT", platform),
-      lookup.exists,
-    );
+    const path = pathList ?? envValue(process.env, "PATH", platform) ?? "";
+    const pathExt = lookup.pathExt ?? envValue(process.env, "PATHEXT", platform);
+    const found = findOnWindowsPath(file, path, pathExt, lookup.exists);
     const exe = !found
       ? null
       : /\.(?:exe|com)$/i.test(found)
         ? found
         : npmNativeLauncher(found, lookup.read, lookup.exists);
     if (exe) return { file: exe, args: [...args], env: { ...NO_CWD_LOOKUP } };
-    return windowsShellLine(found ?? file, args);
+    if (!found || launcherNodeMissing(found, path, pathExt, lookup.read, lookup.exists)) return notFoundRun();
+    return windowsShellLine(found, args);
   }
   return { file: resolveCommand(file, pathList), args: [...pre, ...args] };
 }
@@ -285,26 +366,29 @@ const defaultRun: Run = (command, args) =>
       run.file,
       run.args,
       {
-        encoding: "utf8",
+        encoding: "buffer",
         timeout: 8000,
         maxBuffer: 1024 * 1024,
         windowsHide: true,
         env: run.env ? { ...process.env, ...run.env } : process.env,
         windowsVerbatimArguments: run.windowsVerbatimArguments,
       },
-      (err, stdout, stderr) => {
-        const code = (err as { code?: unknown } | null)?.code;
-        const out = `${stdout ?? ""}`;
-        resolve(
-          typeof code === "number"
-            ? { status: code, stdout: out, stderr: `${stderr ?? ""}` }
-            : err
-              ? { status: null, stdout: out, error: err }
-              : { status: 0, stdout: out },
-        );
-      },
+      (err, stdout, stderr) => resolve(execResult(err, consoleText(stdout), consoleText(stderr))),
     );
   });
+
+/**
+ * `execFile`'s answer as a look reads it. One killed past its time limit couldn't tell: on Windows the runtime reports
+ * the killed process's exit code (1, from `TerminateProcess`) where elsewhere there is none, which read as a CLI that
+ * can't start, when it was only slow (a large binary's first start under the antivirus' scan).
+ */
+export function execResult(err: unknown, stdout: unknown, stderr: unknown): RunResult {
+  const e = err as { code?: unknown; killed?: unknown } | null;
+  const out = `${stdout ?? ""}`;
+  if (e && typeof e.code === "number" && e.killed !== true)
+    return { status: e.code, stdout: out, stderr: `${stderr ?? ""}` };
+  return e ? { status: null, stdout: out, error: e } : { status: 0, stdout: out };
+}
 
 const word = (v: unknown) => (typeof v === "string" && /^[\w.-]{1,40}$/.test(v) ? v : undefined);
 
@@ -521,6 +605,97 @@ function detectAntigravity(run: Run): Promise<Probe> {
   return detectWithModels(run, AGY_BIN, AGY_VERSION, parseAgyModels);
 }
 
+/** Cognition's Devin CLI (ADR 0253). */
+export const DEVIN_BIN = "devin";
+
+/** The Devin CLI's version line (`devin 3000.14.30821 (a09cd7f323ee)`); anything else is skipped. */
+const DEVIN_VERSION = /^devin \d+\.\d+\.\d+\b/;
+
+/**
+ * Protocol 89 (ADR 0253): the Devin CLI, by its version alone. Its models are what the accounts signed in here list
+ * (`AccountManager.listedModels`): the computer's own CLI thinks for no agent.
+ */
+async function detectDevin(run: Run): Promise<Probe> {
+  const r = await run(DEVIN_BIN, ["--version"]);
+  if (r.error || r.status !== 0) return versionFailed(r);
+  const version = firstLine(r);
+  return DEVIN_VERSION.test(version) ? { entry: { version } } : {};
+}
+
+/** The most model families kept from one `devin models list` (its Fusion pairs counted as one per main model). */
+const DEVIN_MAX_FAMILIES = CURSOR_MODEL_LIMITS.models;
+/** The most variants kept for one family. */
+const DEVIN_MAX_VARIANTS = 24;
+
+/**
+ * `devin models list --format json` (`{ families: [{ family_uid, family_label, variants: [{ model_uid, label,
+ * max_context_tokens, cost_tier, … }] }] }`, CLI 3000.14) → one model per family: its levels, whether it has a faster
+ * variant, its window, its variants (kept on the runner) and `free` when every standard variant is "Free" on the plan.
+ * Fusion becomes one model per main family, each with SWE-2 Medium as its helper (`DEVIN_FUSION_HELPER`). Anything
+ * that doesn't read as that shape lists nothing.
+ */
+export function parseDevinModels(output: string): CursorModelInfo[] {
+  let o: unknown;
+  try {
+    o = JSON.parse(output);
+  } catch {
+    return [];
+  }
+  const families = (o as { families?: unknown } | null)?.families;
+  if (!Array.isArray(families)) return [];
+  type Variant = { uid: string; label: string; window: number; free: boolean };
+  type Family = { id: string; label: string; variants: Variant[] };
+  const word = (v: unknown, max: number) => (typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "");
+  const read: Family[] = [];
+  for (const f of families) {
+    const r = f as Record<string, unknown> | null;
+    const id = word(r?.family_uid, 80);
+    if (!id || !/^[\w.:-]{1,80}$/.test(id) || !Array.isArray(r?.variants)) continue;
+    const variants: Variant[] = [];
+    for (const v of r.variants as unknown[]) {
+      const x = v as Record<string, unknown> | null;
+      const uid = word(x?.model_uid, 120);
+      if (!uid || !/^[\w.:-]{1,120}$/.test(uid)) continue;
+      const window = typeof x?.max_context_tokens === "number" ? Math.round(x.max_context_tokens) : 0;
+      variants.push({ uid, label: word(x?.label, 80), window, free: x?.cost_tier === "Free" });
+    }
+    if (variants.length) read.push({ id, label: word(r.family_label, 80) || id, variants });
+  }
+  // Fusion: one model per main family, with the free helper.
+  const familyOfUid = new Map<string, Family>();
+  for (const f of read) if (f.id !== "fusion") for (const v of f.variants) familyOfUid.set(v.uid, f);
+  const fused = new Map<string, Family>();
+  for (const v of read.find((f) => f.id === "fusion")?.variants ?? []) {
+    if (!v.uid.endsWith(DEVIN_FUSION_HELPER)) continue;
+    const main = familyOfUid.get(v.uid.slice("fusion-".length, -DEVIN_FUSION_HELPER.length));
+    if (!main) continue;
+    const id = `fusion-${main.id}`.slice(0, 80);
+    const f = fused.get(id) ?? { id, label: `Fusion · ${main.label}`, variants: [] };
+    f.variants.push({ ...v, free: false });
+    fused.set(id, f);
+  }
+  const all = [...read.filter((f) => f.id !== "fusion"), ...fused.values()];
+  const out: CursorModelInfo[] = [];
+  for (const f of all) {
+    const variants = f.variants.slice(0, DEVIN_MAX_VARIANTS);
+    const kinds = variants.map((v) => devinVariantOf(v.uid));
+    const standard = variants.filter((_, i) => !kinds[i]?.fast);
+    const efforts = DEVIN_LEVELS.filter((l) => kinds.some((k) => !k.fast && k.level === l));
+    const window = Math.max(0, ...variants.map((v) => v.window));
+    out.push({
+      id: f.id,
+      label: f.label.slice(0, CURSOR_MODEL_LIMITS.label),
+      ...(standard.length > 0 && standard.every((v) => v.free) ? { free: true } : {}),
+      ...(efforts.length ? { efforts: [...efforts] } : {}),
+      ...(kinds.some((k) => k.fast) ? { fast: true } : {}),
+      ...(window > 0 ? { contextWindow: window } : {}),
+      variants: variants.map((v) => v.uid),
+    });
+    if (out.length >= DEVIN_MAX_FAMILIES) break;
+  }
+  return out;
+}
+
 /**
  * One CLI's look: what it found, and whether it couldn't tell (then the last good look stands). `exited`: unsure
  * because `--version` failed with an exit code, counted toward `EXECUTORS_EXIT_STRIKES`.
@@ -563,6 +738,15 @@ export function newerVersion(a: string, b: string): boolean {
 }
 
 /**
+ * The line of a Codex that refused its command line (a flag or subcommand it doesn't have yet, in clap's words), as it
+ * said it; null for any other failure.
+ */
+export function codexRefusal(stderr: string): string | null {
+  const line = /^error: (?:unexpected argument|unrecognized subcommand|invalid value)\b.*$/m.exec(stderr)?.[0];
+  return line ? line.trim().slice(0, 300) : null;
+}
+
+/**
  * Every `codex` this runner could start, each once: the PATH in order, then the usual install folders. Never one in
  * the shared `bin/` (the agents write there) or in a folder that isn't a full path.
  */
@@ -570,10 +754,26 @@ export function codexCandidates(
   pathList = process.env.PATH ?? "",
   platform: NodeJS.Platform = process.platform,
   sharedBin = process.env[SHARED_BIN_ENV],
+  ownHome: string | null = codexForAgents ? homedir() : null,
 ): string[] {
   if (platform === "win32") return [];
-  const dirs = [...pathList.split(delimiter), ...usualDirs()].filter((d) => isAbsolute(d) && d !== sharedBin);
-  return [...new Set(dirs.map((d) => join(d, "codex")))].filter((f) => isFile(f) && isExecutable(f));
+  const dirs = [...pathList.split(delimiter), ...usualDirs()].filter(
+    (d) => isAbsolute(d) && d !== sharedBin && !(ownHome && d.startsWith(`${ownHome}/`)),
+  );
+  // The runner's own copy (`setCliPick`) too: it is there because the person's is older, so the newest wins it.
+  const copy = cliPicks.get("codex");
+  return [...new Set([...dirs.map((d) => join(d, "codex")), ...(copy ? [copy] : [])])].filter(
+    (f) => isFile(f) && isExecutable(f),
+  );
+}
+
+/**
+ * System mode: agents' users start the `codex` the look chooses (`resolveCommand`), so one in the runner's own home,
+ * which they can't enter, is never a candidate; it is `CLI_HOME_ONLY` instead.
+ */
+let codexForAgents = false;
+export function setCodexForAgents(system: boolean) {
+  codexForAgents = system;
 }
 
 /**
@@ -600,6 +800,40 @@ async function detectCodex(run: Run, bins: string[]): Promise<Probe> {
   codexPick = best?.path;
   if (best) return { entry: best };
   return looks[0] ? versionFailed(looks[0].r) : detectVersion(run, "codex");
+}
+
+/**
+ * How the computer's own Codex is signed in, asked of its app-server (`readCodexAccount`, given by the daemon: this
+ * module can't import the app-server's client); null when it couldn't tell.
+ */
+export type CodexSignInProbe = (bin: string, version: string) => Promise<CodexSignIn | null>;
+
+/**
+ * The computer's own Codex with how it is signed in (`loggedIn`, `authMethod`, `plan`), so the apps offer it as a sign-in
+ * of the computer's own the way they offer Claude Code's: by its app-server when it answers (an API key and a model
+ * provider of the person's own count), else by `codex login status`. Only the app-server is believed on "signed out":
+ * `codex login status` says that of a model provider that needs no sign-in, and Codex turns never waited on it.
+ */
+async function withCodexSignIn(run: Run, probe: Probe, ask: CodexSignInProbe): Promise<Probe> {
+  const entry = probe.entry;
+  if (!entry) return probe;
+  const bin = entry.path ?? "codex";
+  const read = await ask(bin, entry.version).catch(() => null);
+  const said =
+    read ??
+    (await Promise.resolve(run(bin, ["login", "status"]))
+      .then((r) => (r.error ? null : codexLoginStatusOf(r.status, `${r.stdout}\n${r.stderr ?? ""}`)))
+      .catch(() => null));
+  if (!said || (!said.loggedIn && !read)) return probe;
+  return {
+    ...probe,
+    entry: {
+      ...entry,
+      loggedIn: said.loggedIn,
+      ...(said.authMethod ? { authMethod: said.authMethod } : {}),
+      ...(said.plan ? { plan: said.plan } : {}),
+    },
+  };
 }
 
 /** `<bin> --version` checked against `shape`, then `<bin> models` (none when signed out or offline). */
@@ -631,8 +865,16 @@ async function detectVersion(run: Run, name: "claude" | "codex"): Promise<Probe>
   return auth ? { entry: { version, ...auth } } : { entry: { version }, unsure: true };
 }
 
-/** The CLIs whose installers put them in the home's `~/.local/bin`, by their command. */
-const HOME_INSTALLED = { cursor: CURSOR_BIN, grok: GROK_BIN, antigravity: AGY_BIN } as const;
+/** Each CLI by its command: any of them may be in the home's own install folders (`~/.local/bin`…) only. */
+const HOME_INSTALLED = {
+  claude: "claude",
+  codex: "codex",
+  cursor: CURSOR_BIN,
+  opencode: OPENCODE_BIN,
+  grok: GROK_BIN,
+  antigravity: AGY_BIN,
+  devin: DEVIN_BIN,
+} as const;
 
 /** `bin` in the install folders under `home` (`~/.local/bin`…), which other users can't reach; null: none there. */
 export function inHomeDirs(bin: string, home = homedir(), isExe: (file: string) => boolean = isExecutable) {
@@ -650,7 +892,8 @@ export function inHomeDirs(bin: string, home = homedir(), isExe: (file: string) 
  * row across looks (the caller keeps it). A CLI whose `--version` fails with no good look to keep, or past its
  * strikes, is `broken` with its error line: it is there and can't start, which is not missing. Claude Code on Windows
  * says why only through `gitMissing`: without Git for Windows it can't start at all. `homeOnly`: a CLI of
- * `HOME_INSTALLED` not found is in the runner's own home only (system mode), `CLI_HOME_ONLY`.
+ * `HOME_INSTALLED` not found is in the runner's own home only (system mode), `CLI_HOME_ONLY`. `codexSignIn`: how the
+ * computer's own Codex is signed in is asked too (`withCodexSignIn`); left out, only its version.
  */
 export async function detectExecutors(
   run: Run = defaultRun,
@@ -659,16 +902,22 @@ export async function detectExecutors(
   gitMissing: () => boolean = () => false,
   codexBins: () => string[] = run === defaultRun ? codexCandidates : () => [],
   homeOnly: (bin: string) => boolean = () => false,
+  codexSignIn?: CodexSignInProbe,
 ): Promise<{ found: Executors; unsure: boolean }> {
   const safe = (p: () => Promise<Probe>) => p().catch((): Probe => ({ unsure: true }));
-  const names = ["claude", "codex", "cursor", "opencode", "grok", "antigravity"] as const;
+  const names = ["claude", "codex", "cursor", "opencode", "grok", "antigravity", "devin"] as const;
+  const codex = async () => {
+    const probe = await detectCodex(run, codexBins());
+    return codexSignIn ? withCodexSignIn(run, probe, codexSignIn) : probe;
+  };
   const probes = await Promise.all([
     safe(() => detectVersion(run, "claude")),
-    safe(() => detectCodex(run, codexBins())),
+    safe(codex),
     safe(() => detectCursor(run)),
     safe(() => detectOpencode(run)),
     safe(() => detectGrok(run)),
     safe(() => detectAntigravity(run)),
+    safe(() => detectDevin(run)),
   ]);
   const found: Executors = {};
   const broken: NonNullable<Executors["broken"]> = {};
@@ -725,6 +974,10 @@ export function cachedExecutors(
     gitMissing?: () => boolean;
     /** System mode: a CLI found only in root's own install folders (`CLI_HOME_ONLY`). */
     homeOnly?: (bin: string) => boolean;
+    /** How the computer's own Codex is signed in (`readCodexAccount`); left out, only its version. */
+    codexSignIn?: CodexSignInProbe;
+    /** System mode: each look as the agents reach it (`agentsReach`), never what root alone can start. */
+    reach?: (found: Executors) => Promise<Executors>;
   } = {},
 ): ExecutorsCache {
   const now = opts.now ?? Date.now;
@@ -740,7 +993,10 @@ export function cachedExecutors(
     (running ??= Promise.resolve()
       .then(() => opts.before?.())
       .catch(() => undefined)
-      .then(() => detectExecutors(opts.run, value, strikes, opts.gitMissing, undefined, opts.homeOnly))
+      .then(() =>
+        detectExecutors(opts.run, value, strikes, opts.gitMissing, undefined, opts.homeOnly, opts.codexSignIn),
+      )
+      .then(async (look) => (opts.reach ? { ...look, found: await opts.reach(look.found) } : look))
       .then(({ found, unsure }) => {
         at = now();
         retry = unsure ? Math.min(retry ? retry * 2 : EXECUTORS_RETRY_MS, EXECUTORS_TTL_MS) : 0;

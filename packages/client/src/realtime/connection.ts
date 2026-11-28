@@ -240,6 +240,8 @@ export class RealtimeConnection {
   private pongTimer: unknown = null;
   /** Channels the server confirmed on this socket. */
   private readonly confirmed = new Set<string>();
+  /** `open` frames waiting for their channel's confirmation (`sendOpen`), by channel. */
+  private readonly opening = new Map<string, { type: "open"; channelId: string; threadId?: string }>();
   private readonly retries = new Map<string, { timer: unknown; attempt: number }>();
   /** Recent `message.created` ids, oldest first. */
   private readonly heard = new Set<string>();
@@ -326,6 +328,7 @@ export class RealtimeConnection {
       if (current.size === 0) {
         this.listeners.delete(channelId);
         this.confirmed.delete(channelId);
+        this.opening.delete(channelId);
         this.send({ type: "unsubscribe", channelId });
       }
     };
@@ -342,6 +345,16 @@ export class RealtimeConnection {
       ...(threadId ? { threadId } : {}),
       ...(kind === "voice" ? { kind } : {}),
     });
+  }
+
+  /**
+   * A DM or a thread is open on screen: the agent that answers there gets its CLI ready (the server's `open`). The
+   * server takes it only in a channel it confirmed on this socket, so it waits for that.
+   */
+  sendOpen(channelId: string, threadId?: string | null) {
+    const frame = { type: "open" as const, channelId, ...(threadId ? { threadId } : {}) };
+    if (this.confirmed.has(channelId)) this.send(frame);
+    else this.opening.set(channelId, frame);
   }
 
   onStatus(listener: (status: ConnectionStatus) => void) {
@@ -797,6 +810,9 @@ export class RealtimeConnection {
     } else if (frame.type === "subscribed") {
       this.confirmed.add(frame.channelId);
       this.clearRetry(frame.channelId);
+      const opened = this.opening.get(frame.channelId);
+      this.opening.delete(frame.channelId);
+      if (opened) this.send(opened);
       for (const l of this.subscribedListeners) l(frame.channelId);
     } else if (frame.type === "unsubscribed") {
       // Dropped by the server (archived, membership recheck), or the answer to an unsubscribe overtaken by a new

@@ -329,6 +329,13 @@
   padding: 20px;
   overflow-y: auto;
 }
+/*
+ * With no sky strip under the head (a browser profile's window), the head's own 16 px are the room over the address
+ * bar: the body's padding on top of it would leave twice that.
+ */
+.ac-dialog__head + .cmp-body {
+  padding-top: 0;
+}
 /* The page in the dialog is the stage itself, not a card in a message. */
 .brw-ac.is-surface {
   max-width: none;
@@ -430,6 +437,13 @@
   max-height: none;
   margin: 0;
   border-radius: 10px;
+}
+/*
+ * Opening, with no address bar over it yet, the blank page meets the body's top edge, and the body (a scroller) would
+ * cut its shadow there: the stand-in page goes flat.
+ */
+.cmp-body > .brw-ac.is-surface .brw-ac__page--blank {
+  box-shadow: none;
 }
 .cmp-body:has(> .brw-ac.is-control) > .cmp-steps-row {
   display: none;
@@ -602,7 +616,7 @@
     border-radius: 0;
   }
   .ac-dialog.cmp-dialog:not(.is-full) {
-    padding-top: env(safe-area-inset-top, 0px);
+    padding-top: calc(env(safe-area-inset-top, 0px) + var(--window-top));
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
   .cmp-body > .cmp-prep,

@@ -18,11 +18,12 @@ import { setsCredential } from "@agenteschat/ui/names";
 import { getAgent } from "../agents";
 import { agentIdsSeen, isPlaybook, ownsAgent, readsPlaybook, seesAgentDetails } from "../audience";
 import { caches, rulesPresenceKey } from "../cache";
-import { isAgentOnlyDm } from "../dms";
+import { isAgentOnlyDm, personAgentDmKey } from "../dms";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { type Judge, triesToChangePermissions } from "../judge";
 import { can, getMembership, type Membership, requirePermission } from "../organizations";
 import { hasContact } from "../outside";
+import { isRightHandId, rightHandId } from "../right-hand";
 import { enqueueIndex, userVisibleChannels } from "../search";
 import { type Plan, planConsolidation } from "./judgments";
 
@@ -68,7 +69,10 @@ const KEY_FORMATS = [
   /\bxox[abprs]-[a-z0-9-]{10,}/i, // Slack tokens
   /-----BEGIN [A-Z ]*PRIVATE KEY-----/,
   /\b(bearer)\s+[a-z0-9._-]{20,}/i,
-  /\beyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/, // JWTs
+  // JWTs. The first part runs to the end of its run of letters, digits, `_` and `-`, so a JWT starts only at the first
+  // `eyJ` starting a word in that run: the lazy lookbehind skips a later one, which would read the run to its end
+  // again (the square of its length on a long run of `eyJ-`).
+  /\beyJ(?<!\beyJ[a-zA-Z0-9_-]*?eyJ)[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]{10,}/,
 ];
 const SECRET_PATTERNS = [...KEY_FORMATS, /\b(password|senha|passwd|secret|api[_ -]?key|token)\s*[:=]\s*\S{6,}/i];
 
@@ -233,12 +237,39 @@ export const howToSql = () =>
   sql`(${contextItems.kind} = 'note' and ${HOW_TO_WORD} = any(string_to_array(${contextItems.subjectKey}, ' ')))`;
 
 /** A text's words: lower case, accents and punctuation removed. */
-const wordList = (text: string) =>
+export const wordList = (text: string) =>
   text
     .normalize("NFD")
     .replace(/\p{Diacritic}/gu, "")
     .toLowerCase()
     .match(/[\p{L}\p{N}]+/gu) ?? [];
+
+/** `text`'s words appear in `within` side by side, in order: case, accents, punctuation and markdown don't count. */
+export function saysWords(within: string, text: string) {
+  const words = wordList(text).join(" ");
+  return words.length > 0 && ` ${wordList(within).join(" ")} `.includes(` ${words} `);
+}
+
+/**
+ * `text` is whole sentences of `within` (`saysWords`, starting and ending where a sentence, a clause after a colon or
+ * a line does): a part of a sentence could leave out the words that change what it says ("não mande …").
+ */
+export function saysSentences(within: string, text: string) {
+  const words = wordList(text).join(" ");
+  if (!words) return false;
+  const parts = within
+    .split(/[.!?;:\n。！？；：]+/u)
+    .map((p) => wordList(p).join(" "))
+    .filter(Boolean);
+  return parts.some((_, i) => {
+    let run = "";
+    for (const part of parts.slice(i)) {
+      run = run ? `${run} ${part}` : part;
+      if (run.length >= words.length) return run === words;
+    }
+    return false;
+  });
+}
 
 /** Subject key: its words, once each, sorted. */
 export function normalizeSubject(subject: string) {
@@ -586,14 +617,25 @@ async function applyPlan(
 
 // ── Reading and editing (APIs: "What Ada knows") ────────────────────────────
 
-/** A person's preferences: theirs, and who reviews memory. Undefined: every item. */
+/**
+ * A person's preferences: theirs, and who reviews memory, except what the right hand keeps for one person (its
+ * `remember` and its learning): nobody else reads that, admins included (ADR 0137).
+ */
 const preferencesSeenBy = (membership: Membership, actorId: string) =>
-  can(membership, "review_memory")
-    ? undefined
-    : or(ne(contextItems.scopeType, "person"), eq(contextItems.scopeId, actorId));
+  or(
+    ne(contextItems.scopeType, "person"),
+    eq(contextItems.scopeId, actorId),
+    can(membership, "review_memory")
+      ? sql`not exists (select 1 from ${agents} where ${agents.id} = ${contextItems.agentId} and ${agents.builtin} = 'right_hand')`
+      : sql`false`,
+  );
 
-const seesPreference = (membership: Membership, actorId: string, item: Pick<ContextItem, "scopeType" | "scopeId">) =>
-  item.scopeType !== "person" || item.scopeId === actorId || can(membership, "review_memory");
+const seesPreference = (
+  membership: Membership,
+  actorId: string,
+  item: Pick<ContextItem, "scopeType" | "scopeId">,
+  rightHands: boolean,
+) => item.scopeType !== "person" || item.scopeId === actorId || (can(membership, "review_memory") && !rightHands);
 
 /** Items a person may see: those whose every channel they can read (org-wide ones too). */
 export async function listContextItems(
@@ -857,6 +899,39 @@ export async function deleteContextItem(db: Database, actorId: string, orgId: st
 }
 
 /**
+ * "Forget all" on the right hand's Memory tab: everything it learned or saved on its own for this person (their
+ * preferences, and what it kept from their DM with it), every version, for good. What the person asked it to remember
+ * stays, and so does what it learned in a channel, which belongs to that channel. Returns how many items went.
+ */
+export async function forgetRightHandLearned(db: Database, actorId: string, orgId: string): Promise<number> {
+  await requirePermission(db, actorId, orgId, "read");
+  const agentId = await rightHandId(db, orgId);
+  if (!agentId) return 0;
+  const [dm] = await db
+    .select({ id: schema.channels.id })
+    .from(schema.channels)
+    .where(and(eq(schema.channels.orgId, orgId), eq(schema.channels.dmKey, personAgentDmKey(actorId, agentId))));
+  return db.transaction(async (tx) => {
+    const gone = await tx
+      .delete(contextItems)
+      .where(
+        and(
+          eq(contextItems.orgId, orgId),
+          eq(contextItems.agentId, agentId),
+          ne(contextItems.createdByKind, "person"),
+          or(
+            and(eq(contextItems.scopeType, "person"), eq(contextItems.scopeId, actorId)),
+            dm ? sql`${contextItems.channelIds} = array[${dm.id}]::uuid[]` : undefined,
+          ),
+        ),
+      )
+      .returning({ id: contextItems.id });
+    for (const { id } of gone) await enqueueIndex(tx, { orgId, kind: "context_item", sourceId: id });
+    return gone.length;
+  });
+}
+
+/**
  * A person adds a fact or note by hand (org context items need `configure`; agent notes need ownership). `viaApp`:
  * the text came through a connected AI app (ADR 0119), so it is outside content: only an agent's own memory, kept
  * high trust for that agent but unverified, which keeps it out of every promotion until a person confirms it.
@@ -1075,7 +1150,8 @@ export async function revertMemoryChange(
   const item = await loadItem(db, orgId, itemId);
   const membership = await requirePermission(db, actorId, orgId, "read");
   const visible = await userVisibleChannels(db, orgId, actorId);
-  if (!itemVisibleIn(item, visible) || !seesPreference(membership, actorId, item))
+  const rightHands = item.agentId ? await isRightHandId(db, orgId, item.agentId) : false;
+  if (!itemVisibleIn(item, visible) || !seesPreference(membership, actorId, item, rightHands))
     throw new NotFoundError("Item not found");
   const [asked] = await db
     .select({ id: agentActions.id })

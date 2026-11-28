@@ -254,10 +254,8 @@ describe("the computer dialog, Cloud: the workspace's own computer", () => {
     // The cover says it; the head says nothing over it.
     expect(sub()).toBe("");
     expect(box().textContent?.match(/Pronto/g)).toHaveLength(1);
-    // The Pronto leads to the screen: the screen's line stays under it, so the screen opens where it was.
-    expect(box().querySelector(".cmp-body > .cmp-stage + .dsk-line")?.textContent).toBe(
-      "Os programas do computador da Ada veem a tela e tudo o que é digitado ou colado nele.",
-    );
+    // The Pronto leads to the screen: the screen's line keeps its room under it, so the screen opens where it was.
+    expect(box().querySelector(".cmp-body > .cmp-stage + .dsk-line")?.textContent).toBe("");
     await act(async () => new Promise((r) => setTimeout(r, 1600)));
     await settle(8);
     // Opening, then the screen: no step of the person's.
@@ -313,6 +311,41 @@ describe("the computer dialog, Cloud: the workspace's own computer", () => {
     expect(text).not.toContain("nada a fazer");
     expect(view().queryByRole("button", { name: "Trocar computador" })).toBeNull();
     expect(t.sockets.screens).toHaveLength(0);
+  });
+
+  test("its computer moving to another server: said so, back in a few minutes, never that it isn't answering", async () => {
+    await dialog({
+      setup: { state: "ready" },
+      machine: { name: "Acme's computer", kind: "managed", os: "other", online: false, moving: true },
+      desktop: { available: false, reason: "offline" },
+      browser: true,
+    });
+    expect(sub()).toBe("Mudando de servidor");
+    const text = box().textContent ?? "";
+    expect(text).toContain("Mudando de servidor… volta em alguns minutos");
+    expect(text).not.toContain("Sem resposta");
+    expect(text).not.toContain("Já estamos cuidando");
+  });
+
+  test("its computer restarted because it stopped answering: said so, why and about when it is back", async () => {
+    const maintenance = {
+      kind: "restarting",
+      since: new Date(Date.now() - 60_000).toISOString(),
+      eta: new Date(Date.now() + 2 * 60_000 + 10_000).toISOString(),
+      detail: "unresponsive",
+      away: true,
+    };
+    await dialog({
+      setup: { state: "ready" },
+      machine: { name: "Acme's computer", kind: "managed", os: "other", online: false, moving: true, maintenance },
+      desktop: { available: false, reason: "offline" },
+      browser: true,
+    });
+    expect(sub()).toBe("Reiniciando");
+    const text = box().textContent ?? "";
+    expect(text).toContain("Reiniciando… volta em cerca de 2 min");
+    expect(text).toContain("Ele parou de responder, então reiniciamos automaticamente.");
+    expect(text).not.toContain("Sem resposta");
   });
 
   test("back while this tab was away: the reconnect asks for the computers again, and its screen opens", async () => {
@@ -674,6 +707,26 @@ describe("the computer dialog, self-host", () => {
     await click(view().getByRole("button", { name: "Trocar computador" }));
     expect(screen().getByRole("dialog", { name: "Trocar o computador" })).toBeTruthy();
     expect(t.closed()).toBe(0);
+  });
+
+  test("offline while her owner's laptop helps: the cover says her new work can think there meanwhile", async () => {
+    setSystemTime(new Date(2026, 9, 21, 12));
+    const seen = new Date(Date.now() - 30 * 60_000).toISOString();
+    const b = await backend({
+      machine: { online: false, lastSeenAt: seen },
+      desktop: { available: false, reason: "offline" },
+    });
+    const ada = await adaOf(b);
+    b.machines.pair({ name: "MacBook do Bruno", online: true, pairedBy: { id: ada.ownerUserId ?? "", name: "Bruno" } });
+    await renderPage(<ComputerDialog agent={ada} open onClose={() => {}} />, {
+      api: b.api,
+      org: true,
+      createSocket: b.sockets.factory,
+    });
+    await settle(8);
+    expect(box().textContent).toContain(
+      "A Ada espera o computador voltar. Enquanto isso, o trabalho novo pode pensar em MacBook do Bruno.",
+    );
   });
 
   test("a Mac with its browser off: that, and who turns it on, never a screen it doesn't have", async () => {

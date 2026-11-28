@@ -14,7 +14,7 @@ import {
   unique,
   uuid,
 } from "drizzle-orm/pg-core";
-import { agents } from "./agents";
+import { agentGroups, agents } from "./agents";
 import { users } from "./auth";
 import { organizationMembers, organizations, orgRoles } from "./tenancy";
 
@@ -31,8 +31,8 @@ export const channelKindEnum = pgEnum("channel_kind", ["channel", "dm", "forum",
 export type ChannelKind = Exclude<(typeof channelKindEnum.enumValues)[number], "forum">;
 
 /**
- * A named group of channels in the sidebar, the same for everyone in the organization. Deleting one leaves its
- * channels without a category.
+ * Unused since migration 0352 (ADR 0240): each category became a sector (`agent_groups`) and its channels moved
+ * there (`channels.group_id`). Kept until no running version reads it, then dropped in a later migration.
  */
 export const channelCategories = pgTable(
   "channel_categories",
@@ -79,9 +79,11 @@ export const channels = pgTable(
      * job and the row stays as a tombstone, named `deleted-<id>`, for its runs, usage and audit. Never undone.
      */
     deletedAt: timestamp({ withTimezone: true }),
-    /** Its sidebar category (channels only); null: on top, with no category. */
+    /** Unused since migration 0352 (ADR 0240): read `groupId`. Dropped once no running version reads it. */
     categoryId: uuid().references(() => channelCategories.id, { onDelete: "set null" }),
-    /** Order inside its category (or among the channels with none), from 0. */
+    /** Its sector (ADR 0240; channels only); null: under Canais, with none. Deleting the sector clears it. */
+    groupId: uuid().references(() => agentGroups.id, { onDelete: "set null" }),
+    /** Order inside its sector (or among the channels with none), from 0. */
     position: integer().notNull().default(0),
     /**
      * Agents asked in the main timeline answer in the thread under the message that called them (ADR 0214). On by
@@ -89,6 +91,12 @@ export const channels = pgTable(
      * was created with (`agent_runs.reply_in_thread`).
      */
     replyInThreads: boolean().notNull().default(true),
+    /**
+     * The agent responsible for the channel (ADR 0095, addendum of 2026-11-23): one of its member agents, or none.
+     * What a person says to the room goes to it, and it is given the turn when work it didn't hand off ends here.
+     * Regular channels only; cleared when the agent leaves the channel.
+     */
+    leadAgentId: uuid().references(() => agents.id, { onDelete: "set null" }),
   },
   (t) => [unique().on(t.orgId, t.name), unique().on(t.orgId, t.id), unique().on(t.orgId, t.dmKey)],
 );
@@ -195,7 +203,17 @@ export const channelPermissionOverrides = pgTable(
   ],
 );
 
-export const authorTypeEnum = pgEnum("author_type", ["person", "agent"]);
+/** `app`: an integration app (ADR 0251), never a person; which one is in the server-set `meta.app`. */
+export const authorTypeEnum = pgEnum("author_type", ["person", "agent", "app"]);
+
+/**
+ * How a message reached the server (ADR 0250). Only `app` (typed in our own web, desktop or phone app through a
+ * signed-in session) is a person's own words: `mcp` (an AI app or a script with a personal token) and `surface` (an
+ * outside chat bridged in, ADR 0187) may carry anyone's text under the person's name. `system`: written by the server
+ * (a routine's brief, a notice, a root). `integration`: posted by an integration app as itself (ADR 0251). `unknown`:
+ * written before origins were recorded, never trusted as anyone's.
+ */
+export type MessageOrigin = "app" | "mcp" | "surface" | "agent" | "system" | "integration" | "unknown";
 
 /**
  * Chat messages. Partitioned by month on `created_at` (see migration 0000 and
@@ -203,7 +221,8 @@ export const authorTypeEnum = pgEnum("author_type", ["person", "agent"]);
  * `created_at` and no table can hold a foreign key to a message: references
  * such as `thread_id` and `agent_runs.trigger_message_id` are plain uuids.
  *
- * Author is polymorphic: a person (`author_user_id`) or an agent (`author_agent_id`).
+ * Author is polymorphic: a person (`author_user_id`), an agent (`author_agent_id`) or an integration app (neither;
+ * `meta.app` names it).
  */
 export const messages = pgTable(
   "messages",
@@ -240,6 +259,8 @@ export const messages = pgTable(
     agentRunId: uuid(),
     /** Structured attachments, e.g. `{ "approvalId": "…" }` for an approval card. */
     meta: jsonb().$type<Record<string, unknown>>().notNull().default({}),
+    /** How it reached the server (`MessageOrigin`); set by the server, never by a client. */
+    origin: text().$type<MessageOrigin>().notNull().default("unknown"),
     editedAt: timestamp({ withTimezone: true }),
     deletedAt: timestamp({ withTimezone: true }),
   },
@@ -257,7 +278,7 @@ export const messages = pgTable(
     index().on(t.agentRunId).where(sql`${t.agentRunId} is not null`),
     check(
       "messages_author",
-      sql`(${t.authorType} = 'person' and ${t.authorAgentId} is null) or (${t.authorType} = 'agent' and ${t.authorUserId} is null)`,
+      sql`(${t.authorType} = 'person' and ${t.authorAgentId} is null) or (${t.authorType} = 'agent' and ${t.authorUserId} is null) or (${t.authorType} = 'app' and ${t.authorUserId} is null and ${t.authorAgentId} is null)`,
     ),
   ],
 );

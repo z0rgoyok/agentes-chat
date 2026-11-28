@@ -5,13 +5,18 @@ import { type Evidence, insertContextItem, itemWords, looksLikeSecret } from "./
 
 const { agents, contextItems, contextProposals, organizationMembers, users } = schema;
 
-/** Queued once per workspace by migration 0310: its agents' "## Learned" sections become memory. */
+/**
+ * Queued once per workspace by migration 0310: its agents' "## Learned" sections become memory. An agent created,
+ * copied, imported or saved with one later moves it then (`createAgent`, `updateAgent`).
+ */
 export const MOVE_LEARNED_JOB = "memory.move_learned";
 
 const HEADING = /^##\s+Learned\s*$/;
 const ANY_HEADING = /^#{1,6}\s/;
 /** "Ada: always do X", the way a lesson named who taught it. */
 const TAUGHT_BY = /^([^:\n]{1,80}):\s(.+)$/s;
+
+export const hasLearnedSection = (text: string) => text.split("\n").some((l) => HEADING.test(l.trim()));
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim().toLowerCase();
 
@@ -65,14 +70,19 @@ export function splitLearned(text: string): { instructions: string; lessons: str
  * from a memory item brings that item back (who taught it and when, as it was); any other becomes the agent's own
  * lesson, from the person who asked for it or accepted it (or the "Name:" it starts with, a member's), dated when it
  * was accepted. The section leaves the instructions, so the prompt carries each lesson once. Idempotent: a workspace
- * with no section left changes nothing. Returns the lessons moved.
+ * with no section left changes nothing. Returns the lessons moved. `only`: just that agent, as the person who saved it
+ * wrote the section (they taught a lesson nobody else is on record for).
  */
-export async function moveLearnedSections(db: Database, orgId: string): Promise<number> {
+export async function moveLearnedSections(
+  db: Database,
+  orgId: string,
+  only?: { agentId: string; actorId: string },
+): Promise<number> {
   const rows = await db
     .select({ id: agents.id, instructions: agents.instructions })
     .from(agents)
-    .where(and(eq(agents.orgId, orgId), isNull(agents.deletedAt)));
-  const withSection = rows.filter((a) => a.instructions.split("\n").some((l) => HEADING.test(l.trim())));
+    .where(and(eq(agents.orgId, orgId), isNull(agents.deletedAt), only ? eq(agents.id, only.agentId) : undefined));
+  const withSection = rows.filter((a) => hasLearnedSection(a.instructions));
   if (withSection.length === 0) return 0;
   const people = await db
     .select({ id: users.id, name: users.name })
@@ -144,7 +154,7 @@ export async function moveLearnedSections(db: Database, orgId: string): Promise<
             stay.push(lesson);
             continue;
           }
-          const person = namedId ?? origin?.requestedByUserId ?? origin?.decidedByUserId ?? null;
+          const person = namedId ?? origin?.requestedByUserId ?? origin?.decidedByUserId ?? only?.actorId ?? null;
           const at = origin?.decidedAt ?? null;
           const evidence: Evidence[] = person
             ? [{ type: "human", ref: person, at: (at ?? new Date()).toISOString() }]

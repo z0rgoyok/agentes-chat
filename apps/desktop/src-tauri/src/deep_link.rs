@@ -3,6 +3,8 @@
 //! newest link until the window takes it (`link_take`), and passes nothing it didn't check is one of ours.
 //! A connector's sign-in that the browser hands back (`agenteschat://desktop/connectors/oauth`) goes to the
 //! main window instead, which finishes it with its own session.
+//! The browser's page after a sign-in for the app (`agenteschat://desktop/signed-in`) only brings the app forward: the
+//! window already signed itself in.
 //! A pair link (`agenteschat://pair?server=&link=`, the web's "Open the agentes.chat app") goes there too, rebuilt from
 //! its two checked fields: the window asks the server who made the link (`pair_link_info`) and pairs this computer
 //! only after the person confirms there, and then the link's maker still lets it in on the web (ADR 0066 §3 as amended).
@@ -36,6 +38,11 @@ pub fn accept(url: &Url) -> bool {
 /// A connector's sign-in that the browser handed back (apps/server connectors.ts `oauth/callback`).
 fn is_connector_return(url: &Url) -> bool {
     url.host_str() == Some("desktop") && url.path() == "/connectors/oauth"
+}
+
+/// The browser's sign-in page for the app is done (apps/web DesktopSignInPage.tsx): the app comes forward, nothing else.
+fn is_signed_in(url: &Url) -> bool {
+    url.host_str() == Some("desktop") && url.path() == "/signed-in"
 }
 
 /// The page of `site` that finishes it (apps/web desktop.connector.tsx), with only its own fields.
@@ -95,6 +102,12 @@ fn pair_url(pair: &PairLink) -> String {
 
 fn receive(app: &AppHandle, urls: Vec<Url>) {
     let Some(url) = urls.into_iter().find(accept) else { return };
+    if is_signed_in(&url) {
+        let app = app.clone();
+        // Not from inside the link's event, as below.
+        std::thread::spawn(move || crate::open_app(&app));
+        return;
+    }
     // On the server open now, where the window is signed in: its state is that person's there.
     if is_connector_return(&url) {
         if let Some(page) = crate::main_window::site(app).and_then(|site| connector_page(&url, &site)) {
@@ -233,6 +246,13 @@ mod tests {
         assert!(!accept(&long));
         assert!(in_args(&["/usr/bin/agentes".into(), "agenteschat://connect?server=x".into()]));
         assert!(!in_args(&["/usr/bin/agentes".into(), "--autostart".into()]));
+    }
+
+    #[test]
+    fn signed_in_only_brings_the_app_forward() {
+        assert!(is_signed_in(&"agenteschat://desktop/signed-in".parse().unwrap()));
+        assert!(!is_signed_in(&"agenteschat://desktop/connectors/oauth".parse().unwrap()));
+        assert!(!is_signed_in(&"agenteschat://signed-in".parse().unwrap()));
     }
 
     #[test]

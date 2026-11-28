@@ -259,3 +259,18 @@ html:not([data-pointer]) .tp-gallery__item:focus-visible {
 .tp-gallery__error {
   color: var(--danger);
 }
+/* What comes under the team's card once it is created (`MorphRoom`): the conversation's rhythm between its parts. */
+.tp-after > .ac-morph__in {
+  display: flex;
+  flex-direction: column;
+  gap: var(--msg-part-gap, var(--space-2));
+}
+.tp-after > .ac-morph__in > *,
+.tp-after .rq {
+  margin: 0;
+}
+/* "Depois": the first tasks fade where they are, then their room closes. Opacity only, so reduced motion keeps it. */
+.tp-leaving {
+  animation: ac-fade-out var(--dur-fast) ease-out forwards;
+  pointer-events: none;
+}

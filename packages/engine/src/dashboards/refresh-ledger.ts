@@ -50,6 +50,7 @@ const NEEDS_AI = "missing_credential";
 const FOLDED: Readonly<Record<string, string>> = {
   no_ai: NEEDS_AI,
   credential_revoked: NEEDS_AI,
+  credential_unreadable: NEEDS_AI,
   credential_wrong_provider: NEEDS_AI,
   computer_timeout: "timeout",
   stale: "waiting_computer",

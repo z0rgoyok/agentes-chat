@@ -1,9 +1,12 @@
 import { execFile } from "node:child_process";
 import { mkdirSync } from "node:fs";
 import path from "node:path";
+import type { CodexSandbox, RunnerExecutorInfo } from "@agenteschat/adapters/machine-protocol";
 import { accountEnv } from "./accounts";
+import { consoleText } from "./console-text";
 import {
   type CliRun,
+  codexRefusal,
   envValue,
   findOnWindowsPath,
   isFile,
@@ -13,18 +16,22 @@ import {
 } from "./executors";
 
 /**
- * Codex on Windows (ADR 0032 "Codex", ADR 0053's addendum of 2026-11-12): how it starts there, and the sandbox a
- * `plan` or `work` turn runs in.
+ * Codex on Windows (ADR 0032 "Codex", ADR 0053's addenda of 2026-11-12 and 2026-11-24): how it starts there, and the
+ * sandbox a `plan` or `work` turn runs in.
  *
  * - It starts as the native `codex.exe`, found on the PATH, never in the current folder (`findOnWindowsPath`); npm's
  *   `codex.cmd` as the `codex.exe` behind it. Nothing goes through cmd.exe then: its line stops at 8,191 characters
  *   and expands `%NAME%` even in quotes.
- * - The sandbox is MXC (Microsoft Execution Containers, Windows 11 24H2 and later): Windows' own isolation, no setup,
- *   no network, writes in the agent's folders. Codex picks no sandbox on Windows by itself, and its other two hold
- *   less (`unelevated` keeps the network out only through proxy variables) or need an administrator's setup that
- *   several Codex homes (each AI account's folder, ADR 0041) can't share (`elevated`). A computer where Codex's own
- *   MXC check fails runs no `plan` or `work` turn: it fails with `windows_sandbox`. A `chat` turn needs none: with no
- *   sandbox, Codex refuses every command of its own there, and the turn stops at the first one anyway.
+ * - The sandbox is chosen per computer and Codex version (`windowsCodexSandbox`), named in `-c` on every process of a
+ *   `plan` or `work` turn, so a sandbox the computer's own Codex config names never stands in for it. MXC (Microsoft
+ *   Execution Containers, Windows 11 24H2 with its August 2026 update) where Codex's own check runs a command in it:
+ *   Windows' own isolation, no setup, no network, writes in the agent's folders. Elsewhere Codex's `unelevated`
+ *   sandbox, where the same check runs a command in it: a restricted token and ACLs keep its writes in the agent's
+ *   folders, but it keeps the network out only through proxy variables (a program that ignores them still reaches the
+ *   network and loopback), and it reads anything the person can. Neither: the turn fails with `windows_sandbox`.
+ *   `elevated` stays out: its administrator's setup is per Codex home, and each AI account has its own (ADR 0041).
+ *   A `chat` turn needs none: with no sandbox, Codex refuses every command of its own there, and the turn stops at the
+ *   first one anyway.
  * - Nothing asks on Windows (`approvalPolicy: never`): the command policy reads POSIX shells, not the PowerShell Codex
  *   runs its commands in, so the sandbox is the whole limit, as for `codex exec` everywhere. Nothing lifts it, on any
  *   system (`brain-codex.ts`): no one's own Codex rules (an allow there runs a command outside the sandbox, unasked:
@@ -110,16 +117,19 @@ export function codexLaunch(
   return run;
 }
 
+/** A sandbox Codex runs a `plan` or `work` turn's commands in on Windows. */
+export type CodexWindowsSandbox = Exclude<CodexSandbox, "none">;
+
 /**
- * A `plan` or `work` turn's sandbox on Windows, named in `-c`: MXC, explicitly, so a sandbox the computer's own Codex
- * config names (`unelevated`) never stands in for it, and a computer where it stopped working fails closed (Codex
- * refuses to run a command there rather than run it elsewhere).
+ * A `plan` or `work` turn's sandbox on Windows, named in `-c`: so a sandbox the computer's own Codex config names never
+ * stands in for it, and a computer where it stopped working fails closed (Codex refuses to run a command there rather
+ * than run it elsewhere).
  */
-export const CODEX_WINDOWS_CONFIG = ['windows.sandbox="mxc"'];
+export const codexWindowsConfig = (sandbox: CodexWindowsSandbox) => [`windows.sandbox="${sandbox}"`];
 
 /** What a `plan` or `work` turn says where Windows can't hold Codex's commands. */
 export const WINDOWS_SANDBOX_MESSAGE =
-  "This computer can't isolate Codex's commands: agents that think with Codex on Windows need Windows 11 24H2 or newer, with Microsoft Execution Containers (MXC). Update Windows there, or choose another way for this agent to think.";
+  "Codex couldn't start any isolation for its commands on this Windows computer: neither Microsoft Execution Containers (MXC) nor its own sandbox ran here. Choose Claude or an API key for this agent, or update Windows to Windows 11 24H2 or newer, with its latest updates.";
 
 /**
  * A thread's first prompt on Windows when it runs on `codex exec`: its instructions lead it, on stdin, as the plan
@@ -128,13 +138,16 @@ export const WINDOWS_SANDBOX_MESSAGE =
 export const codexStdinPrompt = (instructions: string, prompt: string) =>
   instructions.trim() ? `${instructions.trim()}\n\n${prompt}` : prompt;
 
+/** What a sandbox's check prints when it ran its command. */
+const sandboxMark = (sandbox: CodexWindowsSandbox) => `${sandbox.toUpperCase()}_OK`;
+
 /**
- * Codex's own check of MXC (Codex 0.162.0 and later): `echo MXC_OK` run inside MXC, with the workspace's permissions
- * and any managed requirements.
+ * Codex's own check of a sandbox (Codex 0.162.0 and later): `echo MXC_OK` (or `UNELEVATED_OK`) run inside it, with the
+ * workspace's permissions and any managed requirements.
  */
-export const MXC_CHECK_ARGS = [
+export const sandboxCheckArgs = (sandbox: CodexWindowsSandbox) => [
   "-c",
-  'windows.sandbox="mxc"',
+  `windows.sandbox="${sandbox}"`,
   "sandbox",
   "--include-managed-config",
   "--permission-profile",
@@ -144,17 +157,19 @@ export const MXC_CHECK_ARGS = [
   "/d",
   "/c",
   "echo",
-  "MXC_OK",
+  sandboxMark(sandbox),
 ];
 
-const MXC_CHECK_TIMEOUT_MS = 60_000;
+const SANDBOX_CHECK_TIMEOUT_MS = 60_000;
 
 /**
- * Runs Codex's MXC check: true when it printed `MXC_OK` and ended well (MXC ran a command here), false when it ran and
- * didn't (no MXC, or a policy that forbids it), null when it couldn't tell (it didn't start, or didn't end in time).
+ * Runs Codex's check of `sandbox`: true when it printed its mark and ended well (the sandbox ran a command here), false
+ * when it ran and didn't (no such sandbox here, or a policy that forbids it), null when it couldn't tell (it didn't
+ * start, didn't end in time, or this Codex is too old for the check and refused its command line).
  */
-export function runMxcCheck(
+export function runSandboxCheck(
   run: CliRun,
+  sandbox: CodexWindowsSandbox,
   opts: { cwd: string; env: NodeJS.ProcessEnv; timeoutMs?: number },
 ): Promise<boolean | null> {
   return new Promise((resolve) => {
@@ -165,17 +180,19 @@ export function runMxcCheck(
         {
           cwd: opts.cwd,
           env: run.env ? { ...opts.env, ...run.env } : opts.env,
-          encoding: "utf8",
-          timeout: opts.timeoutMs ?? MXC_CHECK_TIMEOUT_MS,
+          encoding: "buffer",
+          timeout: opts.timeoutMs ?? SANDBOX_CHECK_TIMEOUT_MS,
           maxBuffer: 256 * 1024,
           windowsHide: true,
           ...(run.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
         },
-        (err, stdout) => {
-          if (!err) return resolve(/\bMXC_OK\b/.test(stdout));
+        (err, out, errOut) => {
+          const [stdout, stderr] = [consoleText(out), consoleText(errOut)];
+          if (!err) return resolve(new RegExp(`\\b${sandboxMark(sandbox)}\\b`).test(stdout));
           const failed = err as { code?: unknown; killed?: boolean };
-          // It ran and said no (its exit code), against it not starting or not ending in time.
-          resolve(typeof failed.code === "number" && !failed.killed ? false : null);
+          // It ran and said no (its exit code), against it not starting or not ending in time. A refusal of the check
+          // itself says nothing about Windows.
+          resolve(typeof failed.code === "number" && !failed.killed && !codexRefusal(stderr) ? false : null);
         },
       );
     } catch {
@@ -184,41 +201,102 @@ export function runMxcCheck(
   });
 }
 
-/** How long a "no MXC here" is kept before asking again (Windows may have been updated meanwhile). */
-export const WINDOWS_MXC_RETRY_MS = 10 * 60_000;
+/**
+ * How long anything less than MXC is kept before MXC is asked again: Windows may have been updated meanwhile, or MXC's
+ * check failed once (right after a restart, for one).
+ */
+export const WINDOWS_SANDBOX_RETRY_MS = 10 * 60_000;
 
-const mxcChecks = new Map<string, { ok: boolean; at: number }>();
+type SandboxCheck = (
+  sandbox: CodexWindowsSandbox,
+  opts: { cwd: string; env: NodeJS.ProcessEnv },
+) => Promise<boolean | null>;
+
+const choices = new Map<string, { sandbox: CodexSandbox; at: number }>();
+const choosing = new Map<string, Promise<CodexSandbox | null>>();
+const choiceKey = (version: string, bin = "codex") => `${bin}@${version}`;
 
 /**
- * Whether MXC holds Codex's commands on this computer: Codex's own check (`MXC_CHECK_ARGS`), in an empty Codex home of
- * the runner's (none of a person's config in it), which runs a command inside MXC. Kept per Codex version: a yes for as
- * long as the runner runs, a no for `WINDOWS_MXC_RETRY_MS`. Null: it couldn't tell (not kept).
+ * What holds Codex's commands on this computer: `mxc` where Codex's own check (`sandboxCheckArgs`) runs a command in
+ * MXC, else `unelevated` where the same check runs one in that, else `none`. Checked in an empty Codex home of the
+ * runner's (none of a person's config in it), once at a time. Kept per Codex version: `mxc` for as long as the runner
+ * runs, anything less for `WINDOWS_SANDBOX_RETRY_MS`. Past that, `unelevated` stands while only MXC is asked again
+ * (`wait`: the answer instead), and `none` is asked again whole. Null: it couldn't tell (not kept).
  */
-export async function windowsMxcReady(input: {
+export function windowsCodexSandbox(input: {
   runnerHome: string;
   version: string;
   bin?: string;
-  check?: (args: readonly string[], opts: { cwd: string; env: NodeJS.ProcessEnv }) => Promise<boolean | null>;
+  check?: SandboxCheck;
   now?: () => number;
-}): Promise<boolean | null> {
+  wait?: boolean;
+}): Promise<CodexSandbox | null> {
   const now = input.now ?? Date.now;
-  const key = `${input.bin ?? "codex"}@${input.version}`;
-  const kept = mxcChecks.get(key);
-  if (kept && (kept.ok || now() - kept.at < WINDOWS_MXC_RETRY_MS)) return kept.ok;
+  const key = choiceKey(input.version, input.bin);
+  const kept = choices.get(key);
+  if (kept && (kept.sandbox === "mxc" || now() - kept.at < WINDOWS_SANDBOX_RETRY_MS)) {
+    return Promise.resolve(kept.sandbox);
+  }
+  // A turn never waits for MXC to be asked again behind a sandbox that already ran a command here.
+  const held = kept?.sandbox === "unelevated" && !input.wait ? Promise.resolve(kept.sandbox) : null;
+  const running = choosing.get(key);
+  if (running) return held ?? running;
   const home = path.join(input.runnerHome, "brain", "codex-windows-check");
-  mkdirSync(home, { recursive: true, mode: 0o700 });
-  const env = accountEnv("codex", home);
   const check =
     input.check ??
-    ((args: readonly string[], o: { cwd: string; env: NodeJS.ProcessEnv }) => {
-      const launch = codexLaunch(args, {
+    ((sandbox: CodexWindowsSandbox, o: { cwd: string; env: NodeJS.ProcessEnv }) => {
+      const launch = codexLaunch(sandboxCheckArgs(sandbox), {
         ...(input.bin ? { bin: input.bin } : {}),
         pathList: envValue(o.env, "PATH") ?? "",
       });
-      return "error" in launch ? Promise.resolve(null) : runMxcCheck(launch, o);
+      return "error" in launch ? Promise.resolve(null) : runSandboxCheck(launch, sandbox, o);
     });
-  const ok = await check(MXC_CHECK_ARGS, { cwd: home, env });
-  if (ok === null) return null;
-  mxcChecks.set(key, { ok, at: now() });
-  return ok;
+  const choice = (async (): Promise<CodexSandbox | null> => {
+    mkdirSync(home, { recursive: true, mode: 0o700 });
+    const opts = { cwd: home, env: accountEnv("codex", home) };
+    const mxc = await check("mxc", opts);
+    if (mxc !== false) return mxc && "mxc";
+    if (kept?.sandbox === "unelevated") return "unelevated";
+    const unelevated = await check("unelevated", opts);
+    if (unelevated === null) return null;
+    return unelevated ? "unelevated" : "none";
+  })()
+    .then((sandbox) => {
+      if (sandbox) choices.set(key, { sandbox, at: now() });
+      return sandbox;
+    })
+    .finally(() => choosing.delete(key));
+  choosing.set(key, choice);
+  return held ?? choice;
+}
+
+/** The last choice of `windowsCodexSandbox` for this Codex, without making one (`hello`); undefined: none yet. */
+export const knownCodexSandbox = (version: string, bin?: string): CodexSandbox | undefined =>
+  choices.get(choiceKey(version, bin))?.sandbox;
+
+/**
+ * `executors.codex` as `hello` and `executors.changed` say it on a Windows computer (`CODEX_UNELEVATED_PROTOCOL`): with
+ * what holds Codex's commands there once a choice was made, never waited for (the check starts Codex, up to a minute
+ * each sandbox). Where Codex may run (`may`: its switch on), a choice is made in the background when due (another
+ * version, or `WINDOWS_SANDBOX_RETRY_MS` since the last), and `onChange` follows its answer so the server hears.
+ */
+export function codexSandboxReport(opts: {
+  runnerHome: string;
+  onChange: () => void;
+  now?: () => number;
+  choose?: (version: string) => Promise<unknown>;
+}): (codex: RunnerExecutorInfo, may: boolean) => RunnerExecutorInfo {
+  const now = opts.now ?? Date.now;
+  const choose =
+    opts.choose ?? ((version: string) => windowsCodexSandbox({ runnerHome: opts.runnerHome, version, wait: true }));
+  let looked: { version: string; at: number } | undefined;
+  return (codex, may) => {
+    const { version } = codex;
+    if (may && (looked?.version !== version || now() - looked.at >= WINDOWS_SANDBOX_RETRY_MS)) {
+      looked = { version, at: now() };
+      void choose(version).then(opts.onChange, () => undefined);
+    }
+    const sandbox = knownCodexSandbox(version);
+    return sandbox ? { ...codex, sandbox } : codex;
+  };
 }

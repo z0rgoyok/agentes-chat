@@ -1,4 +1,12 @@
-import { type AppNotification, type InstallableCli, useCliInstall, useNotificationAction } from "@agenteschat/client";
+import {
+  type AppNotification,
+  type InstallableCli,
+  useAskMachineFolder,
+  useCliInstall,
+  useMachines,
+  useNotificationAction,
+  useRefuseFolderRequest,
+} from "@agenteschat/client";
 import { errorText } from "@agenteschat/client/lib/errors";
 import { firstName } from "@agenteschat/client/lib/format";
 import { cliInstallFailure, computerKind, installableCli } from "@agenteschat/client/lib/machines";
@@ -15,7 +23,7 @@ import { useColors, useDirectory, useOrgId, useWhen } from "../shared/hooks";
 import { Tile } from "../shared/parts";
 import { WaitingCard } from "../shared/WaitingCard";
 import { type DeviceNotice, deviceHref, deviceNoticeOf, deviceNoticeTitle, joinFacts } from "./logic";
-import { JoinButtons } from "./parts";
+import { JoinButtons, JoinInternetLine } from "./parts";
 import { useDeviceMutation, useDevices } from "./queries";
 import { ToolOneClickButton } from "./ToolOneClick";
 
@@ -41,12 +49,18 @@ export function DeviceNoticeCard({ item: n, first }: { item: AppNotification; fi
 
 /**
  * An agent waits for a folder on the viewer's computer: it is allowed there, in the app on that computer (or with the
- * runner's command), so the card only says what waits, with no button that would grant it from here.
+ * runner's command), so the card has no button that would grant it from here: No, and where the app runs that
+ * computer, Liberar no computador, which opens the request there.
  */
 function FolderNotice({ n, d }: { n: AppNotification; d: DeviceNotice }) {
   const { t } = useTranslation();
+  const toast = useToast();
   const when = useWhen();
   const dir = useDirectory();
+  const orgId = useOrgId();
+  const refuse = useRefuseFolderRequest(orgId);
+  const show = useAskMachineFolder(orgId);
+  const computer = useMachines(orgId).data?.find((m) => m.id === d.machineId);
   const agent = n.actors.find((a) => a.type === "agent");
   const name = dir.nameOf(agent ? { type: "agent", id: agent.id } : null);
   return (
@@ -57,6 +71,51 @@ function FolderNotice({ n, d }: { n: AppNotification; d: DeviceNotice }) {
       title={deviceNoticeTitle(t, d, name, "", "")}
       where={when.short(n.updatedAt)}
       onPress={() => router.push(deviceHref(d))}
+      decision={
+        d.machineId && d.requestId ? (
+          <View style={styles.acts}>
+            {computer?.folderPick ? (
+              <Button
+                variant="primary"
+                size="sm"
+                label={t("devices.notice.folderOnComputer")}
+                loading={show.isPending}
+                disabled={refuse.isPending}
+                onPress={() =>
+                  d.machineId &&
+                  d.requestId &&
+                  show.mutate(
+                    { machineId: d.machineId, requestId: d.requestId },
+                    {
+                      onSuccess: () =>
+                        toast({ title: t("devices.notice.folderShown", { deviceName: d.device }), icon: "check" }),
+                      onError: (err) => toast({ title: errorText(t, err), icon: "x" }),
+                    },
+                  )
+                }
+              />
+            ) : null}
+            <Button
+              variant="secondary"
+              size="sm"
+              label={t("devices.notice.no")}
+              loading={refuse.isPending}
+              disabled={show.isPending}
+              onPress={() =>
+                d.machineId &&
+                d.requestId &&
+                refuse.mutate(
+                  { machineId: d.machineId, requestId: d.requestId },
+                  {
+                    onSuccess: () => toast({ title: t("devices.notice.decided.no"), icon: "check" }),
+                    onError: (err) => toast({ title: errorText(t, err), icon: "x" }),
+                  },
+                )
+              }
+            />
+          </View>
+        ) : undefined
+      }
     >
       {d.doing ? (
         <Text variant="small" tone="muted">
@@ -168,6 +227,7 @@ function JoinNotice({ n, d }: { n: AppNotification; d: DeviceNotice }) {
         <Text variant="small" tone="muted">
           {joinFacts(t, request)}
         </Text>
+        <JoinInternetLine os={request.os} />
       </WaitingCard>
     );
   // Answered elsewhere, or out of time: the card opens the devices.
@@ -239,13 +299,38 @@ function AccessNotice({ n, d, first }: { n: AppNotification; d: DeviceNotice; fi
   );
 }
 
-/** Under an inbox row: Stop while an agent holds the viewer's phone. */
+/** Under an inbox row: Stop while an agent holds the viewer's phone, Turn off a computer's internet lent to agents. */
 export function DeviceNoticeActions({ item: n }: { item: AppNotification }) {
   const { t } = useTranslation();
   const toast = useToast();
   const done = useDone(n);
   const d = deviceNoticeOf(n);
   const stop = useDeviceMutation((api, orgId, id: string) => api.devices.stopPhone(orgId, id));
+  const lendOff = useDeviceMutation((api, orgId, id: string) =>
+    api.devices.updateComputer(orgId, id, { shareInternet: false }),
+  );
+  if (d?.kind === "device.internet_shared" && d.machineId && !n.doneAt) {
+    const machineId = d.machineId;
+    return (
+      <View style={styles.row}>
+        <Button
+          variant="secondary"
+          size="sm"
+          label={t("devices.notice.internetOff")}
+          loading={lendOff.isPending}
+          onPress={() =>
+            lendOff.mutate(machineId, {
+              onSuccess: () => {
+                done();
+                toast({ title: t("devices.notice.internetOffDone", { deviceName: d.device }), icon: "check" });
+              },
+              onError: (err) => toast({ title: errorText(t, err), icon: "x" }),
+            })
+          }
+        />
+      </View>
+    );
+  }
   if (d?.kind !== "device.in_use" || !d.phoneId || n.doneAt) return null;
   const phoneId = d.phoneId;
   return (
@@ -266,4 +351,5 @@ export function DeviceNoticeActions({ item: n }: { item: AppNotification }) {
 const styles = StyleSheet.create({
   decide: { gap: 8 },
   row: { flexDirection: "row" },
+  acts: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
 });

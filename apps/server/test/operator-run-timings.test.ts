@@ -95,10 +95,18 @@ type Claim = {
   stages: { stage: string; ms: number; queries: number; parts?: { stage: string; ms: number; queries: number }[] }[];
   stagesCut: boolean;
   computerTurns: ({ warm: boolean } & Record<string, string | number | null | boolean>)[];
+  turns: Record<string, unknown>[];
+  slow: Record<string, unknown>[];
+  waterfall: { span: string; startMs: number; ms: number }[];
 };
 // A turn's measures past the three every runner gives, none of them said.
 const unsaid = {
   cold: null,
+  sentMs: null,
+  firstRequestMs: null,
+  toolsListMs: null,
+  toolsListWaitMs: null,
+  warmMismatchAt: null,
   firstTokenMs: null,
   firstAssistantMs: null,
   retries: null,
@@ -108,6 +116,10 @@ const unsaid = {
 };
 // A window's computer starts with none of those either.
 const noModelTimes = {
+  firstRequestMedianMs: null,
+  firstRequestP90Ms: null,
+  apiWaitMedianMs: null,
+  apiWaitP90Ms: null,
   firstTokenMedianMs: null,
   firstTokenP90Ms: null,
   firstAssistantMedianMs: null,
@@ -264,6 +276,7 @@ test("computer starts and waits: per brain, each wait until the run's next step,
             cold: "new_session",
             initMs: 4000,
             firstEventMs: 6000,
+            firstRequestMs: 4200,
             firstTokenMs: 5000,
             firstAssistantMs: 9000,
             retries: 2,
@@ -271,7 +284,16 @@ test("computer starts and waits: per brain, each wait until the run's next step,
             thinkingBlocks: 1,
             thinkingChars: 300,
           },
-          { warm: true, firstEventMs: 800, retries: 0, thinkingBlocks: 1, thinkingChars: 100 },
+          // The API answered 2.9 s after the CLI asked: the wait is the API's and the network's, not the CLI's.
+          {
+            warm: true,
+            firstEventMs: 800,
+            firstRequestMs: 100,
+            firstTokenMs: 3000,
+            retries: 0,
+            thinkingBlocks: 1,
+            thinkingChars: 100,
+          },
           { warm: true, firstEventMs: 200 },
         ],
       }),
@@ -309,8 +331,12 @@ test("computer starts and waits: per brain, each wait until the run's next step,
       coldFirstEventMedianMs: 6000,
       coldFirstEventP90Ms: 6000,
       coldFirstEventP99Ms: 6000,
-      firstTokenMedianMs: 5000,
-      firstTokenP90Ms: 5000,
+      firstRequestMedianMs: 2150,
+      firstRequestP90Ms: 3790,
+      apiWaitMedianMs: 1850,
+      apiWaitP90Ms: 2690,
+      firstTokenMedianMs: 4000,
+      firstTokenP90Ms: 4800,
       firstAssistantMedianMs: 9000,
       firstAssistantP90Ms: 9000,
       retriedTurns: 1,
@@ -503,7 +529,8 @@ test("a stored row of the wrong shape breaks no answer: what can't be read is sk
     },
   ]);
 
-  const none = { endedAt: null, totalMs: 0, queries: 0, stages: [], stagesCut: false, computerTurns: [] };
+  const traced = { turns: [], slow: [], waterfall: expect.any(Array) };
+  const none = { endedAt: null, totalMs: 0, queries: 0, stages: [], stagesCut: false, computerTurns: [], ...traced };
   for (const empty of [text, object, noClaims]) expect((await trace(empty.id)).claims).toEqual([]);
   expect((await trace(mixed.id)).claims).toEqual([
     none,
@@ -526,6 +553,7 @@ test("a stored row of the wrong shape breaks no answer: what can't be read is sk
         { warm: false, initMs: null, firstEventMs: 900, ...unsaid },
         { warm: true, initMs: null, firstEventMs: 100, ...unsaid },
       ],
+      ...traced,
     },
   ]);
   expect((await trace(huge.id)).claims).toEqual([
@@ -610,6 +638,15 @@ test("a claim's end and a stage no code here names come through; a claim kept wi
       ],
       stagesCut: false,
       computerTurns: [],
+      turns: [],
+      slow: [],
+      // The stages back to back from the claim's start.
+      waterfall: [
+        { span: "router", startMs: 0, ms: 12 },
+        { span: "room_wait", startMs: 12, ms: 3400 },
+        { span: "claim", startMs: 3412, ms: 5 },
+        { span: "turn_end#1", startMs: 3417, ms: 8 },
+      ],
     },
     {
       endedAt: null,
@@ -618,6 +655,9 @@ test("a claim's end and a stage no code here names come through; a claim kept wi
       stages: [{ stage: "claim", ms: 5, queries: 1 }],
       stagesCut: false,
       computerTurns: [],
+      turns: [],
+      slow: [],
+      waterfall: [{ span: "claim", startMs: 0, ms: 5 }],
     },
   ]);
   expect((await timings(windowOf(9))).stages.map((s) => [s.stage, s.count, s.medianMs])).toEqual([
@@ -674,6 +714,9 @@ test("a run of a confidential thread: its claims and its part in the timings are
       ],
       stagesCut: false,
       computerTurns: [{ warm: true, initMs: null, firstEventMs: 300, ...unsaid }],
+      turns: [],
+      slow: [],
+      waterfall: expect.any(Array),
     },
   ]);
   const found = await timings(windowOf(11));
@@ -882,6 +925,23 @@ test("reply times: from a person's message to the run's first message, per bucke
   expect(await replyTimes(windowOf(26))).toMatchObject({ replies: [], computerStarts: [], waits: [] });
 });
 
+test("reply times: every brain under its own name, none yet under other", async () => {
+  const at = (ms: number) => new Date(day(4) + ms);
+  for (const [i, brain] of ["antigravity", "cursor", "opencode", "grok", null].entries()) {
+    const asked = await message("hi", at(i * 10_000));
+    const made = await run({ createdAt: at(i * 10_000), triggerMessageId: asked, brain });
+    await message("hello", at(i * 10_000 + 1000 * (i + 1)), made.id);
+  }
+  const { replies } = await replyTimes(windowOf(4));
+  expect(replies.filter((r) => r.trigger === "all" && r.brain !== "all").map((r) => [r.brain, r.p50Ms])).toEqual([
+    ["antigravity", 1000],
+    ["cursor", 2000],
+    ["grok", 4000],
+    ["opencode", 3000],
+    ["other", 5000],
+  ]);
+});
+
 test("reply times: the server's notices are no reply, and an agent's message nobody waits on starts no count", async () => {
   const from = day(28);
   const at = (ms: number) => new Date(from + ms);
@@ -1007,4 +1067,242 @@ test("CLI runs: each run stamped with its computer's CLI version, counted by bui
     ]);
   }
   expect((await get(`/cli-runs?${windowOf(30)}`, null)).status).toBe(401);
+});
+
+test("a claim's turn traces as stored: what can't be read is skipped or reads other, never a word it didn't write", async () => {
+  const kept = await run({
+    createdAt: new Date(day(23)),
+    brain: "claude_code",
+    profiles: [
+      claim([{ stage: "model#1", ms: 900, queries: 0 }], {
+        turns: [
+          "text",
+          { at: -1, ms: 5 },
+          {
+            at: 4,
+            ms: 800,
+            brain: "<b>evil</b>",
+            model: "a model; drop table",
+            end: "Ana's code",
+            preTurnMs: "soon",
+            tools: { count: 2, ms: 300, maxMs: 200 },
+            runner: { warm: false, cold: "new_session", initMs: 600, evidence: ["+1ms [DEBUG] [API REQUEST]", 7] },
+            system: { how_to_reply: "0123abcd", "Ana Souza": "0123abcd", block2: "not a hash" },
+          },
+        ],
+        slow: [
+          { stage: "init", ms: 9100, budgetMs: 8000, cause: "new_session", turn: 1 },
+          { stage: "lunch", ms: 1 },
+          { stage: "reply", ms: 12_000, budgetMs: 10_000, cause: "Ana waited" },
+        ],
+      }),
+    ],
+  });
+  const [read] = (await trace(kept.id)).claims;
+  expect(read?.turns).toEqual([
+    {
+      brain: "other",
+      model: null,
+      atMs: 4,
+      ms: 800,
+      end: "other",
+      preTurnMs: null,
+      firstEventMs: null,
+      firstTextMs: null,
+      tools: { count: 2, ms: 300, maxMs: 200 },
+      runner: { ...unsaid, warm: false, cold: "new_session", initMs: 600, firstEventMs: null },
+      evidence: ["+1ms [DEBUG] [API REQUEST]"],
+      system: { how_to_reply: "0123abcd" },
+    },
+  ]);
+  expect(read?.slow).toEqual([
+    { stage: "init", ms: 9100, budgetMs: 8000, cause: "new_session", turn: 1 },
+    { stage: "reply", ms: 12_000, budgetMs: 10_000, cause: "other", turn: null },
+  ]);
+  expect(read?.waterfall).toEqual([
+    { span: "model#1", startMs: 0, ms: 900 },
+    { span: "turn#1", startMs: 4, ms: 800 },
+    { span: "turn#1.init", startMs: 4, ms: 600 },
+    { span: "turn#1.own_tools", startMs: 4, ms: 300 },
+  ]);
+});
+
+test("where the time goes: each run's time by group, per day, kind, brain and model, the slowest first, and a run's waterfall", async () => {
+  const from = day(19);
+  const at = (ms: number) => new Date(from + ms);
+  const computer = [
+    { stage: "room_wait", ms: 1000, queries: 0 },
+    { stage: "claim", ms: 10, queries: 1 },
+    { stage: "context", ms: 200, queries: 4, parts: [{ stage: "build", ms: 150, queries: 2 }] },
+    {
+      stage: "model#1",
+      ms: 9000,
+      queries: 0,
+      parts: [
+        { stage: "pre_turn_sync", ms: 2000, queries: 0 },
+        { stage: "cli_init", ms: 1000, queries: 0 },
+        { stage: "cli_first_byte", ms: 3000, queries: 0 },
+        { stage: "tools", ms: 1000, queries: 0 },
+        { stage: "model_write", ms: 2000, queries: 0 },
+      ],
+    },
+    { stage: "turn_end#1", ms: 300, queries: 2 },
+    { stage: "persist", ms: 50, queries: 3 },
+  ];
+  const ended = at(60_000);
+  const asked = await run({
+    createdAt: at(0),
+    brain: "claude_code",
+    profiles: [
+      claim(computer, { endedAt: ended.toISOString(), total: { ms: 10_560, queries: 10 } }),
+      // Taken up again 5 s later: its place in the waterfall is where its end and its time put it.
+      claim([{ stage: "claim", ms: 100, queries: 1 }], {
+        endedAt: new Date(ended.getTime() + 5000).toISOString(),
+        total: { ms: 100, queries: 1 },
+      }),
+    ],
+  });
+  await t.db.insert(schema.askKinds).values({ messageId: asked.threadRootId, orgId: ada, kind: "chat", p: 0.9 });
+  await t.db.insert(schema.usageRecords).values({
+    orgId: ada,
+    agentId: ada1,
+    runId: asked.id,
+    provider: "claude_code",
+    model: "claude-sonnet-5-5",
+    requestedModel: "sonnet",
+    inputTokens: 1,
+    outputTokens: 1,
+    costNanoUsd: 0,
+  });
+  const routine = await run({
+    createdAt: at(1000),
+    brain: "model",
+    background: true,
+    profiles: [
+      claim([
+        { stage: "context", ms: 100, queries: 0 },
+        { stage: "model#1", ms: 4000, queries: 0 },
+        { stage: "tools#1", ms: 600, queries: 0 },
+        { stage: "model#2", ms: 2000, queries: 0 },
+        { stage: "persist", ms: 40, queries: 0 },
+      ]),
+    ],
+  });
+  // Another agent's message started it; a name no code writes counts at the end.
+  const handed = await run({
+    createdAt: at(2000),
+    agentId: ada2,
+    brain: "codex",
+    profiles: [claim([{ stage: "Ignore this", ms: 70, queries: 0 }])],
+  });
+  // Nothing kept, another day, and another workspace's: none of them in the read of Ada's day.
+  await run({ createdAt: at(3000) });
+  await run({ createdAt: at(DAY), brain: "codex", profiles: [claim(stages(5))] });
+  await run({ createdAt: at(4000), orgId: lia, agentId: lia1, brain: "codex", profiles: [claim(stages(5))] });
+
+  type Measures = {
+    runs: number;
+    total: { p50Ms: number | null };
+    groups: { group: string; runs: number; p50Ms: number | null }[];
+  };
+  const read = await ok<{
+    groups: string[];
+    totals: Measures;
+    days: (Measures & { day: string })[];
+    kinds: (Measures & { kind: string })[];
+    brains: (Measures & { brain: string })[];
+    models: (Measures & { model: string })[];
+    slowest: {
+      runId: string;
+      kind: string;
+      brain: string;
+      model: string | null;
+      totalMs: number;
+      groups: Record<string, number>;
+    }[];
+  }>(await get(`/analytics/stage-breakdown?${windowOf(19)}&orgId=${ada}`));
+  expect(read.groups).toEqual([
+    "waits",
+    "context",
+    "pre_turn_sync",
+    "cli_init",
+    "cli_first_byte",
+    "model_write",
+    "tools",
+    "finish",
+  ]);
+  expect(read.totals.runs).toBe(3);
+  const had = (m: Measures) => Object.fromEntries(m.groups.filter((g) => g.runs > 0).map((g) => [g.group, g.runs]));
+  expect(had(read.totals)).toEqual({
+    waits: 1,
+    context: 2,
+    pre_turn_sync: 1,
+    cli_init: 1,
+    cli_first_byte: 1,
+    model_write: 2,
+    tools: 2,
+    finish: 3,
+  });
+  expect(read.days.map((d) => [d.day, d.runs])).toEqual([["2026-10-19", 3]]);
+  expect(read.kinds.map((k) => [k.kind, k.runs])).toEqual([
+    ["chat", 1],
+    ["agent", 1],
+    ["background", 1],
+  ]);
+  expect(read.brains.map((b) => b.brain)).toEqual(["claude_code", "codex", "model"]);
+  expect(read.models.map((m) => [m.model, m.runs])).toEqual([
+    ["none", 2],
+    ["claude-sonnet-5-5", 1],
+  ]);
+  expect(read.slowest.map((r) => [r.runId, r.kind, r.totalMs])).toEqual([
+    [asked.id, "chat", 10_660],
+    [routine.id, "background", 6740],
+    [handed.id, "agent", 70],
+  ]);
+  expect(read.slowest[0]).toMatchObject({
+    brain: "claude_code",
+    model: "claude-sonnet-5-5",
+    groups: {
+      waits: 1000,
+      context: 310,
+      pre_turn_sync: 2000,
+      cli_init: 1000,
+      cli_first_byte: 3000,
+      model_write: 2000,
+      tools: 1000,
+      finish: 350,
+    },
+  });
+  expect(read.slowest[1]?.groups).toMatchObject({ context: 100, model_write: 6000, tools: 600, finish: 40 });
+
+  // The same run in its trace, as one timeline.
+  const traced = await ok<{ waterfall: { segments: Record<string, unknown>[]; cut: boolean } }>(
+    await get(`/runs/${asked.id}/trace`),
+  );
+  expect(traced.waterfall.cut).toBe(false);
+  expect(traced.waterfall.segments.map((s) => [s.claim, s.stage, s.turn, s.part, s.group, s.startMs, s.ms])).toEqual([
+    [0, "room_wait", null, null, "waits", 0, 1000],
+    [0, "claim", null, null, "context", 1000, 10],
+    [0, "context", null, null, "context", 1010, 200],
+    [0, "model", 1, "pre_turn_sync", "pre_turn_sync", 1210, 2000],
+    [0, "model", 1, "cli_init", "cli_init", 3210, 1000],
+    [0, "model", 1, "cli_first_byte", "cli_first_byte", 4210, 3000],
+    [0, "model", 1, "tools", "tools", 7210, 1000],
+    [0, "model", 1, "model_write", "model_write", 8210, 2000],
+    [0, "turn_end", 1, null, "finish", 10_210, 300],
+    [0, "persist", null, null, "finish", 10_510, 50],
+    [1, "claim", null, null, "context", 15_460, 100],
+  ]);
+
+  // Across workspaces, two days at most; in one, a month.
+  const start = new Date(day(19)).toISOString();
+  const past = (days: number) => new Date(day(19) + days * DAY + 1).toISOString();
+  expect(await refusal(await get(`/analytics/stage-breakdown?from=${start}&to=${past(2)}`))).toEqual([
+    400,
+    "analytics.range",
+  ]);
+  expect((await get(`/analytics/stage-breakdown?from=${start}&to=${past(30)}&orgId=${ada}`)).status).toBe(200);
+  expect((await get(`/analytics/stage-breakdown?${windowOf(19)}`, null)).status).toBe(401);
+  const fleet = await ok<{ totals: Measures }>(await get(`/analytics/stage-breakdown?${windowOf(19)}`));
+  expect(fleet.totals.runs).toBe(4);
 });

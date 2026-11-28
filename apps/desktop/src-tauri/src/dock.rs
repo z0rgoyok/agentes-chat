@@ -1,7 +1,7 @@
-//! The Dock: the app is always in it, like any other app (the bundle is a regular app, never a menu bar only
-//! one, so the icon needs no switch at runtime and can be kept in the Dock). Its badge shows what waits on the
-//! person (the number, or a dot when there is only unread), and it bounces once when something new waits while
-//! the app isn't in front. Windows shows the same on the taskbar button (an overlay dot) and Linux on the
+//! The Dock: the app is in it while one of its windows shows, and leaves it for the menu bar while it runs in the
+//! background (background.rs; the bundle is a regular app, so it can be kept in the Dock). Its badge shows what
+//! waits on the person (the number, or a dot when there is only unread), and it bounces once when something new
+//! waits while the app isn't in front. Windows shows the same on the taskbar button (an overlay dot) and Linux on the
 //! launcher, where the desktop supports it.
 
 use std::sync::Mutex;

@@ -124,6 +124,8 @@ export function subtitleOf(
     return [origin ? say(origin) : "", l.title ?? l.text ?? ""].filter(Boolean).join(" · ");
   }
   if (n.kind === "issue_assigned") return l.title ?? l.text ?? "";
+  // What lending its internet keeps out, said once under the line that says it lends.
+  if (n.kind === "device.internet_shared") return say({ key: "devices.notice.internetSharedLine", values: {} });
   // Its title names the device and whom the agent works for (`latest.title`): only what it is doing goes under it.
   if (isDeviceNotice(n.kind)) return l.text ?? "";
   return written(l) || word || (l.text ?? l.title ?? "");

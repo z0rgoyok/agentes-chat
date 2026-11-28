@@ -14,6 +14,7 @@ import { agentProposalOf, costlyProposalOf, stretchCardOf } from "@agenteschat/c
 import { type ActivityEntry, barEntries, type barWords, markedPieces, markInk } from "@agenteschat/client/lib/activity";
 import { splitChannelRefs } from "@agenteschat/client/lib/channel-refs";
 import type { ChatStyle, ChatTextSize } from "@agenteschat/client/lib/chat-look";
+import type { RelayedAnswer } from "@agenteschat/client/lib/consult-group";
 import { agentsByAnyHandle } from "@agenteschat/client/lib/directory";
 import { loneIdRef, splitIdRefs } from "@agenteschat/client/lib/id-refs";
 import { issueWorkOf } from "@agenteschat/client/lib/issues";
@@ -33,6 +34,7 @@ import {
 import { replyOf } from "@agenteschat/client/lib/reply";
 import { isRoutineCall, routineReplyOf } from "@agenteschat/client/lib/routines";
 import { secretRequestOf } from "@agenteschat/client/lib/secret-requests";
+import type { TableColumnKind } from "@agenteschat/client/lib/table";
 import { usagePauseCardOf } from "@agenteschat/client/lib/usage-pause";
 import { voiceOf } from "@agenteschat/client/lib/voice";
 import { type AgentColorName, gradientOf, mentionTone, mixHex } from "@agenteschat/ui/agent/engine";
@@ -216,6 +218,8 @@ export type ChatRow =
       continued?: boolean;
       /** The message it groups under (what hangs under that one ends the run: `runAround`). */
       above?: Message;
+      /** Another agent's words it passes on (`relayedAnswers`): quoted at its top, their own row folded away. */
+      relay?: RelayedAnswer<Message>;
     };
 
 /** A row's key: an optimistic message keeps it when the server copy (same `clientId`) replaces it. */
@@ -350,7 +354,7 @@ const NOTICE_ICON: Record<string, EventLineView["icon"]> = {
 
 export function eventLineOf(
   m: Pick<Message, "body" | "meta">,
-  names: { author: string; agentByHandle: (handle: string) => string | null },
+  names: Parameters<typeof noticeView>[1],
 ): EventLineView | null {
   const view = noticeView(m, names);
   const kind = noticeOf(m.meta)?.kind ?? "";
@@ -784,9 +788,25 @@ export type Block =
   /** Closed until tapped (the shared `detailsAt`, ADR 0147): `body` is Markdown of its own. */
   | { kind: "details"; summary: Inline[]; body: string };
 
+/**
+ * The room above a message's block by what it follows, the web's `.md--message` rhythm: 12 between blocks, a list's
+ * items 6 apart and 8 under the sentence that opens them, a heading 20 under what it ends and 4 over what it opens.
+ */
+export const TEXT_RHYTHM = { block: 12, item: 6, intoList: 8, heading: 20, underHeading: 4 } as const;
+
+/** `TEXT_RHYTHM` above a block of `kind` coming after one of `prev` (none: the text's first, nothing above it). */
+export function blockGap(prev: Block["kind"] | undefined, kind: Block["kind"]): number {
+  if (prev === undefined) return 0;
+  if (kind === "heading") return TEXT_RHYTHM.heading;
+  if (prev === "heading") return TEXT_RHYTHM.underHeading;
+  if (kind === "bullet") return prev === "bullet" ? TEXT_RHYTHM.item : TEXT_RHYTHM.intoList;
+  return TEXT_RHYTHM.block;
+}
+
 /** Widest a table's column gets at the default text size: a longer cell wraps inside it, at its words. */
 export const TABLE_COL_MAX = 280;
-export const TABLE_COL_MIN = 56;
+/** Narrowest a column gets: a column that only counts the rows ("#") is about this wide. */
+export const TABLE_COL_MIN = 32;
 /** Points per letter of a column's first guess, until its cells have been measured as drawn. */
 const TABLE_GUESS_PER_CHAR = 8.6;
 /** A cell's horizontal padding (both sides), in the guess. */
@@ -815,6 +835,70 @@ export function tableColumnWidths(
     const natural = drawn[col] ?? guess;
     return Math.min(max, Math.max(TABLE_COL_MIN, Math.ceil(natural) + 1));
   });
+}
+
+/** A text column's narrowest, at the default text size, before a table too wide for its box scrolls. */
+export const TABLE_TEXT_MIN = 120;
+/** A link column's widest at the default text size (its site's name cut at its end past it), and its narrowest. */
+export const TABLE_LINK_MAX = 176;
+export const TABLE_LINK_MIN = 112;
+
+/** `extra` points shared among `columns` in proportion to their widths, whole points, the last one taking what's left. */
+function spread(widths: number[], columns: readonly number[], extra: number) {
+  const base = columns.reduce((sum, i) => sum + (widths[i] ?? 0), 0);
+  let left = extra;
+  columns.forEach((i, at) => {
+    const share = at === columns.length - 1 ? left : Math.floor((extra * (widths[i] ?? 0)) / Math.max(1, base));
+    widths[i] = (widths[i] ?? 0) + share;
+    left -= share;
+  });
+}
+
+/**
+ * A table's columns fitted to its box (`frame`): each column starts as wide as it was drawn (`natural`, from
+ * `tableColumnWidths`), a link column at most `TABLE_LINK_MAX`. With room to spare, the text columns take it (every
+ * column but a count when none holds text), so the rows run the box's whole width. Too wide, the text columns give
+ * way first, their words wrapping down to `TABLE_TEXT_MIN`, then the links, cut at their end down to `TABLE_LINK_MIN`;
+ * numbers, counts and short words never wrap. Only a table that still can't fit `scrolls`. The floors grow with the
+ * person's text size, as the columns' widest does. No box yet (0): the drawn widths.
+ */
+export function fitTableColumns(
+  natural: readonly number[],
+  kinds: readonly TableColumnKind[],
+  frame: number,
+  fontScale = 1,
+): { widths: number[]; scrolls: boolean } {
+  const scale = Math.min(2, Math.max(1, fontScale));
+  const widths = natural.map((w, i) => (kinds[i] === "link" ? Math.min(w, Math.round(TABLE_LINK_MAX * scale)) : w));
+  if (frame <= 0) return { widths, scrolls: false };
+  const all = widths.map((_, i) => i);
+  const total = widths.reduce((sum, w) => sum + w, 0);
+  if (total <= frame) {
+    const text = all.filter((i) => kinds[i] === "text");
+    spread(widths, text.length > 0 ? text : all.filter((i) => kinds[i] !== "index"), Math.floor(frame - total));
+    return { widths, scrolls: false };
+  }
+  let over = Math.ceil(total - frame);
+  for (const [kind, least] of [
+    ["text", TABLE_TEXT_MIN],
+    ["link", TABLE_LINK_MIN],
+  ] as const) {
+    const floor = Math.round(least * scale);
+    const columns = all.filter((i) => kinds[i] === kind && (widths[i] ?? 0) > floor);
+    const room = columns.reduce((sum, i) => sum + (widths[i] ?? 0) - floor, 0);
+    if (room <= 0) continue;
+    const take = Math.min(over, room);
+    let taken = 0;
+    columns.forEach((i, at) => {
+      const own = (widths[i] ?? 0) - floor;
+      const cut = at === columns.length - 1 ? Math.min(own, take - taken) : Math.floor((take * own) / room);
+      widths[i] = (widths[i] ?? 0) - cut;
+      taken += cut;
+    });
+    over -= taken;
+    if (over <= 0) return { widths, scrolls: false };
+  }
+  return { widths, scrolls: true };
 }
 
 /**

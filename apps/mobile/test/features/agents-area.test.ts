@@ -64,12 +64,13 @@ describe("an agent's profile", () => {
     expect(screen.indexOf("{forYou.data ? (")).toBeLessThan(screen.indexOf("mobile.intentAgents.did.empty"));
   });
 
-  test("Chat opens a conversation it knows at once, else spins and takes no second tap", () => {
+  test("the message field and Ask for access open a conversation it knows at once, else wait and take no second tap", () => {
     const screen = src("agents/AgentProfileScreen.tsx");
     expect(screen).toContain("if (opening) return;");
     expect(screen).toContain("const known = dms.data?.find(");
     expect(screen).toMatch(/if \(known\) \{\s+router\.push\(chatHref\(known\.channelId\)\);/);
-    expect(screen.match(/loading=\{opening\}/g)).toHaveLength(2);
+    expect(screen.match(/loading=\{opening\}/g)).toHaveLength(1);
+    expect(screen).toContain("busy={opening}");
     expect(screen).toContain(".finally(() => setOpening(false));");
   });
 

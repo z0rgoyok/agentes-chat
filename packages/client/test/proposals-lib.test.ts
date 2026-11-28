@@ -114,7 +114,7 @@ describe("a name and a look on a settings card", () => {
     expect(settingLineText(t, "pt-BR", { field: "effort", from: null, to: "xhigh" }, names)).toEqual({
       field: "rightHand.field.effort",
       from: "agentPage.work.brain.efforts.none",
-      to: "agentPage.work.brain.efforts.high",
+      to: "agentPage.work.brain.efforts.xhigh",
     });
     expect(settingLineText(t, "pt-BR", { field: "effort", from: "auto", to: "low" }, names).from).toBe(
       "agentPage.work.brain.efforts.auto",

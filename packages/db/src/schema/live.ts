@@ -103,6 +103,11 @@ export const liveAssets = pgTable(
     source: text().notNull(),
     /** A picture from the web: its address and the credit an agent gave it (author, license, site). */
     origin: jsonb().$type<{ url: string; credit?: string }>(),
+    /**
+     * A font of the file (ADR 0220 §2), as its own file says: its family and style names, weight, slant and what its
+     * license lets documents do with it (`installable`, `editable`, `preview`, `restricted`). Null for a picture.
+     */
+    font: jsonb().$type<{ family: string; style: string; weight: number; italic: boolean; embedding: string }>(),
     /** `person` | `agent` | `system`. */
     createdByType: text(),
     createdById: text(),

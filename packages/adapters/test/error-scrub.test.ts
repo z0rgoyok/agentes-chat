@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { scrubLogLine, urlOrigin } from "../src/error-scrub";
+import { LOG_LINE_MAX, scrubLogLine, scrubText, urlOrigin } from "../src/error-scrub";
 
 describe("scrubLogLine", () => {
   test("masks emails, addresses and keys", () => {
@@ -62,8 +62,37 @@ describe("scrubLogLine", () => {
     expect(scrubLogLine(once, [["chat.example.com", "server"]])).toBe(once);
   });
 
+  test("a long dotted or hyphenated word is read in time, and an address or a local name by it is still cut", () => {
+    // Each took seconds when every start in the word read it to its end again.
+    const dots = "a.".repeat(200_000);
+    const started = performance.now();
+    expect(scrubLogLine(`open https://chat.example.com/x ${"a-".repeat(100_000)}`)).toBe(
+      "open https://chat.example.com/… [token]",
+    );
+    expect(scrubLogLine(`on studio.local ${dots}`)).toBe(`on [host] ${dots}`.slice(0, LOG_LINE_MAX));
+    expect(scrubLogLine(`${dots}local`)).toBe("[host]");
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   test("urlOrigin", () => {
     expect(urlOrigin("https://example.com/a?b")).toBe("https://example.com");
     expect(urlOrigin("not a url")).toBeNull();
+  });
+});
+
+describe("scrubText", () => {
+  test("a long run of JWT starts and one long word are read in time; a JWT or an email by them is still masked", () => {
+    // Each took seconds when every start in the run read it to its end again.
+    const run = "eyJ-".repeat(50_000);
+    const word = "a.".repeat(100_000);
+    const jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl";
+    const started = performance.now();
+    expect(scrubText(run)).toBe("[token]");
+    expect(scrubText(`${run} ${jwt}`)).toBe("[token] [jwt]");
+    // A JWT the run runs into is masked from the run's first start, as before.
+    expect(scrubText(`${run}${jwt}`)).toBe("[jwt]");
+    expect(scrubText(`${word} ana@example.com`)).toBe(`${word} [email]`);
+    expect(scrubText(`${word}@example.com`)).toBe("[email]");
+    expect(performance.now() - started).toBeLessThan(1000);
   });
 });

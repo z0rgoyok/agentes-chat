@@ -127,7 +127,7 @@ describe("the desktop app's notifications", () => {
     const fromAgent = { actors: [{ type: "agent" as const, id: "ag_lodi" }] };
     expect(
       desktopNotice(t, "o1", n({ kind: "agent_reply", ...fromAgent, source: { dmId: "d1", messageId: "m9" } }))?.path,
-    ).toBe("/org/o1/dm/agent/ag_lodi?m=m9");
+    ).toBe("/org/o1/c/d1?m=m9");
     expect(desktopNotice(t, "o1", n({ source: { channelId: "c1", threadId: "t1", messageId: "m9" } }))?.path).toBe(
       "/org/o1/threads/t1?m=m9",
     );

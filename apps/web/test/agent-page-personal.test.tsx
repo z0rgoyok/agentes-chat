@@ -27,12 +27,12 @@ const tabNames = () =>
   within(bar())
     .getAllByRole("tab")
     .map((t) => t.textContent?.replace(/\d+$/, ""));
-const heading = (name: string) => screen().queryByRole("heading", { name });
+const heading = (name: string | RegExp) => screen().queryByRole("heading", { name });
 
 describe("a personal workspace's agent page", () => {
   test("its bar: what one person uses and Advanced, no More menu", async () => {
     await go();
-    expect(tabNames()).toEqual(["Visão geral", "Instruções", "Memória", "Pode usar", "Ajustes", "Avançado"]);
+    expect(tabNames()).toEqual(["Visão geral", "Instruções", "Skills", "Memória", "Pode usar", "Ajustes", "Avançado"]);
     expect(within(bar()).queryByRole("button", { name: /^Mais/ })).toBeNull();
   });
 
@@ -57,14 +57,33 @@ describe("a personal workspace's agent page", () => {
     await settle(4);
     expect(router.state.location.search).toMatchObject({ tab: "usage" });
     // The tab opened from there joins the bar while open.
-    expect(tabNames()).toEqual(["Visão geral", "Instruções", "Memória", "Pode usar", "Ajustes", "Avançado", "Uso"]);
+    expect(tabNames()).toEqual([
+      "Visão geral",
+      "Instruções",
+      "Skills",
+      "Memória",
+      "Pode usar",
+      "Ajustes",
+      "Avançado",
+      "Uso",
+    ]);
   });
 
-  test("Can use shows its apps; the built-in areas and skills are in Advanced", async () => {
+  test("Can use shows its apps; the built-in areas are in Advanced", async () => {
     await go("?tab=access");
     expect(heading("Os seus conectores")).not.toBeNull();
     expect(heading("Nativos do agentes")).toBeNull();
-    expect(heading("Skills")).toBeNull();
+    expect(heading(/sabe fazer/)).toBeNull();
+  });
+
+  test("what it knows is its Skills tab, as in a team's page, not under Advanced", async () => {
+    await go("?tab=skills");
+    expect(within(bar()).getByRole("tab", { name: "Skills" }).getAttribute("aria-selected")).toBe("true");
+    expect(heading(/sabe fazer/)).not.toBeNull();
+    cleanup();
+    await go("?tab=advanced");
+    expect(heading("Nativos do agentes")).not.toBeNull();
+    expect(heading(/sabe fazer/)).toBeNull();
   });
 
   test("a team's page is as before: Advanced is Configurações there", async () => {

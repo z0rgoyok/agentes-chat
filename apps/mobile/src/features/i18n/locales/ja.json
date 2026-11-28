@@ -4,21 +4,17 @@
     "send": "送信"
   },
   "categories": {
-    "title": "カテゴリ",
-    "where": "#{{channel}}を表示する場所",
-    "whereHelp": "全員に反映されます。チャンネルの参加者は変わりません。",
-    "create": "作成",
-    "endOfList": "全員のリストの最後に移動します。",
-    "channelCount_other": "{{count}}個のチャンネル",
-    "none": "カテゴリはまだありません。",
-    "manageHint": "並び順、名前、削除",
-    "deleteTitle": "{{name}}を削除しますか？",
-    "order": "リスト内の位置",
     "up": "上へ移動",
     "down": "下へ移動",
-    "position": "{{count}}中{{at}}番目。",
-    "channelPosition": "{{count}}中{{at}}番目。",
-    "itsChannels": "チャンネル"
+    "channelPosition": "{{count}}中{{at}}番目。"
+  },
+  "sections": {
+    "title": "セクション",
+    "where": "あなたの一覧での #{{channel}} の場所",
+    "whereHelp": "変わるのはあなたの一覧だけです。セクションは各自で整理します。",
+    "none": "セクションなし",
+    "order": "セクション内の位置",
+    "tooLong": "40文字以内にしてください。"
   },
   "blocks": {
     "send": "送信",
@@ -68,6 +64,15 @@
     "raw": "生データ",
     "more": "全{{count}}行を表示",
     "gone": "このコードはもう開いていません。"
+  },
+  "table": {
+    "label_other": "表 · {{count}}行",
+    "title": "表",
+    "rows_other": "{{count}}行",
+    "copy": "表をコピー",
+    "copied": "表をコピーしました",
+    "more": "全{{count}}行を表示",
+    "gone": "この表はもう開いていません。"
   },
   "time": {
     "today": "今日",
@@ -181,11 +186,11 @@
       "text": "停止しているか、ネットワークの外にある可能性があります。復旧するとチャットが自動で表示されます。",
       "kept": "アプリにすでにあった内容を表示しています。"
     },
-    "pinned": "ピン留め",
+    "favorites": "お気に入り",
     "recent": "最近",
     "view": {
       "title": "会話の表示",
-      "sectors": "部署",
+      "sections": "セクション",
       "dms": "ダイレクトメッセージ",
       "channels": "チャンネル"
     },
@@ -822,6 +827,7 @@
   },
   "agent": {
     "talk": "チャット",
+    "responsible": "担当者",
     "task": "タスク",
     "owner": "オーナー: {{name}}",
     "cantTalk": "このエージェントはあなたと一緒に作業しません。",
@@ -883,6 +889,7 @@
       "admin_ask_channel_agent": "{{names}} が {{agent}} を #{{label}} に追加するよう求めています",
       "admin_ask_create_agents": "{{names}} がエージェントを作成できるよう求めています",
       "admin_ask_webhook": "{{names}} がルーティン用の {{service}} Webhook の設定を求めています",
+      "admin_ask_voice": "{{names}} がボイスメッセージをオンにするよう求めています",
       "routine_paused_other": "ルーティンが一時停止しました",
       "routine_stalled_other": "ルーティンがコンピューターを待っています",
       "agent_unreached_other": "ルーティンがエージェントを呼び出せませんでした",
@@ -920,6 +927,8 @@
       "plan_model_dropped_other": "{{model}}が{{plan}}から外れました。{{names}}は当面{{runs}}を使います",
       "computer_disk_full_other": "コンピューターのディスクがほぼいっぱいです",
       "computer_no_chrome_other": "コンピューターにGoogle Chromeが必要です。google.com/chromeからダウンロードしてください",
+      "computer_down_other": "コンピューターが応答していません",
+      "computer_back_other": "コンピューターが復旧しました",
       "app_created_other": "AIアプリがあなたのために作成しました"
     },
     "markRead": "既読にする",
@@ -1422,6 +1431,15 @@
     "next": {
       "pr": "ブランチはプッシュ済み、プルリクエストはまだ",
       "mergeLocal": "{{base}}にマージする準備ができています"
+    },
+    "terminal": {
+      "keys": "ターミナルのキー",
+      "keyboard": "キーボード",
+      "pasteHint": "コピーした内容をターミナルに貼り付け",
+      "key": {
+        "CtrlC": "Control-C、中断",
+        "CtrlD": "Control-D、入力の終わり"
+      }
     }
   },
   "taskManager": {
@@ -1990,6 +2008,7 @@
       "tool_request": "{{names}} があなたの {{device}} で{{tool}}をオンにするよう頼んでいます",
       "cli_request": "{{names}} が {{device}} に {{tool}} をインストールするよう求めています",
       "folder_request": "{{names}} があなたの {{device}} でフォルダ {{path}} を求めています",
+      "internet_shared": "エージェントは今後 {{device}} のインターネットを通じてウェブサイトを開きます",
       "allowOnce": "今回のみ許可",
       "always": "{{name}}を常に許可",
       "no": "許可しない",
@@ -2681,11 +2700,12 @@
     },
     "formatAuto": "{{name}}が最適なものを選びます",
     "newWidget": {
-      "alerts": "アラートあり",
       "realData": "実データ",
       "editAsk": "依頼を変更",
       "asked": "「{{ask}}」",
-      "autoFormat": "自動の形式"
+      "testReal": "実データでテスト",
+      "addHome": "ホームに追加",
+      "addTo": "{{where}}に追加"
     },
     "agentPick": {
       "search": "エージェントを検索",
@@ -3111,7 +3131,8 @@
       "workspaceSub": "ワークスペースのAPIキー",
       "key": "APIキー",
       "keyDefault": "ワークスペースの既定",
-      "api": "API"
+      "api": "API",
+      "asksMove": "{{agent}} はこのアカウントを使わなくなります。"
     },
     "missionAi": "AI",
     "missionLocked": "作業する人は開始前に選びます。モデルはいつでも変更できます。"

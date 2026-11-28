@@ -87,6 +87,13 @@
 .dm-side__status .ac-presence[data-presence="working"] {
   --presence: var(--agent);
 }
+/* The sections under the head (`Sections`): laid out but unseen until each has its data, then shown together. */
+.dm-side__secs {
+  display: contents;
+}
+.dm-side__secs[data-pending] > * {
+  visibility: hidden;
+}
 .dm-side__sec {
   padding: 12px 16px 2px;
   border-top: 1px solid var(--line);

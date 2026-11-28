@@ -1,0 +1,745 @@
+{
+ "fonts": [
+  {
+   "id": "source-sans-3",
+   "source": "adobe",
+   "repo": "adobe-fonts/source-sans",
+   "commit": "87b37a2daaed80fcb8e8ccb0085c4d72ddade12e",
+   "reserved": true,
+   "static": {
+    "200": "TTF/SourceSans3-ExtraLight.ttf",
+    "300": "TTF/SourceSans3-Light.ttf",
+    "400": "TTF/SourceSans3-Regular.ttf",
+    "500": "TTF/SourceSans3-Medium.ttf",
+    "600": "TTF/SourceSans3-Semibold.ttf",
+    "700": "TTF/SourceSans3-Bold.ttf",
+    "900": "TTF/SourceSans3-Black.ttf",
+    "400i": "TTF/SourceSans3-It.ttf",
+    "700i": "TTF/SourceSans3-BoldIt.ttf"
+   },
+   "web": [
+    {
+     "file": "WOFF2/VF/SourceSans3VF-Upright.ttf.woff2",
+     "weight": "200 900",
+     "style": "normal"
+    },
+    {
+     "file": "WOFF2/VF/SourceSans3VF-Italic.ttf.woff2",
+     "weight": "200 900",
+     "style": "italic"
+    }
+   ],
+   "license": "LICENSE.md",
+   "sha256": {
+    "LICENSE.md": "56af9b9c6715597e458284a474dc118a50a4150e9d547c70f7b4a33c3e6a9328",
+    "TTF/SourceSans3-Black.ttf": "ac3a8e48c6076b8dd800bdd6e69f20321ee039fa81aeca57ca630afd6d514d07",
+    "TTF/SourceSans3-Bold.ttf": "9214b9d95e4231c609802815c2646c98174e2102d0d37f88978a7f8e71006e6a",
+    "TTF/SourceSans3-BoldIt.ttf": "7978291fc1bf314db887e0366853b33c5cf2e964c7b95cfb9ce403a6ec46a842",
+    "TTF/SourceSans3-ExtraLight.ttf": "a6f1bda5ddc9125b7e6b882528e898d42e0573dd17c4b9ebd1449990246aa44e",
+    "TTF/SourceSans3-It.ttf": "192afd78f0f54a3c69eaf02d43f4d9a821e9d6110e41d3d25d61a7385cd580e4",
+    "TTF/SourceSans3-Light.ttf": "fcc10d83a12844e7dc699b1bb85f65f0d1bb0179de216feb5d28f806500f7cef",
+    "TTF/SourceSans3-Medium.ttf": "a7af35c1cab5dd0b29d742f86f2edfdf83fa7ec213643e765c5c51a2dc24edbc",
+    "TTF/SourceSans3-Regular.ttf": "4644c81b86ec9caaa76b634889968ed3c4f4f52f054855933acc7c2b21e53b0f",
+    "TTF/SourceSans3-Semibold.ttf": "a3f4f8dcf343a8f24dc61951de93f3ba1558b15cd250ba24af8a40e957081b7d",
+    "WOFF2/VF/SourceSans3VF-Italic.ttf.woff2": "b4959abc0569392f87c6c6ac612f90e3fe0104d283724189b7d8b6f61af347d3",
+    "WOFF2/VF/SourceSans3VF-Upright.ttf.woff2": "5f16566f7a40d39b339ad26be151fa5a1ab1f0c2574c7a2e619765584a1acbd8"
+   }
+  },
+  {
+   "id": "onest",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/onest",
+   "files": [
+    "Onest[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "071195d8806e226faeee60259c28ca67b458227af5195a73f5cfcab06e3003bc",
+    "Onest[wght].ttf": "966c5c29b4755da84b6854d5c21dd4eaa2420225d0e9874de602de176d4a9f31"
+   }
+  },
+  {
+   "id": "inter",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/inter",
+   "files": [
+    "Inter-Italic[opsz,wght].ttf",
+    "Inter[opsz,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Inter-Italic[opsz,wght].ttf": "acd98e64795781b2058f07b18475e0ecee2a0fe2b42a49e2f9e37d0d6bf66ce6",
+    "Inter[opsz,wght].ttf": "29160a80ff49ddcab2c97711247e08b1fab27a484a329ce8b813d820dc559031",
+    "OFL.txt": "5b9321a4298cfeb6b34354164a1c3afc3db114569984c502b9b35d988fd58c57"
+   }
+  },
+  {
+   "id": "geist",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/geist",
+   "files": [
+    "Geist-Italic[wght].ttf",
+    "Geist[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Geist-Italic[wght].ttf": "a464348abe41a6392f18d04c0ac2ad3c26619357ff5fdd76aff3059116f45e62",
+    "Geist[wght].ttf": "73894e0448cae90a92b6c2f8732b7bb9acb7b94c418bff559dad4a18e1de9659",
+    "OFL.txt": "1781d2806a07d91c4edf4740b88449fab7d0eadad53f7c351b94cd4d4eb8c00f"
+   }
+  },
+  {
+   "id": "manrope",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/manrope",
+   "files": [
+    "Manrope[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Manrope[wght].ttf": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6",
+    "OFL.txt": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b"
+   }
+  },
+  {
+   "id": "dm-sans",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/dmsans",
+   "files": [
+    "DMSans-Italic[opsz,wght].ttf",
+    "DMSans[opsz,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "DMSans-Italic[opsz,wght].ttf": "22259c0cc8237221b80f44c76ba8d36e6bce3cda72779f5b2773643d499720ae",
+    "DMSans[opsz,wght].ttf": "8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d",
+    "OFL.txt": "9af36190332437f5ecd09974de43c1f7c77a310a996cdd8ceb25628b458840e1"
+   }
+  },
+  {
+   "id": "plus-jakarta-sans",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/plusjakartasans",
+   "files": [
+    "PlusJakartaSans-Italic[wght].ttf",
+    "PlusJakartaSans[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "995c7199cab65954f545996326755daee7b63cc6b42b06c13da1f9502ab08a99",
+    "PlusJakartaSans-Italic[wght].ttf": "9529eb888668b6a3c6dd75b6341a2fc5263fb6c9e788822e6117c29dd9e8b115",
+    "PlusJakartaSans[wght].ttf": "89b3fb38aa0d275d7a731d0d817a4f1622b316b4d7fbdedcf02ee9099ff68bc8"
+   }
+  },
+  {
+   "id": "outfit",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/outfit",
+   "files": [
+    "Outfit[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "c676351bf8576b9aba743cd5eaa8c0e7ee0d51f805d720447b4df4ddb6a2e416",
+    "Outfit[wght].ttf": "fc7287273e66929776e2ba54f144fe699080bec29f61bf649d70d871468aeade"
+   }
+  },
+  {
+   "id": "figtree",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/figtree",
+   "files": [
+    "Figtree-Italic[wght].ttf",
+    "Figtree[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Figtree-Italic[wght].ttf": "94dec1f18b9275d69e8b4a91b6514bdc18199048347e1c36e1285b11b0b87653",
+    "Figtree[wght].ttf": "26ad3db9b31ff7dde67a91ff515d022d2f495cd506590699cf264f0bfe6fb714",
+    "OFL.txt": "140d37233e7f3ce7313798befa9600893bcceaf41a55fa0fa5ad52f7f657a268"
+   }
+  },
+  {
+   "id": "work-sans",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/worksans",
+   "files": [
+    "WorkSans-Italic[wght].ttf",
+    "WorkSans[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "749aca05078664ce682dce1b1b10096ac397cb088c1a6df4e1bb56f0092a9272",
+    "WorkSans-Italic[wght].ttf": "0a9f935ea490d3477fc97e40248f356c29bce11a1973939056c4316b122341ec",
+    "WorkSans[wght].ttf": "f50f61f2ba738e239442d40bf1069adb195c224b6a5a73a581fc2f3ed62a9f63"
+   }
+  },
+  {
+   "id": "roboto",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/roboto",
+   "files": [
+    "Roboto-Italic[wdth,wght].ttf",
+    "Roboto[wdth,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "061402327a96aadb0bfb694a960ed289ecd38d383e396243831ab81feb109c41",
+    "Roboto-Italic[wdth,wght].ttf": "9725a847af6b460ffca162ae66d20dad48b01876137947180b42d7dcd7887182",
+    "Roboto[wdth,wght].ttf": "d7598e12c5dbef095ff8272cfc55da0250bd07fbdecbac8a530b9b277872a134"
+   }
+  },
+  {
+   "id": "open-sans",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/opensans",
+   "files": [
+    "OpenSans-Italic[wdth,wght].ttf",
+    "OpenSans[wdth,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "fbbbcfef55318de350562559b671360de6d597112ecc5c73881b05092db89602",
+    "OpenSans-Italic[wdth,wght].ttf": "fe269381e992f32e135801740998544d6235061e37c93ec067ad2be3edd5b17b",
+    "OpenSans[wdth,wght].ttf": "36643644f318a812aab2d2ed3bb98f8cf0872527f835fe9398d95fe6b9adb878"
+   }
+  },
+  {
+   "id": "montserrat",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/montserrat",
+   "files": [
+    "Montserrat-Italic[wght].ttf",
+    "Montserrat[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Montserrat-Italic[wght].ttf": "51607f316bc020e59f03cbf51543eecffbea501c0b31d73e5b82927c5cca442c",
+    "Montserrat[wght].ttf": "0f7b311b2f3279e4eef9b2f968bcdbab6e28f4daeb1f049f4f278a902bcd82f7",
+    "OFL.txt": "8b7141c03fa4f8d44e6345d5d4931709290f0f67875e452e95ac1fd3a027802e"
+   }
+  },
+  {
+   "id": "poppins",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/poppins",
+   "files": [
+    "Poppins-Black.ttf",
+    "Poppins-BlackItalic.ttf",
+    "Poppins-Bold.ttf",
+    "Poppins-BoldItalic.ttf",
+    "Poppins-ExtraBold.ttf",
+    "Poppins-ExtraBoldItalic.ttf",
+    "Poppins-ExtraLight.ttf",
+    "Poppins-ExtraLightItalic.ttf",
+    "Poppins-Italic.ttf",
+    "Poppins-Light.ttf",
+    "Poppins-LightItalic.ttf",
+    "Poppins-Medium.ttf",
+    "Poppins-MediumItalic.ttf",
+    "Poppins-Regular.ttf",
+    "Poppins-SemiBold.ttf",
+    "Poppins-SemiBoldItalic.ttf",
+    "Poppins-Thin.ttf",
+    "Poppins-ThinItalic.ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "6be04893d770899a015649c7aa3b582f871b272f8747a92b78b17c3e5c8b2573",
+    "Poppins-Black.ttf": "d82aaaf98a9283f9a8edd24e51173337d8eaf09e25cd3d98831f8ec8461748a1",
+    "Poppins-BlackItalic.ttf": "f4852ca89c29f69d800e14f097ed4d1f0a0cc454e9f77d73bfd6db1f71c287a0",
+    "Poppins-Bold.ttf": "983676516167748b74de6f4771fb384c664fd913acb8b471122ecacf5da5ea6c",
+    "Poppins-BoldItalic.ttf": "3572ac8116a0ac7317d342262b29937bcbaf94d8f03f90df6fe666fa7e2fb43a",
+    "Poppins-ExtraBold.ttf": "f2ab17c1a63a0ecc12c2461848fc8a469395e3cd2d641803e889c643d9f958e1",
+    "Poppins-ExtraBoldItalic.ttf": "dc00a2eb988373e9f4e99bf8ff76c6315ee21d36b341cbbff024e4c18cc7ac03",
+    "Poppins-ExtraLight.ttf": "55c03314cc754e26f741f97890e5e9cbe3b3278fe3abcecfecafd60111b2643d",
+    "Poppins-ExtraLightItalic.ttf": "7171a17e4cda8f6ded78a7a931f9b7f38987057f3ffd1fe07a71528ad0f01e49",
+    "Poppins-Italic.ttf": "4fa76ae75b40f926420514044722cb97f32186cafd3b38263cc34dad7174d46d",
+    "Poppins-Light.ttf": "650ba57fa99d12ec40c31ccfb680be656be4497fbe14164617d67e32ffe9cd46",
+    "Poppins-LightItalic.ttf": "b8f9c5be59723fadf8e5447fa1245c2c53b60a3464a24d6ece9ee3c283d8917b",
+    "Poppins-Medium.ttf": "90373e7d838d32468438fc3e152dca0bdb12edcab99ea639f158790b1ba1fd05",
+    "Poppins-MediumItalic.ttf": "765addf6c7c11ec3c54325cacd68cabd05df8e4b6455302d812a9b9bafd1c614",
+    "Poppins-Regular.ttf": "7e65201e9b79159e2300267cc885e16c8dcef2424cdfa09a29bfb0980a94a7ba",
+    "Poppins-SemiBold.ttf": "d3bf1bdaf0550e83da9ac0b1d1d9fe6db086835a83aa28578e609a394b9a0286",
+    "Poppins-SemiBoldItalic.ttf": "16bb118aa232c9a13fa238027d24d7854dd1a1d9cbaf99b17fec4388d56b432c",
+    "Poppins-Thin.ttf": "6d8e5d9d29140cc93e321745fa1243c67889e6bc3639ec34db64f3da7a496352",
+    "Poppins-ThinItalic.ttf": "46df80ac970f5e84829b868d283878b4d97e289c7b1245541d8bbf66b5d670a8"
+   }
+  },
+  {
+   "id": "nunito",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/nunito",
+   "files": [
+    "Nunito-Italic[wght].ttf",
+    "Nunito[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Nunito-Italic[wght].ttf": "b520cc871868b0acfca1beda875df7f4a44ebce914f8a89f83977fc9c09529c8",
+    "Nunito[wght].ttf": "bb55a5ca5c2042335b3991af27c4d0705d0ef41cac6164ac737fd8f2a1e85207",
+    "OFL.txt": "580df76c95a1ec5ab878ceb25bb3d85c6a076804e9c970c8c6972aea775fdf65"
+   }
+  },
+  {
+   "id": "rubik",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/rubik",
+   "files": [
+    "Rubik-Italic[wght].ttf",
+    "Rubik[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "472cbe7c25441df63e9c7864b43eb3c0f4b3df950c66a76224e6cfe1eae843fb",
+    "Rubik-Italic[wght].ttf": "08c6c4018a5ada8b517407b46897e46cf6ebb106853fbd3e89addb51d3b59c62",
+    "Rubik[wght].ttf": "1b3a7437ba2af80e465e773ed60c5036d1ba6ace492d89046dbcf18fb31e4e88"
+   }
+  },
+  {
+   "id": "space-grotesk",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/spacegrotesk",
+   "files": [
+    "SpaceGrotesk[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72",
+    "SpaceGrotesk[wght].ttf": "acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72"
+   }
+  },
+  {
+   "id": "sora",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/sora",
+   "files": [
+    "Sora[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "ba0b9729c9428ba79a0459ab8ec575791b51509dbec213e383d0316d37fec299",
+    "Sora[wght].ttf": "84ff7096ae3ec6c8be47d906d1a0ba4de7f2ce78c615275c77301964a316e16c"
+   }
+  },
+  {
+   "id": "instrument-sans",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/instrumentsans",
+   "files": [
+    "InstrumentSans-Italic[wdth,wght].ttf",
+    "InstrumentSans[wdth,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "InstrumentSans-Italic[wdth,wght].ttf": "a74203cc5066a3b2f8de1a7b0887ef897773c2319dc86c911f8e85350cde0d07",
+    "InstrumentSans[wdth,wght].ttf": "b24f1812584816958afcf22e22d08e44318c5e51651e25d2438efdde389b33b1",
+    "OFL.txt": "9e27a72ed30eb49a08678f6a5d6ed98ec7ba5368f541637ee0683ec9134ef966"
+   }
+  },
+  {
+   "id": "fraunces",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/fraunces",
+   "files": [
+    "Fraunces-Italic[SOFT,WONK,opsz,wght].ttf",
+    "Fraunces[SOFT,WONK,opsz,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Fraunces-Italic[SOFT,WONK,opsz,wght].ttf": "b24448c43702fac4ee856781d461a0dfba8d8e594b6e8e190234b75fed2c0e01",
+    "Fraunces[SOFT,WONK,opsz,wght].ttf": "177ff6c0f14e5550a3c624247cd1189611d4eb65d000b14944c63d967958abbb",
+    "OFL.txt": "bdf4c22802eaf804f998195871c6b8938aac2ac14b2d78a8bd66a6f1eced833b"
+   }
+  },
+  {
+   "id": "source-serif-4",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/sourceserif4",
+   "files": [
+    "SourceSerif4-Italic[opsz,wght].ttf",
+    "SourceSerif4[opsz,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "5f94c3fd3a23131a417ab5a0c8452de57e70c3cfb9f604d88241f7065ebf9fd9",
+    "SourceSerif4-Italic[opsz,wght].ttf": "15fbc7e4679489a501998c3669272637a6646388ef7e4bd77eebb5bf967a1f42",
+    "SourceSerif4[opsz,wght].ttf": "97b2d4da6e3cb494b5a1e66ae176914d852ccabef49e0c02c0df25f3e39aca0b"
+   }
+  },
+  {
+   "id": "newsreader",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/newsreader",
+   "files": [
+    "Newsreader-Italic[opsz,wght].ttf",
+    "Newsreader[opsz,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Newsreader-Italic[opsz,wght].ttf": "796668611f80b64d5adf182fde3b6f29ed83b4e7cbec7b96937e84ac01364792",
+    "Newsreader[opsz,wght].ttf": "8a08d13f8a6c0d51be379a60af84f945f65369a67e509ee3c3bdcc421254d7c1",
+    "OFL.txt": "fdfad38143ec470553cae82a1e45320bdd1b9ec70415d37bd0171051d8a4ded8"
+   }
+  },
+  {
+   "id": "eb-garamond",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/ebgaramond",
+   "files": [
+    "EBGaramond-Italic[wght].ttf",
+    "EBGaramond[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "EBGaramond-Italic[wght].ttf": "bba2c4499c93c9612b90b9825d32b07da52fce2fe57562a1eb6b833553f93c4e",
+    "EBGaramond[wght].ttf": "ef9512f92f6d579e5dc75af59a5a4b1b8b47d2eda89e00b954d44520e5369027",
+    "OFL.txt": "0985066662eb755ed3683ae5482a81a9195b49ce3f7e165cc2388b3dbece7dd7"
+   }
+  },
+  {
+   "id": "literata",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/literata",
+   "files": [
+    "Literata-Italic[opsz,wght].ttf",
+    "Literata[opsz,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Literata-Italic[opsz,wght].ttf": "d483dfaeba9cbf4ce71d32a52ee65df82f7e35b15fff8d1011cdb242d1fcd465",
+    "Literata[opsz,wght].ttf": "b41138c9373112f32abb589cc22e8674b06ed4048b0c513be922bdd26f274440",
+    "OFL.txt": "8742963604cd89dc81437811a850018fc03b2bfad686d7422c8235967c87614e"
+   }
+  },
+  {
+   "id": "crimson-pro",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/crimsonpro",
+   "files": [
+    "CrimsonPro-Italic[wght].ttf",
+    "CrimsonPro[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "CrimsonPro-Italic[wght].ttf": "a74dc11dcf2fbb1452064e42395a40a907ca630b49cff86012223785e52b2559",
+    "CrimsonPro[wght].ttf": "16aa9fb7300a93637da51fac03a071b2ff08b6bbf65f99c794c25f040b58af6a",
+    "OFL.txt": "1820869bd5baa1c2d88fa87c89eea532cf9442d841008acab720654b7f82823d"
+   }
+  },
+  {
+   "id": "instrument-serif",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/instrumentserif",
+   "files": [
+    "InstrumentSerif-Italic.ttf",
+    "InstrumentSerif-Regular.ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "InstrumentSerif-Italic.ttf": "08939b8bdf534afec24ae0ef5e03f948940cd9a8fe08e7fecbad040e62327385",
+    "InstrumentSerif-Regular.ttf": "498efd461f6ddfcb7a111bf9a565709d2085d48201d501ead960d93e84ffbb88",
+    "OFL.txt": "129ed7618959716959f2941fdd5b49e0ad6e6c1d78726761786a00253d865521"
+   }
+  },
+  {
+   "id": "roboto-slab",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "apache/robotoslab",
+   "files": [
+    "RobotoSlab[wght].ttf"
+   ],
+   "license": "LICENSE.txt",
+   "sha256": {
+    "LICENSE.txt": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
+    "RobotoSlab[wght].ttf": "786ae192477447d33c6672c3055fba7cbfe45184c9a79e77a14f15716ca05b16"
+   }
+  },
+  {
+   "id": "funnel-display",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/funneldisplay",
+   "files": [
+    "FunnelDisplay[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "FunnelDisplay[wght].ttf": "b4151c9c4b7b07eb74320096b4ff4156cca8821f5adfab34af9fd9a2d6c1179d",
+    "OFL.txt": "a32303f6ea3542927121212a9e4f3fe3548741e6d448d9dc6f29e97cf50102e6"
+   }
+  },
+  {
+   "id": "bricolage-grotesque",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/bricolagegrotesque",
+   "files": [
+    "BricolageGrotesque[opsz,wdth,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "BricolageGrotesque[opsz,wdth,wght].ttf": "413e7357809ddd12fd80a96a8a396de0e401638d4acd3cb3e37532f0472ac682",
+    "OFL.txt": "4b5a7d8f37f5602621c8a8d7358a6a2e71317e6c231c661e15aef0275d3e07ba"
+   }
+  },
+  {
+   "id": "syne",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/syne",
+   "files": [
+    "Syne[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "cc43cdce6f91c57989af8459341c276655e34224e954fa69c2ad700831a742d8",
+    "Syne[wght].ttf": "ce5ac77142a65cab2248a1a2ebb740b1d4d9c20b52488877d3ff664d1356104a"
+   }
+  },
+  {
+   "id": "anton",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/anton",
+   "files": [
+    "Anton-Regular.ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Anton-Regular.ttf": "a4ba3a92350ebb031da0cb47630ac49eb265082ca1bc0450442f4a83ab947cab",
+    "OFL.txt": "ee67e6ee22790b7929f1a3769ca2801d565c64b5a9096942c1adf5596de9c9e4"
+   }
+  },
+  {
+   "id": "bebas-neue",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/bebasneue",
+   "files": [
+    "BebasNeue-Regular.ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "BebasNeue-Regular.ttf": "08e4623805102d819f58601e46e345648846075e363b2ceb23313c2d1c83ec73",
+    "OFL.txt": "72082f6cb4d04be2ecf7cc7d9e1e7d73787f0af8a5a278a47cade70c16b78341"
+   }
+  },
+  {
+   "id": "archivo-black",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/archivoblack",
+   "files": [
+    "ArchivoBlack-Regular.ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "ArchivoBlack-Regular.ttf": "dd9a89a019b4849f66ab75455fe7bdf931311042cbb0f0f97acc061539703180",
+    "OFL.txt": "3173acd82f8c6159b5b1037b539fcbd4edff68e65c2ea8b9412b5a5ca97b08ff"
+   }
+  },
+  {
+   "id": "unbounded",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/unbounded",
+   "files": [
+    "Unbounded[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "31e5d4e83955e7103c34570dd49b0570ef490800bd65b42923c0dd02445263b3",
+    "Unbounded[wght].ttf": "323b511be380c8d474ef030686b71aedde501f8d9cd46da558b7c40454372c3f"
+   }
+  },
+  {
+   "id": "oswald",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/oswald",
+   "files": [
+    "Oswald[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "0fd731a904b729a4e02eaf5e8ebd06783edd9abe400e8882760160230675b652",
+    "Oswald[wght].ttf": "5b38c246e255a12f5712d640d56bcced0472466fc68983d2d0410ec0457c2817"
+   }
+  },
+  {
+   "id": "doto",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/doto",
+   "files": [
+    "Doto[ROND,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Doto[ROND,wght].ttf": "6f4fe7d37853b91df3698daa84cde2dbe1c9695d88c986e6510134910337d426",
+    "OFL.txt": "26a7b58bdba6cda8a78ca6e8b3791d8013b8abc6d5e6519f84193893aee02020"
+   }
+  },
+  {
+   "id": "jetbrains-mono",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/jetbrainsmono",
+   "files": [
+    "JetBrainsMono-Italic[wght].ttf",
+    "JetBrainsMono[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "JetBrainsMono-Italic[wght].ttf": "85ae2a5cd3f56baf1ce1c21a851322c58e3d8fbe8e8ad4a4d090a820dd7fe558",
+    "JetBrainsMono[wght].ttf": "48715a42ec242c21e9f02692891e147d022299a52e48d5e413e1a942193ffeda",
+    "OFL.txt": "b2fe5e8987594e9ffd1d2ca52a2f5d73eb8335243893c5d6254b5ad69269591d"
+   }
+  },
+  {
+   "id": "martian-mono",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/martianmono",
+   "files": [
+    "MartianMono[wdth,wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "MartianMono[wdth,wght].ttf": "c3467843ec1c2574b05fbcfd7147c7bfbcf63ddca8fc2bcb9d117f1bfb1b22e7",
+    "OFL.txt": "ddafd2c3f37ef1d83ef284ca63e159befd3820850c5e9eded14ca52eee92c256"
+   }
+  },
+  {
+   "id": "geist-mono",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/geistmono",
+   "files": [
+    "GeistMono-Italic[wght].ttf",
+    "GeistMono[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "GeistMono-Italic[wght].ttf": "70c15be47d55f637197f7e38570dbca16b35777ea647dc3598f61bf3961d2b0d",
+    "GeistMono[wght].ttf": "d00e590b8eb3a59acc329b2d044fd143ae935090b7da33199ebee27cc7de8196",
+    "OFL.txt": "1781d2806a07d91c4edf4740b88449fab7d0eadad53f7c351b94cd4d4eb8c00f"
+   }
+  },
+  {
+   "id": "fira-code",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/firacode",
+   "files": [
+    "FiraCode[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "FiraCode[wght].ttf": "9335b082b3c7850d98a64b584f3417f65355f3471278bb5eeb8c6c0e8657aeeb",
+    "OFL.txt": "926041dac670e6922505e35ac1661a4e8d20f1ffeabbbcb5edb5544370702369"
+   }
+  },
+  {
+   "id": "space-mono",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/spacemono",
+   "files": [
+    "SpaceMono-Bold.ttf",
+    "SpaceMono-BoldItalic.ttf",
+    "SpaceMono-Italic.ttf",
+    "SpaceMono-Regular.ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "8e4ee42b2553e1e01504e61cb0d46d148cd8c9e5eacaa3622a7df2d4f2955b9f",
+    "SpaceMono-Bold.ttf": "405e73d41afb7e5906efce206a326af5c956f38e255f35421c260e861e599c59",
+    "SpaceMono-BoldItalic.ttf": "cdcc95eddee312879a9728494e595f591cb159f3f276d79bc58673dec7e57138",
+    "SpaceMono-Italic.ttf": "eca264c8690a91fe837d19a6badf2d88961610c4c8aafcb196526192a9f258c5",
+    "SpaceMono-Regular.ttf": "95837e182baeeada83368f7748db28357f0a1b75c6b84ff7065b5edf933c8e18"
+   }
+  },
+  {
+   "id": "dm-mono",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/dmmono",
+   "files": [
+    "DMMono-Italic.ttf",
+    "DMMono-Light.ttf",
+    "DMMono-LightItalic.ttf",
+    "DMMono-Medium.ttf",
+    "DMMono-MediumItalic.ttf",
+    "DMMono-Regular.ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "DMMono-Italic.ttf": "32b5bad9cbce64eac6d05c8abbeb619317f7e4cb354e1c33db761adbfaae1b16",
+    "DMMono-Light.ttf": "c7b3645dc8d28237317b4d017bc47b9ff09a7660758122dacb694a5a82552c24",
+    "DMMono-LightItalic.ttf": "90216192555d56cd40857250bbd6d0e8130ddbd015992d584225d7f390849544",
+    "DMMono-Medium.ttf": "fd327daf461db87b44a87def475d251bf03b997f7c07d9680592d75dbbfaad0b",
+    "DMMono-MediumItalic.ttf": "a3b2211bb9cf5c4fc1a0b487553e673a737c2270c59b86bf1e0b48c77e587aa2",
+    "DMMono-Regular.ttf": "55b4c98f123daebb3ed27947ba47b2af00554fc6284d639a540bcef5e6258ad2",
+    "OFL.txt": "2bada5ea45c3c63b7f1ea1f88ce9672c9e4f0c42b2c3b7378949084fe55a3066"
+   }
+  },
+  {
+   "id": "roboto-mono",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/robotomono",
+   "files": [
+    "RobotoMono-Italic[wght].ttf",
+    "RobotoMono[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "OFL.txt": "50ab8dd54680d3473f649c9db86fece88434d097c7834475c1c72d2f8c429215",
+    "RobotoMono-Italic[wght].ttf": "49ac343bb7b070071e53f0a8a501d68d140ed98ebd0a43b6b8fb96cf22f09ff7",
+    "RobotoMono[wght].ttf": "66a80e79d17e4c7cabd162e2916578a4cc08fd19eef6e2a643305eae9c567b2b"
+   }
+  },
+  {
+   "id": "caveat",
+   "source": "google",
+   "commit": "83c62e30d87daa70216dab6b984d00d20d96d585",
+   "dir": "ofl/caveat",
+   "files": [
+    "Caveat[wght].ttf"
+   ],
+   "license": "OFL.txt",
+   "sha256": {
+    "Caveat[wght].ttf": "0bdb6b660482d31531b3945849fba5916b3ef8695da7024a9e6b9ee3c4157988",
+    "OFL.txt": "1f9d81d094273d82f3898a1ee8b598a717d050ecbf5ff7bede105b704880157b"
+   }
+  }
+ ]
+}

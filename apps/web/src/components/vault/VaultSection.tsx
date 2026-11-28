@@ -4,6 +4,7 @@ import { relativeTime } from "@agenteschat/client/lib/format";
 import { modeKey } from "@agenteschat/client/lib/workspace-mode";
 import {
   Button,
+  Checkbox,
   EmptyState,
   Icon,
   List,
@@ -15,15 +16,17 @@ import {
   Select,
   Toolbar,
 } from "@agenteschat/ui";
-import { type ReactNode, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { ErrorState, LoadingList } from "@/components/Loading";
 import { useOrg } from "@/components/org-context";
+import { SelectionBar } from "@/components/SelectionBar";
 import { useDirectory } from "@/hooks/useDirectory";
 import { useRightHandLook } from "@/hooks/useRightHandLook";
 import { useToast } from "@/lib/toast";
 import { hostOf, matchesQuery, sortItems } from "./lib";
 import { AgentFaces } from "./VaultAccess";
+import { VaultBulkAccessDialog, VaultBulkDeleteDialog } from "./VaultBulk";
 import { VaultConnections } from "./VaultConnections";
 import { VaultEnvDialog } from "./VaultEnvDialog";
 import { VaultImportDialog } from "./VaultImportDialog";
@@ -34,7 +37,8 @@ import "./vault.css";
 /*
  * Settings › Vault (ADR 0144): the logins, keys and contact details agents use without seeing a password or a key.
  * One view at a time (Team, Personal, Connections, each with its count), a search and a kind filter over the items, a
- * row per item (what it is, who may use it, when it was last used) that opens its details.
+ * row per item (what it is, who may use it, when it was last used) that opens its details. "Select" turns the rows into
+ * checkboxes, to change who has access to many items at once or delete them (a passwords import, say).
  */
 
 type Tab = "team" | "personal" | "connections";
@@ -85,11 +89,13 @@ function useAgentsShort() {
   };
 }
 
-function VaultRow({ item, onOpen }: { item: VaultItem; onOpen: () => void }) {
+/** `picked`: the list is choosing items, and this one is chosen or not; the row is its checkbox's label then. */
+function VaultRow({ item, onOpen, picked }: { item: VaultItem; onOpen: () => void; picked?: PickState }) {
   const { t, i18n } = useTranslation();
   const agents = useAgentsShort()(item);
-  return (
-    <button type="button" className="ac-list__row vlt-row" onClick={onOpen}>
+  const id = useId();
+  const body = (
+    <>
       <VaultTile kind={item.kind} />
       <span className="vlt-row__text">
         <span className="vlt-row__name">
@@ -113,9 +119,26 @@ function VaultRow({ item, onOpen }: { item: VaultItem; onOpen: () => void }) {
           ? t("vault.row.used", { when: relativeTime(t, i18n.language, item.lastUsedAt) })
           : t("vault.row.never")}
       </span>
+    </>
+  );
+  if (picked)
+    return (
+      <label className="ac-list__row vlt-row" htmlFor={id}>
+        {body}
+        <Checkbox id={id} className="vlt-row__pick" checked={picked.on} onCheckedChange={picked.toggle} />
+      </label>
+    );
+  return (
+    <button type="button" className="ac-list__row vlt-row" onClick={onOpen}>
+      {body}
       <Icon name="chevronRight" size={16} className="vlt-row__chev" />
     </button>
   );
+}
+
+interface PickState {
+  on: boolean;
+  toggle: () => void;
 }
 
 export function VaultSection() {
@@ -129,6 +152,9 @@ export function VaultSection() {
   const [kind, setKind] = useState<KindFilter>("all");
   const [openId, setOpenId] = useState<string | null>(null);
   const [dialog, setDialog] = useState<null | "new" | "import" | "env">(null);
+  // Choosing items to change or delete at once: null while the rows open their details.
+  const [picked, setPicked] = useState<ReadonlySet<string> | null>(null);
+  const [bulk, setBulk] = useState<null | "access" | "delete">(null);
   const data = vault.data;
   const items = data?.items ?? [];
   const team = items.filter((i) => i.scope === "team");
@@ -150,8 +176,19 @@ export function VaultSection() {
   const open = (which: "new" | "import" | "env") => () => setDialog(which);
   const addsInList =
     !!data && current !== "connections" && inTab.length === 0 && (current === "personal" || canManageTeam);
+  // Only who edits this view's items chooses them: their own, or the team's with the permission.
+  const choosable = current === "personal" || (current === "team" && canManageTeam);
+  const chosen = picked ? shown.filter((i) => picked.has(i.id)) : [];
+  const toggle = (id: string) =>
+    setPicked((was) => {
+      const next = new Set(was);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   const pickTab = (next: Tab) => {
     setTab(next);
+    setPicked(null);
     // Each view starts unfiltered: a search or a kind from the other one would hide what this one holds.
     setQuery("");
     setKind("all");
@@ -162,7 +199,12 @@ export function VaultSection() {
       return (
         <List className="vlt-list" aria-label={scope === "team" ? teamTab : t("vault.tab.personal")}>
           {shown.map((item) => (
-            <VaultRow key={item.id} item={item} onOpen={() => setOpenId(item.id)} />
+            <VaultRow
+              key={item.id}
+              item={item}
+              onOpen={() => setOpenId(item.id)}
+              {...(picked ? { picked: { on: picked.has(item.id), toggle: () => toggle(item.id) } } : {})}
+            />
           ))}
         </List>
       );
@@ -276,26 +318,81 @@ export function VaultSection() {
                     />
                   }
                   actions={
-                    (kinds > 1 || kind !== "all") && (
-                      <Select<KindFilter>
-                        size="sm"
-                        className="vlt-kind"
-                        value={kind}
-                        onValueChange={setKind}
-                        aria-label={t("vault.list.kind")}
-                        align="end"
-                        options={[
-                          { value: "all", label: t("vault.list.kindAll") },
-                          { value: "login", label: t("vault.kindPlural.loginTitle") },
-                          { value: "key", label: t("vault.kindPlural.keyTitle") },
-                          { value: "contact", label: t("vault.kindPlural.contactTitle") },
-                        ]}
-                      />
-                    )
+                    <>
+                      {choosable && shown.length > 0 && (
+                        <Button
+                          size="sm"
+                          icon={picked ? "close" : "checks"}
+                          onClick={() => setPicked(picked ? null : new Set())}
+                        >
+                          {picked ? t("vault.bulk.clear") : t("vault.bulk.select")}
+                        </Button>
+                      )}
+                      {(kinds > 1 || kind !== "all") && (
+                        <Select<KindFilter>
+                          size="sm"
+                          className="vlt-kind"
+                          value={kind}
+                          onValueChange={setKind}
+                          aria-label={t("vault.list.kind")}
+                          align="end"
+                          options={[
+                            { value: "all", label: t("vault.list.kindAll") },
+                            { value: "login", label: t("vault.kindPlural.loginTitle") },
+                            { value: "key", label: t("vault.kindPlural.keyTitle") },
+                            { value: "contact", label: t("vault.kindPlural.contactTitle") },
+                          ]}
+                        />
+                      )}
+                    </>
                   }
                 />
               )}
               {list()}
+              {picked && (
+                <SelectionBar label={t("vault.bulk.selection")}>
+                  <span className="drive-selbar__count">{t("vault.bulk.selected", { count: chosen.length })}</span>
+                  {chosen.length < shown.length && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      icon="checks"
+                      onClick={() => setPicked(new Set(shown.map((i) => i.id)))}
+                    >
+                      <span className="drive-selbar__label">{t("vault.bulk.selectAll", { count: shown.length })}</span>
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon="audiencePeople"
+                    disabled={chosen.length === 0}
+                    onClick={() => setBulk("access")}
+                  >
+                    <span className="drive-selbar__label">{t("vault.bulk.access")}</span>
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    icon="trash"
+                    className="drive-selbar__danger"
+                    disabled={chosen.length === 0}
+                    onClick={() => setBulk("delete")}
+                  >
+                    <span className="drive-selbar__label">{t("vault.bulk.delete")}</span>
+                  </Button>
+                  <span className="drive-selbar__sep" aria-hidden="true" />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    iconOnly
+                    icon="close"
+                    aria-label={t("vault.bulk.clear")}
+                    title={t("vault.bulk.clear")}
+                    onClick={() => setPicked(null)}
+                  />
+                </SelectionBar>
+              )}
             </>
           )}
           {openId && <VaultItemDialog key={openId} itemId={openId} overview={data} onClose={() => setOpenId(null)} />}
@@ -311,6 +408,27 @@ export function VaultSection() {
             toast.show(t("vault.new.saved"));
             setDialog(null);
             setTab(item.scope);
+          }}
+        />
+      )}
+      {bulk === "access" && chosen.length > 0 && (
+        <VaultBulkAccessDialog
+          scope={scope}
+          items={chosen}
+          onClose={() => setBulk(null)}
+          onDone={() => {
+            setBulk(null);
+            setPicked(null);
+          }}
+        />
+      )}
+      {bulk === "delete" && chosen.length > 0 && (
+        <VaultBulkDeleteDialog
+          items={chosen}
+          onClose={() => setBulk(null)}
+          onDone={() => {
+            setBulk(null);
+            setPicked(null);
           }}
         />
       )}

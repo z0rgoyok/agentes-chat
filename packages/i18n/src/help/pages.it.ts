@@ -441,6 +441,44 @@ export const helpIt: Partial<Record<HelpSlug, HelpDocument>> = {
         ],
       },
       {
+        id: "tool-levels",
+        heading: "Ogni strumento di un'app collegata",
+        blocks: [
+          "Ogni strumento di un'app collegata tramite il suo indirizzo ha un proprio livello, che scegli in **Impostazioni\u00a0›\u00a0Connettori**, tra gli strumenti di quella connessione. Nella pagina dell'agente, **Strumenti e accesso** mostra quali app e strumenti può usare.",
+          {
+            list: [
+              "**Solo lettura**: legge e non cambia niente. Non chiede mai.",
+              "**Fa modifiche**: crea e modifica senza chiedere. Un agente su **Chiedere sempre** chiede comunque.",
+              "**Chiede la tua approvazione**: chiede nella conversazione prima di ogni uso.",
+              "**Disattivato**: gli agenti non lo ricevono.",
+            ],
+          },
+          "**Non chiedere mai**, nella pagina dell'agente, viene prima di tutto questo: un agente a quel livello non chiede niente, neanche per uno strumento su **Chiede la tua approvazione**. Se un livello cambia mentre ci sono richieste in attesa, quelle che non chiederebbero più vengono annullate, e l'agente le rifà senza scheda.",
+        ],
+      },
+      {
+        id: "sensitive",
+        heading: "Strumenti sensibili",
+        blocks: [
+          "Uno strumento che il server dell'app segna come uno che elimina, invia o paga può stare solo su **Chiede la tua approvazione** o **Disattivato**.",
+        ],
+      },
+      {
+        id: "order",
+        heading: "In che ordine vengono eseguite le azioni approvate",
+        blocks: [
+          "In uno stesso turno, l'agente fa le sue azioni nell'ordine in cui le ha chieste, qualunque sia l'ordine in cui le approvi. Un messaggio inviato mentre l'agente aspetta avvia un nuovo turno, e le sue azioni vengono eseguite dopo le richieste che l'agente sapeva già in attesa. Le richieste di conversazioni diverse non si aspettano mai a vicenda.",
+          "Una richiesta che aspetta una persona da più di 30 minuti non trattiene niente. Un'azione approvata che aspetta dice che cosa aspetta, con **Approva** e **Rifiuta** per quella richiesta e **Esegui questa ora** per andare avanti senza.",
+        ],
+      },
+      {
+        id: "many",
+        heading: "Più di una alla volta",
+        blocks: [
+          "Dove le richieste aspettano te, sul web e sul telefono, **Approva tutte** e **Rifiuta tutte** decidono insieme tutte le richieste di un agente.",
+        ],
+      },
+      {
         id: "who",
         heading: "Chi approva",
         blocks: [
@@ -845,7 +883,7 @@ export const helpIt: Partial<Record<HelpSlug, HelpDocument>> = {
         id: "data",
         heading: "Cosa invia",
         blocks: [
-          "Una volta al giorno il server invia ad agentes.chat statistiche d'uso anonime: conteggi come persone, agenti, dimensioni delle macchine, token di IA usati e quanti dati inviano e ricevono i browser degli agenti. Mai messaggi, file, nomi o siti. `docker compose run --rm agentes telemetry` mostra esattamente cosa invierebbe. Il proprietario le spegne in **Impostazioni\u00a0›\u00a0Generali**, oppure con `TELEMETRY=off` in `.env`.",
+          "Una volta al giorno il server invia ad agentes.chat statistiche d'uso anonime: conteggi come persone, agenti, dimensioni delle macchine, token di IA usati, quanti dati inviano e ricevono i browser degli agenti e quanto velocemente si aprono e rispondono le app. Mai messaggi, file, nomi o siti. `docker compose run --rm agentes telemetry` mostra esattamente cosa invierebbe. Il proprietario le spegne in **Impostazioni\u00a0›\u00a0Generali**, oppure con `TELEMETRY=off` in `.env`.",
           "I report degli errori non vanno da nessuna parte, a meno che tu non imposti `SENTRY_DSN` su un server compatibile con Sentry scelto da te. Un report contiene l'errore e dove è successo, mai messaggi, email, indirizzi IP, cookie o token.",
         ],
       },
@@ -854,6 +892,57 @@ export const helpIt: Partial<Record<HelpSlug, HelpDocument>> = {
         heading: "La guida completa",
         blocks: [
           "Tutte le impostazioni, un proxy tuo come nginx, l'uso senza Docker, una guida per gli agenti di IA che lo installano da soli e cosa fare quando qualcosa non va sono in `SELF_HOSTING.md`, nel repository di agentes.chat.",
+        ],
+      },
+    ],
+  },
+  "integration-apps": {
+    title: "App di integrazione",
+    summary:
+      "Collega un bot di assistenza, un modulo o un monitor che pubblica nei tuoi canali come se stesso, mai come una persona.",
+    sections: [
+      {
+        id: "what",
+        heading: "Come funziona",
+        blocks: [
+          "Un'app di integrazione ha il proprio token. Pubblica nei canali che le assegni, con il proprio nome e l'etichetta **App**, e può passare il nome della persona esterna. Gli agenti le rispondono come a una persona: quando li menziona o quando il router li sceglie.",
+          "Porta dentro così le conversazioni esterne, mai con il token personale di qualcuno: quei messaggi apparirebbero come di quella persona.",
+        ],
+      },
+      {
+        id: "connect",
+        heading: "Collegare un bot di assistenza",
+        blocks: [
+          {
+            list: [
+              "In **Impostazioni › Connettori › Integrazioni**, fai clic su **Collega un'app**, dalle un nome e scegli i suoi canali.",
+              "Se vuoi, aggiungi un indirizzo di webhook: ogni risposta di un agente nei suoi canali viene inviata lì, firmata con [Standard Webhooks](https://www.standardwebhooks.com).",
+              "Copia il token e il segreto del webhook. Vengono mostrati una sola volta.",
+              "Pubblica il primo messaggio di ogni conversazione esterna senza `thread_id`, e il resto con il suo `id` come `thread_id`. Rimanda le risposte di quel thread alla persona.",
+            ],
+          },
+        ],
+      },
+      {
+        id: "api",
+        heading: "L'API",
+        blocks: [
+          "Invia il token come `Authorization: Bearer agi_…`.",
+          {
+            list: [
+              "`GET /api/v1/channels`: i canali dell'app.",
+              "`POST /api/v1/messages`: `channel_id`, `text` e, se vuoi, `thread_id`, `sender` e `idempotency_key`.",
+              "`GET /api/v1/messages?after=<id>`: ciò che è stato scritto da allora, con `in_reply_to` su ogni risposta di un agente.",
+            ],
+          },
+          "Le stesse chiamate sono strumenti MCP su `/mcp`. Il riferimento completo è `/api/openapi.json`.",
+        ],
+      },
+      {
+        id: "safety",
+        heading: "Cosa un'app non può fare",
+        blocks: [
+          "Un'app non è mai un membro né una persona. Gli agenti rispondono a ciò che pubblica, ma non ne traggono regole, memoria, modifiche alle istruzioni, routine, approvazioni o permessi. Revocare il suo token la ferma subito. Quando risponde a un'app, un agente legge da solo solo quella conversazione e il web: tutto il resto del tuo workspace aspetta l'approvazione di una persona.",
         ],
       },
     ],

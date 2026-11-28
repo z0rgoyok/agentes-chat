@@ -5,7 +5,7 @@
  * (`seal.ts`) and never come back to a person: no answer carries one, and changing one means typing a new one (§2).
  */
 import { isReservedSecretName, MAX_SECRET_BYTES, SECRET_NAME, vaultOrigin } from "@agenteschat/adapters";
-import { and, count, type Database, type Executor, eq, isNull, schema } from "@agenteschat/db";
+import { and, count, type Database, type Executor, eq, inArray, isNull, schema } from "@agenteschat/db";
 import { recordAudit } from "../audit";
 import { UUID } from "../authority";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors";
@@ -26,6 +26,7 @@ import {
   VAULT_ITEM_KINDS,
   VAULT_LIMITS,
   VAULT_MAX_ITEMS,
+  type VaultAccess,
   type VaultContactFields,
   type VaultDeps,
   type VaultItem,
@@ -593,4 +594,107 @@ export async function deleteVaultItem(deps: VaultDeps, userId: string, orgId: st
     await auditItem(tx, orgId, userId, "vault.item_deleted", item);
   });
   await publishVaultChanged(deps.pubsub, orgId);
+}
+
+/**
+ * The items of `ids` this person edits and deletes, as `managedItem` checks one. Any other id (not theirs to change,
+ * not seen, gone) is only counted: a selection made a moment ago may hold an item someone else deleted since.
+ */
+async function managedItems(db: Executor, orgId: string, ids: readonly string[], viewer: VaultViewer) {
+  const wanted = [...new Set(ids)].filter((id) => UUID.test(id));
+  const rows: ItemRow[] = [];
+  for (let i = 0; i < wanted.length; i += 500) {
+    const page = wanted.slice(i, i + 500);
+    rows.push(
+      ...(await db
+        .select()
+        .from(vaultItems)
+        .where(and(eq(vaultItems.orgId, orgId), inArray(vaultItems.id, page)))),
+    );
+  }
+  return { items: rows.filter((item) => viewerManages(item.ownerUserId, viewer)), asked: new Set(ids).size };
+}
+
+/** The first ids of a bulk change, for its one audit line. */
+const AUDIT_IDS = 50;
+
+/**
+ * "Change access" for many items at once: each gets `access`, checked for its own scope as one item's is (a personal
+ * item takes only the agents). An external item stops following its connection, as one changed alone does. Items this
+ * person doesn't manage are left and counted in `kept`.
+ */
+export async function setVaultItemsAccess(
+  deps: VaultDeps,
+  userId: string,
+  orgId: string,
+  ids: readonly string[],
+  access: VaultAccess,
+): Promise<{ changed: number; kept: number }> {
+  const { db } = deps;
+  const viewer = await vaultViewer(db, userId, orgId);
+  const { items, asked } = await managedItems(db, orgId, ids, viewer);
+  const byScope = { personal: [] as ItemRow[], team: [] as ItemRow[] };
+  for (const item of items) byScope[item.ownerUserId ? "personal" : "team"].push(item);
+  const columns = {
+    personal: byScope.personal.length > 0 ? await cleanAccess(db, orgId, "personal", access) : null,
+    team: byScope.team.length > 0 ? await cleanAccess(db, orgId, "team", access) : null,
+  };
+  if (items.length === 0) return { changed: 0, kept: asked };
+  const now = vaultNow(deps);
+  await db.transaction(async (tx) => {
+    for (const scope of ["personal", "team"] as const) {
+      const set = columns[scope];
+      const scoped = byScope[scope].map((item) => item.id);
+      for (let i = 0; i < scoped.length; i += 500)
+        await tx
+          .update(vaultItems)
+          .set({ ...set, accessFromConnection: false, updatedAt: now })
+          .where(and(eq(vaultItems.orgId, orgId), inArray(vaultItems.id, scoped.slice(i, i + 500))));
+    }
+    const uses = items.map((item) => ({ orgId, itemId: item.id, action: "edit", userId, createdAt: now }));
+    for (let i = 0; i < uses.length; i += 500) await tx.insert(schema.vaultUses).values(uses.slice(i, i + 500));
+    await recordAudit(tx, {
+      orgId,
+      actor: { type: "person", id: userId },
+      action: "vault.items_changed",
+      target: { type: "vault", id: null },
+      details: { fields: ["access"], count: items.length, ids: items.slice(0, AUDIT_IDS).map((item) => item.id) },
+    });
+  });
+  await publishVaultChanged(deps.pubsub, orgId);
+  return { changed: items.length, kept: asked - items.length };
+}
+
+/**
+ * "Delete" for many items at once, as `deleteVaultItem` deletes one: built-in items, and external ones gone from their
+ * source. An external item still in its source, and any item this person doesn't manage, is left and counted in
+ * `kept`.
+ */
+export async function deleteVaultItems(
+  deps: VaultDeps,
+  userId: string,
+  orgId: string,
+  ids: readonly string[],
+): Promise<{ deleted: number; kept: number }> {
+  const { db } = deps;
+  const viewer = await vaultViewer(db, userId, orgId);
+  const { items: managed, asked } = await managedItems(db, orgId, ids, viewer);
+  const items = managed.filter((item) => !item.connectionId || item.missing);
+  if (items.length === 0) return { deleted: 0, kept: asked };
+  const gone = items.map((item) => item.id);
+  await db.transaction(async (tx) => {
+    for (let i = 0; i < gone.length; i += 500)
+      await tx
+        .delete(vaultItems)
+        .where(and(eq(vaultItems.orgId, orgId), inArray(vaultItems.id, gone.slice(i, i + 500))));
+    await recordAudit(tx, {
+      orgId,
+      actor: { type: "person", id: userId },
+      action: "vault.items_deleted",
+      target: { type: "vault", id: null },
+      details: { count: items.length, ids: gone.slice(0, AUDIT_IDS) },
+    });
+  });
+  await publishVaultChanged(deps.pubsub, orgId);
+  return { deleted: items.length, kept: asked - items.length };
 }

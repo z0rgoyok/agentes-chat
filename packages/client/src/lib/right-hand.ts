@@ -8,6 +8,7 @@ import type {
   Credential,
   DirectMessage,
   Me,
+  Memory,
   Message,
   Model,
 } from "../api/types";
@@ -17,6 +18,35 @@ import { answerAfter } from "./team-plan";
 
 /** The workspace's right hand (ADR 0137): every surface that treats it apart asks here. */
 export const isRightHand = (agent: Pick<Agent, "builtin"> | null | undefined) => agent?.builtin === "right_hand";
+
+/** One group of the right hand's memory list: what is the viewer's alone, or what everyone in one channel sees. */
+export interface MemoryAudienceGroup {
+  key: string;
+  /** Null: "Only you". */
+  channel: string | null;
+  items: Memory[];
+}
+
+/**
+ * The right hand's memory as its Memory tab groups it: "Only you" first (a preference of theirs, what came from their
+ * DM), then one group per channel it learned in, in the order the list had them. An older server sends no `onlyYou`:
+ * by channel only.
+ */
+export function memoryAudienceGroups(list: Memory[]): MemoryAudienceGroup[] {
+  const mine: Memory[] = [];
+  const byChannel = new Map<string, MemoryAudienceGroup>();
+  for (const m of list) {
+    if (m.onlyYou) {
+      mine.push(m);
+      continue;
+    }
+    const key = m.channelId ?? "";
+    const group = byChannel.get(key) ?? { key, channel: m.origin?.channel ?? null, items: [] };
+    group.items.push(m);
+    byChannel.set(key, group);
+  }
+  return [...(mine.length ? [{ key: "you", channel: null, items: mine }] : []), ...byChannel.values()];
+}
 
 /** Whether a channel's member pickers offer the agent: never the right hand, in no channel (an @mention reaches it). */
 export const joinsChannels = (agent: Pick<Agent, "builtin">) => !isRightHand(agent);

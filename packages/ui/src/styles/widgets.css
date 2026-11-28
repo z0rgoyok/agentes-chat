@@ -225,15 +225,18 @@ html:not([data-pointer]) button.wg__title:focus-visible {
  * corners (the cut one included), its dither running out at the bottom edge.
  */
 .wg__bleed {
+  --bleed-clip: inset(0 round 0 0 var(--radius-section) 4px);
   margin-top: -6px;
-  overflow: hidden;
-  border-radius: 0 0 var(--radius-section) 4px;
   transition:
     opacity 0.25s,
     filter 0.25s;
 }
 .wg__bleed .wk-spark {
   margin: 0;
+}
+/* The line and its dither are clipped by the card's corners; the tip over them is not. */
+.wg__bleed :is(.ac-dline__area, svg) {
+  clip-path: var(--bleed-clip);
 }
 .wg[data-state="updating"] .wg__bleed {
   opacity: 0.45;
@@ -432,6 +435,55 @@ html:not([data-pointer]) .wg__resolve:focus-visible {
   inset: 0;
   overflow: visible;
 }
+/*
+ * A chart's tip and crosshair, the chat's charts' and the widgets' alike (`ChartTip`): above its point, under it near
+ * the top; by either side it keeps inside the chart instead of centering over the point.
+ */
+.chart-tip {
+  --tip-x: -50%;
+  position: absolute;
+  z-index: 2;
+  padding: 6px 9px;
+  border-radius: 9px;
+  background: var(--ink);
+  color: var(--surface-raised);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  pointer-events: none;
+  transform: translate(var(--tip-x), calc(-100% - 8px));
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.chart-tip[data-on="true"] {
+  opacity: 1;
+}
+.chart-tip[data-below="true"] {
+  transform: translate(var(--tip-x), 24px);
+}
+.chart-tip[data-side="start"] {
+  --tip-x: -12px;
+}
+.chart-tip[data-side="end"] {
+  --tip-x: calc(-100% + 12px);
+}
+.chart-line__cursor {
+  stroke: var(--line-strong);
+  stroke-dasharray: 2 3;
+}
+/* A chart that answers the pointer and the arrow keys: its crosshair and tip are its focus mark. */
+.ac-dline[tabindex],
+.wk-bars[tabindex] {
+  outline: none;
+  touch-action: pan-y;
+}
+.ac-dline__on {
+  stroke: var(--wg-bg, var(--surface-raised));
+  stroke-width: 2px;
+  paint-order: stroke;
+}
 .wk-spark {
   margin-top: 8px;
 }
@@ -463,6 +515,7 @@ html:not([data-pointer]) .wg__resolve:focus-visible {
   color: var(--muted);
 }
 .wk-bars {
+  position: relative;
   display: flex;
   align-items: flex-end;
   gap: 10px;
@@ -484,6 +537,7 @@ html:not([data-pointer]) .wg__resolve:focus-visible {
   justify-content: flex-end;
   min-width: 0;
   height: 100%;
+  transition: opacity 0.12s;
 }
 /* Only the number, whole: never cut, even when it is wider than its bar. */
 .wk-bar__v {
@@ -492,6 +546,9 @@ html:not([data-pointer]) .wg__resolve:focus-visible {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+.wk-bar[data-dim] {
+  opacity: 0.55;
 }
 .wk-bar[data-alert] .wk-bar__v {
   color: var(--warn);
@@ -838,8 +895,10 @@ html:not([data-pointer]) :is(.wg__size, .wg__grip):focus-visible {
   .wg__size:active {
     transform: none;
   }
+  .wk-bar,
   .wk-bar__b,
-  .wk-goal__fill {
+  .wk-goal__fill,
+  .chart-tip {
     transition: none;
   }
 }
