@@ -149,6 +149,7 @@ function BlockFrame({
       state: sharedRef.current?.state,
       who: sharedRef.current?.who,
       fontFace: face,
+      fitHeight: true,
       disclosures,
     };
     return blockPage(html, host);

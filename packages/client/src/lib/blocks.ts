@@ -24,6 +24,8 @@ export interface BlockHost {
   disclosures?: Record<string, boolean>;
   /** The app's font stack when it isn't our own (the phone's system font). */
   font?: string;
+  /** The web iframe follows the measured height of the page. */
+  fitHeight?: boolean;
 }
 
 /**
@@ -34,9 +36,12 @@ export const BLOCK_VIEWPORT = '<meta name="viewport" content="width=device-width
 
 /** The whole document of a block: the policy first, then the kit, then what the agent wrote. */
 export function blockPage(html: string, host: BlockHost): string {
-  const { fontFace, font, ...boot } = host;
+  const { fontFace, font, fitHeight, ...boot } = host;
   const json = JSON.stringify(boot).replace(/</g, "\\u003c");
-  const style = `${fontFace ?? ""}${BLOCK_KIT_CSS}${font ? `:root{--font:${font}}` : ""}`;
+  // A classic scrollbar changes the width being measured while the iframe grows or shrinks. Keep that width
+  // stable and leave scrolling available for pages taller than the host's height limit.
+  const scrollbar = fitHeight ? ":root{scrollbar-width:none}:root::-webkit-scrollbar{display:none}" : "";
+  const style = `${fontFace ?? ""}${BLOCK_KIT_CSS}${font ? `:root{--font:${font}}` : ""}${scrollbar}`;
   return isolatedPage(
     html,
     `${BLOCK_VIEWPORT}<style>${style}</style><script>${blockBoot(json)}</script><script>${BLOCK_KIT_JS}</script>`,
