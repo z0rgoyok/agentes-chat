@@ -642,7 +642,9 @@ unsafe fn follow_layout(button: *mut objc2::runtime::AnyObject) {
 
     unsafe extern "C-unwind" fn layout(this: *mut AnyObject, _: Sel) {
         let Some(this) = (unsafe { this.as_ref() }) else { return };
-        let Some(superclass) = this.class().superclass() else { return };
+        let Some(superclass) = following_class(this.class()).and_then(AnyClass::superclass) else {
+            return;
+        };
         let _: () = unsafe { msg_send![super(this, superclass), layout] };
         if let Some(origin) = placed_at(this) {
             let _: () = unsafe { msg_send![this, setFrameOrigin: origin] };
@@ -651,16 +653,18 @@ unsafe fn follow_layout(button: *mut objc2::runtime::AnyObject) {
 
     unsafe extern "C-unwind" fn set_origin(this: *mut AnyObject, _: Sel, origin: CGPoint, ignore: Bool) {
         let Some(this) = (unsafe { this.as_ref() }) else { return };
-        let Some(superclass) = this.class().superclass() else { return };
+        let Some(superclass) = following_class(this.class()).and_then(AnyClass::superclass) else {
+            return;
+        };
         let origin = placed_at(this).filter(|_| !unsafe { full_screen(this) }).unwrap_or(origin);
         let _: () = unsafe { msg_send![super(this, superclass), setFrameOrigin: origin, ignoreRentry: ignore] };
     }
 
     let class = unsafe { &*button }.class();
-    let class_name = class.name().to_string_lossy();
-    if class_name.starts_with(FOLLOWING) {
+    if following_class(class).is_some() {
         return;
     }
+    let class_name = class.name().to_string_lossy();
     let Ok(name) = CString::new(format!("{FOLLOWING}{class_name}")) else { return };
     let sub = match AnyClass::get(&name) {
         Some(sub) => sub,
@@ -680,6 +684,16 @@ unsafe fn follow_layout(button: *mut objc2::runtime::AnyObject) {
         }
     };
     unsafe { AnyObject::set_class(&*button, sub) };
+}
+
+/// AppKit can subclass the button again. Start super dispatch above the class that owns our hooks,
+/// even if the receiver has since acquired another class.
+#[cfg(target_os = "macos")]
+fn following_class(mut class: &objc2::runtime::AnyClass) -> Option<&objc2::runtime::AnyClass> {
+    while !class.name().to_bytes().starts_with(FOLLOWING.as_bytes()) {
+        class = class.superclass()?;
+    }
+    Some(class)
 }
 
 /// Where `place_lights` last put this button, if anywhere.
@@ -1422,6 +1436,55 @@ pub fn this_mac_reply(app: AppHandle, window: tauri::Window, id: u64, ok: bool, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn window_button_hooks_survive_another_subclass() {
+        use crate::notch::native::CGPoint;
+        use objc2::rc::Retained;
+        use objc2::runtime::{AnyObject, Bool, ClassBuilder, Sel};
+        use objc2::{class, msg_send, sel};
+        use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
+
+        static LAYOUTS: AtomicUsize = AtomicUsize::new(0);
+        static MOVES: AtomicUsize = AtomicUsize::new(0);
+        unsafe extern "C-unwind" fn layout(_: *mut AnyObject, _: Sel) {
+            LAYOUTS.fetch_add(1, Relaxed);
+        }
+        unsafe extern "C-unwind" fn move_origin(_: *mut AnyObject, _: Sel, _: CGPoint, _: Bool) {
+            MOVES.fetch_add(1, Relaxed);
+        }
+
+        let mut base = ClassBuilder::new(c"AgentesTestWindowButton", class!(NSObject)).unwrap();
+        unsafe {
+            base.add_method(sel!(layout), layout as unsafe extern "C-unwind" fn(*mut AnyObject, Sel));
+            base.add_method(
+                sel!(setFrameOrigin:ignoreRentry:),
+                move_origin as unsafe extern "C-unwind" fn(*mut AnyObject, Sel, CGPoint, Bool),
+            );
+        }
+        let base = base.register();
+        let button: Retained<AnyObject> = unsafe { msg_send![base, new] };
+        let raw = Retained::as_ptr(&button).cast_mut();
+        unsafe { follow_layout(raw) };
+        let hooked = button.class();
+        assert_eq!(following_class(hooked), Some(hooked));
+        assert_eq!(hooked.superclass(), Some(base));
+
+        let derived = ClassBuilder::new(c"AgentesTestDerivedWindowButton", hooked).unwrap().register();
+        unsafe {
+            AnyObject::set_class(&button, derived);
+            follow_layout(raw);
+        }
+        assert_eq!(button.class(), derived);
+        assert_eq!(following_class(button.class()), Some(hooked));
+        unsafe {
+            let _: () = msg_send![&*button, layout];
+            let _: () = msg_send![&*button, setFrameOrigin: CGPoint { x: 1.0, y: 2.0 }, ignoreRentry: Bool::NO];
+        }
+        assert_eq!(LAYOUTS.load(Relaxed), 1);
+        assert_eq!(MOVES.load(Relaxed), 1);
+    }
 
     fn r(url: &str, site: &str) -> Route {
         route(&url.parse().unwrap(), &site.parse().unwrap())
